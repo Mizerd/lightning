@@ -4,13 +4,13 @@
 <context>
     <name>AccountMenu</name>
     <message>
-        <location filename="../qml/AccountMenu.qml" line="+69"/>
-        <location line="+61"/>
+        <location filename="../qml/AccountMenu.qml" line="+30"/>
+        <location line="+38"/>
         <source>Connected</source>
         <translation>সংযুক্ত</translation>
     </message>
     <message>
-        <location line="+132"/>
+        <location line="+117"/>
         <source>Accounts</source>
         <translation>অ্যাকাউন্ট</translation>
     </message>
@@ -25,7 +25,7 @@
         <translation>অ্যাকাউন্ট সেটিংস পরিচালনা করুন</translation>
     </message>
     <message>
-        <location line="+173"/>
+        <location line="+150"/>
         <source>Encryption trust %1 of %2. Open Security and Recovery.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -46,18 +46,18 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+33"/>
+        <location line="+32"/>
         <source>Settings</source>
         <translation>সেটিংস</translation>
     </message>
     <message>
-        <location line="-26"/>
-        <location line="+215"/>
+        <location line="-25"/>
+        <location line="+186"/>
         <source>Sign out</source>
         <translation>সাইন আউট</translation>
     </message>
     <message>
-        <location line="-195"/>
+        <location line="-167"/>
         <source>Edit status…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -77,23 +77,23 @@
         <translation>Lightning সম্পর্কে</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+20"/>
         <source>Remove account?</source>
         <translation>অ্যাকাউন্ট সরাবেন?</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+33"/>
         <source>Remove %1 from this device? Its local Lightning data, encryption store, and sign-in are deleted from this computer only. Messages stay on the server, and other accounts are not affected.</source>
         <translation>এই ডিভাইস থেকে %1 সরাবেন? এর স্থানীয় Lightning ডেটা, এনক্রিপশন সংরক্ষণ এবং সাইন-ইন কেবল এই কম্পিউটার থেকে মুছে যাবে। বার্তাগুলি সার্ভারে থাকবে, এবং অন্য অ্যাকাউন্টগুলি প্রভাবিত হবে না।</translation>
     </message>
     <message>
         <location line="+15"/>
-        <location line="+90"/>
+        <location line="+76"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-83"/>
+        <location line="-69"/>
         <source>Remove</source>
         <translation>সরান</translation>
     </message>
@@ -103,12 +103,12 @@
         <translation>অ্যাকাউন্ট সরানো নিশ্চিত করুন</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+23"/>
         <source>Sign out?</source>
         <translation>সাইন আউট করবেন?</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+30"/>
         <source>You will be signed out of this session. Lightning&apos;s local data for this account is removed from this computer; your messages stay on the server, and encrypted history may need your recovery key after the next sign-in.</source>
         <translation>আপনি এই সেশন থেকে সাইন আউট হয়ে যাবেন। এই অ্যাকাউন্টের স্থানীয় Lightning ডেটা এই কম্পিউটার থেকে সরানো হবে; আপনার বার্তা সার্ভারে থাকবে, আর পরের সাইন-ইনের পর এনক্রিপ্টেড ইতিহাসের জন্য আপনার পুনরুদ্ধার কী লাগতে পারে।</translation>
     </message>
@@ -121,7 +121,7 @@
 <context>
     <name>ActivityCenterPanel</name>
     <message>
-        <location filename="../qml/ActivityCenterPanel.qml" line="+47"/>
+        <location filename="../qml/ActivityCenterPanel.qml" line="+46"/>
         <source>Mentioned you</source>
         <translation type="unfinished"></translation>
     </message>
@@ -156,7 +156,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+2"/>
         <source>Highlighted for you</source>
         <translation type="unfinished"></translation>
     </message>
@@ -264,7 +264,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+66"/>
         <source>Encrypted message</source>
         <translation type="unfinished">এনক্রিপ্টেড বার্তা</translation>
     </message>
@@ -277,7 +277,7 @@
 <context>
     <name>AddWidgetDialog</name>
     <message>
-        <location filename="../qml/AddWidgetDialog.qml" line="+30"/>
+        <location filename="../qml/AddWidgetDialog.qml" line="+22"/>
         <source>Web page</source>
         <translation type="unfinished"></translation>
     </message>
@@ -377,7 +377,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+19"/>
         <source>Everyone in the room will see this widget. Lightning opens widgets in your browser, so the page never reaches your account, keys or messages.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -395,7 +395,7 @@
 <context>
     <name>AppBusyIndicator</name>
     <message>
-        <location filename="../qml/AppBusyIndicator.qml" line="+45"/>
+        <location filename="../qml/AppBusyIndicator.qml" line="+31"/>
         <source>Loading</source>
         <translation>লোড হচ্ছে</translation>
     </message>
@@ -403,7 +403,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+923"/>
+        <location filename="../src/app/AppController.cpp" line="+724"/>
         <source>Room invitation</source>
         <translation>রুমের আমন্ত্রণ</translation>
     </message>
@@ -418,7 +418,7 @@
         <translation>আপনাকে %1-এ আমন্ত্রণ জানানো হয়েছে</translation>
     </message>
     <message>
-        <location line="+185"/>
+        <location line="+132"/>
         <source>Incoming voice call</source>
         <translation>আগত ভয়েস কল</translation>
     </message>
@@ -433,12 +433,12 @@
         <translation>%1 %2-এ কল করছেন</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+26"/>
         <source>Incoming call</source>
         <translation>আগত কল</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+42"/>
         <source>Missed call</source>
         <translation>মিসড কল</translation>
     </message>
@@ -453,7 +453,7 @@
         <translation>আপনি %1-এ একটি ভয়েস কল মিস করেছেন</translation>
     </message>
     <message>
-        <location line="+421"/>
+        <location line="+339"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>রুম তৈরি হয়েছে, তবে স্পেসে যোগ করা যায়নি।</translation>
     </message>
@@ -463,38 +463,38 @@
         <translation>রুম তৈরি হয়েছে, তবে এর ছবি সেট করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+145"/>
+        <location line="+95"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>অ্যাকাউন্ট পাল্টানো যায়নি — আগের অ্যাকাউন্টে ফিরে যাওয়া হচ্ছে।</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+45"/>
         <source>The picture could not be saved. Please try again.</source>
         <translation>ছবিটি সংরক্ষণ করা যায়নি। আবার চেষ্টা করুন.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+25"/>
         <source>The display name could not be saved. Please try again.</source>
         <translation>প্রদর্শিত নাম সংরক্ষণ করা যায়নি। আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+32"/>
         <source>Idle</source>
         <translation>নিষ্ক্রিয়</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+53"/>
+        <location line="+39"/>
         <source>Not connected</source>
         <translation>সংযুক্ত নয়</translation>
     </message>
     <message>
-        <location line="-50"/>
+        <location line="-36"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+6"/>
         <source>Connected</source>
         <translation>সংযুক্ত</translation>
     </message>
@@ -514,7 +514,7 @@
         <translation>অফলাইন — আবার চেষ্টা করা হচ্ছে</translation>
     </message>
     <message>
-        <location line="+176"/>
+        <location line="+129"/>
         <source>The server refused to rename this session.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -524,7 +524,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+18"/>
         <source>Verification request</source>
         <translation>যাচাইয়ের অনুরোধ</translation>
     </message>
@@ -534,7 +534,7 @@
         <translation>%1 একটি সেশন যাচাই করতে চান। পর্যালোচনার জন্য Lightning খুলুন।</translation>
     </message>
     <message>
-        <location line="+346"/>
+        <location line="+288"/>
         <source>Imported room keys applied to the open timeline.</source>
         <translation>আমদানি করা রুম কী খোলা টাইমলাইনে প্রয়োগ করা হয়েছে।</translation>
     </message>
@@ -550,29 +550,29 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2110"/>
+        <location line="+1743"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning নির্বাচিত ফাইলটি পড়তে পারেনি।</translation>
     </message>
     <message>
-        <location line="-2116"/>
+        <location line="-1749"/>
         <source>A room-key import is already in progress.</source>
         <translation>একটি রুম-কী আমদানি ইতিমধ্যেই চলছে।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2837"/>
+        <location line="+2355"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-2835"/>
+        <location line="-2353"/>
         <source>Room-key import failed.</source>
         <translation>রুম-কী আমদানি ব্যর্থ হয়েছে।</translation>
     </message>
     <message>
-        <location line="+89"/>
+        <location line="+70"/>
         <source>Lightning</source>
         <translation type="unfinished">Lightning</translation>
     </message>
@@ -582,12 +582,12 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+516"/>
+        <location line="+427"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>ভিডিও কলের জন্য একটি MatrixRTC পরিষেবা প্রয়োজন, যা এখনও এখানে উপলব্ধ নয়৷</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+15"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>এই রুমটি এনক্রিপ্ট করা হয়েছে, এবং এনক্রিপ্ট করা কল এখনও এই বিল্ডে উপলব্ধ নেই৷</translation>
     </message>
@@ -607,7 +607,7 @@
         <translation>এখানে কল করার সুবিধা নেই।</translation>
     </message>
     <message>
-        <location line="+214"/>
+        <location line="+167"/>
         <source>Modern room list</source>
         <translation>আধুনিক রুম তালিকা</translation>
     </message>
@@ -637,15 +637,15 @@
         <translation>Rust ব্যাকএন্ড উপলব্ধ নয়।</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <location line="+1258"/>
-        <location line="+46"/>
-        <location line="+68"/>
+        <location line="+10"/>
+        <location line="+1047"/>
+        <location line="+44"/>
+        <location line="+59"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>এই বিল্ডে কোনো Rust SDK ব্যাকএন্ড নেই।</translation>
     </message>
     <message>
-        <location line="-1133"/>
+        <location line="-968"/>
         <source>Choose a local image file.</source>
         <translation>একটি স্থানীয় ছবির ফাইল বেছে নিন।</translation>
     </message>
@@ -656,7 +656,7 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+5"/>
+        <location line="+4"/>
         <location line="+4"/>
         <source>The image is too large — 32 MiB at most.</source>
         <translation>ছবিটি খুব বড় — সর্বোচ্চ ৩২ MiB।</translation>
@@ -689,7 +689,7 @@
         <translation>আইকনটি সংরক্ষণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+395"/>
+        <location line="+305"/>
         <source>No room is open.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -699,22 +699,22 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+11"/>
         <source>Could not write that file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+6"/>
         <source>Could not finish writing that file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+95"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>ছবিটি লোড করা যায়নি (%1)।</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+29"/>
         <source>This isn&apos;t a copyable image.</source>
         <translation>এটি অনুলিপিযোগ্য ছবি নয়।</translation>
     </message>
@@ -729,7 +729,7 @@
         <translation>ক্লিপবোর্ড উপলব্ধ নয়।</translation>
     </message>
     <message>
-        <location line="+174"/>
+        <location line="+149"/>
         <source>Verification is only available on the Rust backend.</source>
         <translation>যাচাই কেবল Rust ব্যাকএন্ডে উপলব্ধ।</translation>
     </message>
@@ -739,8 +739,8 @@
         <translation>একটি যাচাই ইতিমধ্যেই চলছে।</translation>
     </message>
     <message>
-        <location line="+79"/>
-        <location line="+11"/>
+        <location line="+69"/>
+        <location line="+10"/>
         <source>Key requests are only available on the Rust backend.</source>
         <translation>কী-অনুরোধ কেবল Rust ব্যাকএন্ডে উপলব্ধ।</translation>
     </message>
@@ -750,12 +750,12 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+39"/>
         <source>Room-key import is only available on the Rust backend.</source>
         <translation>রুম-কী আমদানি কেবল Rust ব্যাকএন্ডে উপলব্ধ।</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+39"/>
         <location line="+36"/>
         <source>Reset is only available on the Rust backend.</source>
         <translation>রিসেট কেবল Rust ব্যাকএন্ডে উপলব্ধ।</translation>
@@ -767,28 +767,28 @@
         <translation>স্থানীয় Lightning সেশন রিসেট করার আগে একটি বৈধ হোমসার্ভার ও Matrix ব্যবহারকারী আইডি দিন।</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+18"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning এই অ্যাকাউন্টের স্থানীয় সেশন পুরোপুরি রিসেট করতে পারেনি। অ্যাপ্লিকেশন লগ ও ফাইল সিস্টেমের অনুমতি দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+48"/>
         <source>Clearing this device&apos;s local data would not fix this, and it would destroy encryption keys you still need.</source>
         <translation>এই ডিভাইসের স্থানীয় ডেটা মুছলে এটি ঠিক হবে না, বরং আপনার এখনও প্রয়োজনীয় এনক্রিপশন কী নষ্ট হবে।</translation>
     </message>
     <message>
-        <location line="+459"/>
+        <location line="+369"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+124"/>
+        <location line="+111"/>
         <source>This backend cannot change your display name.</source>
         <translation>এই ব্যাকএন্ড আপনার প্রদর্শিত নাম বদলাতে পারে না।</translation>
     </message>
     <message>
-        <location line="+16"/>
-        <location line="+26"/>
+        <location line="+15"/>
+        <location line="+24"/>
         <source>This account cannot change its picture here.</source>
         <translation>এই অ্যাকাউন্টটি এখানে তার ছবি পরিবর্তন করতে পারবে না।</translation>
     </message>
@@ -798,17 +798,17 @@
         <translation>সেই ছবি পড়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+63"/>
         <source>Enter a name, or use Clear to remove your display name.</source>
         <translation>একটি নাম লিখুন, অথবা প্রদর্শিত নাম সরাতে “মুছুন” ব্যবহার করুন।</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+6"/>
         <source>Display names are limited to %1 characters.</source>
         <translation>প্রদর্শিত নাম সর্বোচ্চ %1 অক্ষরের।</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+67"/>
         <source>That account is not signed in on this device.</source>
         <translation>ওই অ্যাকাউন্টটি এই ডিভাইসে সাইন ইন করা নেই।</translation>
     </message>
@@ -818,17 +818,17 @@
         <translation>ওই অ্যাকাউন্টের সাইন-ইনের মেয়াদ শেষ হয়েছে। আবার সাইন ইন করুন।</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+8"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+32"/>
         <source>Could not switch accounts right now. If a sign-out is in progress, try again in a moment.</source>
         <translation>এই মুহূর্তে অ্যাকাউন্ট পাল্টানো যাচ্ছে না। যদি সাইন আউট চলমান থাকে, একটু পরে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+18"/>
         <source>Could not activate the selected account.</source>
         <translation>নির্বাচিত অ্যাকাউন্টটি সক্রিয় করা যায়নি।</translation>
     </message>
@@ -836,7 +836,7 @@
 <context>
     <name>AppMenuItem</name>
     <message>
-        <location filename="../qml/AppMenuItem.qml" line="+53"/>
+        <location filename="../qml/AppMenuItem.qml" line="+48"/>
         <source>Selected</source>
         <translation>নির্বাচিত</translation>
     </message>
@@ -849,7 +849,7 @@
 <context>
     <name>AppTextField</name>
     <message>
-        <location filename="../qml/AppTextField.qml" line="+110"/>
+        <location filename="../qml/AppTextField.qml" line="+81"/>
         <source>Clear text</source>
         <translation>লেখা মুছুন</translation>
     </message>
@@ -857,7 +857,7 @@
 <context>
     <name>AppTheme</name>
     <message>
-        <location filename="../qml/AppTheme.qml" line="+873"/>
+        <location filename="../qml/AppTheme.qml" line="+632"/>
         <source>Storm</source>
         <translation>Storm</translation>
     </message>
@@ -912,7 +912,7 @@
         <translation>Warm</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+2"/>
         <source>Your theme</source>
         <translation>আপনার থিম</translation>
     </message>
@@ -920,12 +920,12 @@
 <context>
     <name>AttachmentQueueModel</name>
     <message>
-        <location filename="../src/models/AttachmentQueueModel.cpp" line="+46"/>
+        <location filename="../src/models/AttachmentQueueModel.cpp" line="+44"/>
         <source>The file is larger than the server&apos;s upload limit (%1).</source>
         <translation>ফাইলটি সার্ভারের আপলোড সীমার চেয়ে বড় (%1)।</translation>
     </message>
     <message>
-        <location line="+58"/>
+        <location line="+52"/>
         <source>Only local files can be attached.</source>
         <translation>কেবল স্থানীয় ফাইল সংযুক্ত করা যায়।</translation>
     </message>
@@ -935,7 +935,7 @@
         <translation>ফোল্ডার সংযুক্ত করা যায় না।</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>That file cannot be read.</source>
         <translation>ওই ফাইলটি পড়া যায় না।</translation>
     </message>
@@ -950,7 +950,7 @@
         <translation>ওই ফাইলটি ইতিমধ্যেই সংযুক্ত।</translation>
     </message>
     <message>
-        <location line="+123"/>
+        <location line="+115"/>
         <source>The clipboard image is empty.</source>
         <translation>ক্লিপবোর্ডের ছবিটি ফাঁকা।</translation>
     </message>
@@ -963,12 +963,12 @@
 <context>
     <name>AudioPlayerCard</name>
     <message>
-        <location filename="../qml/AudioPlayerCard.qml" line="+395"/>
+        <location filename="../qml/AudioPlayerCard.qml" line="+333"/>
         <source>Audio cover artwork</source>
         <translation>অডিও কভার আর্ট</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+26"/>
         <source>Pause %1</source>
         <translation>%1 বিরতি দিন</translation>
     </message>
@@ -999,12 +999,12 @@
         <translation>অডিও</translation>
     </message>
     <message>
-        <location line="+83"/>
+        <location line="+73"/>
         <source>Seek position</source>
         <translation>প্লেব্যাক অবস্থান</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+70"/>
         <source>Playback speed %1x</source>
         <translation>প্লেব্যাক গতি %1x</translation>
     </message>
@@ -1014,7 +1014,7 @@
         <translation>প্লেব্যাক গতি</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+53"/>
         <source>Save %1 as…</source>
         <translation>%1 এভাবে সংরক্ষণ করুন…</translation>
     </message>
@@ -1027,17 +1027,17 @@
 <context>
     <name>AuthManager</name>
     <message>
-        <location filename="../src/auth/AuthManager.cpp" line="+81"/>
+        <location filename="../src/auth/AuthManager.cpp" line="+68"/>
         <source>Couldn&apos;t open your web browser. Cancel and try again, or sign in another way.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+105"/>
+        <location line="+100"/>
         <source>This build cannot perform browser sign-in.</source>
         <translation>এই বিল্ড ব্রাউজারে সাইন-ইন করতে পারে না।</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+26"/>
         <source>This build cannot perform single sign-on.</source>
         <translation>এই বিল্ডটি একক সাইন-অন করতে পারে না।</translation>
     </message>
@@ -1045,7 +1045,7 @@
 <context>
     <name>BackupController</name>
     <message>
-        <location filename="../src/crypto/BackupController.cpp" line="+48"/>
+        <location filename="../src/crypto/BackupController.cpp" line="+42"/>
         <source>The server refused this backup change.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1055,7 +1055,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+43"/>
         <source>Unknown backup action.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1068,7 +1068,7 @@
 <context>
     <name>CallDeviceChevron</name>
     <message>
-        <location filename="../qml/CallDeviceChevron.qml" line="+38"/>
+        <location filename="../qml/CallDeviceChevron.qml" line="+29"/>
         <source>The chosen device isn&apos;t connected</source>
         <translation>নির্বাচিত ডিভাইসটি সংযুক্ত নেই৷</translation>
     </message>
@@ -1076,7 +1076,7 @@
 <context>
     <name>CallDeviceMenu</name>
     <message>
-        <location filename="../qml/CallDeviceMenu.qml" line="+75"/>
+        <location filename="../qml/CallDeviceMenu.qml" line="+57"/>
         <source>Output device</source>
         <translation>আউটপুট ডিভাইস</translation>
     </message>
@@ -1091,38 +1091,38 @@
         <translation>মাইক্রোফোন</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+6"/>
         <source>System default</source>
         <translation>সিস্টেমের ডিফল্ট</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+23"/>
         <source>(default)</source>
         <translation>(ডিফল্ট)</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+13"/>
         <source>Your chosen microphone isn&apos;t connected</source>
         <translation>আপনার নির্বাচিত মাইক্রোফোন সংযুক্ত নেই৷</translation>
     </message>
     <message>
-        <location line="+52"/>
-        <location line="+32"/>
+        <location line="+47"/>
+        <location line="+29"/>
         <source>Input volume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+56"/>
         <source>Above 100% amplifies and can clip.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <source>Reset input volume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+14"/>
         <source>Sound settings…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1130,7 +1130,7 @@
 <context>
     <name>CallDeviceSettings</name>
     <message>
-        <location filename="../qml/CallDeviceSettings.qml" line="+65"/>
+        <location filename="../qml/CallDeviceSettings.qml" line="+60"/>
         <source>System default</source>
         <translation>সিস্টেমের ডিফল্ট</translation>
     </message>
@@ -1140,7 +1140,7 @@
         <translation>(ডিফল্ট)</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+40"/>
         <source>Microphone</source>
         <translation>মাইক্রোফোন</translation>
     </message>
@@ -1150,18 +1150,18 @@
         <translation>কোন মাইক্রোফোন পাওয়া যায়নি. আপনি এখনও একটি কল যোগদান এবং শুনতে পারেন.</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+13"/>
         <source>Your chosen microphone isn&apos;t connected. Calls use the system default until it&apos;s back.</source>
         <translation>আপনার নির্বাচিত মাইক্রোফোন সংযুক্ত নেই৷ এটি ফিরে না আসা পর্যন্ত কলগুলি সিস্টেম ডিফল্ট ব্যবহার করে৷</translation>
     </message>
     <message>
-        <location line="+37"/>
-        <location line="+27"/>
+        <location line="+28"/>
+        <location line="+25"/>
         <source>Microphone volume</source>
         <translation>মাইক্রোফোন ভলিউম</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+59"/>
         <source>Above 100% amplifies and can clip. 200% applies the maximum the audio stage can reach.</source>
         <translation>উপরে 100% প্রশস্ত করে এবং ক্লিপ করতে পারে। 200% সর্বাধিক অডিও পর্যায়ে পৌঁছাতে পারে প্রযোজ্য।</translation>
     </message>
@@ -1171,7 +1171,7 @@
         <translation>রিসেট</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Output device</source>
         <translation>আউটপুট ডিভাইস</translation>
     </message>
@@ -1181,7 +1181,7 @@
         <translation>ক্যামেরা</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+13"/>
         <source>Your desktop chooses the camera when you turn it on in a call.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1201,7 +1201,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+17"/>
         <source>Devices belong to this computer, not to your account. The microphone level belongs to your account. A change applies to your next call; during a call you can switch from the controls at the top of the conversation.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1209,7 +1209,7 @@
 <context>
     <name>CallEventDelegate</name>
     <message>
-        <location filename="../qml/CallEventDelegate.qml" line="+141"/>
+        <location filename="../qml/CallEventDelegate.qml" line="+94"/>
         <source>This build can&apos;t join Matrix calls</source>
         <translation type="unfinished">এই বিল্ডটি Matrix কলে যোগ দিতে পারে না</translation>
     </message>
@@ -1254,17 +1254,17 @@
         <translation type="unfinished">যোগদান উপলব্ধ নয়</translation>
     </message>
     <message>
-        <location line="+181"/>
+        <location line="+158"/>
         <source>Join</source>
         <translation>যোগ দিন</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+6"/>
         <source>Join the call</source>
         <translation>কলে যোগ দিন</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+13"/>
         <source>1 person declined</source>
         <translation>১ জন প্রত্যাখ্যান করেছেন</translation>
     </message>
@@ -1287,7 +1287,7 @@
 <context>
     <name>CallHeaderBar</name>
     <message>
-        <location filename="../qml/CallHeaderBar.qml" line="+102"/>
+        <location filename="../qml/CallHeaderBar.qml" line="+73"/>
         <location line="+10"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
@@ -1309,7 +1309,7 @@
         <translation>কল করা হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+145"/>
+        <location line="+95"/>
         <source>Turn off camera</source>
         <translation>ক্যামেরা বন্ধ করুন</translation>
     </message>
@@ -1324,7 +1324,7 @@
         <translation>ক্যামেরা বেছে নিন</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+22"/>
         <source>Stop sharing your screen</source>
         <translation>আপনার স্ক্রিন শেয়ার করা বন্ধ করুন</translation>
     </message>
@@ -1334,7 +1334,7 @@
         <translation>আপনার পর্দা শেয়ার করুন</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+25"/>
         <source>Screen share options</source>
         <translation>স্ক্রিন শেয়ার অপশন</translation>
     </message>
@@ -1344,7 +1344,7 @@
         <translation>শব্দ, রেজোলিউশন এবং ফ্রেম রেট</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+23"/>
         <source>Lower your hand</source>
         <translation>আপনার হাত নিচে</translation>
     </message>
@@ -1354,12 +1354,12 @@
         <translation>হাত বাড়াও</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+22"/>
         <source>Send a reaction</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+37"/>
         <source>Thumbs up</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1384,7 +1384,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+66"/>
         <source>Show who&apos;s in the call (%1)</source>
         <translation>কলে কে আছে তা দেখান (%1)</translation>
     </message>
@@ -1394,12 +1394,12 @@
         <translation>কলে কে আছে তা দেখান</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+20"/>
         <source>Pop the call out into a floating window</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+18"/>
         <source>Unmute microphone</source>
         <translation>মাইক্রোফোন আনমিউট করুন</translation>
     </message>
@@ -1414,7 +1414,7 @@
         <translation>মাইক্রোফোন নির্বাচন করুন</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+17"/>
         <source>Undeafen</source>
         <translation>আনডিফেন</translation>
     </message>
@@ -1429,7 +1429,7 @@
         <translation>আউটপুট ডিভাইস নির্বাচন করুন</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+25"/>
         <source>Leave call</source>
         <translation>কল ছেড়ে দিন</translation>
     </message>
@@ -1437,17 +1437,17 @@
 <context>
     <name>CallParticipantTile</name>
     <message>
-        <location filename="../qml/CallParticipantTile.qml" line="+186"/>
+        <location filename="../qml/CallParticipantTile.qml" line="+124"/>
         <source>You</source>
         <translation>আপনি</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+50"/>
         <source>Participant</source>
         <translation>অংশগ্রহণকারী</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+6"/>
         <source>Microphone muted</source>
         <translation>মাইক্রোফোন নিঃশব্দ</translation>
     </message>
@@ -1477,18 +1477,18 @@
         <translation>দুর্বল সংযোগ</translation>
     </message>
     <message>
-        <location line="+571"/>
-        <location line="+122"/>
+        <location line="+412"/>
+        <location line="+90"/>
         <source>Volume for %1</source>
         <translation>%1এর ভলিউম</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+67"/>
         <source>Above 100% amplifies and can clip. 200% applies the maximum the audio stage can reach.</source>
         <translation>উপরে 100% প্রশস্ত করে এবং ক্লিপ করতে পারে। 200% সর্বাধিক অডিও পর্যায়ে পৌঁছাতে পারে প্রযোজ্য।</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+11"/>
         <source>Reset</source>
         <translation>রিসেট</translation>
     </message>
@@ -1496,12 +1496,12 @@
 <context>
     <name>CallPipWindow</name>
     <message>
-        <location filename="../qml/CallPipWindow.qml" line="+153"/>
+        <location filename="../qml/CallPipWindow.qml" line="+117"/>
         <source>Lightning call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+153"/>
+        <location line="+130"/>
         <source>Call in progress</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1514,7 +1514,7 @@
         </translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+33"/>
         <source>Unmute microphone</source>
         <translation type="unfinished">মাইক্রোফোন আনমিউট করুন</translation>
     </message>
@@ -1557,12 +1557,12 @@
 <context>
     <name>CallShareOptionsMenu</name>
     <message>
-        <location filename="../qml/CallShareOptionsMenu.qml" line="+47"/>
+        <location filename="../qml/CallShareOptionsMenu.qml" line="+31"/>
         <source>Screen share</source>
         <translation>স্ক্রিন শেয়ার</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+15"/>
         <source>Share computer sound</source>
         <translation>কম্পিউটার সাউন্ড শেয়ার করুন</translation>
     </message>
@@ -1612,7 +1612,7 @@
         <translation>60 fps</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+9"/>
         <source>%1 — slow</source>
         <translation>%1— ধীর</translation>
     </message>
@@ -1620,7 +1620,7 @@
 <context>
     <name>CallShareTile</name>
     <message>
-        <location filename="../qml/CallShareTile.qml" line="+95"/>
+        <location filename="../qml/CallShareTile.qml" line="+52"/>
         <source>Your screen</source>
         <translation>আপনার পর্দা</translation>
     </message>
@@ -1636,17 +1636,17 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+371"/>
+        <location line="+318"/>
         <source>Screen share</source>
         <translation>স্ক্রিন শেয়ার</translation>
     </message>
     <message>
-        <location line="-219"/>
+        <location line="-194"/>
         <source>Waiting for the picture…</source>
         <translation>ছবির অপেক্ষায়…</translation>
     </message>
     <message>
-        <location line="+242"/>
+        <location line="+217"/>
         <source>Screen share volume</source>
         <translation>স্ক্রীন শেয়ার ভলিউম</translation>
     </message>
@@ -1654,7 +1654,7 @@
 <context>
     <name>CallSpeakerBubbles</name>
     <message>
-        <location filename="../qml/CallSpeakerBubbles.qml" line="+135"/>
+        <location filename="../qml/CallSpeakerBubbles.qml" line="+84"/>
         <source>You</source>
         <translation>আপনি</translation>
     </message>
@@ -1677,12 +1677,12 @@
 <context>
     <name>CallStage</name>
     <message>
-        <location filename="../qml/CallStage.qml" line="+591"/>
+        <location filename="../qml/CallStage.qml" line="+412"/>
         <source>Nobody to show here yet</source>
         <translation>এখানে এখনও কেউ দেখানোর জন্য</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+37"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
@@ -1697,12 +1697,12 @@
         <translation>%1ব্যক্তি কলে আছেন</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+13"/>
         <source>Reconnecting…</source>
         <translation>পুনরায় সংযোগ করা হচ্ছে...</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+22"/>
         <source>This call is encrypted, but media from someone here cannot be decrypted and is being dropped. You will not hear or see them.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1712,12 +1712,12 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+18"/>
         <source>Your microphone is not picking anything up, so nobody here can hear you. Check which microphone is selected in call settings.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+254"/>
+        <location line="+131"/>
         <source>Show screen shares (%1)</source>
         <translation>স্ক্রীন শেয়ার দেখান (%1)</translation>
     </message>
@@ -1727,7 +1727,7 @@
         <translation>স্ক্রিন শেয়ার দেখান</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+11"/>
         <source>Expand the call</source>
         <translation>কলটি প্রসারিত করুন</translation>
     </message>
@@ -1737,22 +1737,22 @@
         <translation>কল সঙ্কুচিত করুন</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+42"/>
         <source>Video can&apos;t be shown on this computer — there is no working graphics acceleration, so cameras and shared screens won&apos;t appear. Audio is unaffected.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+141"/>
+        <location line="+118"/>
         <source>Full screen</source>
         <translation>পূর্ণ পর্দা</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+10"/>
         <source>Back to grid</source>
         <translation>গ্রিডে ফিরে যান</translation>
     </message>
     <message>
-        <location line="+201"/>
+        <location line="+178"/>
         <source>Playing full screen</source>
         <translation>পূর্ণ পর্দায় বাজানো হচ্ছে</translation>
     </message>
@@ -1762,12 +1762,12 @@
         <translation>পূর্ণ স্ক্রীন থেকে প্রস্থান করুন</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+16"/>
         <source>Lightning — full screen</source>
         <translation>Lightning — পূর্ণ স্ক্রীন</translation>
     </message>
     <message>
-        <location line="+159"/>
+        <location line="+121"/>
         <source>Exit full screen (Esc)</source>
         <translation>পূর্ণ স্ক্রীন থেকে প্রস্থান করুন (Esc)</translation>
     </message>
@@ -1775,7 +1775,7 @@
 <context>
     <name>ChannelCategoryHeader</name>
     <message>
-        <location filename="../qml/ChannelCategoryHeader.qml" line="+43"/>
+        <location filename="../qml/ChannelCategoryHeader.qml" line="+34"/>
         <source>%1, %2 mentions inside</source>
         <translation>%1, %2ভিতরে উল্লেখ</translation>
     </message>
@@ -1786,7 +1786,7 @@
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../qml/SpaceLobby.qml" line="+288"/>
+        <location filename="../qml/SpaceLobby.qml" line="+272"/>
         <source>%1, collapsed</source>
         <translation>%1, ভেঙে পড়েছে</translation>
     </message>
@@ -1797,7 +1797,7 @@
         <translation>%1, প্রসারিত</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+3"/>
         <location filename="../qml/SpaceLobby.qml" line="+3"/>
         <source>Activate to expand</source>
         <translation>প্রসারিত করতে সক্রিয় করুন</translation>
@@ -1812,7 +1812,7 @@
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+121"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+92"/>
         <source>%1, invitation</source>
         <translation>%1, আমন্ত্রণ</translation>
     </message>
@@ -1832,7 +1832,7 @@
         <translation>%1, অপঠিত</translation>
     </message>
     <message>
-        <location line="+182"/>
+        <location line="+163"/>
         <source>Remove from favourites</source>
         <translation type="unfinished">প্রিয় থেকে সরান</translation>
     </message>
@@ -1845,7 +1845,7 @@
 <context>
     <name>ChannelNavRow</name>
     <message>
-        <location filename="../qml/ChannelNavRow.qml" line="+39"/>
+        <location filename="../qml/ChannelNavRow.qml" line="+28"/>
         <source>%1 — coming soon</source>
         <translation>%1— শীঘ্রই আসছে৷</translation>
     </message>
@@ -1855,7 +1855,7 @@
         <translation>এখনো পাওয়া যায় নি</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+49"/>
         <source>Coming soon</source>
         <translation>শীঘ্রই আসছে</translation>
     </message>
@@ -1863,7 +1863,7 @@
 <context>
     <name>CodeBlock</name>
     <message>
-        <location filename="../qml/CodeBlock.qml" line="+127"/>
+        <location filename="../qml/CodeBlock.qml" line="+87"/>
         <source>Code block, %1, %2 lines</source>
         <translation>কোড ব্লক, %1, %2 লাইন</translation>
     </message>
@@ -1873,7 +1873,7 @@
         <translation>কোড ব্লক, %1 লাইন</translation>
     </message>
     <message>
-        <location line="+108"/>
+        <location line="+96"/>
         <source>Copied</source>
         <translation>অনুলিপি হয়েছে</translation>
     </message>
@@ -1883,7 +1883,7 @@
         <translation>কোড অনুলিপি করুন</translation>
     </message>
     <message>
-        <location line="+124"/>
+        <location line="+92"/>
         <source>Code</source>
         <translation>কোড</translation>
     </message>
@@ -1891,7 +1891,7 @@
 <context>
     <name>CollapsedEmbedRow</name>
     <message>
-        <location filename="../qml/CollapsedEmbedRow.qml" line="+169"/>
+        <location filename="../qml/CollapsedEmbedRow.qml" line="+136"/>
         <source>Hide %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1914,17 +1914,17 @@
 <context>
     <name>ColorPickerPanel</name>
     <message>
-        <location filename="../qml/ColorPickerPanel.qml" line="+139"/>
+        <location filename="../qml/ColorPickerPanel.qml" line="+124"/>
         <source>Close the colour picker</source>
         <translation>রঙ নির্বাচক বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+197"/>
+        <location line="+192"/>
         <source>Colour, as a hex value</source>
         <translation>রঙ, হেক্স মান হিসেবে</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+18"/>
         <source>Colours already in this theme</source>
         <translation>এই থিমে ইতিমধ্যেই থাকা রঙ</translation>
     </message>
@@ -1943,7 +1943,7 @@
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+43"/>
+        <location filename="../src/app/ConversationController.cpp" line="+36"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1973,7 +1973,7 @@
         <translation>এই সার্ভারে পাওয়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+3"/>
         <source>Your homeserver does not support that.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1998,7 +1998,7 @@
         <translation>রুমের একটি নাম দরকার।</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+10"/>
         <source>Creating rooms is not supported on this backend.</source>
         <translation>এই ব্যাকএন্ডে রুম তৈরি সমর্থিত নয়।</translation>
     </message>
@@ -2036,7 +2036,7 @@
         <translation>লগইন প্রতিক্রিয়ায় আবশ্যক ক্ষেত্র নেই।</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+81"/>
         <source>Session expired — please sign in again.</source>
         <translation>সেশনের মেয়াদ শেষ — আবার সাইন ইন করুন।</translation>
     </message>
@@ -2046,7 +2046,7 @@
         <translation>অবৈধ /whoami প্রতিক্রিয়া।</translation>
     </message>
     <message>
-        <location line="+153"/>
+        <location line="+148"/>
         <source>Session expired during sync.</source>
         <translation>সিঙ্কের সময় সেশনের মেয়াদ শেষ হয়েছে।</translation>
     </message>
@@ -2061,24 +2061,24 @@
         <translation>ত্রুটিপূর্ণ /sync প্রতিক্রিয়া।</translation>
     </message>
     <message>
-        <location line="+310"/>
-        <location line="+924"/>
+        <location line="+304"/>
+        <location line="+907"/>
         <source>[encrypted message - E2EE not implemented yet]</source>
         <translation>[এনক্রিপ্টেড বার্তা — E2EE এখনও প্রয়োগ করা হয়নি]</translation>
     </message>
     <message>
-        <location line="-904"/>
-        <location line="+926"/>
+        <location line="-887"/>
+        <location line="+909"/>
         <source>[encrypted media - E2EE not implemented yet]</source>
         <translation>[এনক্রিপ্টেড মিডিয়া — E2EE এখনও প্রয়োগ করা হয়নি]</translation>
     </message>
     <message>
-        <location line="-774"/>
+        <location line="-762"/>
         <source>[message deleted]</source>
         <translation>[বার্তা মুছে ফেলা হয়েছে]</translation>
     </message>
     <message>
-        <location line="+161"/>
+        <location line="+160"/>
         <source>Send failed: %1</source>
         <translation>পাঠানো ব্যর্থ: %1</translation>
     </message>
@@ -2086,44 +2086,44 @@
         <location line="+35"/>
         <location line="+27"/>
         <location line="+35"/>
-        <location line="+71"/>
+        <location line="+62"/>
         <location line="+32"/>
         <location line="+34"/>
-        <location line="+73"/>
+        <location line="+72"/>
         <location line="+103"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-373"/>
+        <location line="-363"/>
         <location line="+27"/>
         <location line="+35"/>
-        <location line="+210"/>
+        <location line="+200"/>
         <location line="+103"/>
         <source>Unknown room: %1</source>
         <translation>অজানা রুম: %1</translation>
     </message>
     <message>
-        <location line="-372"/>
+        <location line="-362"/>
         <location line="+27"/>
         <location line="+35"/>
-        <location line="+68"/>
+        <location line="+59"/>
         <location line="+66"/>
         <source>Cannot send to encrypted rooms yet: E2EE backend is not implemented.</source>
         <translation>এনক্রিপ্টেড রুমে এখনও পাঠানো যায় না: E2EE ব্যাকএন্ড প্রয়োগ করা হয়নি।</translation>
     </message>
     <message>
-        <location line="-129"/>
+        <location line="-120"/>
         <source>Cannot send thread reply: no thread root.</source>
         <translation>থ্রেড উত্তর পাঠানো যাচ্ছে না: কোনো থ্রেড মূল নেই।</translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+100"/>
         <source>Redaction failed: %1</source>
         <translation>মোছা ব্যর্থ: %1</translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+95"/>
         <location line="+103"/>
         <source>Cannot send media to encrypted rooms yet: E2EE backend is not implemented.</source>
         <translation>এনক্রিপ্টেড রুমে এখনও মিডিয়া পাঠানো যায় না: E2EE ব্যাকএন্ড প্রয়োগ করা হয়নি।</translation>
@@ -2155,7 +2155,7 @@
 <context>
     <name>CreatePollDialog</name>
     <message>
-        <location filename="../qml/CreatePollDialog.qml" line="+132"/>
+        <location filename="../qml/CreatePollDialog.qml" line="+114"/>
         <source>Discard this poll draft?</source>
         <translation>এই জরিপের খসড়া বাতিল করবেন?</translation>
     </message>
@@ -2175,23 +2175,23 @@
         <translation>জরিপ তৈরি করুন</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+14"/>
         <source>Close poll creation</source>
         <translation>জরিপ তৈরি বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+32"/>
         <source>Question</source>
         <translation>প্রশ্ন</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+218"/>
+        <location line="+215"/>
         <source>Ask a question…</source>
         <translation>একটি প্রশ্ন করুন…</translation>
     </message>
     <message>
-        <location line="-217"/>
+        <location line="-214"/>
         <source>Poll question</source>
         <translation>জরিপের প্রশ্ন</translation>
     </message>
@@ -2226,7 +2226,7 @@
         <translation>উত্তর যোগ করুন</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+40"/>
         <location line="+21"/>
         <source>Hide results until the poll ends</source>
         <translation>জরিপ শেষ না হওয়া পর্যন্ত ফলাফল লুকান</translation>
@@ -2248,7 +2248,7 @@
         <translation>প্রাকদর্শন · যেভাবে পাঠানো হবে</translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+70"/>
         <source>Options appear here as you type them.</source>
         <translation>আপনি লেখার সঙ্গে সঙ্গে বিকল্পগুলি এখানে দেখা যায়।</translation>
     </message>
@@ -2295,7 +2295,7 @@
         <translation>আপনার যাচাইকৃত সেশন থেকে এনক্রিপশন কী চাওয়া হচ্ছে। আপনার অন্য ডিভাইস অনুরোধ করলে অনুমোদন করুন।</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+5"/>
         <source>Your verified session has not responded yet. Keep it open and connected — Lightning will request the keys again automatically.</source>
         <translation>আপনার যাচাইকৃত সেশন এখনও সাড়া দেয়নি। সেটি খোলা ও সংযুক্ত রাখুন — Lightning স্বয়ংক্রিয়ভাবে আবার কী চাইবে।</translation>
     </message>
@@ -2310,7 +2310,7 @@
         <translation>এনক্রিপশন সিক্রেট পাওয়া গেছে। ব্যাকআপ পুনরুদ্ধারের প্রস্তুতি চলছে…</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+5"/>
         <source>This session is trusted by your other device, but its own identity check did not complete. Verify this session again — or enter your recovery key.</source>
         <translation>আপনার অন্য ডিভাইস এই সেশনকে বিশ্বাস করে, তবে এর নিজস্ব পরিচয় যাচাই সম্পূর্ণ হয়নি। এই সেশনটি আবার যাচাই করুন — অথবা আপনার পুনরুদ্ধার কী দিন।</translation>
     </message>
@@ -2333,7 +2333,7 @@
         <translation>ইতিহাস ডিক্রিপশন প্রস্তুত।</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+5"/>
         <source>This account has no encryption key backup on the server. Older encrypted messages can only be recovered by importing a key file from another client.</source>
         <translation>সার্ভারে এই অ্যাকাউন্টের কোনো এনক্রিপশন কী ব্যাকআপ নেই। পুরনো এনক্রিপ্টেড বার্তা কেবল অন্য ক্লায়েন্ট থেকে কী ফাইল আমদানি করেই পুনরুদ্ধার করা যায়।</translation>
     </message>
@@ -2351,7 +2351,7 @@
 <context>
     <name>CryptoHealthModel</name>
     <message>
-        <location filename="../src/crypto/CryptoHealthModel.cpp" line="+143"/>
+        <location filename="../src/crypto/CryptoHealthModel.cpp" line="+126"/>
         <source>This backend does not support end-to-end encryption.</source>
         <translation>এই ব্যাকএন্ড প্রান্ত-থেকে-প্রান্ত এনক্রিপশন সমর্থন করে না।</translation>
     </message>
@@ -2389,7 +2389,7 @@
 <context>
     <name>CustomThemeStore</name>
     <message>
-        <location filename="../src/app/CustomThemeStore.cpp" line="+36"/>
+        <location filename="../src/app/CustomThemeStore.cpp" line="+31"/>
         <location line="+3"/>
         <location line="+3"/>
         <location line="+3"/>
@@ -2695,7 +2695,7 @@
         <translation>ক্ষেত্রের রূপরেখা এবং স্ক্রলবার হ্যান্ডেল</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+41"/>
         <source>Text on your messages</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2740,12 +2740,12 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+6"/>
         <source>Reaction text on a reaction pill</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+5"/>
         <source>Secondary text on the conversation background</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2790,17 +2790,17 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+6"/>
         <source>Text on your own messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+8"/>
         <source>A button&apos;s label on the accent</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+7"/>
         <source>A button&apos;s label while the pointer is on it</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2830,19 +2830,19 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+6"/>
         <source>A mention badge against the room list</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+647"/>
-        <location line="+108"/>
-        <location line="+29"/>
+        <location line="+571"/>
+        <location line="+107"/>
+        <location line="+28"/>
         <source>My theme</source>
         <translation>আমার থিম</translation>
     </message>
     <message>
-        <location line="-119"/>
+        <location line="-117"/>
         <source>%1 copy</source>
         <translation>%1-এর অনুলিপি</translation>
     </message>
@@ -2871,7 +2871,7 @@
 <context>
     <name>DemoControlPanel</name>
     <message>
-        <location filename="../qml/DemoControlPanel.qml" line="+69"/>
+        <location filename="../qml/DemoControlPanel.qml" line="+66"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
@@ -2979,19 +2979,19 @@ Size: %3</source>
 <context>
     <name>DiscoverJoinDialog</name>
     <message>
-        <location filename="../qml/DiscoverJoinDialog.qml" line="+144"/>
+        <location filename="../qml/DiscoverJoinDialog.qml" line="+136"/>
         <source>Public</source>
         <translation>সর্বজনীন</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+299"/>
-        <location line="+266"/>
+        <location line="+295"/>
+        <location line="+267"/>
         <source>Ask to join</source>
         <translation>যোগ দেওয়ার অনুরোধ</translation>
     </message>
     <message>
-        <location line="-564"/>
+        <location line="-561"/>
         <source>Restricted</source>
         <translation>সীমিত</translation>
     </message>
@@ -3001,7 +3001,7 @@ Size: %3</source>
         <translation>কেবল আমন্ত্রণে</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+76"/>
         <source>Discover rooms</source>
         <translation>রুম খুঁজুন</translation>
     </message>
@@ -3031,13 +3031,13 @@ Size: %3</source>
         <translation>সার্ভার (ঐচ্ছিক)</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+84"/>
         <source>Space</source>
         <translation>স্পেস</translation>
     </message>
     <message numerus="yes">
-        <location line="+23"/>
-        <location line="+210"/>
+        <location line="+24"/>
+        <location line="+211"/>
         <source>%n member(s)</source>
         <translation>
             <numerusform>%n সদস্য</numerusform>
@@ -3045,25 +3045,25 @@ Size: %3</source>
         </translation>
     </message>
     <message>
-        <location line="-196"/>
-        <location line="+261"/>
+        <location line="-197"/>
+        <location line="+262"/>
         <source>Request pending</source>
         <translation>অনুরোধ অপেক্ষমাণ</translation>
     </message>
     <message>
-        <location line="-254"/>
-        <location line="+261"/>
+        <location line="-255"/>
+        <location line="+262"/>
         <source>Open</source>
         <translation>খুলুন</translation>
     </message>
     <message>
-        <location line="-249"/>
-        <location line="+265"/>
+        <location line="-250"/>
+        <location line="+266"/>
         <source>Joining…</source>
         <translation>যোগ দেওয়া হচ্ছে…</translation>
     </message>
     <message>
-        <location line="-263"/>
+        <location line="-264"/>
         <source>Join</source>
         <translation>যোগ দিন</translation>
     </message>
@@ -3113,7 +3113,7 @@ Size: %3</source>
         <translation>এটি বৈধ রুম ঠিকানা বা লিঙ্ক নয়।</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+93"/>
         <source>No preview is available for this room — the server does not allow previewing it. You can still try to join.</source>
         <translation>এই রুমের কোনো প্রাকদর্শন নেই — সার্ভার প্রাকদর্শনের অনুমতি দেয় না। তবু আপনি যোগ দেওয়ার চেষ্টা করতে পারেন।</translation>
     </message>
@@ -3141,7 +3141,7 @@ Size: %3</source>
 <context>
     <name>EditHistoryDialog</name>
     <message>
-        <location filename="../qml/EditHistoryDialog.qml" line="+81"/>
+        <location filename="../qml/EditHistoryDialog.qml" line="+79"/>
         <source>Edit history</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3176,7 +3176,7 @@ Size: %3</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+15"/>
         <source>This revision could not be decrypted.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3194,7 +3194,7 @@ Size: %3</source>
 <context>
     <name>EmojiPicker</name>
     <message>
-        <location filename="../qml/EmojiPicker.qml" line="+80"/>
+        <location filename="../qml/EmojiPicker.qml" line="+53"/>
         <source>Search results</source>
         <translation>অনুসন্ধানের ফলাফল</translation>
     </message>
@@ -3204,7 +3204,7 @@ Size: %3</source>
         <translation>সম্প্রতি ব্যবহৃত</translation>
     </message>
     <message>
-        <location line="+197"/>
+        <location line="+151"/>
         <source>Search emoji</source>
         <translation>ইমোজি খুঁজুন</translation>
     </message>
@@ -3214,12 +3214,12 @@ Size: %3</source>
         <translation>নাম বা কীওয়ার্ড দিয়ে ইমোজি খুঁজুন</translation>
     </message>
     <message>
-        <location line="+120"/>
+        <location line="+111"/>
         <source>Custom emoji</source>
         <translation>কাস্টম ইমোজি</translation>
     </message>
     <message>
-        <location line="+298"/>
+        <location line="+241"/>
         <source>No recently used emoji</source>
         <translation>সম্প্রতি ব্যবহৃত কোনো ইমোজি নেই</translation>
     </message>
@@ -3229,7 +3229,7 @@ Size: %3</source>
         <translation>কোনো ইমোজি পাওয়া যায়নি</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+60"/>
         <source>Enter selects · Alt+V or right-click opens skin tones · Esc closes</source>
         <translation>Enter নির্বাচন করে · Alt+V বা ডান-ক্লিক ত্বকের রঙ খোলে · Esc বন্ধ করে</translation>
     </message>
@@ -3252,7 +3252,7 @@ Size: %3</source>
 <context>
     <name>EncryptionBrokenPrompt</name>
     <message>
-        <location filename="../qml/EncryptionBrokenPrompt.qml" line="+67"/>
+        <location filename="../qml/EncryptionBrokenPrompt.qml" line="+53"/>
         <source>This session cannot read encrypted messages</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3284,7 +3284,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+33"/>
         <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
 
 </source>
@@ -3327,7 +3327,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>EventSourceDialog</name>
     <message>
-        <location filename="../qml/EventSourceDialog.qml" line="+100"/>
+        <location filename="../qml/EventSourceDialog.qml" line="+94"/>
         <source>Event source</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3365,7 +3365,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ExportRoomDialog</name>
     <message>
-        <location filename="../qml/ExportRoomDialog.qml" line="+70"/>
+        <location filename="../qml/ExportRoomDialog.qml" line="+57"/>
         <location line="+20"/>
         <source>Export room</source>
         <translation type="unfinished"></translation>
@@ -3387,7 +3387,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+34"/>
         <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more. Attachments are not included.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3412,7 +3412,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <source>Write the message text into this file in the clear</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3440,7 +3440,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ForwardController</name>
     <message>
-        <location filename="../src/app/ForwardController.cpp" line="+86"/>
+        <location filename="../src/app/ForwardController.cpp" line="+73"/>
         <source>Photo</source>
         <translation>ছবি</translation>
     </message>
@@ -3475,20 +3475,20 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 (%2)</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+13"/>
         <source>%1 — %2</source>
         <translation>%1 — %2</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+12"/>
         <location line="+10"/>
+        <location line="+7"/>
         <location line="+4"/>
         <source>This message can&apos;t be forwarded.</source>
         <translation>এই বার্তাটি ফরওয়ার্ড করা যাবে না।</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+66"/>
         <source>You can forward up to %1 messages at once.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3498,7 +3498,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+25"/>
         <source>in %1</source>
         <translation type="unfinished">%1-এ</translation>
     </message>
@@ -3508,12 +3508,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+73"/>
         <source>Not signed in.</source>
         <translation type="unfinished">সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+7"/>
         <source>Attachments can only be forwarded one at a time — use Forward on the message itself.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3523,12 +3523,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+45"/>
         <source>Media isn&apos;t available right now.</source>
         <translation>মিডিয়া এই মুহূর্তে উপলব্ধ নয়।</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+29"/>
         <source>This media is no longer available.</source>
         <translation>এই মিডিয়া আর উপলব্ধ নেই।</translation>
     </message>
@@ -3538,17 +3538,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই মিডিয়া ডাউনলোড করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+40"/>
         <source>This media can&apos;t be forwarded.</source>
         <translation>এই মিডিয়া ফরওয়ার্ড করা যাবে না।</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+17"/>
         <source>Couldn&apos;t forward this message.</source>
         <translation>এই বার্তাটি ফরওয়ার্ড করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+48"/>
         <source>That message could not be forwarded.</source>
         <translation>ওই বার্তাটি ফরওয়ার্ড করা যায়নি।</translation>
     </message>
@@ -3556,12 +3556,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ForwardMessageDialog</name>
     <message>
-        <location filename="../qml/ForwardMessageDialog.qml" line="+60"/>
+        <location filename="../qml/ForwardMessageDialog.qml" line="+54"/>
         <source>Forward message</source>
         <translation>বার্তা ফরওয়ার্ড করুন</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+13"/>
         <source>Close</source>
         <translation>বন্ধ করুন</translation>
     </message>
@@ -3581,7 +3581,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম খুঁজুন</translation>
     </message>
     <message>
-        <location line="+83"/>
+        <location line="+80"/>
         <source>Encrypted</source>
         <translation>এনক্রিপ্টেড</translation>
     </message>
@@ -3604,7 +3604,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ForwardSelectionDialog</name>
     <message numerus="yes">
-        <location filename="../qml/ForwardSelectionDialog.qml" line="+75"/>
+        <location filename="../qml/ForwardSelectionDialog.qml" line="+72"/>
         <source>Forward %n message(s)</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -3622,7 +3622,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+14"/>
         <source>Each copy will name the original sender, this room and the time — visible to everyone in the rooms you pick.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3658,7 +3658,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+28"/>
         <source>Done</source>
         <translation type="unfinished">সম্পন্ন</translation>
     </message>
@@ -3681,12 +3681,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>GifPicker</name>
     <message>
-        <location filename="../qml/GifPicker.qml" line="+129"/>
+        <location filename="../qml/GifPicker.qml" line="+73"/>
         <source>Local</source>
         <translation>স্থানীয়</translation>
     </message>
     <message>
-        <location line="+341"/>
+        <location line="+224"/>
         <source>GIFs</source>
         <translation type="unfinished">GIF</translation>
     </message>
@@ -3696,7 +3696,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished">স্টিকার</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+20"/>
         <source>Saved GIFs</source>
         <translation>সংরক্ষিত GIF</translation>
     </message>
@@ -3706,7 +3706,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>সম্প্রতি পাঠানো</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+18"/>
         <source>Search %1</source>
         <translation>%1 খুঁজুন</translation>
     </message>
@@ -3716,24 +3716,24 @@ Signing out and signing in again is the only fix.</source>
         <translation>GIF খুঁজুন</translation>
     </message>
     <message>
-        <location line="+40"/>
-        <location line="+394"/>
-        <location line="+26"/>
+        <location line="+31"/>
+        <location line="+316"/>
+        <location line="+22"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-404"/>
+        <location line="-325"/>
         <source>Close GIF picker</source>
         <translation>GIF নির্বাচক বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+30"/>
         <source>Not configured — set an API key to enable this provider</source>
         <translation>কনফিগার করা নেই — এই প্রদানকারী সক্রিয় করতে একটি API কী দিন</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+31"/>
         <source>Saved</source>
         <translation>সংরক্ষিত</translation>
     </message>
@@ -3753,23 +3753,23 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনি সম্প্রতি পাঠানো GIF</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+38"/>
         <source>Category %1</source>
         <translation>বিভাগ %1</translation>
     </message>
     <message>
-        <location line="+238"/>
+        <location line="+190"/>
         <source>%1: %2</source>
         <translation>%1: %2</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+26"/>
+        <location line="+22"/>
         <source>GIF: %1</source>
         <translation>GIF: %1</translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+113"/>
         <source>Remove from saved GIFs</source>
         <translation>সংরক্ষিত GIF থেকে সরান</translation>
     </message>
@@ -3779,7 +3779,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>GIF সংরক্ষণ করুন</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+69"/>
         <source>No saved GIFs yet. Press the star on any GIF — here or in a chat — to keep it.</source>
         <translation>এখনও কোনো সংরক্ষিত GIF নেই। যেকোনো GIF-এ তারা চাপুন — এখানে বা আলাপে — সেটি রাখতে।</translation>
     </message>
@@ -3819,7 +3819,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>কোনো GIF পাওয়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+31"/>
         <source>Searches are sent to the selected GIF provider</source>
         <translation>অনুসন্ধান নির্বাচিত GIF প্রদানকারীর কাছে পাঠানো হয়</translation>
     </message>
@@ -3837,7 +3837,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>GifStarredStore</name>
     <message>
-        <location filename="../src/gif/GifStarredStore.cpp" line="+77"/>
+        <location filename="../src/gif/GifStarredStore.cpp" line="+71"/>
         <source>That file is not a supported image.</source>
         <translation>ওই ফাইলটি সমর্থিত ছবি নয়।</translation>
     </message>
@@ -3847,7 +3847,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ওই ফাইলটি পড়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+4"/>
         <source>That image is too large to save.</source>
         <translation>ওই ছবিটি সংরক্ষণের জন্য খুব বড়।</translation>
     </message>
@@ -3895,12 +3895,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>HomePane</name>
     <message>
-        <location filename="../qml/HomePane.qml" line="+73"/>
+        <location filename="../qml/HomePane.qml" line="+48"/>
         <source>there</source>
         <translation>সেখানে</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+49"/>
         <source>Yesterday</source>
         <translation>গতকাল</translation>
     </message>
@@ -3930,12 +3930,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>কোনো আলাপ চালিয়ে যান, বা নতুন কিছু শুরু করুন।</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+30"/>
         <source>You appear to be offline. Reconnecting — your rooms stay available.</source>
         <translation>মনে হচ্ছে আপনি অফলাইনে আছেন। আবার সংযোগ করা হচ্ছে — আপনার রুমগুলি উপলব্ধ থাকবে।</translation>
     </message>
     <message>
-        <location line="+77"/>
+        <location line="+55"/>
         <source>Enter recovery key</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3970,12 +3970,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>যেকোনো কিছুতে যান</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+20"/>
         <source>Jump back in</source>
         <translation>আবার শুরু করুন</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+21"/>
         <source>Open %1</source>
         <translation>%1 খুলুন</translation>
     </message>
@@ -3985,27 +3985,27 @@ Signing out and signing in again is the only fix.</source>
         <translation>আলাপ</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+73"/>
         <source>Your spaces</source>
         <translation>আপনার স্পেস</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+26"/>
         <source>Open Space %1</source>
         <translation>স্পেস %1 খুলুন</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+50"/>
         <source>Space</source>
         <translation>স্পেস</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+31"/>
         <source>Nothing here yet</source>
         <translation>এখানে এখনও কিছু নেই</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Start a direct message to talk to someone, create a room for a group, or organise rooms into a Space. Invitations you receive appear in the room list.</source>
         <translation>কারও সঙ্গে কথা বলতে সরাসরি বার্তা শুরু করুন, দলের জন্য রুম তৈরি করুন, বা রুমগুলিকে স্পেসে সাজান। আপনি যে আমন্ত্রণ পান তা রুম তালিকায় দেখা যায়।</translation>
     </message>
@@ -4013,7 +4013,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>IdentityCard</name>
     <message>
-        <location filename="../qml/IdentityCard.qml" line="+93"/>
+        <location filename="../qml/IdentityCard.qml" line="+71"/>
         <source>Active account, %1, %2</source>
         <translation>সক্রিয় অ্যাকাউন্ট, %1, %2</translation>
     </message>
@@ -4038,7 +4038,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এনক্রিপশনের দিকে নজর দরকার</translation>
     </message>
     <message>
-        <location line="+272"/>
+        <location line="+208"/>
         <source>Remove account %1</source>
         <translation>%1 অ্যাকাউন্ট সরান</translation>
     </message>
@@ -4051,12 +4051,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ImageCropDialog</name>
     <message>
-        <location filename="../qml/ImageCropDialog.qml" line="+114"/>
+        <location filename="../qml/ImageCropDialog.qml" line="+94"/>
         <source>Adjust picture</source>
         <translation>ছবি সামঞ্জস্য করুন</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+17"/>
         <source>That file isn&apos;t a picture Lightning can use. Choose a PNG, JPEG, GIF, WebP or BMP image.</source>
         <translation>সেই ফাইলটি একটি ছবি নয় Lightning ব্যবহার করতে পারে৷ একটি PNG, JPEG, GIF, WebP বা BMP ছবি বেছে নিন।</translation>
     </message>
@@ -4081,12 +4081,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>সেই ছবি ব্যবহার করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+371"/>
+        <location line="+362"/>
         <source>Zoom</source>
         <translation>জুম</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+48"/>
         <source>Drag to move the picture, drag the frame to move the crop, and drag a corner to resize it. Only the circle is shown, and a square picture is uploaded.</source>
         <translation>ছবি সরাতে টেনে আনুন, ক্রপ সরানোর জন্য ফ্রেমটি টেনে আনুন, এবং এটির আকার পরিবর্তন করতে একটি কোণ টেনে আনুন। শুধুমাত্র বৃত্ত দেখানো হয়, এবং একটি বর্গাকার ছবি আপলোড করা হয়.</translation>
     </message>
@@ -4109,34 +4109,34 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ImageViewerOverlay</name>
     <message>
-        <location filename="../qml/ImageViewerOverlay.qml" line="+319"/>
+        <location filename="../qml/ImageViewerOverlay.qml" line="+272"/>
         <source>Copy image</source>
         <translation>ছবি অনুলিপি করুন</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+19"/>
-        <location line="+772"/>
+        <location line="+623"/>
         <source>Save image as…</source>
         <translation>ছবি এভাবে সংরক্ষণ করুন…</translation>
     </message>
     <message>
-        <location line="-779"/>
+        <location line="-630"/>
         <source>Close</source>
         <translation>বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+352"/>
+        <location line="+273"/>
         <source>The image could not be loaded.</source>
         <translation>ছবিটি লোড করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+8"/>
         <source>Retry</source>
         <translation>আবার চেষ্টা করুন</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+21"/>
         <source>Previous image</source>
         <translation>আগের ছবি</translation>
     </message>
@@ -4146,17 +4146,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>পরের ছবি</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+42"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+24"/>
         <source>Close image viewer</source>
         <translation>ছবি দর্শক বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+126"/>
         <source>Image %1 of %2, shown</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4204,7 +4204,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>IncomingCallPrompt</name>
     <message>
-        <location filename="../qml/IncomingCallPrompt.qml" line="+148"/>
+        <location filename="../qml/IncomingCallPrompt.qml" line="+106"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>এই বিল্ডটি Matrix কলে যোগ দিতে পারে না।</translation>
     </message>
@@ -4239,7 +4239,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+5"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4249,7 +4249,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>যোগদান উপলব্ধ নয়।</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+12"/>
         <source>Answering needs a media engine this build doesn&apos;t have.</source>
         <translation>উত্তর দেওয়ার জন্য একটি মিডিয়া ইঞ্জিনের প্রয়োজন এই বিল্ডে নেই৷</translation>
     </message>
@@ -4269,7 +4269,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই কলের উত্তর দিতে পারিনি।</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+53"/>
         <source>Calling…</source>
         <translation>কল করা হচ্ছে…</translation>
     </message>
@@ -4289,7 +4289,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আগত ভয়েস কল</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+41"/>
         <source>Silence ringer</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4299,7 +4299,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+29"/>
         <source>%1 started a call.</source>
         <translation>%1একটি কল শুরু করেছে৷</translation>
     </message>
@@ -4334,17 +4334,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই ডিভাইসে উত্তর দেওয়া এখনও সমর্থিত নয়।</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+17"/>
         <source>Join</source>
         <translation>যোগ দিন</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+15"/>
         <source>Accept</source>
         <translation>গ্রহণ করুন</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+15"/>
         <source>Decline</source>
         <translation>প্রত্যাখ্যান করুন</translation>
     </message>
@@ -4362,7 +4362,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>InvitePeopleDialog</name>
     <message>
-        <location filename="../qml/InvitePeopleDialog.qml" line="+168"/>
+        <location filename="../qml/InvitePeopleDialog.qml" line="+152"/>
         <source>Invite to %1</source>
         <translation>%1-এ আমন্ত্রণ জানান</translation>
     </message>
@@ -4372,7 +4372,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>লোক আমন্ত্রণ করুন</translation>
     </message>
     <message>
-        <location line="+71"/>
+        <location line="+68"/>
         <source>%1 is already in this room.</source>
         <translation>%1 ইতিমধ্যেই এই রুমে আছেন।</translation>
     </message>
@@ -4387,7 +4387,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1-কে ইতিমধ্যেই আমন্ত্রণ জানানো হয়েছে।</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+85"/>
         <source>Remove %1</source>
         <translation>%1 সরান</translation>
     </message>
@@ -4445,12 +4445,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>JumpToDateDialog</name>
     <message>
-        <location filename="../qml/JumpToDateDialog.qml" line="+99"/>
+        <location filename="../qml/JumpToDateDialog.qml" line="+88"/>
         <source>Your homeserver could not find a message on or after that date.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+5"/>
         <source>Your homeserver does not support jumping to a date. That needs a newer homeserver; searching this room still works.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4533,7 +4533,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>LocalizationManager</name>
     <message>
-        <location filename="../src/i18n/LocalizationManager.cpp" line="+200"/>
+        <location filename="../src/i18n/LocalizationManager.cpp" line="+187"/>
         <location line="+1"/>
         <source>System default</source>
         <translation>সিস্টেমের ডিফল্ট</translation>
@@ -4542,7 +4542,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>LoginScreen</name>
     <message>
-        <location filename="../qml/LoginScreen.qml" line="+162"/>
+        <location filename="../qml/LoginScreen.qml" line="+129"/>
         <source>Back to the app</source>
         <translation>অ্যাপে ফিরুন</translation>
     </message>
@@ -4552,7 +4552,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>← ফিরুন</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+17"/>
         <source>Already on this device</source>
         <translation>ইতিমধ্যেই এই ডিভাইসে</translation>
     </message>
@@ -4562,18 +4562,18 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 খুলুন</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+27"/>
         <source>Add another account</source>
         <translation>আরেকটি অ্যাকাউন্ট যোগ করুন</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+171"/>
+        <location line="+155"/>
         <source>Sign in</source>
         <translation>সাইন ইন</translation>
     </message>
     <message>
-        <location line="-154"/>
+        <location line="-139"/>
         <source>Mock backend — any credentials work</source>
         <translation>মক ব্যাকএন্ড — যেকোনো শংসাপত্র চলবে</translation>
     </message>
@@ -4589,12 +4589,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+31"/>
+        <location line="+24"/>
         <source>Homeserver URL</source>
         <translation>হোমসার্ভার URL</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <location line="+15"/>
         <source>User</source>
         <translation>ব্যবহারকারী</translation>
@@ -4616,7 +4616,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>পাসওয়ার্ড দেখান</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+33"/>
         <source>Connecting…</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
@@ -4643,62 +4643,62 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনার ব্রাউজারের অপেক্ষায়…</translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+91"/>
         <source>Finish signing in with the page that opened in your browser, then return to Lightning.</source>
         <translation>আপনার ব্রাউজারে খোলা পৃষ্ঠায় সাইন-ইন শেষ করুন, তারপর Lightning-এ ফিরুন।</translation>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+588"/>
+        <location line="+492"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-586"/>
+        <location line="-490"/>
         <source>Cancel browser sign-in</source>
         <translation>ব্রাউজার সাইন-ইন বাতিল করুন</translation>
     </message>
     <message>
-        <location line="-85"/>
+        <location line="-76"/>
         <source>Or</source>
         <extracomment>Separates the password form from the sign-in-with-your-browser buttons below it.</extracomment>
         <translation>বা</translation>
     </message>
     <message>
-        <location line="-111"/>
+        <location line="-100"/>
         <source>username</source>
         <extracomment>Placeholder for the sign-in name field. The field takes a plain username - the homeserver is the field above it - so the placeholder says so rather than showing a full @user:server id, which suggested the server had to be typed twice.</extracomment>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+144"/>
-        <location line="+144"/>
+        <location line="+127"/>
+        <location line="+111"/>
         <source>Continue with %1</source>
         <translation>%1দিয়ে চালিয়ে যান</translation>
     </message>
     <message>
-        <location line="-143"/>
+        <location line="-110"/>
         <source>Continue</source>
         <translation>চালিয়ে যান</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+13"/>
         <source>Signs you in on your homeserver&apos;s own page, in your browser. No password needed here.</source>
         <translation>আপনার ব্রাউজারে আপনার হোমসার্ভারের নিজস্ব পৃষ্ঠায় আপনাকে সাইন ইন করে। এখানে কোন পাসওয়ার্ডের প্রয়োজন নেই।</translation>
     </message>
     <message>
-        <location line="+81"/>
-        <location line="+49"/>
+        <location line="+57"/>
+        <location line="+41"/>
         <source>Sign in with single sign-on</source>
         <translation>একক সাইন-অন দিয়ে সাইন ইন করুন</translation>
     </message>
     <message>
-        <location line="-33"/>
+        <location line="-27"/>
         <source>Signs you in through an identity provider your homeserver trusts, in your browser.</source>
         <translation>আপনার ব্রাউজারে আপনার হোমসার্ভার বিশ্বাস করে এমন একটি পরিচয় প্রদানকারীর মাধ্যমে আপনাকে সাইন ইন করে।</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+70"/>
         <location line="+2"/>
         <location line="+2"/>
         <source>This local session doesn&apos;t match this account</source>
@@ -4736,7 +4736,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্থানীয় সেশন নতুন করে গড়বেন?</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+3"/>
         <source>This moves Lightning&apos;s local session data for %1 on this device aside — kept, not deleted — so a fresh one can be built. Server messages, Element data, and other accounts on this device are untouched. You&apos;ll sign in again afterwards.</source>
         <translation>এটি এই ডিভাইসে %1-এর জন্য Lightning-এর স্থানীয় সেশন ডেটা সরিয়ে রাখে — মুছে ফেলে না — যাতে একটি নতুন গড়া যায়। সার্ভারের বার্তা, Element-এর ডেটা এবং এই ডিভাইসের অন্য অ্যাকাউন্ট অক্ষত থাকে। এরপর আপনি আবার সাইন ইন করবেন।</translation>
     </message>
@@ -4751,7 +4751,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই ডিভাইসের স্থানীয় এনক্রিপশন সংরক্ষণ নেই, তাই এটি পুরনো সেশন চালিয়ে নিতে পারে না — সাইন ইন করলে নতুন ডিভাইস তৈরি হবে। আপনার বার্তা সার্ভারে থাকবে; এরপর এনক্রিপ্টেড ইতিহাসের জন্য আপনার পুনরুদ্ধার কী বা অন্য যাচাইকৃত ডিভাইস লাগতে পারে।</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+24"/>
         <source>This session was signed out remotely</source>
         <translation>এই সেশনটি দূর থেকে সাইন আউট করা হয়েছে</translation>
     </message>
@@ -4761,7 +4761,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই ডিভাইসের Matrix সেশন সার্ভারে আর বৈধ নয় — যেমন, অন্য ক্লায়েন্ট থেকে সাইন আউট করা হয়ে থাকতে পারে। আপনার স্থানীয় ডেটা, এই ডিভাইসের এনক্রিপশন কীসহ, অক্ষত। উপরে আপনার পাসওয়ার্ড দিয়ে আবার সাইন ইন করার চেষ্টা করুন। বারবার ব্যর্থ হলে নিচে এই অ্যাকাউন্টটি সরাতে পারেন, যা এই ডিভাইসের এনক্রিপশন কীর স্থানীয় অনুলিপি মুছে দেয়।</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+20"/>
         <source>Lightning can&apos;t read your saved sign-in</source>
         <translation>Lightning আপনার সংরক্ষিত সাইন-ইন পড়তে পারছে না</translation>
     </message>
@@ -4771,7 +4771,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনার সিস্টেম কীরিং লক করা বা অনুপলব্ধ, তাই Lightning %1-এর সংরক্ষিত সাইন-ইন পড়তে পারছে না। কীরিং আনলক করে আবার চেষ্টা করুন। কিছুই মুছে ফেলা হয়নি, এবং এই ডিভাইসের এনক্রিপশন কী অক্ষত।</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+18"/>
         <source>More than one local session was found</source>
         <translation>একাধিক স্থানীয় সেশন পাওয়া গেছে</translation>
     </message>
@@ -4816,7 +4816,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1-এর স্থানীয় ফাইল পরিষ্কার করার আবার চেষ্টা করবে। এটি সার্ভারের বার্তা বা অন্য অ্যাকাউন্ট স্পর্শ করে না।</translation>
     </message>
     <message>
-        <location line="+157"/>
+        <location line="+138"/>
         <source>Remove this account</source>
         <translation>এই অ্যাকাউন্ট সরান</translation>
     </message>
@@ -4826,17 +4826,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>পরিশোধিত ডায়াগনস্টিক অনুলিপি করুন</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+31"/>
         <source>Remove account?</source>
         <translation>অ্যাকাউন্ট সরাবেন?</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+43"/>
         <source>Remove %1 from this device? Its local Lightning data, encryption store, and sign-in are deleted from this computer only. Messages stay on the server, and other accounts are not affected.</source>
         <translation>এই ডিভাইস থেকে %1 সরাবেন? এর স্থানীয় Lightning ডেটা, এনক্রিপশন সংরক্ষণ এবং সাইন-ইন কেবল এই কম্পিউটার থেকে মুছে যাবে। বার্তাগুলি সার্ভারে থাকবে, এবং অন্য অ্যাকাউন্টগুলি প্রভাবিত হবে না।</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+24"/>
         <source>Remove</source>
         <translation>সরান</translation>
     </message>
@@ -4846,7 +4846,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>নিশ্চিত করুন: %1</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+19"/>
         <source>Repairing…</source>
         <translation>মেরামত হচ্ছে…</translation>
     </message>
@@ -4854,7 +4854,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>Main</name>
     <message>
-        <location filename="../qml/Main.qml" line="+118"/>
+        <location filename="../qml/Main.qml" line="+66"/>
         <source>(%1 unread, %2 ●) </source>
         <translation>(%1 অপঠিত, %2 ●)</translation>
     </message>
@@ -4874,7 +4874,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+619"/>
+        <location line="+458"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -4884,12 +4884,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনার সেশন পুনরুদ্ধার হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+95"/>
         <source>Interface zoom %1% — takes effect after restart</source>
         <translation>ইন্টারফেস জুম %1% — পুনরায় চালু করার পর কার্যকর হবে</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+67"/>
         <source>This message&apos;s edits could not be read. Check your connection and try again.</source>
         <translation>এই বার্তার সম্পাদনাগুলি পড়া যায়নি। আপনার সংযোগ দেখে আবার চেষ্টা করুন।</translation>
     </message>
@@ -4909,7 +4909,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1টি সম্পাদনা সরানো হয়েছে। আরও বাকি আছে — আবার চালান।</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+34"/>
         <source>Added to this room&apos;s stickers as :%1:</source>
         <translation>এই রুমের স্টিকারগুলিতে যোগ করা হয়েছে :%1:</translation>
     </message>
@@ -4929,7 +4929,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনার স্টিকারে সংরক্ষিত</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+6"/>
         <source>That sticker is already in this room&apos;s stickers</source>
         <translation>সেই স্টিকারটি ইতিমধ্যেই এই রুমের স্টিকারগুলিতে রয়েছে৷</translation>
     </message>
@@ -4959,8 +4959,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্টিকার সংরক্ষণ করা যায়নি.</translation>
     </message>
     <message>
-        <location line="+190"/>
-        <location line="+18"/>
+        <location line="+144"/>
+        <location line="+17"/>
         <source>Connected</source>
         <translation>সংযুক্ত</translation>
     </message>
@@ -5013,7 +5013,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+723"/>
+        <location filename="../qml/MainScreen.qml" line="+510"/>
         <source>Switching account…</source>
         <translation>অ্যাকাউন্ট পাল্টানো হচ্ছে…</translation>
     </message>
@@ -5021,23 +5021,23 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1295"/>
-        <location line="+594"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1109"/>
+        <location line="+526"/>
         <source>The file could not be downloaded.</source>
         <translation>ফাইলটি ডাউনলোড করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-508"/>
+        <location line="-445"/>
         <source>The download timed out.</source>
         <translation>ডাউনলোডের সময় শেষ হয়ে গেছে।</translation>
     </message>
     <message>
-        <location line="+605"/>
+        <location line="+527"/>
         <source>No destination selected.</source>
         <translation>কোনো গন্তব্য নির্বাচিত হয়নি।</translation>
     </message>
     <message>
-        <location line="+129"/>
+        <location line="+101"/>
         <location line="+7"/>
         <source>The destination is not writable.</source>
         <translation>গন্তব্যে লেখা যাচ্ছে না।</translation>
@@ -5056,7 +5056,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBrowser</name>
     <message>
-        <location filename="../qml/MediaBrowser.qml" line="+53"/>
+        <location filename="../qml/MediaBrowser.qml" line="+34"/>
         <source>Media</source>
         <translation type="unfinished">মিডিয়া</translation>
     </message>
@@ -5086,7 +5086,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished">লিঙ্ক</translation>
     </message>
     <message>
-        <location line="+77"/>
+        <location line="+66"/>
         <source>Search filename, caption, sender, link…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5116,7 +5116,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <source>From</source>
         <translation type="unfinished">থেকে</translation>
     </message>
@@ -5188,7 +5188,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+90"/>
+        <location line="+86"/>
         <source>Try again</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5196,7 +5196,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBrowserRow</name>
     <message>
-        <location filename="../qml/MediaBrowserRow.qml" line="+68"/>
+        <location filename="../qml/MediaBrowserRow.qml" line="+65"/>
         <source>(unnamed)</source>
         <translation type="unfinished">(নামহীন)</translation>
     </message>
@@ -5211,7 +5211,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished">লিঙ্ক কপি করুন</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+17"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5234,7 +5234,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBrowserTile</name>
     <message>
-        <location filename="../qml/MediaBrowserTile.qml" line="+167"/>
+        <location filename="../qml/MediaBrowserTile.qml" line="+148"/>
         <source>Go to message</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5242,8 +5242,8 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaHiddenPlaceholder</name>
     <message>
-        <location filename="../qml/MediaHiddenPlaceholder.qml" line="+56"/>
-        <location line="+23"/>
+        <location filename="../qml/MediaHiddenPlaceholder.qml" line="+47"/>
+        <location line="+22"/>
         <source>Show image</source>
         <translation>ছবি দেখান</translation>
     </message>
@@ -5256,7 +5256,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaHistoryModel</name>
     <message>
-        <location filename="../src/models/MediaHistoryModel.cpp" line="+123"/>
+        <location filename="../src/models/MediaHistoryModel.cpp" line="+118"/>
         <source>Today</source>
         <translation type="unfinished">আজ</translation>
     </message>
@@ -5279,7 +5279,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaVolumeControl</name>
     <message>
-        <location filename="../qml/MediaVolumeControl.qml" line="+22"/>
+        <location filename="../qml/MediaVolumeControl.qml" line="+21"/>
         <source>Unmute</source>
         <translation>শব্দ চালু করুন</translation>
     </message>
@@ -5289,7 +5289,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>নিঃশব্দ করুন</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+88"/>
         <source>Volume</source>
         <translation>ভলিউম</translation>
     </message>
@@ -5302,19 +5302,19 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+535"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+424"/>
         <source>Profile for %1</source>
         <translation>%1-এর প্রোফাইল</translation>
     </message>
     <message>
-        <location line="+319"/>
-        <location line="+407"/>
+        <location line="+246"/>
+        <location line="+318"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>উপস্থিতি উপলব্ধ নয়</translation>
     </message>
     <message>
-        <location line="-917"/>
+        <location line="-727"/>
         <source>Invited</source>
         <translation>আমন্ত্রিত</translation>
     </message>
@@ -5329,17 +5329,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>নিষিদ্ধ</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+47"/>
         <source>Profile link copied</source>
         <translation>প্রোফাইল লিঙ্ক কপি করা হয়েছে</translation>
     </message>
     <message>
-        <location line="+744"/>
+        <location line="+585"/>
         <source>Bio</source>
         <translation>বায়ো</translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+34"/>
         <source>Share</source>
         <translation>শেয়ার</translation>
     </message>
@@ -5349,7 +5349,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>প্রোফাইল লিঙ্ক কপি করুন</translation>
     </message>
     <message>
-        <location line="+76"/>
+        <location line="+68"/>
         <source>Administrator</source>
         <translation>প্রশাসক</translation>
     </message>
@@ -5364,37 +5364,37 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনি</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+9"/>
         <source>More actions</source>
         <translation>আরো কর্ম</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+29"/>
         <source>Rooms in common</source>
         <translation>কমন রুম</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+26"/>
         <source>Copy user ID</source>
         <translation>ইউজার আইডি কপি করুন</translation>
     </message>
     <message>
-        <location line="-346"/>
+        <location line="-271"/>
         <source>Message</source>
         <translation>বার্তা</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+11"/>
         <source>Start or open a direct message with %1</source>
         <translation>%1-এর সঙ্গে সরাসরি বার্তা শুরু বা খুলুন</translation>
     </message>
     <message>
-        <location line="+333"/>
+        <location line="+262"/>
         <source>Copy Matrix ID %1</source>
         <translation>Matrix আইডি %1 অনুলিপি করুন</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Unignore user</source>
         <translation>ব্যবহারকারীকে উপেক্ষা করুন</translation>
     </message>
@@ -5404,7 +5404,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ব্যবহারকারীকে উপেক্ষা করুন</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+4"/>
         <source>Stop ignoring %1 in every room</source>
         <translation>প্রতিটি ঘরে %1উপেক্ষা করা বন্ধ করুন</translation>
     </message>
@@ -5414,7 +5414,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>প্রতিটি ঘরে %1উপেক্ষা করুন</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+32"/>
         <source>Role</source>
         <translation>ভূমিকা</translation>
     </message>
@@ -5424,7 +5424,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1-কে %2 করুন</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+48"/>
         <source>Ignore this person?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5444,7 +5444,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+28"/>
         <source>Set %1 to %2 in this room?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5459,25 +5459,25 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+39"/>
-        <location line="+171"/>
+        <location line="+35"/>
+        <location line="+164"/>
         <source>Remove</source>
         <translation>বের করুন</translation>
     </message>
     <message>
-        <location line="-168"/>
-        <location line="+169"/>
+        <location line="-161"/>
+        <location line="+162"/>
         <source>Ban</source>
         <translation>নিষিদ্ধ করুন</translation>
     </message>
     <message>
-        <location line="-166"/>
-        <location line="+167"/>
+        <location line="-159"/>
+        <location line="+160"/>
         <source>Unban</source>
         <translation>নিষেধাজ্ঞা তুলুন</translation>
     </message>
     <message>
-        <location line="-149"/>
+        <location line="-142"/>
         <source>Remove %1 from the room</source>
         <translation>%1-কে রুম থেকে বের করুন</translation>
     </message>
@@ -5492,7 +5492,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1-এর নিষেধাজ্ঞা তুলুন</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+51"/>
         <source>On a moderation list you follow — %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5502,7 +5502,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+36"/>
         <source>Remove %1 from this room?</source>
         <translation>%1-কে এই রুম থেকে বের করবেন?</translation>
     </message>
@@ -5528,14 +5528,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>নিষেধাজ্ঞা তোলার পর আবার আমন্ত্রণ জানান</translation>
     </message>
     <message>
-        <location line="-272"/>
-        <location line="+75"/>
-        <location line="+239"/>
+        <location line="-260"/>
+        <location line="+74"/>
+        <location line="+228"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-1481"/>
+        <location line="-1237"/>
         <source>Matrix ID copied</source>
         <translation>Matrix আইডি অনুলিপি হয়েছে</translation>
     </message>
@@ -5543,7 +5543,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MentionPopup</name>
     <message>
-        <location filename="../qml/MentionPopup.qml" line="+119"/>
+        <location filename="../qml/MentionPopup.qml" line="+100"/>
         <source>ADMIN</source>
         <translation>প্রশাসক</translation>
     </message>
@@ -5553,12 +5553,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>মড</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+63"/>
         <source>Mention · Matching &quot;%1&quot;</source>
         <translation>উল্লেখ · “%1”-এর সঙ্গে মিল</translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+99"/>
         <source>Notify everyone in this room</source>
         <translation>এই রুমে সবাইকে জানিয়ে দিন</translation>
     </message>
@@ -5566,7 +5566,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+195"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+185"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>এই ব্যাকএন্ডে সংযুক্তি সমর্থিত নয়।</translation>
     </message>
@@ -5576,24 +5576,24 @@ Signing out and signing in again is the only fix.</source>
         <translation>ক্লিপবোর্ডের ছবি পড়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+98"/>
         <source>The attachment could not be queued.</source>
         <translation>সংযুক্তিটি সারিতে দেওয়া যায়নি।</translation>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+29"/>
-        <location line="+28"/>
+        <location line="+27"/>
+        <location line="+24"/>
         <source>The voice message could not be sent.</source>
         <translation>ভয়েস বার্তাটি পাঠানো যায়নি।</translation>
     </message>
     <message>
-        <location line="-45"/>
+        <location line="-41"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>ভয়েস বার্তাটি সার্ভারের আপলোড সীমার চেয়ে বড় (%1)।</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+59"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>আপলোড ব্যর্থ। আবার চেষ্টা করুন বা সরান।</translation>
     </message>
@@ -5601,7 +5601,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+662"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+533"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -5622,7 +5622,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished">বাতিল</translation>
     </message>
     <message>
-        <location line="+528"/>
+        <location line="+447"/>
         <source>The GIF could not be sent.</source>
         <translation>GIF পাঠানো যায়নি।</translation>
     </message>
@@ -5652,7 +5652,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ফাইল পাঠান</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+14"/>
         <source>Send image…</source>
         <translation>ছবি পাঠান…</translation>
     </message>
@@ -5663,24 +5663,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+42"/>
+        <location line="+41"/>
         <source>Emoji…</source>
         <translation>ইমোজি…</translation>
     </message>
     <message>
-        <location line="-35"/>
-        <location line="+42"/>
+        <location line="-34"/>
+        <location line="+41"/>
         <source>GIFs and stickers…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-41"/>
-        <location line="+42"/>
+        <location line="-40"/>
+        <location line="+41"/>
         <source>GIF…</source>
         <translation>GIF…</translation>
     </message>
     <message>
-        <location line="-23"/>
+        <location line="-22"/>
         <source>Attach files…</source>
         <translation>ফাইল সংযুক্ত করুন…</translation>
     </message>
@@ -5690,7 +5690,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>জরিপ তৈরি করুন…</translation>
     </message>
     <message>
-        <location line="+409"/>
+        <location line="+337"/>
         <source>Failed</source>
         <translation>ব্যর্থ</translation>
     </message>
@@ -5710,12 +5710,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>সংযুক্তি %1 সরান</translation>
     </message>
     <message>
-        <location line="+94"/>
+        <location line="+75"/>
         <source>Send as message</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+30"/>
         <source>Editing message</source>
         <translation>বার্তা সম্পাদনা</translation>
     </message>
@@ -5735,7 +5735,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>কেউ</translation>
     </message>
     <message>
-        <location line="+164"/>
+        <location line="+146"/>
         <source>Cancel editing</source>
         <translation>সম্পাদনা বাতিল করুন</translation>
     </message>
@@ -5745,7 +5745,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>উত্তর বাতিল করুন</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+32"/>
         <source>Bold</source>
         <translation>গাঢ়</translation>
     </message>
@@ -5780,7 +5780,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>উদ্ধৃতি</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+31"/>
         <location line="+1"/>
         <source>Underline</source>
         <translation type="unfinished"></translation>
@@ -5792,7 +5792,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+15"/>
         <source>Rich text</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5803,45 +5803,45 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1258"/>
+        <location line="+1025"/>
         <source>Switch to Markdown composing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1257"/>
-        <location line="+1258"/>
+        <location line="-1024"/>
+        <location line="+1025"/>
         <source>Switch to rich-text composing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1213"/>
+        <location line="-981"/>
         <source>Attach files or create a poll</source>
         <translation>ফাইল সংযুক্ত করুন বা জরিপ তৈরি করুন</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+15"/>
         <source>Attach</source>
         <translation>সংযুক্ত করুন</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+23"/>
         <source>Formatting</source>
         <translation>ফরম্যাটিং</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1143"/>
+        <location line="+929"/>
         <source>Hide formatting</source>
         <translation>ফরম্যাটিং লুকান</translation>
     </message>
     <message>
-        <location line="-1142"/>
-        <location line="+1143"/>
+        <location line="-928"/>
+        <location line="+929"/>
         <source>Show formatting</source>
         <translation>ফরম্যাটিং দেখান</translation>
     </message>
     <message>
-        <location line="-820"/>
+        <location line="-657"/>
         <source>Select a room to start typing</source>
         <translation>লেখা শুরু করতে একটি রুম নির্বাচন করুন</translation>
     </message>
@@ -5856,7 +5856,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1-এ বার্তা</translation>
     </message>
     <message>
-        <location line="+285"/>
+        <location line="+214"/>
         <source>Add to dictionary</source>
         <translation>অভিধানে যোগ করুন</translation>
     </message>
@@ -5886,18 +5886,18 @@ Signing out and signing in again is the only fix.</source>
         <translation>সব নির্বাচন করুন</translation>
     </message>
     <message>
-        <location line="+112"/>
+        <location line="+103"/>
         <source>Insert emoji</source>
         <translation>ইমোজি ঢোকান</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+413"/>
+        <location line="+325"/>
         <source>Emoji</source>
         <translation>ইমোজি</translation>
     </message>
     <message>
-        <location line="-365"/>
+        <location line="-292"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
@@ -5907,14 +5907,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্টিকার</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+27"/>
         <location line="+1"/>
-        <location line="+340"/>
+        <location line="+279"/>
         <source>Record a voice message</source>
         <translation>ভয়েস বার্তা রেকর্ড করুন</translation>
     </message>
     <message>
-        <location line="-3392"/>
+        <location line="-2855"/>
         <source>A recording is already in progress.</source>
         <translation>একটি রেকর্ডিং ইতিমধ্যেই চলছে।</translation>
     </message>
@@ -5924,13 +5924,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভয়েস রেকর্ডিং উপলব্ধ নয়।</translation>
     </message>
     <message>
-        <location line="+3068"/>
+        <location line="+2591"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">আরও</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+69"/>
         <source>Resume recording</source>
         <translation>রেকর্ডিং আবার শুরু করুন</translation>
     </message>
@@ -5950,7 +5950,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>বাতিল করুন</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+13"/>
         <source>Finish and review</source>
         <translation>শেষ করে শুনুন</translation>
     </message>
@@ -5971,17 +5971,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>পাঠান</translation>
     </message>
     <message>
-        <location line="+191"/>
+        <location line="+134"/>
         <source>Scheduled messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-192"/>
+        <location line="-135"/>
         <source>Save edit</source>
         <translation>সম্পাদনা সংরক্ষণ করুন</translation>
     </message>
     <message>
-        <location line="-230"/>
+        <location line="-210"/>
         <source>Insert a GIF or sticker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5992,12 +5992,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+373"/>
+        <location line="+300"/>
         <source>GIFs and stickers</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-148"/>
+        <location line="-95"/>
         <source>Send message</source>
         <translation>বার্তা পাঠান</translation>
     </message>
@@ -6007,7 +6007,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>সংরক্ষণ করুন</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+29"/>
         <location line="+4"/>
         <source>Send options</source>
         <translation type="unfinished"></translation>
@@ -6018,17 +6018,17 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+129"/>
+        <location line="+92"/>
         <source>Send later…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+9"/>
         <source>Scheduled messages (%1)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+27"/>
         <source>this room</source>
         <translation>এই রুম</translation>
     </message>
@@ -6036,7 +6036,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1171"/>
+        <location filename="../qml/MessageDelegate.qml" line="+851"/>
         <source>Today</source>
         <translation>আজ</translation>
     </message>
@@ -6046,33 +6046,33 @@ Signing out and signing in again is the only fix.</source>
         <translation>গতকাল</translation>
     </message>
     <message>
-        <location line="+83"/>
+        <location line="+68"/>
         <source>Beginning of conversation</source>
         <translation>আলাপের শুরু</translation>
     </message>
     <message>
-        <location line="+105"/>
+        <location line="+75"/>
         <source>New messages</source>
         <translation>নতুন বার্তা</translation>
     </message>
     <message>
-        <location line="+229"/>
+        <location line="+197"/>
         <source>Avatar for %1</source>
         <translation>%1-এর অবতার</translation>
     </message>
     <message>
-        <location line="+60"/>
-        <location line="+312"/>
+        <location line="+37"/>
+        <location line="+216"/>
         <source>Sent at %1</source>
         <translation>%1-এ পাঠানো</translation>
     </message>
     <message>
-        <location line="-45"/>
+        <location line="-39"/>
         <source>Sender: %1</source>
         <translation>প্রেরক: %1</translation>
     </message>
     <message>
-        <location line="+130"/>
+        <location line="+78"/>
         <source>Go to message from %1</source>
         <translation>%1-এর বার্তায় যান</translation>
     </message>
@@ -6082,19 +6082,19 @@ Signing out and signing in again is the only fix.</source>
         <translation>মূল বার্তায় যান</translation>
     </message>
     <message>
-        <location line="+118"/>
-        <location line="+1221"/>
-        <location line="+1074"/>
+        <location line="+101"/>
+        <location line="+877"/>
+        <location line="+852"/>
         <source>Reply</source>
         <translation>উত্তর</translation>
     </message>
     <message>
-        <location line="-2274"/>
+        <location line="-1714"/>
         <source>(original message not loaded)</source>
         <translation>(মূল বার্তা লোড হয়নি)</translation>
     </message>
     <message numerus="yes">
-        <location line="+161"/>
+        <location line="+134"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
@@ -6108,12 +6108,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>[বার্তা মুছে ফেলা হয়েছে]</translation>
     </message>
     <message>
-        <location line="+123"/>
+        <location line="+85"/>
         <source>Missing room key. Restore your recovery key in Settings, or wait for another verified device to share the key.</source>
         <translation>রুম কী নেই। সেটিংসে আপনার পুনরুদ্ধার কী ফিরিয়ে আনুন, বা অন্য কোনো যাচাইকৃত ডিভাইস কী ভাগ করার অপেক্ষা করুন।</translation>
     </message>
     <message>
-        <location line="+294"/>
+        <location line="+193"/>
         <source>This session can&apos;t unlock encrypted messages</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6138,7 +6138,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>কীর অপেক্ষায়…</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+8"/>
         <source>Retry decryption</source>
         <translation>ডিক্রিপশন আবার চেষ্টা করুন</translation>
     </message>
@@ -6148,17 +6148,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>নিরাপত্তা সেটিংস</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+29"/>
         <source>Link</source>
         <translation type="unfinished">লিঙ্ক</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+46"/>
         <source>Show the link preview again</source>
         <translation>আবার লিঙ্ক প্রিভিউ দেখান</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+34"/>
         <source>Uploading</source>
         <translation>আপলোড হচ্ছে</translation>
     </message>
@@ -6168,7 +6168,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপলোড হচ্ছে, %1%</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+27"/>
         <source>%1 • sending… %2%</source>
         <translation>%1 • পাঠানো হচ্ছে… %2%</translation>
     </message>
@@ -6188,40 +6188,40 @@ Signing out and signing in again is the only fix.</source>
         <translation>সম্পাদিত</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+15"/>
         <source>edited — show edit history</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+20"/>
-        <location line="+2463"/>
+        <location line="+17"/>
+        <location line="+1960"/>
         <source>Retry</source>
         <translation>আবার চেষ্টা করুন</translation>
     </message>
     <message>
-        <location line="-2421"/>
-        <location line="+1216"/>
+        <location line="-1930"/>
+        <location line="+909"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-1211"/>
+        <location line="-904"/>
         <source>Cancel sending this message</source>
         <translation>এই বার্তা পাঠানো বাতিল করুন</translation>
     </message>
     <message>
-        <location line="+253"/>
-        <location line="+1375"/>
+        <location line="+151"/>
+        <location line="+1084"/>
         <source>Hide image</source>
         <translation>ছবি লুকান</translation>
     </message>
     <message>
-        <location line="-1371"/>
+        <location line="-1080"/>
         <source>Hide</source>
         <translation>লুকান</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <source>React to message</source>
         <translation>বার্তায় প্রতিক্রিয়া দিন</translation>
     </message>
@@ -6231,17 +6231,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>প্রতিক্রিয়া</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+24"/>
         <source>Reply to message</source>
         <translation>বার্তায় উত্তর দিন</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+25"/>
         <source>Edit message</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+28"/>
         <source>More message actions</source>
         <translation>আরও বার্তা ক্রিয়া</translation>
     </message>
@@ -6251,7 +6251,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আরও</translation>
     </message>
     <message>
-        <location line="+245"/>
+        <location line="+176"/>
         <source>%1 and 1 other</source>
         <translation>%1 এবং আরও ১ জন</translation>
     </message>
@@ -6276,12 +6276,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1, %2 এবং আরও %3 জন</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+27"/>
         <source>custom emoji</source>
         <translation>কাস্টম ইমোজি</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+89"/>
         <source>Reaction %1, %2, selected</source>
         <translation>প্রতিক্রিয়া %1, %2, নির্বাচিত</translation>
     </message>
@@ -6291,13 +6291,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>প্রতিক্রিয়া %1, %2</translation>
     </message>
     <message>
-        <location line="+90"/>
+        <location line="+79"/>
         <location line="+4"/>
         <source>Add reaction</source>
         <translation>প্রতিক্রিয়া যোগ করুন</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+51"/>
         <source>Read by %1</source>
         <translation>%1 পড়েছেন</translation>
     </message>
@@ -6322,27 +6322,27 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1, %2 এবং আরও %3 জন পড়েছেন</translation>
     </message>
     <message>
-        <location line="+301"/>
+        <location line="+233"/>
         <source>Message · %1 · %2</source>
         <translation>বার্তা · %1 · %2</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+128"/>
         <source>Reply in thread</source>
         <translation>থ্রেডে উত্তর দিন</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+23"/>
         <source>Open in room</source>
         <translation>রুমে খুলুন</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+13"/>
         <source>Pin message</source>
         <translation>বার্তা পিন করুন</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+12"/>
         <source>Unpin message</source>
         <translation>বার্তা আনপিন করুন</translation>
     </message>
@@ -6357,44 +6357,44 @@ Signing out and signing in again is the only fix.</source>
         <translation>বার্তার লিঙ্ক অনুলিপি করুন</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+12"/>
         <source>Open image</source>
         <translation>ছবি খুলুন</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+25"/>
         <source>Add to my stickers</source>
         <translation>আমার স্টিকার যোগ করুন</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+18"/>
         <source>Add to this room&apos;s stickers</source>
         <translation>এই রুমের স্টিকারে যোগ করুন</translation>
     </message>
     <message>
-        <location line="+21"/>
-        <location line="+2569"/>
+        <location line="+19"/>
+        <location line="+2196"/>
         <source>Save as…</source>
         <translation>এভাবে সংরক্ষণ করুন…</translation>
     </message>
     <message>
-        <location line="-2534"/>
+        <location line="-2169"/>
         <source>Show image</source>
         <translation>ছবি দেখান</translation>
     </message>
     <message>
-        <location line="+20"/>
-        <location line="+708"/>
+        <location line="+14"/>
+        <location line="+618"/>
         <source>Show link preview</source>
         <translation>লিঙ্ক প্রিভিউ দেখান</translation>
     </message>
     <message>
-        <location line="-699"/>
+        <location line="-609"/>
         <source>Copy image</source>
         <translation>ছবি অনুলিপি করুন</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+13"/>
         <source>View profile</source>
         <translation>প্রোফাইল দেখুন</translation>
     </message>
@@ -6404,7 +6404,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>বিস্তারিত দেখুন</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <source>Edit history</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6414,13 +6414,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1369"/>
-        <location line="+1376"/>
+        <location line="-1067"/>
+        <location line="+1074"/>
         <source>Edit</source>
         <translation>সম্পাদনা</translation>
     </message>
     <message>
-        <location line="-4376"/>
+        <location line="-3284"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6435,42 +6435,42 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+27"/>
-        <location line="+525"/>
+        <location line="+22"/>
+        <location line="+428"/>
         <source>Sticker</source>
         <translation type="unfinished">স্টিকার</translation>
     </message>
     <message>
-        <location line="-522"/>
+        <location line="-425"/>
         <source>Voice message</source>
         <translation type="unfinished">ভয়েস বার্তা</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+519"/>
+        <location line="+422"/>
         <source>Audio</source>
         <translation type="unfinished">অডিও</translation>
     </message>
     <message>
-        <location line="-517"/>
-        <location line="+515"/>
+        <location line="-420"/>
+        <location line="+418"/>
         <source>GIF</source>
         <translation type="unfinished">GIF</translation>
     </message>
     <message>
-        <location line="-515"/>
-        <location line="+514"/>
-        <location line="+4765"/>
+        <location line="-418"/>
+        <location line="+417"/>
+        <location line="+3674"/>
         <source>Image</source>
         <translation type="unfinished">ছবি</translation>
     </message>
     <message>
-        <location line="-5277"/>
+        <location line="-4089"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+494"/>
+        <location line="+398"/>
         <source>%n image(s)</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -6486,19 +6486,19 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+3862"/>
+        <location line="+2869"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>সম্পাদনা সরান</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+8"/>
         <location line="+12"/>
         <source>End poll</source>
         <translation>জরিপ শেষ করুন</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+18"/>
         <source>Select messages</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6508,7 +6508,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ফরওয়ার্ড</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+44"/>
         <source>Report message</source>
         <translation>বার্তার অভিযোগ করুন</translation>
     </message>
@@ -6524,7 +6524,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>বার্তার বিস্তারিত</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+11"/>
         <source>Sender</source>
         <translation>প্রেরক</translation>
     </message>
@@ -6596,12 +6596,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>উত্তরের লক্ষ্য</translation>
     </message>
     <message>
-        <location line="-2118"/>
+        <location line="-1656"/>
         <source>Show preview</source>
         <translation>প্রাকদর্শন দেখান</translation>
     </message>
     <message>
-        <location line="+1923"/>
+        <location line="+1472"/>
         <source>Remove edits?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6611,7 +6611,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+20"/>
         <source>End poll?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6621,7 +6621,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+103"/>
+        <location line="+96"/>
         <source>Delete message?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6631,24 +6631,24 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+223"/>
-        <location line="+121"/>
+        <location line="+214"/>
+        <location line="+103"/>
         <source>Dismiss link preview</source>
         <translation>লিঙ্ক প্রিভিউ খারিজ করুন</translation>
     </message>
     <message>
-        <location line="-120"/>
-        <location line="+121"/>
+        <location line="-102"/>
+        <location line="+103"/>
         <source>Dismiss preview</source>
         <translation>পূর্বরূপ খারিজ করুন</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+42"/>
         <source>Your homeserver loads this preview, so the linked site does not see your IP address. If your server cannot, Lightning loads it directly and the site does see your IP.</source>
         <translation>আপনার হোমসার্ভার এই পূর্বরূপ লোড করে, তাই লিঙ্ক করা সাইটটি আপনার আইপি ঠিকানা দেখতে পায় না। যদি আপনার সার্ভার না পারে, Lightning এটি সরাসরি লোড করে এবং সাইটটি আপনার আইপি দেখতে পায়।</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+38"/>
         <source>Your server sees this URL — or directly, your IP</source>
         <translation>আপনার সার্ভার এই URLটি দেখে — অথবা সরাসরি, আপনার আইপি</translation>
     </message>
@@ -6658,17 +6658,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপনার সার্ভার এটি লোড করে - অথবা সরাসরি, আপনার আইপি</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+15"/>
         <source>Show</source>
         <translation>দেখান</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+53"/>
         <source>Preview unavailable</source>
         <translation>প্রাকদর্শন উপলব্ধ নয়</translation>
     </message>
     <message>
-        <location line="+900"/>
+        <location line="+730"/>
         <source>Remove from saved</source>
         <translation>সংরক্ষিত থেকে সরান</translation>
     </message>
@@ -6678,7 +6678,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ছবি সংরক্ষণ করুন</translation>
     </message>
     <message>
-        <location line="+93"/>
+        <location line="+73"/>
         <source>Image failed to load — click to retry</source>
         <translation>ছবি লোড হয়নি — আবার চেষ্টা করতে ক্লিক করুন</translation>
     </message>
@@ -6688,42 +6688,42 @@ Signing out and signing in again is the only fix.</source>
         <translation>(ছবি উপলব্ধ নয়)</translation>
     </message>
     <message>
-        <location line="+220"/>
+        <location line="+190"/>
         <source>Sticker failed to load — click to retry</source>
         <translation>স্টিকার লোড হয়নি — আবার চেষ্টা করতে ক্লিক করুন</translation>
     </message>
     <message>
-        <location line="-6254"/>
-        <location line="+521"/>
-        <location line="+4763"/>
-        <location line="+1205"/>
+        <location line="-4863"/>
+        <location line="+424"/>
+        <location line="+3672"/>
+        <location line="+967"/>
         <location line="+66"/>
         <source>Video</source>
         <translation>ভিডিও</translation>
     </message>
     <message>
-        <location line="-1134"/>
-        <location line="+1151"/>
-        <location line="+219"/>
+        <location line="-902"/>
+        <location line="+919"/>
+        <location line="+207"/>
         <source>Save %1 as…</source>
         <translation>%1 এভাবে সংরক্ষণ করুন…</translation>
     </message>
     <message>
-        <location line="-218"/>
+        <location line="-206"/>
         <source>video</source>
         <translation>ভিডিও</translation>
     </message>
     <message>
-        <location line="-6567"/>
-        <location line="+517"/>
-        <location line="+4877"/>
-        <location line="+1298"/>
+        <location line="-5141"/>
+        <location line="+420"/>
+        <location line="+3780"/>
+        <location line="+1060"/>
         <location line="+31"/>
         <source>File</source>
         <translation>ফাইল</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+14"/>
         <source>Saving…</source>
         <translation>সংরক্ষণ হচ্ছে…</translation>
     </message>
@@ -6738,8 +6738,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>সংরক্ষণ ব্যর্থ</translation>
     </message>
     <message>
-        <location line="-1329"/>
-        <location line="+1370"/>
+        <location line="-1086"/>
+        <location line="+1126"/>
         <source>file</source>
         <translation>ফাইল</translation>
     </message>
@@ -6754,7 +6754,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ফাইল খুলুন</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+48"/>
         <source>Sharing live location</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6784,12 +6784,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+17"/>
         <source>This location could not be read.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+97"/>
+        <location line="+96"/>
         <source>Results are revealed when the poll ends</source>
         <translation>জরিপ শেষ হলে ফলাফল প্রকাশ পায়</translation>
     </message>
@@ -6799,7 +6799,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1, %2 ভোট</translation>
     </message>
     <message numerus="yes">
-        <location line="+98"/>
+        <location line="+97"/>
         <source>Final result • %n vote(s)</source>
         <comment>closed poll tally</comment>
         <translation>
@@ -6825,7 +6825,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageSearchDialog</name>
     <message>
-        <location filename="../qml/MessageSearchDialog.qml" line="+64"/>
+        <location filename="../qml/MessageSearchDialog.qml" line="+62"/>
         <source>Search messages</source>
         <translation>বার্তা খুঁজুন</translation>
     </message>
@@ -6850,12 +6850,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1-এ ফলাফল খুলুন</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+35"/>
         <source>in %1</source>
         <translation>%1-এ</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+51"/>
         <source>No messages found</source>
         <translation>কোনো বার্তা পাওয়া যায়নি</translation>
     </message>
@@ -6883,22 +6883,22 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MockMatrixClient</name>
     <message>
-        <location filename="../src/matrix/MockMatrixClient.cpp" line="+362"/>
+        <location filename="../src/matrix/MockMatrixClient.cpp" line="+346"/>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+41"/>
-        <location line="+416"/>
+        <location line="+414"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>অজানা রুম: %1</translation>
     </message>
     <message>
-        <location line="-113"/>
+        <location line="-112"/>
         <source>Cannot edit: original message not found.</source>
         <translation>সম্পাদনা করা যাচ্ছে না: মূল বার্তা পাওয়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+95"/>
         <source>Image</source>
         <translation>ছবি</translation>
     </message>
@@ -6908,12 +6908,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>ফাইল</translation>
     </message>
     <message>
-        <location line="+84"/>
+        <location line="+83"/>
         <source>Older message #%1 (page %2)</source>
         <translation>পুরনো বার্তা #%1 (পৃষ্ঠা %2)</translation>
     </message>
     <message>
-        <location line="+1535"/>
+        <location line="+1530"/>
         <source>You joined the room.</source>
         <translation>আপনি রুমে যোগ দিয়েছেন।</translation>
     </message>
@@ -6921,7 +6921,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ModerationController</name>
     <message>
-        <location filename="../src/app/ModerationController.cpp" line="+156"/>
+        <location filename="../src/app/ModerationController.cpp" line="+155"/>
         <source>%1 is now ignored. You will no longer see their messages.</source>
         <translation>%1-কে এখন উপেক্ষা করা হচ্ছে। আপনি আর তাঁর বার্তা দেখবেন না।</translation>
     </message>
@@ -6936,7 +6936,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>বার্তাটি সার্ভার প্রশাসকের কাছে রিপোর্ট করা হয়েছে।</translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+49"/>
         <source>The server refused this action.</source>
         <translation>সার্ভার এই ক্রিয়াটি প্রত্যাখ্যান করেছে।</translation>
     </message>
@@ -6959,7 +6959,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>NewConversationDialog</name>
     <message>
-        <location filename="../qml/NewConversationDialog.qml" line="+234"/>
+        <location filename="../qml/NewConversationDialog.qml" line="+217"/>
         <source>Choose a room picture</source>
         <translation>রুমের ছবি বেছে নিন</translation>
     </message>
@@ -6969,7 +6969,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+41"/>
         <source>Create a room</source>
         <translation>রুম তৈরি করুন</translation>
     </message>
@@ -6994,12 +6994,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+10"/>
         <source>Type a name, an @user ID, or a #room address — Lightning figures out the rest.</source>
         <translation>একটি নাম, একটি @ব্যবহারকারী আইডি, বা একটি #রুম ঠিকানা লিখুন — বাকিটা Lightning বুঝে নেবে।</translation>
     </message>
     <message>
-        <location line="+93"/>
+        <location line="+92"/>
         <source>New DM</source>
         <translation>নতুন DM</translation>
     </message>
@@ -7025,7 +7025,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+53"/>
         <source>Create room %1</source>
         <translation>রুম %1 তৈরি করুন</translation>
     </message>
@@ -7035,7 +7035,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>“%1” রুম তৈরি করুন</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+12"/>
         <source>Public · not encrypted</source>
         <translation>সর্বজনীন · এনক্রিপ্টেড নয়</translation>
     </message>
@@ -7050,7 +7050,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ব্যক্তিগত · এনক্রিপ্টেড নয় · ডিফল্টে কেবল আমন্ত্রণে</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+77"/>
         <source>Choose a different user</source>
         <translation>অন্য ব্যবহারকারী বেছে নিন</translation>
     </message>
@@ -7065,7 +7065,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>বিদ্যমান আলাপ</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+26"/>
         <source>Open</source>
         <translation>খুলুন</translation>
     </message>
@@ -7122,24 +7122,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+351"/>
+        <location line="+350"/>
         <source>Visibility</source>
         <translation>দৃশ্যমানতা</translation>
     </message>
     <message>
-        <location line="-342"/>
-        <location line="+351"/>
+        <location line="-341"/>
+        <location line="+350"/>
         <source>Private</source>
         <translation>ব্যক্তিগত</translation>
     </message>
     <message>
-        <location line="-350"/>
-        <location line="+351"/>
+        <location line="-349"/>
+        <location line="+350"/>
         <source>Public</source>
         <translation>সর্বজনীন</translation>
     </message>
     <message>
-        <location line="-342"/>
+        <location line="-341"/>
         <source>Anyone can find and join this room.</source>
         <translation>যে কেউ এই রুম খুঁজে পেয়ে যোগ দিতে পারে।</translation>
     </message>
@@ -7196,7 +7196,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>লোক আমন্ত্রণ করুন (ঐচ্ছিক)</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+38"/>
         <source>Remove %1</source>
         <translation>%1 সরান</translation>
     </message>
@@ -7290,18 +7290,18 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>NotificationManager</name>
     <message>
-        <location filename="../src/notifications/NotificationManager.cpp" line="+732"/>
-        <location line="+231"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="+601"/>
+        <location line="+187"/>
         <source>Open</source>
         <translation>খুলুন</translation>
     </message>
     <message>
-        <location line="-226"/>
+        <location line="-182"/>
         <source>Mark as read</source>
         <translation type="unfinished">পঠিত হিসেবে চিহ্নিত করুন</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+3"/>
         <source>Reply</source>
         <translation type="unfinished">উত্তর</translation>
     </message>
@@ -7311,7 +7311,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+228"/>
+        <location line="+182"/>
         <source>Join</source>
         <translation type="unfinished">যোগ দিন</translation>
     </message>
@@ -7321,12 +7321,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>Silence</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+2"/>
         <source>Decline</source>
         <translation>প্রত্যাখ্যান করুন</translation>
     </message>
@@ -7334,7 +7334,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-711"/>
+        <location line="-557"/>
         <source>Matrix room</source>
         <translation>Matrix রুম</translation>
     </message>
@@ -7374,7 +7374,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>একটি অডিও ফাইল পাঠিয়েছেন</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+16"/>
         <source>%1 mentioned you</source>
         <translation>%1 আপনাকে উল্লেখ করেছেন</translation>
     </message>
@@ -7392,14 +7392,14 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>OAuthCallbackServer</name>
     <message>
-        <location filename="../src/auth/OAuthCallbackServer.cpp" line="+154"/>
-        <location line="+30"/>
+        <location filename="../src/auth/OAuthCallbackServer.cpp" line="+135"/>
+        <location line="+19"/>
         <source>Sign-in</source>
         <translation>সাইন-ইন</translation>
     </message>
     <message>
-        <location line="-30"/>
-        <location line="+30"/>
+        <location line="-19"/>
+        <location line="+19"/>
         <source>This page is not part of the sign-in.</source>
         <translation>এই পৃষ্ঠাটি সাইন-ইনের অংশ নয়।</translation>
     </message>
@@ -7410,7 +7410,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+28"/>
+        <location line="+23"/>
         <source>You can close this window and return to Lightning.</source>
         <translation>আপনি এই উইন্ডো বন্ধ করে Lightning-এ ফিরতে পারেন।</translation>
     </message>
@@ -7433,7 +7433,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>PaginationController</name>
     <message>
-        <location filename="../src/models/PaginationController.h" line="+138"/>
+        <location filename="../src/models/PaginationController.h" line="+105"/>
         <source>Original message is unavailable.</source>
         <translation>মূল বার্তাটি উপলব্ধ নয়।</translation>
     </message>
@@ -7441,7 +7441,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>PinnedMessagesController</name>
     <message>
-        <location filename="../src/app/PinnedMessagesController.cpp" line="+13"/>
+        <location filename="../src/app/PinnedMessagesController.cpp" line="+12"/>
         <source>You do not have permission to change pinned messages in this room.</source>
         <translation>এই রুমে পিন করা বার্তা বদলানোর অনুমতি আপনার নেই।</translation>
     </message>
@@ -7469,7 +7469,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>PolicyListController</name>
     <message>
-        <location filename="../src/app/PolicyListController.cpp" line="+200"/>
+        <location filename="../src/app/PolicyListController.cpp" line="+187"/>
         <source>That room&apos;s rules could not be read.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7484,7 +7484,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+22"/>
         <source>You are already following as many lists as Lightning supports.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7497,7 +7497,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>PolicyListDialog</name>
     <message>
-        <location filename="../qml/PolicyListDialog.qml" line="+64"/>
+        <location filename="../qml/PolicyListDialog.qml" line="+54"/>
         <source>Moderation rules in %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7512,7 +7512,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+25"/>
         <source>Following a list does not block anyone by itself. Lightning will tell you when someone is covered by a list you follow, and you decide what to do — this is somebody else&apos;s judgement, not a setting.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7522,7 +7522,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+9"/>
+        <location line="+8"/>
         <source>%n rule(s) — this list is long and only the first were read.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -7538,7 +7538,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+50"/>
         <source>everyone on this server</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7553,7 +7553,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+4"/>
         <source>ban</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7631,7 +7631,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>PopupResizeGrip</name>
     <message>
-        <location filename="../qml/PopupResizeGrip.qml" line="+103"/>
+        <location filename="../qml/PopupResizeGrip.qml" line="+52"/>
         <source>Resize</source>
         <translation>আকার বদলান</translation>
     </message>
@@ -7644,7 +7644,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>PresenceDot</name>
     <message>
-        <location filename="../qml/PresenceDot.qml" line="+86"/>
+        <location filename="../qml/PresenceDot.qml" line="+57"/>
         <source>Online</source>
         <translation>অনলাইন</translation>
     </message>
@@ -7682,7 +7682,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ProfileBadges</name>
     <message>
-        <location filename="../src/profile/ProfileBadges.cpp" line="+23"/>
+        <location filename="../src/profile/ProfileBadges.cpp" line="+18"/>
         <source>idea master — a thank-you badge for helping develop Lightning. Not a moderation role and not a verification status.</source>
         <translation>আইডিয়া মাস্টার — Lightning বিকাশে সাহায্য করার জন্য একটি ধন্যবাদ-ব্যাজ। একটি সংযম ভূমিকা এবং একটি যাচাই অবস্থা নয়.</translation>
     </message>
@@ -7690,7 +7690,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>QrLoginController</name>
     <message>
-        <location filename="../src/crypto/QrLoginController.cpp" line="+80"/>
+        <location filename="../src/crypto/QrLoginController.cpp" line="+79"/>
         <source>That does not look like a sign-in code. Copy the code from the other device exactly.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7700,7 +7700,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+83"/>
+        <location line="+69"/>
         <source>The sign-in took too long and the code expired. Start again to get a new one.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7733,7 +7733,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>QrLoginDialog</name>
     <message>
-        <location filename="../qml/QrLoginDialog.qml" line="+66"/>
+        <location filename="../qml/QrLoginDialog.qml" line="+53"/>
         <source>Sign in another device</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7768,7 +7768,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+28"/>
         <source>Scan this with the other device. If it cannot scan, copy the text below into it instead.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7783,7 +7783,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>This proves the two devices are talking to each other and not to something in between. If the digits do not match, stop.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7813,7 +7813,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+19"/>
         <source>Sending your keys to the new device…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7841,7 +7841,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>QuickReactionStrip</name>
     <message>
-        <location filename="../qml/QuickReactionStrip.qml" line="+89"/>
+        <location filename="../qml/QuickReactionStrip.qml" line="+79"/>
         <source>More reactions</source>
         <translation>আরও প্রতিক্রিয়া</translation>
     </message>
@@ -7854,7 +7854,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>QuickSwitcher</name>
     <message>
-        <location filename="../qml/QuickSwitcher.qml" line="+109"/>
+        <location filename="../qml/QuickSwitcher.qml" line="+99"/>
         <source>Open Settings</source>
         <translation>সেটিংস খুলুন</translation>
     </message>
@@ -7894,19 +7894,19 @@ Signing out and signing in again is the only fix.</source>
         <translation>সার্ভার-সাইড ইতিহাস অনুসন্ধান (Ctrl+Shift+F)</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+10"/>
         <source>Account</source>
         <translation>অ্যাকাউন্ট</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+40"/>
-        <location line="+14"/>
+        <location line="+13"/>
         <source>Appearance</source>
         <translation>চেহারা</translation>
     </message>
     <message>
-        <location line="-53"/>
+        <location line="-52"/>
         <source>Keyboard shortcuts</source>
         <translation type="unfinished">কীবোর্ড শর্টকাট</translation>
     </message>
@@ -7966,12 +7966,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>থিম: সিস্টেমের সঙ্গে মিলিয়ে</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <source>Theme: %1</source>
         <translation>থিম: %1</translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+62"/>
         <source>ROOMS</source>
         <translation>রুম</translation>
     </message>
@@ -7991,7 +7991,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আমন্ত্রণ</translation>
     </message>
     <message>
-        <location line="+126"/>
+        <location line="+121"/>
         <source>Type a command…</source>
         <translation>একটি কমান্ড লিখুন…</translation>
     </message>
@@ -8001,7 +8001,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>কোনো রুম, ব্যক্তি বা স্পেসে যান…</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+85"/>
         <source>Actions</source>
         <translation>ক্রিয়া</translation>
     </message>
@@ -8016,7 +8016,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>লোক</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+67"/>
         <source>No matching rooms</source>
         <translation>মিলে যাওয়া কোনো রুম নেই</translation>
     </message>
@@ -8031,12 +8031,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>মিলে যাওয়া কোনো ক্রিয়া নেই</translation>
     </message>
     <message>
-        <location line="+276"/>
+        <location line="+258"/>
         <source>navigate</source>
         <translation>চলাচল</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+15"/>
         <source>open</source>
         <translation>খুলুন</translation>
     </message>
@@ -8056,7 +8056,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>চেষ্টা করুন “থিম indigo night” · “alice-এ যান” · “গোপনীয়তা খুলুন”</translation>
     </message>
     <message>
-        <location filename="../src/models/QuickSwitcherModel.cpp" line="+201"/>
+        <location filename="../src/models/QuickSwitcherModel.cpp" line="+199"/>
         <source>Invitation</source>
         <translation>আমন্ত্রণ</translation>
     </message>
@@ -8074,7 +8074,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailEntryModel</name>
     <message>
-        <location filename="../src/spaces/RailEntryModel.cpp" line="+215"/>
+        <location filename="../src/spaces/RailEntryModel.cpp" line="+241"/>
         <source>Direct Messages</source>
         <translation>সরাসরি বার্তা</translation>
     </message>
@@ -8082,8 +8082,8 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailLayoutStore</name>
     <message>
-        <location filename="../src/spaces/RailLayoutStore.cpp" line="+285"/>
-        <location line="+304"/>
+        <location filename="../src/spaces/RailLayoutStore.cpp" line="+263"/>
+        <location line="+294"/>
         <source>Folder</source>
         <translation>ফোল্ডার</translation>
     </message>
@@ -8091,7 +8091,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ReportMessageDialog</name>
     <message>
-        <location filename="../qml/ReportMessageDialog.qml" line="+54"/>
+        <location filename="../qml/ReportMessageDialog.qml" line="+49"/>
         <source>Report message</source>
         <translation>বার্তার অভিযোগ করুন</translation>
     </message>
@@ -8101,7 +8101,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>অভিযোগটি আপনার হোমসার্ভারের প্রশাসকের কাছে যায়, সঙ্গে কেবল এই একটি বার্তার উল্লেখসহ। এটি বার্তার লেখকের কাছে পাঠানো হয় না।</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+16"/>
         <source>Reason (optional)</source>
         <translation>কারণ (ঐচ্ছিক)</translation>
     </message>
@@ -8124,7 +8124,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomActionsMenu</name>
     <message>
-        <location filename="../qml/RoomActionsMenu.qml" line="+55"/>
+        <location filename="../qml/RoomActionsMenu.qml" line="+41"/>
         <source>Remove from favourites</source>
         <translation>প্রিয় থেকে সরান</translation>
     </message>
@@ -8144,7 +8144,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>অপঠিত হিসেবে চিহ্নিত করুন</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+11"/>
         <source>Notifications</source>
         <translation>বিজ্ঞপ্তি</translation>
     </message>
@@ -8154,7 +8154,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>বিজ্ঞপ্তির ধরন</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+31"/>
         <source>All messages</source>
         <translation>সব বার্তা</translation>
     </message>
@@ -8169,12 +8169,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>নিঃশব্দ</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+9"/>
         <source>Follow account default</source>
         <translation>অ্যাকাউন্টের ডিফল্ট অনুসরণ করুন</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+22"/>
         <source>Couldn&apos;t save to the server — kept on this device. Retried when you reconnect.</source>
         <translation>সার্ভারে সংরক্ষণ করা যায়নি — এই ডিভাইসে রাখা হয়েছে। আবার সংযুক্ত হলে চেষ্টা করা হবে।</translation>
     </message>
@@ -8202,7 +8202,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomActivityDelegate</name>
     <message>
-        <location filename="../qml/RoomActivityDelegate.qml" line="+81"/>
+        <location filename="../qml/RoomActivityDelegate.qml" line="+65"/>
         <source>%1 – %2</source>
         <translation>%1 – %2</translation>
     </message>
@@ -8217,7 +8217,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম হালনাগাদ প্রসারিত করুন</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+26"/>
         <source>Room updated</source>
         <translation>রুম হালনাগাদ হয়েছে</translation>
     </message>
@@ -8239,7 +8239,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomCallBanner</name>
     <message>
-        <location filename="../qml/RoomCallBanner.qml" line="+52"/>
+        <location filename="../qml/RoomCallBanner.qml" line="+41"/>
         <source>This build can&apos;t join Matrix calls</source>
         <translation>এই বিল্ডটি Matrix কলে যোগ দিতে পারে না</translation>
     </message>
@@ -8269,12 +8269,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই বিল্ডে এখনো যোগদানের কল সমর্থিত নয়</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+4"/>
         <source>You can&apos;t start or join calls in this room</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+4"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8284,7 +8284,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>যোগদান উপলব্ধ নয়</translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+116"/>
         <source>You are in a call</source>
         <translation>আপনি একটি কল আছে</translation>
     </message>
@@ -8299,7 +8299,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1ব্যক্তি কলে আছেন</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+34"/>
         <source>Join</source>
         <translation>যোগ দিন</translation>
     </message>
@@ -8307,7 +8307,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomCallGlyph</name>
     <message>
-        <location filename="../qml/RoomCallGlyph.qml" line="+105"/>
+        <location filename="../qml/RoomCallGlyph.qml" line="+82"/>
         <source>You are in a call in this room</source>
         <translation>আপনি এই রুমে একটি কল আছে</translation>
     </message>
@@ -8320,12 +8320,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomChannelsPresenter</name>
     <message>
-        <location filename="../qml/RoomChannelsPresenter.qml" line="+87"/>
+        <location filename="../qml/RoomChannelsPresenter.qml" line="+52"/>
         <source>No conversations yet. Rooms you join, and the spaces they belong to, will show up here.</source>
         <translation>এখনো কোনো কথোপকথন নেই। আপনি যে রুমগুলিতে যোগদান করেন এবং সেগুলি যে স্পেসগুলির অন্তর্গত সেগুলি এখানে দেখাবে৷</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+23"/>
         <source>Nothing in this list matches &quot;%1&quot;.</source>
         <translation>এই তালিকার কিছুই “%1”-এর সঙ্গে মেলে না।</translation>
     </message>
@@ -8335,7 +8335,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>অপঠিত কিছুই না. এই দৃশ্যে সবকিছু পড়া হয়েছে।</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>No direct messages yet. Start one with Create Chat.</source>
         <translation>এখনও কোন সরাসরি বার্তা নেই. চ্যাট তৈরি করে শুরু করুন।</translation>
     </message>
@@ -8363,17 +8363,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1, %2টি উল্লেখ</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+4"/>
         <source>%1, muted</source>
         <translation>%1, নিঃশব্দ</translation>
     </message>
     <message>
-        <location line="+126"/>
+        <location line="+80"/>
         <source>Yesterday</source>
         <translation>গতকাল</translation>
     </message>
     <message>
-        <location line="+347"/>
+        <location line="+275"/>
         <source>Space invitation from %1</source>
         <translation>%1-এর কাছ থেকে স্পেস আমন্ত্রণ</translation>
     </message>
@@ -8413,7 +8413,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুমের আমন্ত্রণ প্রত্যাখ্যান করুন</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+24"/>
         <source>Upgraded</source>
         <translation>আপগ্রেড হয়েছে</translation>
     </message>
@@ -8423,7 +8423,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই রুমটি আপগ্রেড করা হয়েছে</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+9"/>
         <source>Join request pending</source>
         <translation>যোগ দেওয়ার অনুরোধ অপেক্ষমাণ</translation>
     </message>
@@ -8441,7 +8441,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomDiscoveryController</name>
     <message>
-        <location filename="../src/app/RoomDiscoveryController.cpp" line="+337"/>
+        <location filename="../src/app/RoomDiscoveryController.cpp" line="+324"/>
         <source>You are banned from this room.</source>
         <translation>এই রুম থেকে আপনাকে নিষিদ্ধ করা হয়েছে।</translation>
     </message>
@@ -8479,12 +8479,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoController</name>
     <message>
-        <location filename="../src/app/RoomInfoController.cpp" line="+41"/>
+        <location filename="../src/app/RoomInfoController.cpp" line="+40"/>
         <source>The server did not accept the change.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+339"/>
+        <location line="+325"/>
         <source>You do not have permission to change that.</source>
         <translation>এটি বদলানোর অনুমতি আপনার নেই।</translation>
     </message>
@@ -8494,7 +8494,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>পরিবর্তনটি সংরক্ষণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+49"/>
         <location line="+11"/>
         <source>The server refused to leave this room.</source>
         <translation>সার্ভার এই রুম ছাড়তে অস্বীকার করেছে।</translation>
@@ -8506,7 +8506,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম ছাড়া ব্যর্থ হয়েছে। আপনার সংযোগ দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+107"/>
+        <location line="+100"/>
         <source>The action could not be sent.</source>
         <translation>ক্রিয়াটি পাঠানো যায়নি।</translation>
     </message>
@@ -8521,13 +8521,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>ক্রিয়াটি ব্যর্থ হয়েছে। আপনার সংযোগ দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+12"/>
-        <location line="+458"/>
+        <location line="+11"/>
+        <location line="+432"/>
         <source>The invite could not be sent.</source>
         <translation>আমন্ত্রণটি পাঠানো যায়নি।</translation>
     </message>
     <message>
-        <location line="-417"/>
+        <location line="-398"/>
         <location line="+6"/>
         <source>Member</source>
         <translation>সদস্য</translation>
@@ -8548,31 +8548,31 @@ Signing out and signing in again is the only fix.</source>
         <translation>কাস্টম (%1)</translation>
     </message>
     <message>
-        <location line="+48"/>
-        <location line="+308"/>
+        <location line="+46"/>
+        <location line="+293"/>
         <source>The change could not be sent. Check your connection and retry.</source>
         <translation>পরিবর্তনটি পাঠানো যায়নি। আপনার সংযোগ দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-285"/>
-        <location line="+309"/>
+        <location line="-270"/>
+        <location line="+294"/>
         <source>The server refused that change. Your permissions may have changed.</source>
         <translation>সার্ভার ওই পরিবর্তনটি প্রত্যাখ্যান করেছে। আপনার অনুমতি বদলে থাকতে পারে।</translation>
     </message>
     <message>
-        <location line="-306"/>
-        <location line="+309"/>
+        <location line="-291"/>
+        <location line="+294"/>
         <source>The server is rate limiting this action. Try again shortly.</source>
         <translation>সার্ভার এই ক্রিয়ার হার সীমিত করছে। একটু পরে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-307"/>
-        <location line="+309"/>
+        <location line="-292"/>
+        <location line="+294"/>
         <source>The change failed. Check your connection and retry.</source>
         <translation>পরিবর্তনটি ব্যর্থ হয়েছে। আপনার সংযোগ দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-295"/>
+        <location line="-282"/>
         <source>The change could not be sent.</source>
         <translation>পরিবর্তনটি পাঠানো যায়নি।</translation>
     </message>
@@ -8582,12 +8582,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+72"/>
         <source>The alias needs a server name.</source>
         <translation>উপনামের জন্য একটি সার্ভারের নাম দরকার।</translation>
     </message>
     <message>
-        <location line="+201"/>
+        <location line="+189"/>
         <source>You do not have permission to invite them.</source>
         <translation>তাঁদের আমন্ত্রণ জানানোর অনুমতি আপনার নেই।</translation>
     </message>
@@ -8595,18 +8595,18 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+270"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+178"/>
         <source>Choose room avatar</source>
         <translation>রুমের অবতার বেছে নিন</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+58"/>
         <source>Room information</source>
         <translation>রুমের তথ্য</translation>
     </message>
@@ -8626,12 +8626,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1সদস্য</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+13"/>
         <source>Close room information</source>
         <translation>রুমের তথ্য বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="-290"/>
+        <location line="-230"/>
         <source>Overview</source>
         <translation>সংক্ষিপ্ত বিবরণ</translation>
     </message>
@@ -8651,7 +8651,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>মিডিয়া</translation>
     </message>
     <message>
-        <location line="+421"/>
+        <location line="+321"/>
         <source>Notifications</source>
         <translation>বিজ্ঞপ্তি</translation>
     </message>
@@ -8661,8 +8661,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>বিজ্ঞপ্তি (এই ডিভাইস)</translation>
     </message>
     <message>
-        <location line="+18"/>
-        <location line="+9"/>
+        <location line="+15"/>
+        <location line="+8"/>
         <source>All messages</source>
         <translation>সব বার্তা</translation>
     </message>
@@ -8684,12 +8684,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>অ্যাকাউন্টের ডিফল্ট অনুসরণ করুন</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+65"/>
         <source>Couldn&apos;t save to the server — kept on this device. Retried when you reconnect.</source>
         <translation>সার্ভারে সংরক্ষণ করা যায়নি — এই ডিভাইসে রাখা হয়েছে। আবার সংযুক্ত হলে চেষ্টা করা হবে।</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+8"/>
         <source>This room has no override — your account&apos;s settings apply on the server. This device notifies for all messages.</source>
         <translation>এই রুমের আলাদা নিয়ম নেই — সার্ভারে আপনার অ্যাকাউন্টের সেটিংস প্রযোজ্য। এই ডিভাইস সব বার্তার জন্য বিজ্ঞপ্তি দেয়।</translation>
     </message>
@@ -8704,7 +8704,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্থানীয় সেটিং: এটি এই রুমের সার্ভার পুশ নিয়ম বদলায় না।</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+46"/>
         <source>(unnamed room)</source>
         <translation>(নামহীন রুম)</translation>
     </message>
@@ -8724,32 +8724,32 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 জন সদস্য (%2 জন আমন্ত্রিত)</translation>
     </message>
     <message>
-        <location line="-607"/>
+        <location line="-512"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2216"/>
+        <location line="+1940"/>
         <source>Open</source>
         <translation type="unfinished">খুলুন</translation>
     </message>
     <message>
-        <location line="-1535"/>
+        <location line="-1375"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-493"/>
+        <location line="-419"/>
         <source>Choose your avatar for this room</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+459"/>
+        <location line="+391"/>
         <source>Bridged via %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+19"/>
         <source>Moderation rules…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8774,7 +8774,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম সম্পাদনা করুন</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+12"/>
         <source>Change avatar…</source>
         <translation>অবতার বদলান…</translation>
     </message>
@@ -8784,25 +8784,25 @@ Signing out and signing in again is the only fix.</source>
         <translation>অবতার সরান</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+14"/>
         <source>Room name</source>
         <translation>রুমের নাম</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <location line="+26"/>
-        <location line="+116"/>
-        <location line="+448"/>
+        <location line="+10"/>
+        <location line="+25"/>
+        <location line="+105"/>
+        <location line="+425"/>
         <source>Save</source>
         <translation>সংরক্ষণ করুন</translation>
     </message>
     <message>
-        <location line="-575"/>
+        <location line="-540"/>
         <source>Topic</source>
         <translation>বিষয়</translation>
     </message>
     <message>
-        <location line="+91"/>
+        <location line="+81"/>
         <source>Your profile in this room</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8812,12 +8812,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+17"/>
         <source>Your name in this room</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+20"/>
         <source>Change picture…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8832,7 +8832,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>প্রবেশাধিকার</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+17"/>
         <source>Who can join</source>
         <translation>কে যোগ দিতে পারে</translation>
     </message>
@@ -8852,7 +8852,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>যোগ দেওয়ার অনুরোধ (নক)</translation>
     </message>
     <message>
-        <location line="+318"/>
+        <location line="+306"/>
         <source>Published address</source>
         <translation>প্রকাশিত ঠিকানা</translation>
     </message>
@@ -8862,19 +8862,19 @@ Signing out and signing in again is the only fix.</source>
         <translation>#রুমের-নাম</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+48"/>
         <source>Alternative addresses</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+811"/>
-        <location line="+94"/>
+        <location line="+695"/>
+        <location line="+85"/>
         <source>Remove</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-885"/>
+        <location line="-760"/>
         <source>#another-name</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8890,12 +8890,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+892"/>
+        <location line="+767"/>
         <source>Leave room</source>
         <translation>রুম ছাড়ুন</translation>
     </message>
     <message>
-        <location line="-854"/>
+        <location line="-732"/>
         <source>No pinned messages</source>
         <translation>কোনো পিন করা বার্তা নেই</translation>
     </message>
@@ -8913,12 +8913,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>সাম্প্রতিকতম পিনগুলি দেখানো হচ্ছে। এই রুমে Lightning একবারে যত লোড করে তার চেয়ে বেশি পিন করা আছে।</translation>
     </message>
     <message>
-        <location line="+101"/>
+        <location line="+97"/>
         <source>Message unavailable</source>
         <translation>বার্তা উপলব্ধ নয়</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+38"/>
         <source>It may have been deleted, or this account cannot see it.</source>
         <translation>এটি মুছে ফেলা হয়ে থাকতে পারে, অথবা এই অ্যাকাউন্ট এটি দেখতে পারে না।</translation>
     </message>
@@ -8988,7 +8988,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>বার্তা</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+16"/>
         <source>Unpin this message</source>
         <translation>এই বার্তা আনপিন করুন</translation>
     </message>
@@ -8998,12 +8998,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>আনপিন করুন</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+55"/>
         <source>Type name…</source>
         <translation>নাম টাইপ করুন…</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+9"/>
         <source>Filter members by membership</source>
         <translation>সদস্যতা দ্বারা সদস্যদের ফিল্টার</translation>
     </message>
@@ -9028,7 +9028,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>সবাইকে দেখানো হচ্ছে - যোগদানের জন্য ক্লিক করুন</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+18"/>
         <source>Sort members alphabetically</source>
         <translation>বর্ণানুক্রমিকভাবে সদস্যদের সাজান</translation>
     </message>
@@ -9043,32 +9043,32 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভূমিকা অনুসারে সাজানো — A থেকে Z-এর জন্য ক্লিক করুন</translation>
     </message>
     <message>
-        <location line="+99"/>
+        <location line="+90"/>
         <source>%1 — %2</source>
         <translation>%1 — %2</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+18"/>
         <source>%1 (%2), %3</source>
         <translation>%1(%2), %3</translation>
     </message>
     <message>
-        <location line="-111"/>
+        <location line="-99"/>
         <source>Invite people to this room</source>
         <translation>এই রুমে লোক আমন্ত্রণ করুন</translation>
     </message>
     <message>
-        <location line="-809"/>
+        <location line="-754"/>
         <source>Members of selected spaces can join</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+50"/>
         <source>Spaces whose members may join</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+53"/>
         <source>Join a space first; only spaces you are in can be chosen.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9128,7 +9128,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+23"/>
         <source>Room version %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9138,12 +9138,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+555"/>
+        <location line="+504"/>
         <source>Invite people</source>
         <translation>লোক আমন্ত্রণ করুন</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+14"/>
         <source>Loading members…</source>
         <translation>সদস্য লোড হচ্ছে…</translation>
     </message>
@@ -9153,7 +9153,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%2 জনের মধ্যে প্রথম %1 জন দেখানো হচ্ছে।</translation>
     </message>
     <message>
-        <location line="+174"/>
+        <location line="+138"/>
         <source>Invited</source>
         <translation>আমন্ত্রিত</translation>
     </message>
@@ -9163,12 +9163,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>নিষিদ্ধ</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+38"/>
         <source>No widgets in this room.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+18"/>
         <source>You do not have permission to change widgets here.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9183,7 +9183,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+127"/>
+        <location line="+108"/>
         <source>Remove widget?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9217,12 +9217,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+140"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+91"/>
         <source>Invites</source>
         <translation>আমন্ত্রণ</translation>
     </message>
     <message>
-        <location line="-93"/>
+        <location line="-61"/>
         <source>People</source>
         <translation>লোক</translation>
     </message>
@@ -9242,12 +9242,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>কথোপকথন</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+60"/>
         <source>Favourites</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+80"/>
+        <location line="+68"/>
         <source>Sign in to see rooms</source>
         <translation>রুম দেখতে সাইন ইন করুন</translation>
     </message>
@@ -9262,7 +9262,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>কোনো মিল নেই</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+4"/>
         <source>No direct messages</source>
         <translation>কোন সরাসরি বার্তা নেই</translation>
     </message>
@@ -9292,7 +9292,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই তালিকার কিছুই “%1”-এর সঙ্গে মেলে না।</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+6"/>
         <source>No direct messages with people in this Space. All of them are under “All rooms”.</source>
         <translation>এই স্পেসে লোকেদের সাথে কোনো সরাসরি বার্তা নেই৷ তাদের সব &quot;সমস্ত রুম&quot; অধীনে আছে.</translation>
     </message>
@@ -9322,7 +9322,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>অনুসন্ধান মুছুন</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+16"/>
         <source>New message</source>
         <translation>নতুন বার্তা</translation>
     </message>
@@ -9335,7 +9335,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+150"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+143"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation>%1 পরিচিতি</translation>
@@ -9349,14 +9349,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+107"/>
         <source>Sign in to see rooms</source>
         <translation>রুম দেখতে সাইন ইন করুন</translation>
     </message>
     <message>
         <location line="+2"/>
         <location filename="../qml/SpaceLobby.qml" line="-63"/>
-        <location line="+243"/>
+        <location line="+237"/>
         <source>Loading rooms…</source>
         <translation>রুম লোড হচ্ছে…</translation>
     </message>
@@ -9374,23 +9374,23 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomUpgradeController</name>
     <message>
-        <location filename="../src/app/RoomUpgradeController.cpp" line="+265"/>
+        <location filename="../src/app/RoomUpgradeController.cpp" line="+214"/>
         <source>You are not a member of the new room, and it cannot be joined from here.</source>
         <translation>আপনি নতুন রুমের সদস্য নন, এবং এখান থেকে সেটিতে যোগ দেওয়া যাবে না।</translation>
     </message>
     <message>
-        <location line="+12"/>
-        <location line="+28"/>
+        <location line="+9"/>
+        <location line="+19"/>
         <source>Could not join the new room right now. Try again.</source>
         <translation>এখন নতুন রুমে যোগ দেওয়া যায়নি। আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+60"/>
         <source>The room to upgrade is not known.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+15"/>
         <source>Pick a room version the server supports.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9400,17 +9400,17 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+32"/>
         <source>The server refused the upgrade: you are not allowed to upgrade this room.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+13"/>
         <source>The room was upgraded, but the server did not say which room replaced it. Look for the new room in your room list.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-25"/>
+        <location line="-22"/>
         <location line="+13"/>
         <source>The upgrade did not complete. Nothing was changed.</source>
         <translation type="unfinished"></translation>
@@ -9419,7 +9419,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomUpgradeDialog</name>
     <message>
-        <location filename="../qml/RoomUpgradeDialog.qml" line="+77"/>
+        <location filename="../qml/RoomUpgradeDialog.qml" line="+72"/>
         <source>Upgrade this space</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9487,7 +9487,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomsPanel</name>
     <message>
-        <location filename="../qml/RoomsPanel.qml" line="+195"/>
+        <location filename="../qml/RoomsPanel.qml" line="+147"/>
         <location line="+3"/>
         <location line="+5"/>
         <source>Lightning</source>
@@ -9509,12 +9509,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>অন্যান্য রুম</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+24"/>
         <source>Open Space overview</source>
         <translation>স্পেসের সংক্ষিপ্ত বিবরণ খুলুন</translation>
     </message>
     <message>
-        <location line="+140"/>
+        <location line="+100"/>
         <source>Search</source>
         <translation>খুঁজুন</translation>
     </message>
@@ -9524,7 +9524,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম খুঁজুন</translation>
     </message>
     <message>
-        <location line="+58"/>
+        <location line="+46"/>
         <source>Start a new conversation</source>
         <translation>নতুন আলাপ শুরু করুন</translation>
     </message>
@@ -9534,7 +9534,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>নতুন আলাপ</translation>
     </message>
     <message numerus="yes">
-        <location line="+18"/>
+        <location line="+17"/>
         <source>Activity, %n unseen</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -9554,7 +9554,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম খুঁজুন</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+59"/>
         <location line="+3"/>
         <location line="+2"/>
         <source>All</source>
@@ -9579,7 +9579,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>অপঠিত</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+71"/>
         <source>Leave room?</source>
         <translation>রুম ছাড়বেন?</translation>
     </message>
@@ -9599,7 +9599,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম ছাড়ুন</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+24"/>
         <source>Couldn&apos;t leave &quot;%1&quot;</source>
         <translation>“%1” ছাড়া যায়নি</translation>
     </message>
@@ -9612,72 +9612,72 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+370"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+340"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning এই অ্যাকাউন্টের জন্য তার স্থানীয় সংরক্ষণ ডিরেক্টরি তৈরি করতে পারেনি। ফাইল সিস্টেমের অনুমতি ও খালি জায়গা দেখুন।</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+513"/>
+        <location line="+405"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Rust SDK ব্যাকএন্ড হ্যান্ডেল তৈরি ব্যর্থ হয়েছে।</translation>
     </message>
     <message>
-        <location line="-254"/>
+        <location line="-200"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
         <translation>এই অ্যাকাউন্টের স্থানীয় সংরক্ষণ নাম এই ডিভাইসে ইতিমধ্যেই সংরক্ষিত অন্য একটি অ্যাকাউন্টের সঙ্গে সংঘর্ষ করছে। এটি দিয়ে সাইন ইন করতে চাইলে আগে ওই অ্যাকাউন্টটি সরান।</translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+70"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>এই অ্যাকাউন্টের একটি অব্যবহারযোগ্য স্থানীয় সংরক্ষণ সরিয়ে রাখা যায়নি। ফাইল সিস্টেমের অনুমতি দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+60"/>
-        <location line="+177"/>
-        <location line="+106"/>
-        <location line="+398"/>
-        <location line="+114"/>
-        <location line="+89"/>
+        <location line="+47"/>
+        <location line="+154"/>
+        <location line="+104"/>
+        <location line="+375"/>
+        <location line="+102"/>
+        <location line="+82"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Rust SDK ব্যাকএন্ড চালু করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-716"/>
-        <location line="+105"/>
+        <location line="-672"/>
+        <location line="+104"/>
         <source>A homeserver is required.</source>
         <translation>একটি হোমসার্ভার আবশ্যক।</translation>
     </message>
     <message>
-        <location line="-88"/>
-        <location line="+107"/>
+        <location line="-87"/>
+        <location line="+105"/>
         <source>Lightning could not open a local port to receive the sign-in response. Check whether a firewall is blocking loopback connections.</source>
         <translation>সাইন-ইন প্রতিক্রিয়া নিতে Lightning একটি স্থানীয় পোর্ট খুলতে পারেনি। কোনো ফায়ারওয়াল লুপব্যাক সংযোগ আটকাচ্ছে কি না দেখুন।</translation>
     </message>
     <message>
-        <location line="-89"/>
-        <location line="+111"/>
-        <location line="+156"/>
-        <location line="+67"/>
+        <location line="-87"/>
+        <location line="+106"/>
+        <location line="+146"/>
+        <location line="+64"/>
         <source>The sign-in could not be completed.</source>
         <translation>সাইন-ইন সম্পূর্ণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-320"/>
-        <location line="+39"/>
-        <location line="+71"/>
+        <location line="-302"/>
+        <location line="+38"/>
+        <location line="+67"/>
         <location line="+42"/>
         <source>Sign-in was cancelled.</source>
         <translation>সাইন-ইন বাতিল করা হয়েছে।</translation>
     </message>
     <message>
-        <location line="-151"/>
+        <location line="-146"/>
         <source>The server refused the sign-in request.</source>
         <translation>সার্ভার সাইন-ইন অনুরোধ প্রত্যাখ্যান করেছে।</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+111"/>
+        <location line="+106"/>
         <source>The sign-in timed out. Please try again.</source>
         <translation>সাইন-ইনের সময় শেষ হয়ে গেছে। আবার চেষ্টা করুন।</translation>
     </message>
@@ -9687,25 +9687,25 @@ Signing out and signing in again is the only fix.</source>
         <translation>সাইন-ইন প্রতিক্রিয়া অসম্পূর্ণ ছিল৷ আবার চেষ্টা করুন.</translation>
     </message>
     <message>
-        <location line="+299"/>
+        <location line="+283"/>
         <source>The server completed sign-in without returning a usable session.</source>
         <translation>সার্ভার সাইন-ইন সম্পূর্ণ করেছে কিন্তু ব্যবহারযোগ্য কোনো সেশন ফেরত দেয়নি।</translation>
     </message>
     <message>
-        <location line="+458"/>
+        <location line="+421"/>
         <source>Enter a valid homeserver and Matrix user ID before resetting the local Lightning session.</source>
         <translation>স্থানীয় Lightning সেশন রিসেট করার আগে একটি বৈধ হোমসার্ভার ও Matrix ব্যবহারকারী আইডি দিন।</translation>
     </message>
     <message>
         <location line="+7"/>
         <location line="+10"/>
-        <location line="+62"/>
-        <location line="+2281"/>
+        <location line="+53"/>
+        <location line="+2147"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning এই অ্যাকাউন্টের স্থানীয় সেশন পুরোপুরি রিসেট করতে পারেনি। অ্যাপ্লিকেশন লগ ও ফাইল সিস্টেমের অনুমতি দেখে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-2297"/>
+        <location line="-2163"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>স্থানীয় Lightning সেশন নতুন করে গড়া হয়েছে। আগের এনক্রিপশন সংরক্ষণ সরিয়ে রাখা হয়েছে, মোছা হয়নি, এবং এখনও এই অ্যাকাউন্টের ডেটা ডিরেক্টরিতে আছে। আপনি আবার সাইন ইন করতে পারেন।</translation>
     </message>
@@ -9715,76 +9715,76 @@ Signing out and signing in again is the only fix.</source>
         <translation>ওই অ্যাকাউন্টের জন্য Lightning-এর কোনো সংরক্ষিত সেশন বা স্থানীয় ডেটা নেই, তাই রিসেট করার কিছু ছিল না। Matrix ব্যবহারকারী আইডি দেখে সাইন ইন করার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+223"/>
-        <location line="+64"/>
-        <location line="+157"/>
-        <location line="+3719"/>
-        <location line="+94"/>
+        <location line="+205"/>
+        <location line="+61"/>
+        <location line="+151"/>
+        <location line="+3353"/>
+        <location line="+93"/>
         <location line="+13"/>
-        <location line="+51"/>
-        <location line="+37"/>
+        <location line="+50"/>
+        <location line="+34"/>
         <source>Not signed in.</source>
         <translation>সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="-4131"/>
-        <location line="+64"/>
-        <location line="+157"/>
-        <location line="+3916"/>
+        <location line="-3751"/>
+        <location line="+61"/>
+        <location line="+151"/>
+        <location line="+3545"/>
         <source>Unknown room: %1</source>
         <translation>অজানা রুম: %1</translation>
     </message>
     <message>
-        <location line="-4133"/>
-        <location line="+64"/>
-        <location line="+157"/>
+        <location line="-3753"/>
+        <location line="+61"/>
+        <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>এনক্রিপ্টেড রুমে এখনও পাঠানো যায় না: Rust SDK-এর এনক্রিপ্টেড পাঠানো যাচাই করা হয়নি।</translation>
     </message>
     <message>
-        <location line="+548"/>
-        <location line="+2002"/>
-        <location line="+63"/>
+        <location line="+519"/>
+        <location line="+1820"/>
+        <location line="+54"/>
         <source>The sticker could not be sent.</source>
         <translation>স্টিকার পাঠানো যায়নি।</translation>
     </message>
     <message>
-        <location line="-999"/>
+        <location line="-854"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+12"/>
         <source>This room is still loading. Try that again in a moment.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+196"/>
+        <location line="+175"/>
         <source>Local Lightning session reset. You can sign in again.</source>
         <translation>স্থানীয় Lightning সেশন রিসেট হয়েছে। আপনি আবার সাইন ইন করতে পারেন।</translation>
     </message>
     <message>
-        <location line="+143"/>
+        <location line="+123"/>
         <source>Rust SDK login response did not include a user id.</source>
         <translation>Rust SDK লগইন প্রতিক্রিয়ায় ব্যবহারকারী আইডি ছিল না।</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+38"/>
         <source>Rust SDK login failed.</source>
         <translation>Rust SDK লগইন ব্যর্থ হয়েছে।</translation>
     </message>
     <message>
-        <location line="+137"/>
+        <location line="+127"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>Matrix সেশন আর অনুমোদিত নয়।</translation>
     </message>
     <message>
-        <location line="+98"/>
+        <location line="+85"/>
         <source>Invite action failed. Try again.</source>
         <translation>আমন্ত্রণ ক্রিয়া ব্যর্থ হয়েছে। আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+284"/>
+        <location line="+236"/>
         <location line="+26"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
@@ -9800,7 +9800,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+7"/>
         <source>That message had already been sent, so it could not be cancelled.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9810,23 +9810,23 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+5"/>
         <source>That message is no longer available to retry.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+6"/>
         <source>The edit could not be applied.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-55"/>
-        <location line="+63"/>
+        <location line="-46"/>
+        <location line="+54"/>
         <source>The poll action could not be completed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4460"/>
+        <location line="-4074"/>
         <source>Enter your homeserver, for example https://matrix.org</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9836,7 +9836,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+5"/>
         <source>That homeserver address is not a full URL. Include https://, for example https://matrix.org</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9851,7 +9851,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4448"/>
+        <location line="+4063"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>বার্তাটি পাঠানো যায়নি। বার্তার “আবার চেষ্টা করুন” ক্রিয়া থেকে আবার চেষ্টা করতে পারেন।</translation>
     </message>
@@ -9861,7 +9861,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুমের টাইমলাইন খোলা যায়নি।</translation>
     </message>
     <message>
-        <location line="+58"/>
+        <location line="+55"/>
         <source>Reload timeline failed: %1</source>
         <translation>টাইমলাইন আবার লোড করা ব্যর্থ: %1</translation>
     </message>
@@ -9876,7 +9876,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম-কী আমদানি ব্যর্থ হয়েছে।</translation>
     </message>
     <message>
-        <location line="+121"/>
+        <location line="+114"/>
         <source>Rust SDK sync failed.</source>
         <translation>Rust SDK সিঙ্ক ব্যর্থ হয়েছে।</translation>
     </message>
@@ -9886,17 +9886,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rust SDK ব্যাকএন্ড ত্রুটি।</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+16"/>
         <source>Rust SDK event queue overflowed.</source>
         <translation>Rust SDK ইভেন্ট সারি উপচে পড়েছে।</translation>
     </message>
     <message>
-        <location line="+258"/>
+        <location line="+207"/>
         <source>[unable to decrypt yet]</source>
         <translation>[এখনও ডিক্রিপ্ট করা যাচ্ছে না]</translation>
     </message>
     <message>
-        <location line="+542"/>
+        <location line="+469"/>
         <source>Rust SDK send failed.</source>
         <translation>Rust SDK পাঠানো ব্যর্থ হয়েছে।</translation>
     </message>
@@ -9906,17 +9906,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>পুনরুদ্ধার কী ফাঁকা।</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <source>Reload timeline: not signed in.</source>
         <translation>টাইমলাইন আবার লোড: সাইন ইন করা নেই।</translation>
     </message>
     <message>
-        <location line="+138"/>
+        <location line="+137"/>
         <source>No file selected.</source>
         <translation>কোনো ফাইল নির্বাচিত হয়নি।</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+41"/>
         <source>Probe refused: target room is not encrypted.</source>
         <translation>প্রোব প্রত্যাখ্যাত: লক্ষ্য রুমটি এনক্রিপ্টেড নয়।</translation>
     </message>
@@ -9940,7 +9940,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustTimeline</name>
     <message>
-        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+467"/>
+        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+420"/>
         <source>[unable to decrypt yet]</source>
         <translation>[এখনও ডিক্রিপ্ট করা যাচ্ছে না]</translation>
     </message>
@@ -9948,7 +9948,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ScheduledSendController</name>
     <message>
-        <location filename="../src/models/ScheduledSendController.cpp" line="+78"/>
+        <location filename="../src/models/ScheduledSendController.cpp" line="+70"/>
         <source>Kept in Lightning instead: the server cannot hold an encrypted message.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9993,12 +9993,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+77"/>
+        <location line="+75"/>
         <source>Lightning could not reach the server to send this now. It is still scheduled.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+152"/>
+        <location line="+151"/>
         <source>Waiting for the connection.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10006,12 +10006,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ScreenSharePicker</name>
     <message>
-        <location filename="../qml/ScreenSharePicker.qml" line="+36"/>
+        <location filename="../qml/ScreenSharePicker.qml" line="+17"/>
         <source>Choose what to share</source>
         <translation>কি শেয়ার করবেন তা বেছে নিন</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+81"/>
         <source>Display %1</source>
         <translation>প্রদর্শন %1</translation>
     </message>
@@ -10021,7 +10021,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>শিরোনামহীন উইন্ডো</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+19"/>
         <source>This screen</source>
         <translation>এই পর্দা</translation>
     </message>
@@ -10031,7 +10031,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>প্রাথমিক</translation>
     </message>
     <message>
-        <location line="+232"/>
+        <location line="+196"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>কলে থাকা প্রত্যেকে আপনার বাছাই করা সম্পূর্ণ ডিসপ্লে দেখতে পায়।</translation>
     </message>
@@ -10041,7 +10041,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>একটি স্ক্রিন এতে সবকিছু শেয়ার করে। একটি উইন্ডো শুধুমাত্র সেই উইন্ডোটি শেয়ার করে, এমনকি তার সামনে কিছু থাকলেও।</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+11"/>
         <source>Applications</source>
         <translation>অ্যাপ্লিকেশন</translation>
     </message>
@@ -10051,7 +10051,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>পর্দা</translation>
     </message>
     <message>
-        <location line="+229"/>
+        <location line="+207"/>
         <source>No screens were found.</source>
         <translation>কোন পর্দা পাওয়া যায়নি.</translation>
     </message>
@@ -10066,7 +10066,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই প্ল্যাটফর্মে একটি একক উইন্ডো শেয়ার করা এখনও উপলব্ধ নেই৷ পরিবর্তে একটি পর্দা চয়ন করুন.</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+14"/>
         <source>Quality</source>
         <translation>গুণমান</translation>
     </message>
@@ -10096,7 +10096,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্ক্রীন শেয়ার রেজোলিউশন</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+25"/>
         <source>15 fps</source>
         <translation>15 fps</translation>
     </message>
@@ -10126,7 +10126,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>অডিও শেয়ার করুন</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+24"/>
         <source>Send what this computer is playing, alongside the picture. Where this system allows it, Lightning&apos;s own audio is left out so the others do not hear themselves.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10164,12 +10164,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুমের সদস্য খুঁজুন…</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+32"/>
         <source>%1, %2</source>
         <translation>%1, %2</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+47"/>
         <source>Select %1</source>
         <translation>%1 নির্বাচন করুন</translation>
     </message>
@@ -10177,7 +10177,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SearchPanel</name>
     <message>
-        <location filename="../qml/SearchPanel.qml" line="+120"/>
+        <location filename="../qml/SearchPanel.qml" line="+115"/>
         <source>Use dates in YYYY-MM-DD format.</source>
         <translation>YYYY-MM-DD বিন্যাসে তারিখ ব্যবহার করুন।</translation>
     </message>
@@ -10218,17 +10218,17 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+28"/>
-        <location line="+13"/>
+        <location line="+12"/>
         <source>Search filters</source>
         <translation>অনুসন্ধান ফিল্টার</translation>
     </message>
     <message>
-        <location line="-12"/>
+        <location line="-11"/>
         <source>Search messages</source>
         <translation>বার্তা খুঁজুন</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <source>Cancel filters</source>
         <translation>ফিল্টার বাতিল করুন</translation>
     </message>
@@ -10258,12 +10258,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>সার্ভার-সাইড অনুসন্ধান। অতিরিক্ত ফিল্টার একটি সীমিত ফলাফল উইন্ডোতে প্রয়োগ হয়।</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+46"/>
         <source>Open message from %1</source>
         <translation>%1-এর বার্তা খুলুন</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+78"/>
         <source>Search could not be completed.</source>
         <translation>অনুসন্ধান সম্পূর্ণ করা যায়নি।</translation>
     </message>
@@ -10328,7 +10328,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>নির্বাচিত যেকোনো কনটেন্ট ধরন আছে</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+26"/>
         <location line="+4"/>
         <source>Pinned</source>
         <translation>পিন করা</translation>
@@ -10367,7 +10367,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SendLaterDialog</name>
     <message>
-        <location filename="../qml/SendLaterDialog.qml" line="+125"/>
+        <location filename="../qml/SendLaterDialog.qml" line="+117"/>
         <source>Send later</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10501,39 +10501,39 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SettingsScreen</name>
     <message>
-        <location filename="../qml/SettingsScreen.qml" line="+95"/>
+        <location filename="../qml/SettingsScreen.qml" line="+58"/>
         <location line="+1"/>
         <location line="+3"/>
-        <location line="+876"/>
-        <location line="+766"/>
-        <location line="+3918"/>
+        <location line="+710"/>
+        <location line="+630"/>
+        <location line="+3416"/>
         <source>Account</source>
         <translation>অ্যাকাউন্ট</translation>
     </message>
     <message>
-        <location line="-5564"/>
+        <location line="-4760"/>
         <source>account profile</source>
         <translation>অ্যাকাউন্ট প্রোফাইল</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6655"/>
+        <location line="+5700"/>
         <source>Homeserver</source>
         <translation>হোমসার্ভার</translation>
     </message>
     <message>
-        <location line="-6655"/>
+        <location line="-5700"/>
         <source>homeserver server url</source>
         <translation>হোমসার্ভার সার্ভার url</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6690"/>
+        <location line="+5735"/>
         <source>Start minimized</source>
         <translation>ছোট করে শুরু করুন</translation>
     </message>
     <message>
-        <location line="-6690"/>
+        <location line="-5735"/>
         <source>startup minimized</source>
         <translation>শুরুতে ছোট করা</translation>
     </message>
@@ -10544,38 +10544,38 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1837"/>
+        <location line="+1522"/>
         <source>Theme</source>
         <translation>থিম</translation>
     </message>
     <message>
-        <location line="-1836"/>
+        <location line="-1521"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
         <translation>থিম moss indigo teal হালকা গাঢ় graphite midnight nordic purple warm</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+8"/>
-        <location line="+13"/>
+        <location line="+11"/>
         <location line="+4"/>
         <location line="+3"/>
         <location line="+11"/>
-        <location line="+830"/>
-        <location line="+770"/>
-        <location line="+180"/>
+        <location line="+666"/>
+        <location line="+634"/>
+        <location line="+167"/>
         <source>Appearance</source>
         <translation>চেহারা</translation>
     </message>
     <message>
-        <location line="-1817"/>
-        <location line="+1468"/>
-        <location line="+1006"/>
-        <location line="+83"/>
+        <location line="-1502"/>
+        <location line="+1172"/>
+        <location line="+819"/>
+        <location line="+55"/>
         <source>Match system light/dark</source>
         <translation>সিস্টেমের হালকা/গাঢ় অনুসরণ করুন</translation>
     </message>
     <message>
-        <location line="-2556"/>
+        <location line="-2045"/>
         <source>match system auto theme</source>
         <translation>সিস্টেম অনুসরণ স্বয়ংক্রিয় থিম</translation>
     </message>
@@ -10586,57 +10586,57 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2627"/>
+        <location line="+2112"/>
         <source>Message layout</source>
         <translation>বার্তার বিন্যাস</translation>
     </message>
     <message>
-        <location line="-2626"/>
+        <location line="-2111"/>
         <source>message layout modern bubbles compact</source>
         <translation>বার্তার বিন্যাস আধুনিক বাবল সংক্ষিপ্ত</translation>
     </message>
     <message>
-        <location line="+13"/>
-        <location line="+2638"/>
+        <location line="+11"/>
+        <location line="+2125"/>
         <source>Text size</source>
         <translation>লেখার আকার</translation>
     </message>
     <message>
-        <location line="-2638"/>
+        <location line="-2125"/>
         <source>text size font scale</source>
         <translation>লেখার আকার ফন্ট স্কেল</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2741"/>
+        <location line="+2214"/>
         <location line="+16"/>
         <source>Interface zoom</source>
         <translation>ইন্টারফেস জুম</translation>
     </message>
     <message>
-        <location line="-2756"/>
+        <location line="-2229"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>ইন্টারফেস জুম স্কেল বড় ui আকার</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2824"/>
+        <location line="+2292"/>
         <source>Font</source>
         <translation>ফন্ট</translation>
     </message>
     <message>
-        <location line="-2824"/>
+        <location line="-2292"/>
         <source>font family typeface</source>
         <translation>ফন্ট পরিবার টাইপফেস</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2998"/>
+        <location line="+2441"/>
         <source>Code font</source>
         <translation>কোড ফন্ট</translation>
     </message>
     <message>
-        <location line="-2997"/>
+        <location line="-2440"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>কোড ফন্ট মনোস্পেস মনো স্থির প্রস্থ টাইপফেস</translation>
     </message>
@@ -10648,35 +10648,35 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+3063"/>
+        <location line="+2506"/>
         <source>Your own fonts</source>
         <translation>আপনার নিজস্ব ফন্ট</translation>
     </message>
     <message>
-        <location line="-3062"/>
+        <location line="-2505"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>ইম্পোর্ট ফন্ট ফাইল ttf otf কাস্টম টাইপফেস ইনস্টল করুন</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3594"/>
+        <location line="+2993"/>
         <source>Language</source>
         <translation>ভাষা</translation>
     </message>
     <message>
-        <location line="-3594"/>
+        <location line="-2993"/>
         <source>language locale</source>
         <translation>ভাষা লোকেল</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1438"/>
-        <location line="+1916"/>
+        <location line="+1144"/>
+        <location line="+1618"/>
         <source>Show room activity</source>
         <translation>রুমের কার্যকলাপ দেখান</translation>
     </message>
     <message>
-        <location line="-3353"/>
+        <location line="-2761"/>
         <source>room activity membership joins leaves profile</source>
         <translation>রুমের কার্যকলাপ সদস্যপদ যোগদান প্রস্থান প্রোফাইল</translation>
     </message>
@@ -10691,48 +10691,48 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-19"/>
-        <location line="+3437"/>
+        <location line="+2836"/>
         <source>Mouse-wheel speed</source>
         <translation>মাউস-হুইলের গতি</translation>
     </message>
     <message>
-        <location line="-3436"/>
+        <location line="-2835"/>
         <source>wheel speed scroll timeline</source>
         <translation>হুইল গতি স্ক্রল টাইমলাইন</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1464"/>
-        <location line="+1909"/>
+        <location line="+1166"/>
+        <location line="+1612"/>
         <source>Joins, leaves and invites</source>
         <translation>যোগদান, ছেড়ে এবং আমন্ত্রণ</translation>
     </message>
     <message>
-        <location line="-3372"/>
+        <location line="-2777"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>সদস্যতা যোগদান ছুটি আমন্ত্রণ কিক নিষিদ্ধ কার্যকলাপ লুকান</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1468"/>
-        <location line="+1911"/>
+        <location line="+1170"/>
+        <location line="+1614"/>
         <source>Display name and avatar changes</source>
         <translation>প্রদর্শনের নাম এবং অবতার পরিবর্তন</translation>
     </message>
     <message>
-        <location line="-3378"/>
+        <location line="-2783"/>
         <source>profile change display name avatar activity hide</source>
         <translation>প্রোফাইল পরিবর্তন প্রদর্শন নাম অবতার কার্যকলাপ লুকান</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+1471"/>
-        <location line="+2176"/>
+        <location line="+1173"/>
+        <location line="+1868"/>
         <source>Reduce motion</source>
         <translation>গতি কমানো</translation>
     </message>
     <message>
-        <location line="-3646"/>
+        <location line="-3040"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation>কম মোশন অ্যানিমেশন অ্যাক্সেসিবিলিটি ভেস্টিবুলার</translation>
     </message>
@@ -10745,36 +10745,36 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-9"/>
-        <location line="+1473"/>
-        <location line="+2183"/>
+        <location line="+1175"/>
+        <location line="+1871"/>
         <source>Smooth scrolling</source>
         <translation>মসৃণ স্ক্রোলিং</translation>
     </message>
     <message>
-        <location line="-3655"/>
+        <location line="-3045"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation>মসৃণ স্ক্রলিং স্ক্রোল হুইল গ্লাইড অ্যানিমেশন তাত্ক্ষণিক জম্পি মাউস</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3677"/>
+        <location line="+3063"/>
         <source>Clock</source>
         <translation>ঘড়ি</translation>
     </message>
     <message>
-        <location line="-3676"/>
+        <location line="-3062"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation>ঘড়ি 24 ঘন্টা সময় বিন্যাস am pm টাইমস্ট্যাম্প</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1470"/>
-        <location line="+2261"/>
+        <location line="+1172"/>
+        <location line="+1937"/>
         <source>Show Space banners</source>
         <translation>স্পেস ব্যানার দেখান</translation>
     </message>
     <message>
-        <location line="-3730"/>
+        <location line="-3108"/>
         <source>space banner header image hide show</source>
         <translation>স্থান ব্যানার হেডার ছবি লুকান শো</translation>
     </message>
@@ -10788,35 +10788,35 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-6"/>
-        <location line="+3762"/>
+        <location line="+3136"/>
         <source>Conversation list width</source>
         <translation>কথোপকথনের তালিকার প্রস্থ</translation>
     </message>
     <message>
-        <location line="-3761"/>
+        <location line="-3135"/>
         <source>room list width panel size sidebar</source>
         <translation>রুম তালিকা প্রস্থ প্যানেল আকার সাইডবার</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3775"/>
+        <location line="+3149"/>
         <source>Side panel width</source>
         <translation>সাইড প্যানেলের প্রস্থ</translation>
     </message>
     <message>
-        <location line="-3774"/>
+        <location line="-3148"/>
         <source>side panel width members threads size</source>
         <translation>পার্শ্ব প্যানেল প্রস্থ সদস্য থ্রেড আকার</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1465"/>
-        <location line="+2324"/>
+        <location line="+1167"/>
+        <location line="+1996"/>
         <source>Enter starts a new line</source>
         <translation>এন্টার একটি নতুন লাইন শুরু করে</translation>
     </message>
     <message>
-        <location line="-3788"/>
+        <location line="-3162"/>
         <source>enter newline send composer message box return</source>
         <translation>নতুন লাইন লিখুন কম্পোজার মেসেজ বক্স রিটার্ন পাঠান</translation>
     </message>
@@ -10831,47 +10831,47 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-17"/>
-        <location line="+1468"/>
-        <location line="+2435"/>
+        <location line="+1170"/>
+        <location line="+2101"/>
         <source>Send text with an attachment as its caption</source>
         <translation>ক্যাপশন হিসাবে একটি সংযুক্তি সহ পাঠ্য পাঠান</translation>
     </message>
     <message>
-        <location line="-3902"/>
+        <location line="-3270"/>
         <source>caption attachment upload text description</source>
         <translation>ক্যাপশন সংযুক্তি আপলোড টেক্সট বিবরণ</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3938"/>
+        <location line="+3297"/>
         <source>Message box buttons</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3937"/>
+        <location line="-3296"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3803"/>
+        <location line="+3171"/>
         <source>Check spelling as you type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3802"/>
+        <location line="-3170"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3809"/>
+        <location line="+3177"/>
         <location line="+13"/>
         <source>Spelling language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3821"/>
+        <location line="-3189"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10879,25 +10879,25 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+2"/>
         <location line="+4"/>
-        <location line="+741"/>
-        <location line="+774"/>
-        <location line="+2486"/>
+        <location line="+577"/>
+        <location line="+638"/>
+        <location line="+2134"/>
         <source>Keyboard shortcuts</source>
         <translation>কীবোর্ড শর্টকাট</translation>
     </message>
     <message>
-        <location line="-4006"/>
+        <location line="-3354"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>কীবোর্ড শর্টকাট শর্টকাট কী কী বাইন্ডিং রিবাইন্ড হটকি</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4157"/>
+        <location line="+3480"/>
         <source>Reset all shortcuts</source>
         <translation>সমস্ত শর্টকাট রিসেট করুন</translation>
     </message>
     <message>
-        <location line="-4156"/>
+        <location line="-3479"/>
         <source>reset shortcuts default keys</source>
         <translation>শর্টকাট ডিফল্ট কী রিসেট করুন</translation>
     </message>
@@ -10938,13 +10938,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+1312"/>
-        <location line="+3580"/>
+        <location line="+1018"/>
+        <location line="+3131"/>
         <source>Desktop notifications</source>
         <translation>ডেস্কটপ বিজ্ঞপ্তি</translation>
     </message>
     <message>
-        <location line="-4891"/>
+        <location line="-4148"/>
         <source>notifications desktop enable</source>
         <translation>বিজ্ঞপ্তি ডেস্কটপ সক্রিয়</translation>
     </message>
@@ -10954,20 +10954,20 @@ Signing out and signing in again is the only fix.</source>
         <location line="+5"/>
         <location line="+6"/>
         <location line="+4"/>
-        <location line="+670"/>
-        <location line="+778"/>
-        <location line="+3415"/>
+        <location line="+506"/>
+        <location line="+642"/>
+        <location line="+2972"/>
         <source>Notifications</source>
         <translation>বিজ্ঞপ্তি</translation>
     </message>
     <message>
-        <location line="-4875"/>
-        <location line="+4893"/>
+        <location line="-4132"/>
+        <location line="+4150"/>
         <source>Notification preview</source>
         <translation>বিজ্ঞপ্তির প্রাকদর্শন</translation>
     </message>
     <message>
-        <location line="-4892"/>
+        <location line="-4149"/>
         <source>notification preview privacy sender message</source>
         <translation>বিজ্ঞপ্তি প্রাকদর্শন গোপনীয়তা প্রেরক বার্তা</translation>
     </message>
@@ -10983,23 +10983,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4983"/>
+        <location line="+4213"/>
         <source>Notification sound</source>
         <translation>বিজ্ঞপ্তির শব্দ</translation>
     </message>
     <message>
-        <location line="-4982"/>
+        <location line="-4212"/>
         <source>notification sound mute</source>
         <translation>বিজ্ঞপ্তির শব্দ নিঃশব্দ</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+4131"/>
+        <location line="+3450"/>
         <source>Only exchange messages with verified devices</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4130"/>
+        <location line="-3449"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11010,12 +11010,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4184"/>
+        <location line="+3498"/>
         <source>Read receipts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4183"/>
+        <location line="-3497"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11027,23 +11027,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+4222"/>
+        <location line="+3534"/>
         <source>Let others see when I am typing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4221"/>
+        <location line="-3533"/>
         <source>typing notice notification composing indicator privacy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+4263"/>
+        <location line="+3569"/>
         <source>Share my online status</source>
         <translation>আমার অনলাইন অবস্থা ভাগ করুন</translation>
     </message>
     <message>
-        <location line="-4262"/>
+        <location line="-3568"/>
         <source>presence online idle offline status share</source>
         <translation>উপস্থিতি অনলাইন নিষ্ক্রিয় অফলাইন অবস্থা ভাগ</translation>
     </message>
@@ -11054,12 +11054,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4284"/>
+        <location line="+3590"/>
         <source>Ignored users</source>
         <translation>উপেক্ষিত ব্যবহারকারী</translation>
     </message>
     <message>
-        <location line="-4283"/>
+        <location line="-3589"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>উপেক্ষা ব্লক ব্যবহারকারী লুকান ব্যক্তি</translation>
     </message>
@@ -11085,22 +11085,22 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+5"/>
         <location line="+5"/>
-        <location line="+576"/>
-        <location line="+790"/>
-        <location line="+5461"/>
-        <location line="+543"/>
+        <location line="+412"/>
+        <location line="+654"/>
+        <location line="+4774"/>
+        <location line="+496"/>
         <source>Sessions</source>
         <translation>সেশন</translation>
     </message>
     <message>
-        <location line="-7427"/>
-        <location line="+1246"/>
-        <location line="+3242"/>
+        <location line="-6393"/>
+        <location line="+952"/>
+        <location line="+2822"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>এনক্রিপ্ট না করা রুমে স্বয়ংক্রিয়ভাবে প্রাকদর্শন লোড করুন</translation>
     </message>
     <message>
-        <location line="-4487"/>
+        <location line="-3773"/>
         <source>link preview privacy</source>
         <translation>লিঙ্ক প্রাকদর্শন গোপনীয়তা</translation>
     </message>
@@ -11112,24 +11112,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+4490"/>
+        <location line="+3776"/>
         <source>Load previews in encrypted rooms</source>
         <translation>এনক্রিপ্টেড রুমে প্রাকদর্শন লোড করুন</translation>
     </message>
     <message>
-        <location line="-4489"/>
+        <location line="-3775"/>
         <source>link preview encrypted</source>
         <translation>লিঙ্ক প্রাকদর্শন এনক্রিপ্টেড</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4560"/>
+        <location line="+3834"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
         <translation>মিডিয়া স্বয়ংক্রিয় চালনা ও আগাম আনা</translation>
     </message>
     <message>
-        <location line="-4566"/>
+        <location line="-3840"/>
         <source>gif autoplay prefetch video audio media</source>
         <translation>gif স্বয়ংক্রিয় চালনা আগাম ভিডিও অডিও মিডিয়া</translation>
     </message>
@@ -11140,12 +11140,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4602"/>
+        <location line="+3870"/>
         <source>GIF safe search</source>
         <translation>GIF নিরাপদ অনুসন্ধান</translation>
     </message>
     <message>
-        <location line="-4601"/>
+        <location line="-3869"/>
         <source>gif safe search rating</source>
         <translation>gif নিরাপদ অনুসন্ধান রেটিং</translation>
     </message>
@@ -11158,56 +11158,56 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-6"/>
-        <location line="+4626"/>
+        <location line="+3894"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>পছন্দের GIF প্রদানকারী</translation>
     </message>
     <message>
-        <location line="-4632"/>
+        <location line="-3900"/>
         <source>gif provider giphy klipy</source>
         <translation>প্রদানকারী gif giphy klipy</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4664"/>
+        <location line="+3932"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>সম্প্রতি ব্যবহৃত GIF সংরক্ষণ করুন</translation>
     </message>
     <message>
-        <location line="-4666"/>
+        <location line="-3934"/>
         <source>gif recents store</source>
         <translation>gif সাম্প্রতিক সংরক্ষণ</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6494"/>
+        <location line="+5540"/>
         <source>Security status</source>
         <translation>নিরাপত্তার অবস্থা</translation>
     </message>
     <message>
-        <location line="-6493"/>
+        <location line="-5539"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee এনক্রিপশন অবস্থা ক্রস-সাইনিং ব্যাকআপ</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+605"/>
-        <location line="+786"/>
-        <location line="+2640"/>
+        <location line="+441"/>
+        <location line="+650"/>
+        <location line="+2263"/>
         <source>Privacy &amp; security</source>
         <translation>গোপনীয়তা ও নিরাপত্তা</translation>
     </message>
     <message>
-        <location line="-4029"/>
-        <location line="+7965"/>
+        <location line="-3352"/>
+        <location line="+6869"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>পুনরুদ্ধার কী বা পাসফ্রেজ</translation>
     </message>
     <message>
-        <location line="-7983"/>
+        <location line="-6887"/>
         <source>recovery key passphrase backup restore</source>
         <translation>পুনরুদ্ধার কী পাসফ্রেজ ব্যাকআপ পুনরুদ্ধার</translation>
     </message>
@@ -11220,23 +11220,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-6"/>
-        <location line="+8049"/>
+        <location line="+6951"/>
         <source>Import room keys</source>
         <translation>রুম কী আমদানি করুন</translation>
     </message>
     <message>
-        <location line="-8048"/>
+        <location line="-6950"/>
         <source>import room keys export</source>
         <translation>আমদানি রুম কী রপ্তানি</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8277"/>
+        <location line="+7172"/>
         <source>Danger Zone</source>
         <translation>বিপদ অঞ্চল</translation>
     </message>
     <message>
-        <location line="-8276"/>
+        <location line="-7171"/>
         <source>reset danger local session</source>
         <translation>রিসেট বিপদ স্থানীয় সেশন</translation>
     </message>
@@ -11247,34 +11247,34 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+7722"/>
+        <location line="+6664"/>
         <source>Current session</source>
         <translation>বর্তমান সেশন</translation>
     </message>
     <message>
-        <location line="-7721"/>
+        <location line="-6663"/>
         <source>device id session status</source>
         <translation>ডিভাইস আইডি সেশন অবস্থা</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6863"/>
+        <location line="+5874"/>
         <source>Sign in another device</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6862"/>
+        <location line="-5873"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+7774"/>
+        <location line="+6712"/>
         <source>Verify this session</source>
         <translation>এই সেশন যাচাই করুন</translation>
     </message>
     <message>
-        <location line="-7773"/>
+        <location line="-6711"/>
         <source>verify verification sas cross-signing</source>
         <translation>যাচাই sas ক্রস-সাইনিং</translation>
     </message>
@@ -11293,14 +11293,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+3"/>
         <location line="+4"/>
-        <location line="+563"/>
-        <location line="+797"/>
-        <location line="+6979"/>
+        <location line="+399"/>
+        <location line="+661"/>
+        <location line="+6172"/>
         <source>Labs</source>
         <translation>Labs</translation>
     </message>
     <message>
-        <location line="-8347"/>
+        <location line="-7240"/>
         <source>Sync mode</source>
         <translation>সিঙ্ক মোড</translation>
     </message>
@@ -11321,39 +11321,39 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8391"/>
+        <location line="+7284"/>
         <source>Refresh current room</source>
         <translation>বর্তমান রুম রিফ্রেশ করুন</translation>
     </message>
     <message>
-        <location line="-8390"/>
+        <location line="-7283"/>
         <source>refresh reload timeline</source>
         <translation>রিফ্রেশ আবার লোড টাইমলাইন</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+1"/>
-        <location line="+561"/>
-        <location line="+844"/>
-        <location line="+7019"/>
+        <location line="+397"/>
+        <location line="+704"/>
+        <location line="+6211"/>
         <source>About</source>
         <translation>সম্পর্কে</translation>
     </message>
     <message>
-        <location line="-8425"/>
+        <location line="-7313"/>
         <source>about version license</source>
         <translation>সম্পর্কে সংস্করণ লাইসেন্স</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+2"/>
-        <location line="+555"/>
-        <location line="+801"/>
+        <location line="+391"/>
+        <location line="+665"/>
         <source>Updates</source>
         <translation>হালনাগাদ</translation>
     </message>
     <message>
-        <location line="-1357"/>
+        <location line="-1057"/>
         <source>update version upgrade check download install</source>
         <translation>হালনাগাদ সংস্করণ আপগ্রেড যাচাই ডাউনলোড ইনস্টল</translation>
     </message>
@@ -11373,36 +11373,36 @@ Signing out and signing in again is the only fix.</source>
         <translation>হালনাগাদ · স্বয়ংক্রিয় যাচাই</translation>
     </message>
     <message>
-        <location line="+230"/>
+        <location line="+166"/>
         <source>Confirm</source>
         <translation>নিশ্চিত করুন</translation>
     </message>
     <message>
-        <location line="+41"/>
-        <location line="+5281"/>
-        <location line="+267"/>
-        <location line="+1345"/>
+        <location line="+39"/>
+        <location line="+4509"/>
+        <location line="+205"/>
+        <location line="+1230"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-6685"/>
+        <location line="-5804"/>
         <source>Needs attention</source>
         <translation>মনোযোগ প্রয়োজন</translation>
     </message>
     <message>
-        <location line="+243"/>
+        <location line="+162"/>
         <source>Clear the search index?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3656"/>
+        <location line="+3157"/>
         <source>Clear index</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3643"/>
+        <location line="-3146"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11418,14 +11418,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4813"/>
-        <location line="+493"/>
-        <location line="+2018"/>
+        <location line="+4192"/>
+        <location line="+402"/>
+        <location line="+1847"/>
         <source>Clear</source>
         <translation>মুছুন</translation>
     </message>
     <message>
-        <location line="-7314"/>
+        <location line="-6431"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>এই ডিভাইসে আপনার সংরক্ষিত প্রতিটি প্রদানকারী GIF সরাবেন? আলাপ থেকে সংরক্ষিত GIF প্রভাবিত হবে না। এটি ফেরানো যাবে না।</translation>
     </message>
@@ -11435,7 +11435,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই ডিভাইসে সম্প্রতি ব্যবহৃত GIF-এর তালিকা মুছবেন?</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+13"/>
         <source>Clear images saved on this device?</source>
         <translation>এই ডিভাইসে সংরক্ষিত ছবি মুছবেন?</translation>
     </message>
@@ -11450,7 +11450,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আলাপ থেকে এই ডিভাইসে সংরক্ষিত প্রতিটি ছবি মুছবেন? সংরক্ষিত প্রদানকারী GIF প্রভাবিত হবে না — সেগুলি কেবল লিঙ্ক। এটি ফেরানো যাবে না।</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+12"/>
         <source>Clear your display name?</source>
         <translation>আপনার প্রদর্শিত নাম মুছবেন?</translation>
     </message>
@@ -11465,7 +11465,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>লোকে তার বদলে আপনার Matrix আইডি দেখবে। আপনি যেকোনো সময় নতুন প্রদর্শিত নাম দিতে পারেন।</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+36"/>
         <source>Settings — %1</source>
         <translation>সেটিংস — %1</translation>
     </message>
@@ -11476,12 +11476,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>সেটিংস বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+43"/>
         <source>Settings</source>
         <translation>সেটিংস</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+22"/>
         <source>Search settings…</source>
         <translation>সেটিংসে খুঁজুন…</translation>
     </message>
@@ -11491,30 +11491,30 @@ Signing out and signing in again is the only fix.</source>
         <translation>সেটিংসে খুঁজুন</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+34"/>
         <source>No matching settings</source>
         <translation>মিলে যাওয়া কোনো সেটিং নেই</translation>
     </message>
     <message>
-        <location line="+117"/>
-        <location line="+1210"/>
+        <location line="+76"/>
+        <location line="+985"/>
         <source>Modern</source>
         <translation>আধুনিক</translation>
     </message>
     <message>
-        <location line="-1209"/>
-        <location line="+1210"/>
+        <location line="-984"/>
+        <location line="+985"/>
         <source>Bubbles</source>
         <translation>বাবল</translation>
     </message>
     <message>
-        <location line="-1209"/>
-        <location line="+1210"/>
+        <location line="-984"/>
+        <location line="+985"/>
         <source>Compact</source>
         <translation>সংক্ষিপ্ত</translation>
     </message>
     <message>
-        <location line="-1049"/>
+        <location line="-834"/>
         <source>theme</source>
         <translation>থিম</translation>
     </message>
@@ -11534,32 +11534,32 @@ Signing out and signing in again is the only fix.</source>
         <translation>সেশন</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+30"/>
         <source>Search for %1</source>
         <translation>%1 খুঁজুন</translation>
     </message>
     <message>
-        <location line="+81"/>
+        <location line="+79"/>
         <source>Matches · %1 sections · %2 settings</source>
         <translation>মিল · %1টি বিভাগ · %2টি সেটিং</translation>
     </message>
     <message>
-        <location line="+122"/>
+        <location line="+111"/>
         <source>Theme, message layout and text size — per account.</source>
         <translation>থিম, বার্তার বিন্যাস ও লেখার আকার — প্রতি অ্যাকাউন্টে।</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+36"/>
         <source>Storm</source>
         <translation>Storm</translation>
     </message>
     <message>
-        <location line="+875"/>
+        <location line="+676"/>
         <source>Scales message and list text, and the Spaces rail with it, so its nesting levels stay readable at any size. Other chrome keeps its size — Interface zoom below scales the whole window.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1309"/>
+        <location line="+1194"/>
         <source>Turn off what you do not use. Attach stays: in a narrow window it is where the other actions move to.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11589,7 +11589,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+244"/>
+        <location line="+205"/>
         <source>Device trust</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11599,12 +11599,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+22"/>
         <source>Takes effect the next time Lightning starts.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+8"/>
         <source>Reading and typing</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11624,17 +11624,17 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+43"/>
         <source>Typing notices are the most frequent thing a chat client discloses — every few keystrokes, to everyone in the room. Turning this off does not hide other people&apos;s.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+189"/>
+        <location line="+171"/>
         <source>Message search index</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+55"/>
+        <location line="+47"/>
         <source>%n message(s) indexed</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -11642,32 +11642,32 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+439"/>
+        <location line="+388"/>
         <source>Sender and message is the default: a notification carries the message text. Sender only shows who wrote and never what they wrote, and Private withholds the sender and the room as well. Encrypted messages that cannot be decrypted always show a generic notification. Notifications are suppressed while the room is open, focused, and at the latest message.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+17"/>
         <source>In encrypted rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+16"/>
         <source>Same as other rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+138"/>
+        <location line="+117"/>
         <source>Media playback</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+64"/>
         <source>The level voice messages, audio files and videos start at. Changing the volume on a player remembers it here too.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+21"/>
         <source>Play sounds during calls</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11719,7 +11719,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+376"/>
+        <location line="+332"/>
         <source>Name colour</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11729,7 +11729,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+122"/>
+        <location line="+71"/>
         <source>Custom colour</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11739,7 +11739,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+26"/>
         <source>Use theme colour</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11769,12 +11769,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+760"/>
+        <location line="+695"/>
         <source>Key backup: checking…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+240"/>
+        <location line="+216"/>
         <source>Use a code instead of a password. The new device is signed in and verified in one step, so it can read your existing encrypted conversations immediately.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11784,7 +11784,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+105"/>
         <source>Lightning could not check whether this account has a key backup. Nothing has been ruled out.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11794,35 +11794,35 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1200"/>
+        <location line="+1090"/>
         <source>Reset deletes only Lightning&apos;s local Rust SDK store for this account (also available from a terminal: lightning-matrix --reset-crypto-store). It does not touch server messages or Element data. You will need to sign in again afterwards.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6702"/>
+        <location line="-5925"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
     <message>
-        <location line="-1862"/>
-        <location line="+3262"/>
+        <location line="-1534"/>
+        <location line="+2689"/>
         <source>Spaces rail depth</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3261"/>
+        <location line="-2688"/>
         <source>spaces rail depth space bar sidebar nesting regions classic old style flat tint indent</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+45"/>
-        <location line="+1471"/>
-        <location line="+1919"/>
+        <location line="+1173"/>
+        <location line="+1619"/>
         <source>Collapse media and link embeds</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3389"/>
+        <location line="-2791"/>
         <source>embed embeds collapse collapsed compact single line clutter declutter media image picture gif sticker video audio voice file attachment link preview expand arrow</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11859,13 +11859,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5188"/>
+        <location line="+4391"/>
         <location line="+26"/>
         <source>Media playback volume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5213"/>
+        <location line="-4416"/>
         <source>volume sound audio video voice message playback level media loud</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11881,12 +11881,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5229"/>
+        <location line="+4427"/>
         <source>Call sounds</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5228"/>
+        <location line="-4426"/>
         <source>call sounds join leave mute deafen unmute screen share hand chime beep effects</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11898,13 +11898,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-3"/>
-        <location line="+5327"/>
+        <location line="+4525"/>
         <location line="+31"/>
         <source>Ringer volume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5357"/>
+        <location line="-4555"/>
         <source>ringer ringtone ring volume incoming call loud</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11929,20 +11929,20 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+691"/>
-        <location line="+782"/>
-        <location line="+3634"/>
+        <location line="+527"/>
+        <location line="+646"/>
+        <location line="+3144"/>
         <source>Sound &amp; video</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3835"/>
-        <location line="+1860"/>
+        <location line="-3338"/>
+        <location line="+1562"/>
         <source>Regions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1438"/>
+        <location line="-1175"/>
         <source>Indigo Night</source>
         <translation>Indigo Night</translation>
     </message>
@@ -11952,22 +11952,22 @@ Signing out and signing in again is the only fix.</source>
         <translation>Deep Teal</translation>
     </message>
     <message>
-        <location line="+112"/>
+        <location line="+53"/>
         <source>%1 (in effect)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+230"/>
+        <location line="+176"/>
         <source>More themes</source>
         <translation>আরও থিম</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+87"/>
         <source>Custom theme</source>
         <translation>কাস্টম থিম</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+56"/>
         <source>Build your own theme</source>
         <translation>নিজের থিম বানান</translation>
     </message>
@@ -12005,27 +12005,27 @@ Signing out and signing in again is the only fix.</source>
         <translation>তৈরি করুন</translation>
     </message>
     <message>
-        <location line="+224"/>
+        <location line="+185"/>
         <source>Bubbles applies to direct messages; rooms keep the Modern rows. Compact tightens every timeline.</source>
         <translation>বাবল সরাসরি বার্তায় প্রযোজ্য; রুমগুলি আধুনিক সারি রাখে। সংক্ষিপ্ত প্রতিটি টাইমলাইন ঘন করে।</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+26"/>
         <source>Message text size</source>
         <translation>বার্তার লেখার আকার</translation>
     </message>
     <message>
-        <location line="+163"/>
+        <location line="+145"/>
         <source>Scales the entire interface — text, icons and layout. Ctrl+= and Ctrl+- adjust it anywhere. Takes effect the next time Lightning starts.</source>
         <translation>পুরো ইন্টারফেস — লেখা, আইকন ও বিন্যাস — এর আকার বদলায়। Ctrl+= ও Ctrl+- যেকোনো জায়গায় এটি সমন্বয় করে। পরেরবার Lightning চালু হলে কার্যকর হয়।</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+27"/>
         <source>Use the %1 font</source>
         <translation>%1 ফন্ট ব্যবহার করুন</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+36"/>
         <source>Messages, rooms and settings</source>
         <translation>বার্তা, রুম ও সেটিংস</translation>
     </message>
@@ -12035,7 +12035,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>পুরো ইন্টারফেসে প্রযোজ্য। কোড, Matrix আইডি, আইকন ও ইমোজি নিজেদের ফন্ট রাখে।</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+17"/>
         <source>Interface font</source>
         <translation>ইন্টারফেস ফন্ট</translation>
     </message>
@@ -12045,7 +12045,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>ইন্টারফেস ফন্ট পরিবার</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+29"/>
         <source>“%1” has no letters to draw text with — it is an emoji or icon face — so Lightning is using %2. Pick another font above.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12075,12 +12075,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>কোড ফন্টটি কোড ব্লক, কীবোর্ড শর্টকাট এবং Matrix সনাক্তকারীর জন্য ব্যবহার করা হয়।</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+27"/>
         <source>Load a TrueType or OpenType file that is not installed system-wide. Lightning keeps its own copy, so moving or deleting the original changes nothing. Only fonts you pick here are ever loaded.</source>
         <translation>একটি TrueType বা OpenType ফাইল লোড করুন যা সিস্টেম-ব্যাপী ইনস্টল করা নেই। Lightning তার নিজস্ব অনুলিপি রাখে, তাই মূল সরানো বা মুছে ফেলার ফলে কিছুই পরিবর্তন হয় না। আপনি এখানে বাছাই শুধুমাত্র ফন্ট লোড হয়.</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+25"/>
         <source>Unavailable — the file is gone</source>
         <translation>অনুপলব্ধ — ফাইলটি চলে গেছে</translation>
     </message>
@@ -12090,7 +12090,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই আমদানি করা ফন্ট সরান</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+22"/>
         <source>Only .ttf and .otf font files can be loaded.</source>
         <translation>শুধুমাত্র .ttf এবং .otf ফন্ট ফাইল লোড করা যাবে.</translation>
     </message>
@@ -12160,13 +12160,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>হরফ (*.ttf *.otf)</translation>
     </message>
     <message>
-        <location line="+10"/>
-        <location line="+577"/>
+        <location line="+9"/>
+        <location line="+523"/>
         <source>Panels</source>
         <translation>প্যানেল</translation>
     </message>
     <message>
-        <location line="-569"/>
+        <location line="-515"/>
         <source>Show the Spaces rail (Ctrl+Shift+B)</source>
         <translation>স্পেস বার দেখান (Ctrl+Shift+B)</translation>
     </message>
@@ -12191,7 +12191,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>দুই প্যানেলের মাঝের রেখা টেনে আকার বদলান। প্রস্থ মনে রাখা হয়।</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+36"/>
         <source>Choose how the Spaces rail shows which Space contains which</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12201,7 +12201,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+14"/>
         <source>System tray</source>
         <translation>সিস্টেম ট্রে</translation>
     </message>
@@ -12236,7 +12236,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>সাধারণ যোগদান, প্রস্থান, প্রোফাইল পরিবর্তন ও রুম সেটিংস হালনাগাদ লুকায়। বার্তা ও ডিক্রিপশন সতর্কতা দেখা যেতে থাকে।</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+14"/>
         <source>Show membership changes in timelines</source>
         <translation>টাইমলাইনে সদস্যপদ পরিবর্তন দেখান</translation>
     </message>
@@ -12246,17 +12246,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>টাইমলাইনে প্রোফাইল পরিবর্তন দেখান</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+13"/>
         <source>Show attachments and link previews as one line with an arrow that expands them</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+15"/>
         <source>Pictures, GIFs, stickers, video, audio, voice messages, files and loaded link previews each become one line naming what they are. Click the arrow, or focus the line and press Enter, to show one. Reply quotes, thread cards, polls and shared places are not affected. A collapsed attachment is not downloaded until you expand it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+26"/>
         <source>Standard</source>
         <translation>মানক</translation>
     </message>
@@ -12271,7 +12271,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>খুব দ্রুত</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+16"/>
         <source>How far one physical mouse-wheel notch scrolls the timeline</source>
         <translation>মাউস-হুইলের একটি খাঁজ টাইমলাইন কতটা স্ক্রল করে</translation>
     </message>
@@ -12281,7 +12281,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>মাউস-হুইলের একটি প্রকৃত খাঁজ টাইমলাইন কতটা সরায়। এই সেটিং যাই হোক, টাচপ্যাড ও নিখুঁত স্ক্রলিং সূক্ষ্ম থাকে।</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+15"/>
         <source>Application icon</source>
         <translation>অ্যাপ্লিকেশন আইকন</translation>
     </message>
@@ -12297,12 +12297,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+2942"/>
+        <location line="+2600"/>
         <source>Choose image…</source>
         <translation>ছবি বেছে নিন…</translation>
     </message>
     <message>
-        <location line="-2935"/>
+        <location line="-2593"/>
         <source>Reset to Lightning default</source>
         <translation>Lightning-এর ডিফল্ট আইকনে ফিরুন</translation>
     </message>
@@ -12322,12 +12322,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>সব ফাইল (*)</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+52"/>
         <source>Interface language</source>
         <translation>ইন্টারফেসের ভাষা</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <source>This build was compiled without translations, so the interface stays in English.</source>
         <translation>এই বিল্ড অনুবাদ ছাড়া তৈরি হয়েছে, তাই ইন্টারফেস ইংরেজিতেই থাকে।</translation>
     </message>
@@ -12352,12 +12352,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>ইন্টারফেস অ্যানিমেশনগুলিকে ছোট বা সরান</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+11"/>
         <source>Glide the view when you turn the mouse wheel. Turning this off moves the same distance instantly.</source>
         <translation>আপনি যখন মাউসের চাকা ঘুরান তখন দৃশ্যটি গ্লাইড করুন। এটি বন্ধ করার সাথে সাথে একই দূরত্ব চলে যায়।</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+13"/>
         <source>Shortens or removes interface animations — panel slides, fades and list reorders. Media you play still plays.</source>
         <translation>ইন্টারফেস অ্যানিমেশনগুলিকে ছোট করে বা সরিয়ে দেয় — প্যানেল স্লাইড, ফেইড এবং তালিকা পুনঃক্রম। আপনি যে মিডিয়া এখনও চালান</translation>
     </message>
@@ -12377,12 +12377,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>24-ঘন্টা (13:05)</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+15"/>
         <source>Clock format</source>
         <translation>ঘড়ি বিন্যাস</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+29"/>
         <source>Show the whole banner instead of a strip</source>
         <translation>একটি স্ট্রিপের পরিবর্তে পুরো ব্যানারটি দেখান</translation>
     </message>
@@ -12392,7 +12392,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>কথোপকথনের তালিকার প্রস্থ: %1px</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+21"/>
         <source>Side panel width: %1 px</source>
         <translation>পাশের প্যানেলের প্রস্থ: %1px</translation>
     </message>
@@ -12402,7 +12402,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>মেসেজ বক্স</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+22"/>
         <source>Enter starts a new line; Ctrl+Enter sends.</source>
         <translation>এন্টার একটি নতুন লাইন শুরু করে; Ctrl+Enter পাঠায়।</translation>
     </message>
@@ -12412,7 +12412,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>পাঠান লিখুন; Shift+Enter একটি নতুন লাইন শুরু করে।</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+66"/>
         <source>Windows spell checker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12472,22 +12472,22 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+22"/>
         <source>One event instead of two. Clients that do not understand captions show the attachment without the text.</source>
         <translation>দুটির পরিবর্তে একটি ঘটনা। ক্লায়েন্ট যারা ক্যাপশন বুঝতে পারে না তারা পাঠ্য ছাড়া সংযুক্তি দেখায়।</translation>
     </message>
     <message>
-        <location line="+119"/>
+        <location line="+100"/>
         <source>Per account, like your theme. Press Change and then the combination you want.</source>
         <translation>অ্যাকাউন্ট প্রতি, আপনার থিম মত. পরিবর্তন টিপুন এবং তারপরে আপনি যে সংমিশ্রণটি চান তা চাপুন।</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+33"/>
         <source>Some shortcuts share a key. Qt fires neither of two shortcuts on the same combination, so both actions are currently doing nothing. Change one of each pair, or reset everything.</source>
         <translation>কিছু শর্টকাট একটি কী শেয়ার করে। Qt একই সংমিশ্রণে দুটি শর্টকাটকে ফায়ার করে না, তাই উভয় ক্রিয়া বর্তমানে কিছুই করছে না। প্রতিটি জোড়ার একটি পরিবর্তন করুন বা সবকিছু রিসেট করুন।</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+68"/>
         <source>A shortcut needs Ctrl, Alt or Super: Lightning takes the key before any text box sees it, so a plain letter would stop you typing that letter anywhere.
 
 Message formatting keys apply only while the message box has focus. Everywhere else, the same key still does its usual job.
@@ -12505,12 +12505,12 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>নেটওয়ার্ক গোপনীয়তা, এনক্রিপশনের স্বাস্থ্য ও পুনরুদ্ধার।</translation>
     </message>
     <message>
-        <location line="+119"/>
+        <location line="+108"/>
         <source>Private receipts still clear the unread badge on your own other devices; nobody else sees them. Not sending them at all means your other devices stop clearing it too, though your place in a conversation is still saved. Either way, receipts you have already sent cannot be taken back, and other people&apos;s receipts are still shown to you.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+42"/>
         <source>Presence</source>
         <translation>উপস্থিতি</translation>
     </message>
@@ -12520,7 +12520,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>আপনার হোমসার্ভারকে জানায় আপনি কখন অনলাইন বা নিষ্ক্রিয়, যাতে আপনার সঙ্গে রুম ভাগ করা লোকেরা তা দেখতে পায়। এটি বন্ধ করলে একবার অফলাইন প্রকাশ করে এবং হালনাগাদ থামায়; অন্যদের অবস্থা আপনি দেখতে পাবেন কি না তা ঠিক করে তাদের সার্ভার, এই সুইচ নয়।</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+56"/>
         <source>Nobody is ignored. Ignore a person from their profile to hide their messages everywhere, on every device.</source>
         <translation>কাউকে উপেক্ষা করা হচ্ছে না। কারও বার্তা সর্বত্র ও প্রতিটি ডিভাইসে লুকাতে তার প্রোফাইল থেকে তাকে উপেক্ষা করুন।</translation>
     </message>
@@ -12540,7 +12540,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>উপেক্ষা করলে প্রতিটি রুমে ওই ব্যক্তির বার্তা ও আমন্ত্রণ লুকায়। তালিকাটি আপনার Matrix অ্যাকাউন্টে সংরক্ষিত থাকে এবং আপনার সব ক্লায়েন্টে প্রযোজ্য।</translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="+35"/>
         <source>Lightning keeps its own index of the messages it has seen, so you can search rooms your homeserver cannot — encrypted ones included. It stores the message text on this device only, in this account&apos;s own folder, and it is deleted when the account is removed. It is not encrypted on disk — nor is the Matrix SDK&apos;s own message store beside it — so your device&apos;s disk encryption is what protects both.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12550,7 +12550,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>লিঙ্ক প্রাকদর্শন ও মিডিয়া</translation>
     </message>
     <message>
-        <location line="+89"/>
+        <location line="+77"/>
         <source>GIFs</source>
         <translation>GIF</translation>
     </message>
@@ -12570,7 +12570,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>কখনও নয়</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+20"/>
         <source>Also governs passive downloads: GIF, video and audio prefetching. &quot;Never&quot; disables all of them.</source>
         <translation>নিষ্ক্রিয় ডাউনলোডও নিয়ন্ত্রণ করে: GIF, ভিডিও ও অডিও আগাম আনা। “কখনও নয়” সবগুলি নিষ্ক্রিয় করে।</translation>
     </message>
@@ -12632,7 +12632,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>সংরক্ষিত প্রদানকারী GIF মুছুন</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+17"/>
         <source>Images saved from chats</source>
         <translation>আলাপ থেকে সংরক্ষিত ছবি</translation>
     </message>
@@ -12647,12 +12647,12 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>আলাপ থেকে সংরক্ষিত সব ছবি মুছুন</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+9"/>
         <source>Hidden images</source>
         <translation>লুকানো ছবি</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+18"/>
         <source>You have not hidden any images. Hiding one affects only what you see, and nothing is sent.</source>
         <translation>আপনি কোনো ছবি লুকিয়ে রাখেননি। একটি লুকানো শুধুমাত্র আপনি যা দেখেন তা প্রভাবিত করে এবং কিছুই পাঠানো হয় না।</translation>
     </message>
@@ -12673,19 +12673,19 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
     </message>
     <message>
         <location line="+44"/>
-        <location line="+77"/>
+        <location line="+50"/>
         <source>Sender and message</source>
         <translation>প্রেরক ও বার্তা</translation>
     </message>
     <message>
-        <location line="-76"/>
-        <location line="+77"/>
+        <location line="-49"/>
+        <location line="+50"/>
         <source>Sender only</source>
         <translation>কেবল প্রেরক</translation>
     </message>
     <message>
-        <location line="-76"/>
-        <location line="+77"/>
+        <location line="-49"/>
+        <location line="+50"/>
         <source>Private</source>
         <translation>ব্যক্তিগত</translation>
     </message>
@@ -12710,8 +12710,8 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>শব্দ কেবল তখনই বাজে যখন কোনো বিজ্ঞপ্তি দেখানো হয়, তাই নিঃশব্দ ও সক্রিয় রুম নীরব থাকে। পরপর অনেক বিজ্ঞপ্তি একটিতে মিলিয়ে দেওয়া হয়।</translation>
     </message>
     <message>
-        <location line="-5028"/>
-        <location line="+5042"/>
+        <location line="-4258"/>
+        <location line="+4269"/>
         <source>Ring for incoming voice calls</source>
         <translation>আগত ভয়েস কলে রিং করুন</translation>
     </message>
@@ -12721,7 +12721,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>আগত ভয়েস কল বাজতে থাকা অবস্থায় কলের শব্দ বারবার বাজান। এটি বন্ধ করলেও কল দেখা যাবে — কেবল রিং নীরব হবে।</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+17"/>
         <source>Per-room notification modes (set from Room information) are saved to your account&apos;s notification settings (server push rules). </source>
         <translation>রুমভিত্তিক বিজ্ঞপ্তি ধরন (“রুমের তথ্য” থেকে সেট করা) আপনার অ্যাকাউন্টের বিজ্ঞপ্তি সেটিংসে সংরক্ষিত হয় (সার্ভার পুশ নিয়ম)। </translation>
     </message>
@@ -12736,12 +12736,12 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>মোবাইল-ধাঁচের বিজ্ঞপ্তির জন্য পুশ নিবন্ধন প্রয়োগ করা হয়নি।</translation>
     </message>
     <message>
-        <location line="+415"/>
+        <location line="+378"/>
         <source>(signed out)</source>
         <translation>(সাইন আউট করা)</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+46"/>
         <location line="+2"/>
         <source>Copy Matrix ID</source>
         <translation>Matrix আইডি কপি করুন</translation>
@@ -12752,13 +12752,13 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>অনুলিপি হয়েছে</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+19"/>
         <source>Device %1</source>
         <translation>ডিভাইস %1</translation>
     </message>
     <message>
-        <location line="+19"/>
-        <location line="+44"/>
+        <location line="+15"/>
+        <location line="+42"/>
         <source>Display name</source>
         <translation>প্রদর্শিত নাম</translation>
     </message>
@@ -12768,13 +12768,13 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>সেট করা নেই</translation>
     </message>
     <message>
-        <location line="-3357"/>
-        <location line="+3366"/>
+        <location line="-3002"/>
+        <location line="+3011"/>
         <source>Edit</source>
         <translation>সম্পাদনা</translation>
     </message>
     <message>
-        <location line="-3212"/>
+        <location line="-2892"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>চালু হলে, Lightning সিস্টেম স্কিম অনুসরণ করে: হালকা মোডে মস লাইট, ডার্ক মোডে ইন্ডিগো নাইট।</translation>
     </message>
@@ -12784,14 +12784,14 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>কথোপকথনের তালিকা</translation>
     </message>
     <message>
-        <location line="-1133"/>
-        <location line="+1143"/>
-        <location line="+717"/>
+        <location line="-917"/>
+        <location line="+927"/>
+        <location line="+635"/>
         <source>Classic</source>
         <translation>ক্লাসিক</translation>
     </message>
     <message>
-        <location line="-716"/>
+        <location line="-634"/>
         <source>One list, most recent first, with message previews.</source>
         <translation>একটি তালিকা, সবচেয়ে সাম্প্রতিক প্রথম, বার্তা পূর্বরূপ সহ।</translation>
     </message>
@@ -12806,17 +12806,17 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>প্রতিটি স্থান তার কক্ষগুলির একটি বন্ধযোগ্য ফোল্ডার হিসাবে।</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+15"/>
         <source>Channels lists every space you are in as a folder, with the rooms it contains underneath. Rooms in no space, and your direct messages, stay together in Rooms.</source>
         <translation>চ্যানেলের নীচে থাকা কক্ষগুলি সহ আপনি যে সমস্ত স্থানের মধ্যে আছেন একটি ফোল্ডার হিসাবে তালিকাভুক্ত করে৷ কোনো জায়গা ছাড়া রুম, এবং আপনার সরাসরি বার্তা, রুমে একসাথে থাকুন।</translation>
     </message>
     <message>
-        <location line="+2152"/>
+        <location line="+1939"/>
         <source>Your homeserver loads the preview, so the linked site sees your server rather than you. If your server cannot — many have previews turned off — Lightning loads it directly instead, which may reveal your IP address and request timing to a site the sender chose. Asking your homeserver also tells it which link was previewed, which in an encrypted room it would not otherwise know. No JavaScript is executed. Both switches are off by default; leave them off and use the “Show” button on each message&apos;s link card to decide one at a time.</source>
         <translation>আপনার হোমসার্ভার পূর্বরূপ লোড করে, তাই লিঙ্ক করা সাইটটি আপনার পরিবর্তে আপনার সার্ভারটি দেখতে পায়। যদি আপনার সার্ভার না পারে — অনেকের প্রিভিউ বন্ধ করা আছে — Lightning এটি সরাসরি লোড করে, যা আপনার আইপি ঠিকানা প্রকাশ করতে পারে এবং প্রেরকের বেছে নেওয়া সাইটের সময় অনুরোধ করতে পারে। আপনার হোমসার্ভারকে জিজ্ঞাসা করা এটিও বলে যে কোন লিঙ্কটি প্রিভিউ করা হয়েছে, কোনটি এনক্রিপ্ট করা ঘরে এটি অন্যথায় জানতে পারবে না। কোন জাভাস্ক্রিপ্ট কার্যকর করা হয় না. উভয় সুইচ ডিফল্টরূপে বন্ধ; তাদের ছেড়ে দিন এবং প্রতিটি বার্তার লিঙ্ক কার্ডে &quot;দেখান&quot; বোতামটি একবারে একটি সিদ্ধান্ত নিতে ব্যবহার করুন৷</translation>
     </message>
     <message>
-        <location line="+1017"/>
+        <location line="+914"/>
         <source>Edit display name</source>
         <translation>প্রদর্শিত নাম সম্পাদনা করুন</translation>
     </message>
@@ -12826,29 +12826,29 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>আপনার প্রদর্শিত নাম</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+20"/>
         <source>%1 / %2 characters</source>
         <translation>%1 / %2 অক্ষর</translation>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+507"/>
+        <location line="+413"/>
         <source>Saving…</source>
         <translation>সংরক্ষণ হচ্ছে…</translation>
     </message>
     <message>
-        <location line="-507"/>
-        <location line="+507"/>
+        <location line="-413"/>
+        <location line="+413"/>
         <source>Save</source>
         <translation>সংরক্ষণ করুন</translation>
     </message>
     <message>
-        <location line="-186"/>
+        <location line="-163"/>
         <source>Profile picture</source>
         <translation>প্রোফাইল ছবি</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+31"/>
         <source>Uploading…</source>
         <translation>আপলোড হচ্ছে...</translation>
     </message>
@@ -12858,7 +12858,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>ছবি বদলান</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+22"/>
         <source>You choose which part of the image to use.</source>
         <translation>আপনি ছবির কোন অংশ ব্যবহার করতে চান তা চয়ন করুন।</translation>
     </message>
@@ -12869,12 +12869,12 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
     </message>
     <message>
         <location line="+1"/>
-        <location line="+355"/>
+        <location line="+319"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.webp *.gif *.bmp)</translation>
     </message>
     <message>
-        <location line="-319"/>
+        <location line="-295"/>
         <source>About you</source>
         <translation>আপনার সম্পর্কে</translation>
     </message>
@@ -12884,17 +12884,17 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>আপনার সম্পর্কে একটি সংক্ষিপ্ত নোট. যে কেউ আপনার প্রোফাইল খুলবে তারা এটি পড়তে পারবে।</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+21"/>
         <source>Say something about yourself</source>
         <translation>নিজের সম্পর্কে কিছু বলুন</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>%1 / %2</source>
         <translation>%1/ %2</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+44"/>
         <source>Your homeserver does not support profile bios yet.</source>
         <translation>আপনার হোমসার্ভার এখনও প্রোফাইল বায়ো সমর্থন করে না।</translation>
     </message>
@@ -12909,24 +12909,24 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>সাইন আউট করতে সাইডবারের নিচের অ্যাকাউন্ট মেনু ব্যবহার করুন।</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+32"/>
         <source>Profile banner</source>
         <translation>প্রোফাইল ব্যানার</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+51"/>
         <source>No banner</source>
         <translation>কোনো ব্যানার নেই</translation>
     </message>
     <message>
-        <location line="-3382"/>
-        <location line="+3082"/>
-        <location line="+319"/>
+        <location line="-2998"/>
+        <location line="+2732"/>
+        <location line="+285"/>
         <source>Remove</source>
         <translation>সরান</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+26"/>
         <source>That file is not an image Lightning can upload. PNG, JPEG, GIF, WebP and BMP work; the file&apos;s contents decide, not its name.</source>
         <translation>সেই ফাইলটি একটি ছবি নয় Lightning আপলোড করতে পারে৷ PNG, JPEG, GIF, WebP এবং BMP কাজ; ফাইলের বিষয়বস্তু নির্ধারণ করে, এর নাম নয়।</translation>
     </message>
@@ -12946,7 +12946,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>আপনার হোমসার্ভার এখনও প্রোফাইল ব্যানার সমর্থন করে না. তাদের প্রয়োজন বর্ধিত প্রোফাইল ক্ষেত্র (MSC4133), যা বেশিরভাগ সার্ভার সক্ষম করেনি। আপনার ইমেজের সাথে কিছু ভুল নেই।</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+13"/>
         <source>A wide image shown behind your profile card, about 3:1. It is part of your public profile, so anyone who can see your account can see it. Saved under both the standard and the Commet field names, so clients that already show banners will show yours.</source>
         <translation>আপনার প্রোফাইল কার্ডের পেছনে দেখানো একটি চওড়া ছবি, প্রায় ৩:১। এটি আপনার সর্বজনীন প্রোফাইলের অংশ, তাই যে কেউ আপনার অ্যাকাউন্ট দেখতে পায় সে এটিও দেখতে পায়। মানক ও Commet — দুই ক্ষেত্রের নামেই সংরক্ষিত হয়, যাতে যেসব ক্লায়েন্ট ইতিমধ্যেই ব্যানার দেখায় তারা আপনারটিও দেখায়।</translation>
     </message>
@@ -12956,7 +12956,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>একটি ব্যানার ছবি বেছে নিন</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+46"/>
         <source>Changing the homeserver takes effect at the next sign-in.</source>
         <translation>হোমসার্ভার বদলানো পরের সাইন-ইনে কার্যকর হয়।</translation>
     </message>
@@ -12991,18 +12991,18 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>E2EE অবস্থা: %1</translation>
     </message>
     <message>
-        <location line="+25"/>
-        <location line="+906"/>
+        <location line="+24"/>
+        <location line="+826"/>
         <source>Refresh</source>
         <translation>রিফ্রেশ</translation>
     </message>
     <message>
-        <location line="-832"/>
+        <location line="-758"/>
         <source>Request keys again</source>
         <translation>আবার কী চান</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+23"/>
         <source>Verify this session again</source>
         <translation>এই সেশন আবার যাচাই করুন</translation>
     </message>
@@ -13012,7 +13012,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>কী চাইতে অন্য একটি সেশন যাচাই করুন</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+18"/>
         <source>Yes</source>
         <translation>হ্যাঁ</translation>
     </message>
@@ -13047,7 +13047,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>ক্রস-সাইনিং: সেট করা নেই</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+12"/>
         <source>Key backup: active on this session</source>
         <translation>কী ব্যাকআপ: এই সেশনে সক্রিয়</translation>
     </message>
@@ -13092,7 +13092,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>এনক্রিপশন সিঙ্ক: অপেক্ষমাণ</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+16"/>
         <location line="+8"/>
         <source>Hide recovery diagnostics</source>
         <translation>পুনরুদ্ধার ডায়াগনস্টিক লুকান</translation>
@@ -13104,7 +13104,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>পুনরুদ্ধার ডায়াগনস্টিক</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+46"/>
         <source>Own identity: %1</source>
         <translation>নিজের পরিচয়: %1</translation>
     </message>
@@ -13208,12 +13208,12 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>আমদানি করা রুম কী: %1</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+30"/>
         <source>This account&apos;s Matrix sessions and device verification.</source>
         <translation>এই অ্যাকাউন্টের Matrix সেশন ও ডিভাইস যাচাই।</translation>
     </message>
     <message>
-        <location line="+71"/>
+        <location line="+65"/>
         <source>Cross-signing</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13253,7 +13253,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+36"/>
         <source>Key backup</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13303,7 +13303,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+20"/>
         <source>Setting up…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13318,7 +13318,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+24"/>
         <source>New recovery key</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13328,7 +13328,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+65"/>
         <source>IDENTITY</source>
         <translation>পরিচয়</translation>
     </message>
@@ -13348,12 +13348,12 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>৩টির মধ্যে %1টি যাচাই সম্পন্ন</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+65"/>
         <source>Manage this in the account page that just opened, then press Refresh here.</source>
         <translation>এইমাত্র খোলা অ্যাকাউন্ট পৃষ্ঠায় এটি পরিচালনা করুন, তারপর এখানে “রিফ্রেশ” চাপুন।</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+24"/>
         <source>Loading…</source>
         <translation>লোড হচ্ছে…</translation>
     </message>
@@ -13368,7 +13368,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>এই অ্যাকাউন্টের সেশন লোড করতে “রিফ্রেশ” চাপুন।</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+12"/>
         <source>All</source>
         <translation type="unfinished">সব</translation>
     </message>
@@ -13389,7 +13389,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
     </message>
     <message>
         <location line="-96"/>
-        <location line="+121"/>
+        <location line="+110"/>
         <source>Verified</source>
         <translation>যাচাইকৃত</translation>
     </message>
@@ -13409,7 +13409,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>সর্বশেষ দেখা %1</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+25"/>
         <source>Rename</source>
         <translation type="unfinished">নাম বদলান</translation>
     </message>
@@ -13459,7 +13459,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>এই Matrix অ্যাকাউন্টে ইতিমধ্যেই সাইন ইন করা অন্য একটি সেশন দিয়ে এই সেশন যাচাই করুন। এতে রুম কী আমদানি হয় না — কী আমদানি নিচের আলাদা একটি ক্রিয়া।</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+20"/>
         <source>Verify again</source>
         <translation>আবার যাচাই করুন</translation>
     </message>
@@ -13469,7 +13469,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>এই Lightning সেশনটি Matrix ক্রস-সাইনিং দিয়ে যাচাইকৃত।</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+58"/>
         <source>This session is not verified. Verify it to prove it is yours, so your other sessions share encryption keys with it.</source>
         <translation>এই সেশনটি যাচাই করা নেই। এটি আপনার — তা প্রমাণ করতে যাচাই করুন, যাতে আপনার অন্য সেশনগুলি এর সঙ্গে এনক্রিপশন কী ভাগ করে।</translation>
     </message>
@@ -13489,12 +13489,12 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>এই সেশনের যাচাইয়ের অবস্থা দেখা হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+11"/>
         <source>Stop reminding me</source>
         <translation>আমাকে আর মনে করিয়ে দেবেন না</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+37"/>
         <source>Some old messages may show &quot;[unable to decrypt yet]&quot; until you restore your recovery key here, or until another verified device shares the room keys.</source>
         <translation>আপনি এখানে পুনরুদ্ধার কী ফিরিয়ে না আনা পর্যন্ত, বা অন্য কোনো যাচাইকৃত ডিভাইস রুম কী ভাগ না করা পর্যন্ত কিছু পুরনো বার্তায় “[এখনও ডিক্রিপ্ট করা যাচ্ছে না]” দেখাতে পারে।</translation>
     </message>
@@ -13510,7 +13510,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
     </message>
     <message>
         <location line="+5"/>
-        <location line="+31"/>
+        <location line="+30"/>
         <source>Recovery started</source>
         <translation>পুনরুদ্ধার শুরু হয়েছে</translation>
     </message>
@@ -13520,7 +13520,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>পুনরুদ্ধার সম্পূর্ণ। কী আসার সঙ্গে সঙ্গে নতুন বার্তা ডিক্রিপ্ট হওয়া উচিত। কিছু পুরনো বার্তার জন্য এখনও অন্য যাচাইকৃত ডিভাইসের কী ভাগ করা লাগতে পারে।</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+12"/>
         <source>Recovery failed: %1</source>
         <translation>পুনরুদ্ধার ব্যর্থ: %1</translation>
     </message>
@@ -13555,7 +13555,7 @@ Escape, এবং বার্তা মেনু খোলা থাকা অ�
         <translation>আমদানি করুন</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+84"/>
         <source>Select encrypted Matrix room-key export</source>
         <translation>এনক্রিপ্টেড Matrix রুম-কী রপ্তানি নির্বাচন করুন</translation>
     </message>
@@ -13581,7 +13581,7 @@ Note: importing keys does not verify this session.</source>
         <translation>যাচাই এই সেশনের প্রতি আস্থা তৈরি করে। নিরাপদ ব্যাকআপ ও রুম-কী আমদানি বার্তার ইতিহাসের ডিক্রিপশন কী দেয়। এগুলি আলাদা ক্রিয়া।</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+36"/>
         <source>Hide</source>
         <translation>লুকান</translation>
     </message>
@@ -13611,7 +13611,7 @@ Note: importing keys does not verify this session.</source>
         <translation>রিসেট</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+12"/>
         <source>This deletes Lightning&apos;s local Matrix Rust SDK store and any saved smoke session for this account. Server messages, Element data, and other accounts are untouched. You will need to sign in again after this.</source>
         <translation>এটি Lightning-এর স্থানীয় Matrix Rust SDK সংরক্ষণ এবং এই অ্যাকাউন্টের যেকোনো সংরক্ষিত স্মোক সেশন মোছে। সার্ভারের বার্তা, Element-এর ডেটা ও অন্য অ্যাকাউন্ট অক্ষত থাকে। এরপর আপনাকে আবার সাইন ইন করতে হবে।</translation>
     </message>
@@ -13641,7 +13641,7 @@ Note: importing keys does not verify this session.</source>
         <translation>SDK থেকে খোলা রুমের টাইমলাইন নতুন করে গড়ে। যেকোনো সময় নিরাপদ।</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+45"/>
         <source>Lightning logo</source>
         <translation>Lightning লোগো</translation>
     </message>
@@ -13669,25 +13669,25 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+599"/>
-        <location line="+191"/>
-        <location line="+134"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+419"/>
+        <location line="+147"/>
+        <location line="+99"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
         <translation>এই ডেস্কটপে স্ক্রিন শেয়ারিং উপলব্ধ নেই৷</translation>
     </message>
     <message>
-        <location line="-323"/>
-        <location line="+928"/>
+        <location line="-244"/>
+        <location line="+685"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>স্ক্রিন শেয়ারিং শুরু করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-787"/>
+        <location line="-574"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>ওয়েল্যান্ডে স্ক্রিন শেয়ার করার জন্য xdg-ডেস্কটপ-পোর্টাল প্রয়োজন, এবং এটি সাড়া দিচ্ছে না। আপনার ডেস্কটপের জন্য পোর্টাল ইনস্টল বা শুরু করুন — যেমন xdg-desktop-portal-kde বা xdg-desktop-portal-gnome — তারপর আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+25"/>
         <source>Screen sharing needs GStreamer&apos;s %1 element, which isn&apos;t installed. Install the gst-plugins-good package and try again.</source>
         <translation>স্ক্রীন শেয়ার করার জন্য GStreamer এর %1উপাদান প্রয়োজন, যা ইনস্টল করা নেই। gst-plugins-good প্যাকেজ ইনস্টল করুন এবং আবার চেষ্টা করুন।</translation>
     </message>
@@ -13697,18 +13697,18 @@ Note: importing keys does not verify this session.</source>
         <translation>স্ক্রিন শেয়ারিং উপলব্ধ নেই: কোনো ডিসপ্লে সার্ভার পাওয়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+241"/>
-        <location line="+42"/>
+        <location line="+174"/>
+        <location line="+32"/>
         <source>No display is available to share.</source>
         <translation>ভাগ করার জন্য কোনো প্রদর্শন উপলব্ধ নেই৷</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+57"/>
         <source>That display isn&apos;t connected any more.</source>
         <translation>সেই ডিসপ্লে আর কানেক্ট করা নেই।</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+9"/>
         <source>Couldn&apos;t start sharing that window.</source>
         <translation>সেই উইন্ডোটি শেয়ার করা শুরু করা যায়নি।</translation>
     </message>
@@ -13718,42 +13718,42 @@ Note: importing keys does not verify this session.</source>
         <translation>সেই ডিসপ্লে শেয়ার করা শুরু করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+227"/>
+        <location line="+168"/>
         <source>The calling service refused to connect you to this call.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+591"/>
+        <location line="+453"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>এই হোমসার্ভারে কলিং উপলব্ধ নেই৷</translation>
     </message>
     <message>
-        <location line="-568"/>
+        <location line="-438"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>অনেক চেষ্টা. কিছুক্ষণের মধ্যে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-638"/>
+        <location line="-477"/>
         <source>Screen sharing isn&apos;t available in this sandboxed (Flatpak or Snap) build on an X11 session: it can only share through the desktop&apos;s screen-sharing portal, and none is available, and GStreamer plugins installed on your system cannot be used from the sandbox. To share your screen, use the AppImage or a distribution package of Lightning, which capture an X11 screen directly, or log into a Wayland session, where your desktop&apos;s portal provides screen sharing. If your desktop&apos;s xdg-desktop-portal supports screen casting on X11, make sure it is installed and running.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+607"/>
+        <location line="+455"/>
         <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+13"/>
         <source>The calling service this call uses didn&apos;t answer. It&apos;s chosen by whoever started the call, not by your homeserver.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+7"/>
         <source>Your homeserver doesn&apos;t support Matrix calls.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+6"/>
         <source>Your screen is being shared without its sound — the audio capture couldn&apos;t be started.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13763,32 +13763,32 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+7"/>
         <source>This call&apos;s service is on a private network address, which Lightning won&apos;t connect to. Whoever set up the call needs to give it an address reachable from the internet.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+10"/>
         <source>Lightning couldn&apos;t look up this call&apos;s service. Its name doesn&apos;t resolve, or this network&apos;s DNS isn&apos;t answering.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+5"/>
         <source>This call&apos;s service is advertised under a name that only means &quot;this computer&quot;, so Lightning won&apos;t connect to it. Whoever set up the call needs to give it a real address.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+6"/>
         <source>This network has no route to the call&apos;s service. If you&apos;re on a VPN or a restricted network, that&apos;s the first thing to check.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+5"/>
         <source>The call&apos;s service refused the connection — nothing is listening at the address it published.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>Something on this computer blocked the connection to the call&apos;s service — a firewall or a security policy.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13798,33 +13798,33 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>Lightning couldn&apos;t open a secure connection to the call&apos;s service. Its certificate or its TLS setup was refused.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+7"/>
         <source>The call&apos;s service answered, but not as a call service. Something between you and it — a proxy or a sign-in portal — may be intercepting the connection.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
-        <location line="+476"/>
+        <location line="+11"/>
+        <location line="+376"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>কলে সংযোগ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-474"/>
+        <location line="-374"/>
         <source>The calling service is having trouble.</source>
         <translation>কলিং সার্ভিসে সমস্যা হচ্ছে।</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+9"/>
         <source>This call&apos;s service isn&apos;t set up correctly, so Lightning couldn&apos;t connect to it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>The window you were sharing was closed.</source>
         <translation>আপনি যে উইন্ডোটি শেয়ার করছেন সেটি বন্ধ ছিল।</translation>
     </message>
@@ -13849,13 +13849,13 @@ Note: importing keys does not verify this session.</source>
         <translation>কলটি অপ্রত্যাশিতভাবে শেষ হয়ে গেছে।</translation>
     </message>
     <message>
-        <location line="+15"/>
-        <location line="+46"/>
+        <location line="+9"/>
+        <location line="+41"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>এই বিল্ডটি Matrix কলে যোগ দিতে পারে না।</translation>
     </message>
     <message>
-        <location line="-44"/>
+        <location line="-39"/>
         <source>Still checking whether calling is available here. Try again in a moment.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13876,13 +13876,13 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+38"/>
+        <location line="+33"/>
         <location line="+5"/>
         <source>This build has no calling media support.</source>
         <translation>এই বিল্ড কোন কলিং মিডিয়া সমর্থন নেই.</translation>
     </message>
     <message>
-        <location line="-33"/>
+        <location line="-31"/>
         <source>You don&apos;t have permission to start or join calls in this room. A room admin can raise your power level in it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13892,22 +13892,22 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+34"/>
         <source>Calling isn&apos;t ready yet.</source>
         <translation>কল করা এখনও প্রস্তুত নয়।</translation>
     </message>
     <message>
-        <location line="-46"/>
+        <location line="-41"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>এই রুমটি এনক্রিপ্ট করা হয়েছে, এবং এনক্রিপ্ট করা কল এখনও এই বিল্ডে উপলব্ধ নেই৷</translation>
     </message>
     <message>
-        <location line="+210"/>
+        <location line="+170"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>কলে আপনাকে ঘোষণা করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+259"/>
+        <location line="+208"/>
         <source>The call ended because the connection was lost.</source>
         <translation>সংযোগ বিচ্ছিন্ন হওয়ার কারণে কলটি শেষ হয়েছে৷</translation>
     </message>
@@ -13915,7 +13915,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ShortcutRegistry</name>
     <message>
-        <location filename="../src/app/ShortcutRegistry.cpp" line="+45"/>
+        <location filename="../src/app/ShortcutRegistry.cpp" line="+42"/>
         <source>Application</source>
         <translation>আবেদন</translation>
     </message>
@@ -13950,17 +13950,17 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+8"/>
         <source>Quit Lightning</source>
         <translation>প্রস্থান করুন Lightning</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+8"/>
         <source>Open Settings, or focus its search field</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+5"/>
         <source>Show the keyboard shortcuts</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13985,12 +13985,12 @@ Note: importing keys does not verify this session.</source>
         <translation>একটি রুম বা স্থান তৈরি করুন</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+4"/>
         <source>Start a direct message</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+5"/>
         <source>Open the Activity Center</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14030,27 +14030,27 @@ Note: importing keys does not verify this session.</source>
         <translation>খোলা কথোপকথনটি পঠিত হিসাবে চিহ্নিত করুন</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+10"/>
         <source>Mark every conversation as read</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+10"/>
         <source>Mark the open conversation as unread</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+5"/>
         <source>Show or hide the people in this conversation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+4"/>
         <source>Show or hide pinned messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+10"/>
         <source>Mute or unmute the microphone</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14060,32 +14060,32 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+5"/>
         <source>Turn the camera on or off</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+4"/>
         <source>Return to the active call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+9"/>
         <source>Start a call in this conversation</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+6"/>
         <source>Leave the call</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+4"/>
         <source>Share your screen, or stop sharing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+10"/>
         <source>Open the emoji picker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14100,7 +14100,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">ফাইল সংযুক্ত করুন</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+7"/>
         <source>Bold</source>
         <translation>গাঢ়</translation>
     </message>
@@ -14130,7 +14130,7 @@ Note: importing keys does not verify this session.</source>
         <translation>উদ্ধৃতি</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+4"/>
         <source>Underline</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14140,7 +14140,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">লিঙ্ক</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+8"/>
         <source>closing the find bar, room information, a thread or Settings</source>
         <translation>ফাইন্ড বার, রুমের তথ্য, একটি থ্রেড বা সেটিংস বন্ধ করা</translation>
     </message>
@@ -14175,7 +14175,7 @@ Note: importing keys does not verify this session.</source>
         <translation>স্ক্রিনশট-ডেমো নিয়ন্ত্রণ</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+3"/>
         <source>paging the timeline and the media grids</source>
         <translation>টাইমলাইন এবং মিডিয়া গ্রিড পেজিং</translation>
     </message>
@@ -14196,18 +14196,18 @@ Note: importing keys does not verify this session.</source>
         <translation>সর্বশেষ বার্তায় ঝাঁপ দেওয়া</translation>
     </message>
     <message>
-        <location line="+194"/>
-        <location line="+60"/>
+        <location line="+181"/>
+        <location line="+56"/>
         <source>Unknown action.</source>
         <translation>অজানা কর্ম।</translation>
     </message>
     <message>
-        <location line="-56"/>
+        <location line="-52"/>
         <source>That is not a key combination Lightning can store.</source>
         <translation>এটি একটি কী সমন্বয় নয় Lightning সঞ্চয় করতে পারে।</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+10"/>
         <source>Use Ctrl, Alt or Super. A shortcut without one of those is taken before any text field sees the key, so it would stop you typing that character anywhere in Lightning.</source>
         <translation>Ctrl, Alt বা Super ব্যবহার করুন। যেকোনও টেক্সট ফিল্ড কী দেখার আগে এর মধ্যে একটি ছাড়া একটি শর্টকাট নেওয়া হয়, তাই এটি আপনাকে Lightning-এর যেকোনো জায়গায় সেই অক্ষরটি টাইপ করা বন্ধ করবে।</translation>
     </message>
@@ -14222,12 +14222,12 @@ Note: importing keys does not verify this session.</source>
         <translation>%1ইতিমধ্যেই %2এর জন্য ব্যবহার করা হয়েছে৷ একটি কীতে দুটি শর্টকাট Qt ফায়ার করে না।</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+14"/>
         <source>%1 is already used for “%2”. Two shortcuts on one key make Qt fire neither of them.</source>
         <translation>%1ইতিমধ্যেই &quot;%2&quot; এর জন্য ব্যবহৃত হয়েছে৷ একটি কীতে দুটি শর্টকাট Qt ফায়ার করে না।</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+68"/>
         <source>Also used for %1 — neither will work.</source>
         <translation>%1-এর জন্যও ব্যবহৃত হয় — কোনটিই কাজ করবে না।</translation>
     </message>
@@ -14250,7 +14250,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ShortcutRow</name>
     <message>
-        <location filename="../qml/ShortcutRow.qml" line="+171"/>
+        <location filename="../qml/ShortcutRow.qml" line="+135"/>
         <source>Press a combination…</source>
         <translation>একটি সংমিশ্রণ টিপুন...</translation>
     </message>
@@ -14260,7 +14260,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সেট করা নেই</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+60"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
@@ -14280,7 +14280,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1এর জন্য একটি নতুন শর্টকাট ক্যাপচার করুন</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+9"/>
         <source>Reset</source>
         <translation>রিসেট</translation>
     </message>
@@ -14293,12 +14293,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SlashCommandPopup</name>
     <message>
-        <location filename="../qml/SlashCommandPopup.qml" line="+113"/>
+        <location filename="../qml/SlashCommandPopup.qml" line="+106"/>
         <source>Commands</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+129"/>
+        <location line="+89"/>
         <source>%1 · you lack the required power level</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14371,13 +14371,13 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+103"/>
-        <location line="+144"/>
+        <location line="+100"/>
+        <location line="+140"/>
         <source>Unknown command.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-142"/>
+        <location line="-138"/>
         <source>/%1 needs arguments: /%1 %2</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14387,7 +14387,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+72"/>
         <source>/join needs a room address (#room:server) or room id.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14400,7 +14400,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+677"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+589"/>
         <source>Create Room</source>
         <translation>রুম তৈরি করুন</translation>
     </message>
@@ -14416,12 +14416,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+133"/>
+        <location line="+122"/>
         <source>Message Search</source>
         <translation>বার্তা অনুসন্ধান</translation>
     </message>
     <message>
-        <location line="-81"/>
+        <location line="-79"/>
         <location line="+51"/>
         <source>Invites</source>
         <translation>আমন্ত্রণ</translation>
@@ -14447,12 +14447,12 @@ Note: importing keys does not verify this session.</source>
         <translation>চ্যাট</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+15"/>
         <source>Lobby</source>
         <translation>লবি</translation>
     </message>
     <message>
-        <location line="+122"/>
+        <location line="+96"/>
         <source>People</source>
         <translation>লোক</translation>
     </message>
@@ -14460,17 +14460,17 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceLobby</name>
     <message>
-        <location filename="../qml/SpaceLobby.qml" line="-204"/>
+        <location filename="../qml/SpaceLobby.qml" line="-198"/>
         <source>Rooms</source>
         <translation type="unfinished">রুম</translation>
     </message>
     <message>
-        <location line="+148"/>
+        <location line="+145"/>
         <source>More actions for %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+111"/>
         <source>%1, not joined</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14488,12 +14488,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceManager</name>
     <message>
-        <location filename="../src/spaces/SpaceManager.cpp" line="+252"/>
+        <location filename="../src/spaces/SpaceManager.cpp" line="+218"/>
         <source>All rooms</source>
         <translation>সব রুম</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+30"/>
         <source>Other rooms</source>
         <translation>অন্যান্য রুম</translation>
     </message>
@@ -14506,7 +14506,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceSettingsDialog</name>
     <message>
-        <location filename="../qml/SpaceSettingsDialog.qml" line="+138"/>
+        <location filename="../qml/SpaceSettingsDialog.qml" line="+92"/>
         <source>General</source>
         <translation>সাধারণ</translation>
     </message>
@@ -14526,12 +14526,12 @@ Note: importing keys does not verify this session.</source>
         <translation>বিকাশকারী সরঞ্জাম</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+11"/>
         <source>Users</source>
         <translation>ব্যবহারকারীদের</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+3"/>
         <source>The level every member starts at. Raising it grants EVERYONE in the space everything at that level.</source>
         <translation>প্রতিটি সদস্য যে স্তর থেকে শুরু করে। এটিকে উত্থাপন করা স্থানের প্রত্যেককে সেই স্তরে সবকিছু প্রদান করে।</translation>
     </message>
@@ -14561,13 +14561,13 @@ Note: importing keys does not verify this session.</source>
         <translation>সংযম</translation>
     </message>
     <message>
-        <location line="+5"/>
-        <location line="+953"/>
+        <location line="+4"/>
+        <location line="+871"/>
         <source>Invite</source>
         <translation>আমন্ত্রণ করুন</translation>
     </message>
     <message>
-        <location line="-952"/>
+        <location line="-870"/>
         <source>Kick</source>
         <translation>লাথি</translation>
     </message>
@@ -14593,18 +14593,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+307"/>
+        <location line="+302"/>
         <source>Space name</source>
         <translation>স্পেসের নাম</translation>
     </message>
     <message>
-        <location line="-306"/>
-        <location line="+350"/>
+        <location line="-301"/>
+        <location line="+345"/>
         <source>Space topic</source>
         <translation>স্পেসের বিষয়</translation>
     </message>
     <message>
-        <location line="-346"/>
+        <location line="-341"/>
         <source>Settings</source>
         <translation>সেটিংস</translation>
     </message>
@@ -14649,7 +14649,7 @@ Note: importing keys does not verify this session.</source>
         <translation>স্থান সেটিংস বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+102"/>
+        <location line="+101"/>
         <source>Loading this space&apos;s members. What you can change depends on them, so the controls stay disabled until they arrive.</source>
         <translation>এই স্থানের সদস্যদের লোড করা হচ্ছে৷ আপনি কী পরিবর্তন করতে পারেন তা তাদের উপর নির্ভর করে, তাই তারা না আসা পর্যন্ত নিয়ন্ত্রণগুলি অক্ষম থাকে৷</translation>
     </message>
@@ -14664,7 +14664,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+15"/>
         <source>Choose a banner image</source>
         <translation>একটি ব্যানার ছবি বেছে নিন</translation>
     </message>
@@ -14674,7 +14674,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.gif *.webp)</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+14"/>
         <source>Profile</source>
         <translation>প্রোফাইল</translation>
     </message>
@@ -14694,7 +14694,7 @@ Note: importing keys does not verify this session.</source>
         <translation>নাম</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+34"/>
         <source>Rename</source>
         <translation>নাম বদলান</translation>
     </message>
@@ -14705,17 +14705,17 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+31"/>
-        <location line="+366"/>
+        <location line="+309"/>
         <source>Save</source>
         <translation>সংরক্ষণ করুন</translation>
     </message>
     <message>
-        <location line="-321"/>
+        <location line="-286"/>
         <source>Banner</source>
         <translation>ব্যানার</translation>
     </message>
     <message>
-        <location line="+124"/>
+        <location line="+94"/>
         <source>No banner</source>
         <translation>কোনো ব্যানার নেই</translation>
     </message>
@@ -14770,18 +14770,18 @@ Note: importing keys does not verify this session.</source>
         <translation>যোগ দেওয়ার অনুরোধ (নক)</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+29"/>
         <source>Members of another space can join. Lightning can&apos;t change space-restricted access yet.</source>
         <translation>অন্য স্পেসের সদস্যরা যোগ দিতে পারেন। Lightning এখনও স্থান-সীমাবদ্ধ অ্যাক্সেস পরিবর্তন করতে পারে না।</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+808"/>
+        <location line="+759"/>
         <source>Published address</source>
         <translation>প্রকাশিত ঠিকানা</translation>
     </message>
     <message>
-        <location line="-799"/>
+        <location line="-750"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>একটি প্রকাশিত ঠিকানা লোকেদের নাম দ্বারা এই স্থান খুঁজে পেতে এবং যোগদান করতে দেয়৷ এটি সরাতে এটি খালি ছেড়ে দিন।</translation>
     </message>
@@ -14791,7 +14791,7 @@ Note: importing keys does not verify this session.</source>
         <translation>#স্পেস-নাম</translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="+37"/>
         <source>Advanced</source>
         <translation>উন্নত</translation>
     </message>
@@ -14811,12 +14811,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+15"/>
         <source>Upgrade space…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+48"/>
         <source>%1 members</source>
         <translation>%1সদস্য</translation>
     </message>
@@ -14826,7 +14826,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1যোগ দিয়েছেন · %2আমন্ত্রিত</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+18"/>
         <source>This space has more members than Lightning loads at once, so the list below is a part of it — sorted alphabetically it is missing names from the middle, not just the end.</source>
         <translation>এই স্থানটিতে একবারে Lightning লোডের চেয়ে বেশি সদস্য রয়েছে, তাই নীচের তালিকাটি এটির একটি অংশ — বর্ণানুক্রমিকভাবে সাজানো এটি মাঝখান থেকে নাম অনুপস্থিত, শুধু শেষ নয়।</translation>
     </message>
@@ -14836,7 +14836,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সদস্যদের অনুসন্ধান করুন</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Everyone</source>
         <translation>সবাই</translation>
     </message>
@@ -14847,18 +14847,18 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+117"/>
+        <location line="+109"/>
         <source>Invited</source>
         <translation>আমন্ত্রিত</translation>
     </message>
     <message>
-        <location line="-116"/>
-        <location line="+115"/>
+        <location line="-108"/>
+        <location line="+107"/>
         <source>Banned</source>
         <translation>নিষিদ্ধ</translation>
     </message>
     <message>
-        <location line="-113"/>
+        <location line="-105"/>
         <source>Filter by membership</source>
         <translation>সদস্যপদ দ্বারা ফিল্টার</translation>
     </message>
@@ -14878,12 +14878,12 @@ Note: importing keys does not verify this session.</source>
         <translation>সদস্যদের সাজান</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+36"/>
         <source>%1 · %2</source>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location line="+123"/>
+        <location line="+115"/>
         <source>You can only require a level at or below your own, and only set a member&apos;s role below your own — never for someone at or above it. A space using a custom level shows that number rather than being relabelled.</source>
         <translation>আপনি শুধুমাত্র আপনার নিজের বা তার নীচে একটি স্তরের প্রয়োজন করতে পারেন, এবং শুধুমাত্র আপনার নিজের নীচে একটি সদস্যের ভূমিকা সেট করতে পারেন - এটির উপরে বা উপরে কারো জন্য নয়। একটি কাস্টম স্তর ব্যবহার করে একটি স্পেস রিলেবেল হওয়ার পরিবর্তে সেই সংখ্যাটি দেখায়।</translation>
     </message>
@@ -14893,12 +14893,12 @@ Note: importing keys does not verify this session.</source>
         <translation>এই স্থানটিতে আপনার ভূমিকা বা অনুমতি পরিবর্তন করার অনুমতি নেই৷</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+14"/>
         <source>This space&apos;s permission levels haven&apos;t loaded on this backend, so they are not shown.</source>
         <translation>এই স্থানের অনুমতি স্তরগুলি এই ব্যাকএন্ডে লোড হয়নি, তাই সেগুলি দেখানো হয় না৷</translation>
     </message>
     <message>
-        <location line="+87"/>
+        <location line="+82"/>
         <source>Member (%1)</source>
         <translation>সদস্য (%1)</translation>
     </message>
@@ -14923,7 +14923,7 @@ Note: importing keys does not verify this session.</source>
         <translation>জানা নেই</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+44"/>
         <source>Level</source>
         <translation>স্তর</translation>
     </message>
@@ -14933,12 +14933,12 @@ Note: importing keys does not verify this session.</source>
         <translation>%1এর জন্য কাস্টম স্তর</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+23"/>
         <source>Apply custom level to %1</source>
         <translation>%1এ কাস্টম স্তর প্রয়োগ করুন</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+27"/>
         <source>Member roles</source>
         <translation>সদস্য ভূমিকা</translation>
     </message>
@@ -14948,7 +14948,7 @@ Note: importing keys does not verify this session.</source>
         <translation>প্রশাসক</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+13"/>
         <source>Moderator</source>
         <translation>মডারেটর</translation>
     </message>
@@ -14963,7 +14963,7 @@ Note: importing keys does not verify this session.</source>
         <translation>শুধুমাত্র পঠনযোগ্য। এই ডিভাইসটি বর্তমানে স্থান সম্পর্কে যা জানে তা এখানে সবকিছু।</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+18"/>
         <source>Space ID</source>
         <translation>স্পেস আইডি</translation>
     </message>
@@ -15008,7 +15008,7 @@ Note: importing keys does not verify this session.</source>
         <translation>অনুলিপি করুন %1</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+25"/>
         <source>A full room-state and account-data inspector isn&apos;t built yet.</source>
         <translation>একটি সম্পূর্ণ রুম-স্টেট এবং অ্যাকাউন্ট-ডেটা ইন্সপেক্টর এখনও তৈরি করা হয়নি।</translation>
     </message>
@@ -15016,12 +15016,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesPanel</name>
     <message>
-        <location filename="../qml/SpacesPanel.qml" line="+45"/>
+        <location filename="../qml/SpacesPanel.qml" line="+43"/>
         <source>Spaces</source>
         <translation>স্পেস</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+17"/>
         <source>Expand spaces</source>
         <translation>স্পেস প্রসারিত করুন</translation>
     </message>
@@ -15031,18 +15031,18 @@ Note: importing keys does not verify this session.</source>
         <translation>স্পেস সংকুচিত করুন</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+17"/>
         <source>No spaces</source>
         <translation>কোনো স্পেস নেই</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+14"/>
         <location line="+1"/>
         <source>Search spaces</source>
         <translation>স্পেস খুঁজুন</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+80"/>
         <source>All rooms</source>
         <translation>সব রুম</translation>
     </message>
@@ -15055,7 +15055,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+1408"/>
+        <location filename="../qml/SpacesRail.qml" line="+754"/>
         <source>Folder: %1</source>
         <translation>ফোল্ডার: %1</translation>
     </message>
@@ -15075,7 +15075,17 @@ Note: importing keys does not verify this session.</source>
         <translation>অন্যান্য রুম</translation>
     </message>
     <message>
-        <location line="+518"/>
+        <location line="+4"/>
+        <source>Mentions: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Unread messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+290"/>
         <source>Collapse space</source>
         <translation>স্থান সংকুচিত করুন</translation>
     </message>
@@ -15085,19 +15095,19 @@ Note: importing keys does not verify this session.</source>
         <translation>স্থান প্রসারিত করুন</translation>
     </message>
     <message>
-        <location line="+643"/>
+        <location line="+493"/>
         <location line="+4"/>
         <source>Show more rooms</source>
         <translation>আরও রুম দেখান</translation>
     </message>
     <message>
-        <location line="+29"/>
-        <location line="+32"/>
+        <location line="+25"/>
+        <location line="+23"/>
         <source>Create a Space</source>
         <translation>স্পেস তৈরি করুন</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+46"/>
         <source>Settings — this session is not verified</source>
         <translation>সেটিংস — এই সেশনটি যাচাই করা নেই</translation>
     </message>
@@ -15112,12 +15122,12 @@ Note: importing keys does not verify this session.</source>
         <translation>সেটিংস</translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+78"/>
         <source>Account menu for %1</source>
         <translation>%1-এর অ্যাকাউন্ট মেনু</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+47"/>
         <location line="+3"/>
         <source>Connected</source>
         <translation>সংযুক্ত</translation>
@@ -15133,7 +15143,7 @@ Note: importing keys does not verify this session.</source>
         <translation>আপনার হোমসার্ভারে সংযুক্ত নয়</translation>
     </message>
     <message>
-        <location line="+117"/>
+        <location line="+78"/>
         <source>Expand folder</source>
         <translation>ফোল্ডার প্রসারিত করুন</translation>
     </message>
@@ -15153,17 +15163,17 @@ Note: importing keys does not verify this session.</source>
         <translation>ফোল্ডার মুছুন</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+14"/>
         <source>Mark all rooms read</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+9"/>
         <source>Mark as read</source>
         <translation>পঠিত হিসেবে চিহ্নিত করুন</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+9"/>
         <source>Unmute space</source>
         <translation>স্পেস আনমিউট করুন</translation>
     </message>
@@ -15178,13 +15188,13 @@ Note: importing keys does not verify this session.</source>
         <translation>আমন্ত্রণ করুন</translation>
     </message>
     <message>
-        <location line="+13"/>
-        <location line="+162"/>
+        <location line="+10"/>
+        <location line="+152"/>
         <source>Copy link</source>
         <translation>লিঙ্ক কপি করুন</translation>
     </message>
     <message>
-        <location line="-151"/>
+        <location line="-143"/>
         <source>Share link…</source>
         <translation>লিঙ্ক শেয়ার করুন...</translation>
     </message>
@@ -15204,12 +15214,12 @@ Note: importing keys does not verify this session.</source>
         <translation>ফোল্ডার থেকে বের করুন</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+11"/>
         <source>Move to “%1”</source>
         <translation>“%1”-এ সরান</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+56"/>
         <source>Share space</source>
         <translation>স্থান ভাগ করুন</translation>
     </message>
@@ -15229,7 +15239,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ব্রাউজারে খুলুন</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+16"/>
         <source>Rename folder</source>
         <translation>ফোল্ডারের নাম বদলান</translation>
     </message>
@@ -15239,7 +15249,7 @@ Note: importing keys does not verify this session.</source>
         <translation>নতুন ফোল্ডার</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+39"/>
         <source>Folders are only on this device. Other clients, and everyone else, see your spaces unchanged.</source>
         <translation>ফোল্ডার শুধুমাত্র এই ডিভাইসে আছে. অন্যান্য ক্লায়েন্ট, এবং অন্য সবাই, আপনার স্পেস অপরিবর্তিত দেখুন।</translation>
     </message>
@@ -15252,7 +15262,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpellChecker</name>
     <message>
-        <location filename="../src/text/SpellChecker.cpp" line="+354"/>
+        <location filename="../src/text/SpellChecker.cpp" line="+337"/>
         <source>Automatic (system language)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15260,7 +15270,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>StatusDialog</name>
     <message>
-        <location filename="../qml/StatusDialog.qml" line="+84"/>
+        <location filename="../qml/StatusDialog.qml" line="+82"/>
         <source>Set a status</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15353,12 +15363,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>StickerPackEditor</name>
     <message>
-        <location filename="../qml/StickerPackEditor.qml" line="+83"/>
+        <location filename="../qml/StickerPackEditor.qml" line="+67"/>
         <source>Saved.</source>
         <translation type="unfinished">সংরক্ষিত।</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+6"/>
         <source>That name is already used in this pack.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15394,22 +15404,22 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+133"/>
+        <location line="+123"/>
         <source>Rename</source>
         <translation type="unfinished">নাম বদলান</translation>
     </message>
     <message>
-        <location line="-121"/>
+        <location line="-111"/>
         <source>Leave the name empty to use the default — for a room&apos;s pack that is the room&apos;s own name.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+11"/>
         <source>This pack belongs to a room, and you do not have permission to change it here.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+100"/>
         <source>Save</source>
         <translation type="unfinished">সংরক্ষণ করুন</translation>
     </message>
@@ -15439,7 +15449,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">সম্পন্ন</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+14"/>
         <source>This removes every image and the pack&apos;s name. It cannot be undone, and for a room&apos;s pack everyone in the room loses it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15447,7 +15457,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>StickerPicker</name>
     <message>
-        <location filename="../qml/StickerPicker.qml" line="+169"/>
+        <location filename="../qml/StickerPicker.qml" line="+136"/>
         <source>GIFs</source>
         <translation type="unfinished">GIF</translation>
     </message>
@@ -15458,7 +15468,7 @@ Note: importing keys does not verify this session.</source>
         <translation>স্টিকার</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+18"/>
         <source>Choose a sticker</source>
         <translation>একটি স্টিকার চয়ন করুন</translation>
     </message>
@@ -15468,7 +15478,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.webp *.gif)</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+11"/>
         <source>Add a sticker from this computer</source>
         <translation>এই কম্পিউটার থেকে একটি স্টিকার যোগ করুন</translation>
     </message>
@@ -15478,7 +15488,7 @@ Note: importing keys does not verify this session.</source>
         <translation>একটি স্টিকার যোগ করুন</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+17"/>
         <source>Manage this pack</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15488,7 +15498,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+19"/>
         <source>Reload sticker packs</source>
         <translation>স্টিকার প্যাকগুলি পুনরায় লোড করুন</translation>
     </message>
@@ -15503,7 +15513,7 @@ Note: importing keys does not verify this session.</source>
         <translation>স্টিকার পিকার বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+93"/>
         <source>Use this room&apos;s stickers in every room</source>
         <translation>প্রতিটি ঘরে এই রুমের স্টিকার ব্যবহার করুন</translation>
     </message>
@@ -15518,12 +15528,12 @@ Note: importing keys does not verify this session.</source>
         <translation>একটি রুমের স্টিকার সবসময় সেই রুমের ভিতরে পাওয়া যায়। এটি তাদের অন্য সব জায়গায় উপলব্ধ করে তোলে।</translation>
     </message>
     <message>
-        <location line="+221"/>
+        <location line="+172"/>
         <source>Unavailable</source>
         <translation>অনুপলব্ধ</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+50"/>
         <source>Stickers are unavailable on this backend</source>
         <translation>এই ব্যাকএন্ডে স্টিকারগুলি অনুপলব্ধ৷</translation>
     </message>
@@ -15558,7 +15568,7 @@ Note: importing keys does not verify this session.</source>
         <translation>একটি প্যাক স্টিকারের পরিবর্তে কাস্টম ইমোজি ধারণ করতে পারে। সেগুলি মেসেজ বক্সে দেখা যাচ্ছে, এখানে নয়।</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+36"/>
         <source>Your pack</source>
         <translation>আপনার প্যাক</translation>
     </message>
@@ -15576,12 +15586,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThemeEditorDialog</name>
     <message>
-        <location filename="../qml/ThemeEditorDialog.qml" line="+284"/>
+        <location filename="../qml/ThemeEditorDialog.qml" line="+164"/>
         <source>Theme imported.</source>
         <translation>থিম আমদানি হয়েছে।</translation>
     </message>
     <message>
-        <location line="+238"/>
+        <location line="+203"/>
         <source>Custom theme</source>
         <translation>কাস্টম থিম</translation>
     </message>
@@ -15591,7 +15601,7 @@ Note: importing keys does not verify this session.</source>
         <translation>নমুনা উইন্ডোর যেকোনো অংশে, বা বাঁ দিকের কোনো ভূমিকায় ক্লিক করুন।</translation>
     </message>
     <message numerus="yes">
-        <location line="-255"/>
+        <location line="-220"/>
         <source>Theme imported. %n thing(s) in it will be hard to read.</source>
         <comment>custom theme readability</comment>
         <translation type="unfinished">
@@ -15600,7 +15610,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+256"/>
+        <location line="+221"/>
         <source>%n colour(s) changed.</source>
         <comment>custom theme, count of edited roles</comment>
         <translation type="unfinished">
@@ -15609,7 +15619,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+89"/>
+        <location line="+62"/>
         <source>%n thing(s) hard to read</source>
         <comment>custom theme readability</comment>
         <translation type="unfinished">
@@ -15632,7 +15642,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+32"/>
         <source>Reset every colour?</source>
         <translation>সব রঙ রিসেট করবেন?</translation>
     </message>
@@ -15648,18 +15658,18 @@ Note: importing keys does not verify this session.</source>
         <translation>রেখে দিন</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+17"/>
         <source>Use this theme</source>
         <translation>এই থিম ব্যবহার করুন</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+334"/>
+        <location line="+305"/>
         <source>Done</source>
         <translation>সম্পন্ন</translation>
     </message>
     <message>
-        <location line="-276"/>
+        <location line="-256"/>
         <source>Your themes</source>
         <translation>আপনার থিম</translation>
     </message>
@@ -15674,7 +15684,7 @@ Note: importing keys does not verify this session.</source>
         <translation>থিমের নাম</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+14"/>
         <source>Name this theme</source>
         <translation>এই থিমের একটি নাম দিন</translation>
     </message>
@@ -15709,7 +15719,7 @@ Note: importing keys does not verify this session.</source>
         <translation>মুছুন</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+39"/>
         <source>Paste a shared theme</source>
         <translation>শেয়ার করা থিম পেস্ট করুন</translation>
     </message>
@@ -15719,7 +15729,7 @@ Note: importing keys does not verify this session.</source>
         <translation>শেয়ার করা থিম পেস্ট করে Enter চাপুন</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+41"/>
         <source>Start from</source>
         <translation>যেখান থেকে শুরু</translation>
     </message>
@@ -15729,8 +15739,8 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">পরিবর্তন</translation>
     </message>
     <message>
-        <location line="+186"/>
-        <location line="+22"/>
+        <location line="+175"/>
+        <location line="+19"/>
         <source>Find a colour</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15740,7 +15750,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+268"/>
+        <location line="+205"/>
         <source>%1 · see-through</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15750,17 +15760,17 @@ Note: importing keys does not verify this session.</source>
         <translation>%1-কে মূল থিমে ফিরিয়ে দিন</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+68"/>
         <source>A sample window, not one of your rooms. Click a part of it to recolour it.</source>
         <translation>এটি একটি নমুনা উইন্ডো, আপনার কোনো রুম নয়। এর কোনো অংশে ক্লিক করে রঙ বদলান।</translation>
     </message>
     <message>
-        <location line="+167"/>
+        <location line="+116"/>
         <source>Readability</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+74"/>
+        <location line="+60"/>
         <source>see-through</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15775,7 +15785,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+17"/>
         <source>/ %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15795,7 +15805,7 @@ Note: importing keys does not verify this session.</source>
         <translation>কিছুই নির্বাচিত নয়</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+20"/>
         <source>Close the readability report</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15815,7 +15825,7 @@ Note: importing keys does not verify this session.</source>
         <translation>মাঝখানের নমুনা উইন্ডোর কোনো অংশে, বা বাঁ দিকের তালিকার কোনো ভূমিকায় ক্লিক করুন — তার রঙ এখানে খুলবে।</translation>
     </message>
     <message numerus="yes">
-        <location line="+22"/>
+        <location line="+17"/>
         <source>%n colour(s) could not be checked: a see-through colour reads differently depending on what is behind it.</source>
         <comment>custom theme readability</comment>
         <translation type="unfinished">
@@ -15824,7 +15834,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+20"/>
+        <location line="+18"/>
         <source>%n check(s) could not be made: this build has no colour by that name.</source>
         <comment>custom theme readability</comment>
         <translation type="unfinished">
@@ -15833,13 +15843,13 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="+178"/>
+        <location line="+134"/>
         <source>Aa</source>
         <extracomment>A two-letter type specimen shown on a colour pair to demonstrate its readability. Translate to whichever letters best show this locale&apos;s script — a Latin &quot;Aa&quot; says nothing about legibility in Cyrillic, Greek or CJK.</extracomment>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+34"/>
         <source>%1:1 — needs %2:1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15852,7 +15862,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThemePreviewDemo</name>
     <message>
-        <location filename="../qml/ThemePreviewDemo.qml" line="+65"/>
+        <location filename="../qml/ThemePreviewDemo.qml" line="+43"/>
         <location line="+13"/>
         <source>Design</source>
         <translation>ডিজাইন</translation>
@@ -15865,13 +15875,13 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+1"/>
         <location line="+13"/>
-        <location line="+97"/>
-        <location line="+198"/>
+        <location line="+91"/>
+        <location line="+194"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-308"/>
+        <location line="-298"/>
         <source>Storm looks good now</source>
         <translation>Storm এখন ভালোই লাগছে</translation>
     </message>
@@ -15899,12 +15909,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+16"/>
-        <location line="+326"/>
+        <location line="+316"/>
         <source>Sam</source>
         <translation>Sam</translation>
     </message>
     <message>
-        <location line="-326"/>
+        <location line="-316"/>
         <source>Robin</source>
         <translation>Robin</translation>
     </message>
@@ -15914,18 +15924,18 @@ Note: importing keys does not verify this session.</source>
         <translation>Kim</translation>
     </message>
     <message>
-        <location line="+114"/>
+        <location line="+107"/>
         <source>Search</source>
         <translation>খুঁজুন</translation>
     </message>
     <message>
-        <location line="-122"/>
-        <location line="+132"/>
+        <location line="-115"/>
+        <location line="+125"/>
         <source>Rooms</source>
         <translation>রুম</translation>
     </message>
     <message>
-        <location line="-134"/>
+        <location line="-127"/>
         <source>Lobby</source>
         <translation>লবি</translation>
     </message>
@@ -15940,7 +15950,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ক্রিয়েটিভ স্টুডিও</translation>
     </message>
     <message>
-        <location line="+341"/>
+        <location line="+331"/>
         <source>The new ladder reads much better.</source>
         <translation>নতুন ধাপগুলি অনেক ভালো পড়া যায়।</translation>
     </message>
@@ -15950,7 +15960,7 @@ Note: importing keys does not verify this session.</source>
         <translation>একমত — এটি প্রকাশ করা যাক।</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+27"/>
         <source>See</source>
         <translation>দেখুন</translation>
     </message>
@@ -15965,7 +15975,7 @@ Note: importing keys does not verify this session.</source>
         <translation>@আপনি</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <source>git push</source>
         <translation>git push</translation>
     </message>
@@ -15975,7 +15985,7 @@ Note: importing keys does not verify this session.</source>
         <translation>রিলিজ নোট</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+20"/>
         <source>+2</source>
         <translation>+2</translation>
     </message>
@@ -15990,7 +16000,7 @@ Note: importing keys does not verify this session.</source>
         <translation>পাঠান</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+26"/>
         <source>People</source>
         <translation>লোক</translation>
     </message>
@@ -16003,7 +16013,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+646"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+593"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>এই ব্যাকএন্ডে সংযুক্তি সমর্থিত নয়।</translation>
     </message>
@@ -16013,24 +16023,24 @@ Note: importing keys does not verify this session.</source>
         <translation>ক্লিপবোর্ডের ছবি পড়া যায়নি।</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+57"/>
         <source>The attachment could not be queued.</source>
         <translation>সংযুক্তিটি সারিতে দেওয়া যায়নি।</translation>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+31"/>
-        <location line="+25"/>
+        <location line="+29"/>
+        <location line="+23"/>
         <source>The voice message could not be sent.</source>
         <translation>ভয়েস বার্তাটি পাঠানো যায়নি।</translation>
     </message>
     <message>
-        <location line="-47"/>
+        <location line="-44"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>ভয়েস বার্তাটি সার্ভারের আপলোড সীমার চেয়ে বড় (%1)।</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+59"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>আপলোড ব্যর্থ। আবার চেষ্টা করুন বা সরান।</translation>
     </message>
@@ -16038,12 +16048,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadPanel</name>
     <message>
-        <location filename="../qml/ThreadPanel.qml" line="+95"/>
+        <location filename="../qml/ThreadPanel.qml" line="+71"/>
         <source>Yesterday</source>
         <translation>গতকাল</translation>
     </message>
     <message>
-        <location line="+112"/>
+        <location line="+104"/>
         <source>Back to threads</source>
         <translation>থ্রেডে ফিরুন</translation>
     </message>
@@ -16058,7 +16068,7 @@ Note: importing keys does not verify this session.</source>
         <translation>থ্রেড</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+26"/>
         <source>Unfollow</source>
         <translation>অনুসরণ বন্ধ করুন</translation>
     </message>
@@ -16089,7 +16099,7 @@ Note: importing keys does not verify this session.</source>
         <translation>থ্রেড লোড হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>Threads could not be loaded.</source>
         <translation>থ্রেড লোড করা যায়নি।</translation>
     </message>
@@ -16104,8 +16114,8 @@ Note: importing keys does not verify this session.</source>
         <translation>কোনো বার্তার মেনু থেকে থ্রেডে উত্তর দিয়ে একটি থ্রেড শুরু করুন।</translation>
     </message>
     <message numerus="yes">
-        <location line="+54"/>
-        <location line="+93"/>
+        <location line="+44"/>
+        <location line="+92"/>
         <source>%n reply(s)</source>
         <translation>
             <numerusform>%n উত্তর</numerusform>
@@ -16113,12 +16123,12 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="-90"/>
+        <location line="-89"/>
         <source>Unread</source>
         <translation>অপঠিত</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="+115"/>
         <source>Loading…</source>
         <translation>লোড হচ্ছে…</translation>
     </message>
@@ -16128,7 +16138,7 @@ Note: importing keys does not verify this session.</source>
         <translation>আরও থ্রেড লোড করুন</translation>
     </message>
     <message>
-        <location line="+124"/>
+        <location line="+101"/>
         <source>Open in room</source>
         <translation>রুমে খুলুন</translation>
     </message>
@@ -16148,7 +16158,7 @@ Note: importing keys does not verify this session.</source>
         <translation>মূল বার্তাটি উপলব্ধ নয়।</translation>
     </message>
     <message numerus="yes">
-        <location line="+32"/>
+        <location line="+30"/>
         <source>%n reply(s)</source>
         <comment>replies in the open thread</comment>
         <translation>
@@ -16172,7 +16182,7 @@ Note: importing keys does not verify this session.</source>
         <translation>থ্রেডটি লোড করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+14"/>
         <source>Retry</source>
         <translation>আবার চেষ্টা করুন</translation>
     </message>
@@ -16182,12 +16192,12 @@ Note: importing keys does not verify this session.</source>
         <translation>এখনও কোনো উত্তর নেই। নিচে আলাপ শুরু করুন।</translation>
     </message>
     <message>
-        <location line="+344"/>
+        <location line="+289"/>
         <source>Loading older replies…</source>
         <translation>পুরনো উত্তর লোড হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+63"/>
         <location line="+48"/>
         <source>Replying to %1</source>
         <translation>%1-কে উত্তর</translation>
@@ -16203,7 +16213,7 @@ Note: importing keys does not verify this session.</source>
         <translation>উত্তর বাতিল করুন</translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+103"/>
         <source>Failed</source>
         <translation>ব্যর্থ</translation>
     </message>
@@ -16224,29 +16234,29 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+35"/>
-        <location line="+680"/>
+        <location line="+645"/>
         <source>Attach files</source>
         <translation>ফাইল সংযুক্ত করুন</translation>
     </message>
     <message>
-        <location line="-679"/>
+        <location line="-644"/>
         <source>Attach</source>
         <translation>সংযুক্ত করুন</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <location line="+125"/>
         <source>Press Enter again to send it as a message.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="-86"/>
-        <location line="+102"/>
+        <location line="+99"/>
         <source>Reply in thread</source>
         <translation>থ্রেডে উত্তর দিন</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+110"/>
         <source>Add to dictionary</source>
         <translation>অভিধানে যোগ করুন</translation>
     </message>
@@ -16276,12 +16286,12 @@ Note: importing keys does not verify this session.</source>
         <translation>সব নির্বাচন করুন</translation>
     </message>
     <message>
-        <location line="+112"/>
+        <location line="+107"/>
         <source>Insert emoji</source>
         <translation>ইমোজি ঢোকান</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+23"/>
         <source>Insert a GIF or sticker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16306,7 +16316,7 @@ Note: importing keys does not verify this session.</source>
         <translation>স্টিকার</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+19"/>
         <location line="+1"/>
         <source>Record a voice message</source>
         <translation>ভয়েস বার্তা রেকর্ড করুন</translation>
@@ -16322,7 +16332,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ভয়েস রেকর্ডিং উপলব্ধ নয়।</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+71"/>
         <source>Resume recording</source>
         <translation>রেকর্ডিং আবার শুরু করুন</translation>
     </message>
@@ -16358,7 +16368,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+42"/>
+        <location line="+40"/>
         <source>Send</source>
         <translation>পাঠান</translation>
     </message>
@@ -16371,7 +16381,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadSummaryCard</name>
     <message>
-        <location filename="../qml/ThreadSummaryCard.qml" line="+58"/>
+        <location filename="../qml/ThreadSummaryCard.qml" line="+51"/>
         <source>Image</source>
         <translation>ছবি</translation>
     </message>
@@ -16417,12 +16427,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4"/>
+        <location line="+3"/>
         <source>New reply</source>
         <translation>নতুন উত্তর</translation>
     </message>
     <message numerus="yes">
-        <location line="+7"/>
+        <location line="+6"/>
         <source>%n reply(s)</source>
         <translation>
             <numerusform>%n উত্তর</numerusform>
@@ -16435,7 +16445,7 @@ Note: importing keys does not verify this session.</source>
         <translation>উত্তর</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+18"/>
         <source>Open thread</source>
         <translation>থ্রেড খুলুন</translation>
     </message>
@@ -16463,7 +16473,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+974"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+888"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 তাঁর প্রদর্শিত নাম “%2” থেকে “%3” করেছেন এবং অবতার বদলেছেন।</translation>
     </message>
@@ -16498,12 +16508,12 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 তাঁর অবতার বদলেছেন।</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+4"/>
         <source>%1 updated their profile.</source>
         <translation>%1 তাঁর প্রোফাইল হালনাগাদ করেছেন।</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+17"/>
         <source>%1 started a video call.</source>
         <translation>%1একটি ভিডিও কল শুরু করেছে৷</translation>
     </message>
@@ -16513,7 +16523,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1একটি কল শুরু করেছে৷</translation>
     </message>
     <message>
-        <location line="+1333"/>
+        <location line="+1221"/>
         <source>%1 is typing…</source>
         <translation>%1 লিখছেন…</translation>
     </message>
@@ -16531,7 +16541,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+599"/>
+        <location filename="../qml/TimelinePane.qml" line="+453"/>
         <source>Seen by 1 person</source>
         <translation>১ জন দেখেছেন</translation>
     </message>
@@ -16541,7 +16551,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 জন দেখেছেন</translation>
     </message>
     <message numerus="yes">
-        <location line="+87"/>
+        <location line="+80"/>
         <source>…and %n more (names not loaded)</source>
         <translation>
             <numerusform>…এবং আরও %n জন (নাম লোড হয়নি)</numerusform>
@@ -16549,36 +16559,36 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="+204"/>
+        <location line="+170"/>
         <source>Save file as…</source>
         <translation>ফাইল এভাবে সংরক্ষণ করুন…</translation>
     </message>
     <message>
-        <location filename="../qml/SpaceLobby.qml" line="-483"/>
-        <location filename="../qml/TimelinePane.qml" line="+204"/>
-        <location line="+6464"/>
+        <location filename="../qml/SpaceLobby.qml" line="-474"/>
+        <location filename="../qml/TimelinePane.qml" line="+165"/>
+        <location line="+4698"/>
         <source>Space</source>
         <translation>স্পেস</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-6463"/>
+        <location filename="../qml/TimelinePane.qml" line="-4697"/>
         <source>Home</source>
         <translation>হোম</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+24"/>
         <location line="+2"/>
         <source>Room encrypted</source>
         <translation>রুম এনক্রিপ্টেড</translation>
     </message>
     <message>
-        <location line="+175"/>
+        <location line="+113"/>
         <location line="+2"/>
         <source>Start a voice call</source>
         <translation>একটি ভয়েস কল শুরু করুন</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+22"/>
         <location line="+2"/>
         <source>Pinned messages</source>
         <translation>পিন করা বার্তা</translation>
@@ -16616,18 +16626,18 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+4976"/>
+        <location line="+3454"/>
         <source>Room information</source>
         <translation>রুমের তথ্য</translation>
     </message>
     <message>
-        <location line="-4961"/>
+        <location line="-3441"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+274"/>
+        <location line="+207"/>
         <source>This room has been upgraded.</source>
         <translation>এই রুমটি আপগ্রেড করা হয়েছে।</translation>
     </message>
@@ -16647,7 +16657,7 @@ Note: importing keys does not verify this session.</source>
         <translation>যে রুমটি এটির স্থান নিয়েছে সেটি খোলে; আপনি সদস্য না হলে আগে যোগ দেয়।</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+36"/>
         <source>This room replaced an earlier one.</source>
         <translation>এই রুমটি আগের একটি রুমের স্থান নিয়েছে।</translation>
     </message>
@@ -16662,7 +16672,7 @@ Note: importing keys does not verify this session.</source>
         <translation>আগের রুম খুলুন</translation>
     </message>
     <message>
-        <location line="+61"/>
+        <location line="+43"/>
         <source>Loaded</source>
         <translation>লোড হওয়া</translation>
     </message>
@@ -16672,7 +16682,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ইতিহাস</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+39"/>
         <source>Jump to date</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16702,7 +16712,7 @@ Note: importing keys does not verify this session.</source>
         <translation>লোড হওয়া বার্তায় খুঁজুন</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+31"/>
         <source>%1 of %2</source>
         <translation>%2-এর %1</translation>
     </message>
@@ -16727,7 +16737,7 @@ Note: importing keys does not verify this session.</source>
         <translation>খোঁজা বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+25"/>
         <source>Indexing this room&apos;s history…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16737,7 +16747,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+9"/>
         <source>Nothing is indexed yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16752,12 +16762,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+5"/>
         <source>Fetch this room&apos;s older messages so they can be searched</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+18"/>
         <source>Indexed</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16777,7 +16787,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+44"/>
         <source>Jump to message from %1</source>
         <translation>%1-এর বার্তায় যান</translation>
     </message>
@@ -16802,7 +16812,7 @@ Note: importing keys does not verify this session.</source>
         <translation>অনুসন্ধান সম্পূর্ণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+3938"/>
+        <location line="+2583"/>
         <source>Loading older messages…</source>
         <translation>পুরনো বার্তা লোড হচ্ছে…</translation>
     </message>
@@ -16812,7 +16822,7 @@ Note: importing keys does not verify this session.</source>
         <translation>পুরনো বার্তা লোড করা যায়নি —</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+24"/>
         <source>Retry loading older messages</source>
         <translation>পুরনো বার্তা আবার লোড করার চেষ্টা করুন</translation>
     </message>
@@ -16822,12 +16832,12 @@ Note: importing keys does not verify this session.</source>
         <translation>আবার চেষ্টা করুন</translation>
     </message>
     <message>
-        <location line="+118"/>
+        <location line="+97"/>
         <source>Loading conversation…</source>
         <translation>আলাপ লোড হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+34"/>
         <source>No messages yet</source>
         <translation>এখনও কোনো বার্তা নেই</translation>
     </message>
@@ -16842,7 +16852,7 @@ Note: importing keys does not verify this session.</source>
         <translation>এখানে এখনও কোনো বার্তা নেই। আলাপ শুরু করুন।</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+18"/>
         <source>Messages are end-to-end encrypted</source>
         <translation>বার্তা প্রান্ত-থেকে-প্রান্ত এনক্রিপ্টেড</translation>
     </message>
@@ -16852,7 +16862,7 @@ Note: importing keys does not verify this session.</source>
         <translation>লোক আমন্ত্রণ করুন</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+37"/>
         <source>Jump to first unread message</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16862,12 +16872,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+28"/>
         <source>First unread</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+40"/>
         <source>Jump to latest</source>
         <translation>সর্বশেষে যান</translation>
     </message>
@@ -16877,7 +16887,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সর্বশেষ বার্তায় ফিরুন</translation>
     </message>
     <message numerus="yes">
-        <location line="+184"/>
+        <location line="+168"/>
         <source>%n message(s) selected</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -16895,7 +16905,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+435"/>
+        <location line="+379"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>রুম যোগ হয়েছে — সার্ভারের নিশ্চিতকরণের অপেক্ষায়।</translation>
     </message>
@@ -16920,7 +16930,7 @@ Note: importing keys does not verify this session.</source>
         <translation>“প্রস্তাবিত” চিহ্নটি বদলানো যায়নি — আপনার অনুমতি না-ও থাকতে পারে।</translation>
     </message>
     <message>
-        <location line="+185"/>
+        <location line="+146"/>
         <source>Choose a banner image</source>
         <translation>একটি ব্যানার ছবি বেছে নিন</translation>
     </message>
@@ -16930,7 +16940,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.gif *.webp)</translation>
     </message>
     <message>
-        <location line="+83"/>
+        <location line="+60"/>
         <source>Crop the banner</source>
         <translation>ব্যানার কাটুন</translation>
     </message>
@@ -16955,7 +16965,7 @@ Note: importing keys does not verify this session.</source>
         <translation>একটি ব্যানার যোগ করুন</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+20"/>
         <source>Remove banner</source>
         <translation>ব্যানার সরান</translation>
     </message>
@@ -16965,8 +16975,8 @@ Note: importing keys does not verify this session.</source>
         <translation>ব্যানারটি সংরক্ষণ করা যায়নি (%1)।</translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/SpaceLobby.qml" line="+97"/>
-        <location filename="../qml/TimelinePane.qml" line="+68"/>
+        <location filename="../qml/SpaceLobby.qml" line="+95"/>
+        <location filename="../qml/TimelinePane.qml" line="+65"/>
         <source>%n room(s)</source>
         <comment>rooms inside a Space</comment>
         <translation>
@@ -16980,12 +16990,12 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 • %2টি অপঠিত</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+21"/>
         <source>Create room here</source>
         <translation>এখানে রুম তৈরি করুন</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+14"/>
         <source>Invite</source>
         <translation>আমন্ত্রণ করুন</translation>
     </message>
@@ -16995,7 +17005,7 @@ Note: importing keys does not verify this session.</source>
         <translation>বিদ্যমান রুম যোগ করুন</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+14"/>
         <source>Hide people</source>
         <translation>লোক লুকান</translation>
     </message>
@@ -17015,12 +17025,12 @@ Note: importing keys does not verify this session.</source>
         <translation>স্পেস সেটিংস</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+11"/>
         <source>Show banner</source>
         <translation>ব্যানার দেখান</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+38"/>
         <source>People in this Space</source>
         <translation>এই স্পেসের লোক</translation>
     </message>
@@ -17030,12 +17040,12 @@ Note: importing keys does not verify this session.</source>
         <translation>স্পেসেরই সদস্য। এর প্রতিটি রুমের নিজস্ব সদস্য আছে।</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+64"/>
         <source>Showing the first 60 of %1.</source>
         <translation>%1 জনের মধ্যে প্রথম ৬০ জন দেখানো হচ্ছে।</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+23"/>
         <source>Choose Space avatar</source>
         <translation>স্পেসের অবতার বেছে নিন</translation>
     </message>
@@ -17045,7 +17055,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ছবি (*.png *.jpg *.jpeg *.gif *.webp *.bmp)</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+18"/>
         <source>Avatar</source>
         <translation>অবতার</translation>
     </message>
@@ -17055,7 +17065,7 @@ Note: importing keys does not verify this session.</source>
         <translation>অবতার বদলান…</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+8"/>
         <source>Change the Space avatar</source>
         <translation>স্পেসের অবতার বদলান</translation>
     </message>
@@ -17101,17 +17111,17 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+184"/>
+        <location line="+176"/>
         <source>Leave Space</source>
         <translation>স্পেস ছাড়ুন</translation>
     </message>
     <message>
-        <location line="-178"/>
+        <location line="-170"/>
         <source>Leaving does not remove the rooms inside it.</source>
         <translation>ছাড়লে এর ভেতরের রুমগুলি সরে যায় না।</translation>
     </message>
     <message>
-        <location filename="../qml/SpaceLobby.qml" line="-221"/>
+        <location filename="../qml/SpaceLobby.qml" line="-218"/>
         <source>ROOMS AND SPACES</source>
         <translation>রুম ও স্পেস</translation>
     </message>
@@ -17125,24 +17135,24 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+13"/>
-        <location filename="../qml/TimelinePane.qml" line="+120"/>
+        <location filename="../qml/TimelinePane.qml" line="+112"/>
         <source>Remove</source>
         <translation>সরান</translation>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+567"/>
+        <location line="+557"/>
         <source>Mark as not suggested</source>
         <translation>প্রস্তাবিত নয় হিসেবে চিহ্নিত করুন</translation>
     </message>
     <message>
-        <location line="-566"/>
-        <location line="+567"/>
+        <location line="-556"/>
+        <location line="+557"/>
         <source>Mark as suggested</source>
         <translation>প্রস্তাবিত হিসেবে চিহ্নিত করুন</translation>
     </message>
     <message>
-        <location line="-556"/>
+        <location line="-546"/>
         <source>Search names and descriptions</source>
         <translation>নাম ও বিবরণে খুঁজুন</translation>
     </message>
@@ -17152,34 +17162,34 @@ Note: importing keys does not verify this session.</source>
         <translation>রুম ও স্পেস খুঁজুন</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+13"/>
         <source>No rooms or spaces match “%1”.</source>
         <translation>“%1”-এর সঙ্গে কোনো রুম বা স্পেস মেলে না।</translation>
     </message>
     <message>
         <location line="+28"/>
-        <location line="+243"/>
+        <location line="+237"/>
         <source>No rooms yet</source>
         <translation>এখনও কোনো রুম নেই</translation>
     </message>
     <message>
-        <location line="-234"/>
+        <location line="-228"/>
         <source>Create a room here or add one of your existing rooms to organise it under this Space.</source>
         <translation>এখানে একটি রুম তৈরি করুন, বা এই স্পেসের অধীনে সাজাতে আপনার বিদ্যমান কোনো রুম যোগ করুন।</translation>
     </message>
     <message>
-        <location line="+265"/>
+        <location line="+257"/>
         <location filename="../qml/TimelinePane.qml" line="+160"/>
         <source>Room</source>
         <translation>রুম</translation>
     </message>
     <message>
-        <location line="+258"/>
+        <location line="+257"/>
         <source>Suggested</source>
         <translation>প্রস্তাবিত</translation>
     </message>
     <message numerus="yes">
-        <location line="-183"/>
+        <location line="-182"/>
         <source>Space · %n room(s)</source>
         <translation>
             <numerusform>স্পেস · %n রুম</numerusform>
@@ -17203,7 +17213,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+64"/>
         <source>Request pending</source>
         <translation>অনুরোধ অপেক্ষমাণ</translation>
     </message>
@@ -17218,7 +17228,7 @@ Note: importing keys does not verify this session.</source>
         <translation>যোগ দিন</translation>
     </message>
     <message>
-        <location line="+140"/>
+        <location line="+138"/>
         <source>Select %1</source>
         <translation>%1 নির্বাচন করুন</translation>
     </message>
@@ -17236,8 +17246,8 @@ Note: importing keys does not verify this session.</source>
         <translation>রুমগুলি থেকেই যায় এবং আপনি সেগুলিতেই থাকেন — কেবল এই স্পেসের তালিকা থেকে সরে যায়।</translation>
     </message>
     <message>
-        <location line="-1352"/>
-        <location line="+1366"/>
+        <location line="-1196"/>
+        <location line="+1210"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
@@ -17299,7 +17309,7 @@ Note: importing keys does not verify this session.</source>
         <translation>বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+61"/>
         <source>Drop files to attach</source>
         <translation>সংযুক্ত করতে ফাইল ছেড়ে দিন</translation>
     </message>
@@ -17307,7 +17317,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TrayIcon</name>
     <message numerus="yes">
-        <location filename="../src/app/TrayIcon.cpp" line="+297"/>
+        <location filename="../src/app/TrayIcon.cpp" line="+244"/>
         <source>%n unread message(s)</source>
         <comment>system tray tooltip</comment>
         <translation>
@@ -17319,17 +17329,17 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TrustCard</name>
     <message>
-        <location filename="../qml/TrustCard.qml" line="+53"/>
+        <location filename="../qml/TrustCard.qml" line="+34"/>
         <source>Trust status for %1</source>
         <translation>%1-এর আস্থার অবস্থা</translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+117"/>
         <source>TRUST CHAIN</source>
         <translation>আস্থার শৃঙ্খল</translation>
     </message>
     <message>
-        <location line="+172"/>
+        <location line="+155"/>
         <location line="+16"/>
         <source>Verify</source>
         <translation>যাচাই করুন</translation>
@@ -17343,7 +17353,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TrustMeter</name>
     <message>
-        <location filename="../qml/TrustMeter.qml" line="+20"/>
+        <location filename="../qml/TrustMeter.qml" line="+19"/>
         <source>Trust %1 of %2</source>
         <translation>আস্থা %2-এর %1</translation>
     </message>
@@ -17366,7 +17376,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>UiaController</name>
     <message>
-        <location filename="../src/app/UiaController.cpp" line="+102"/>
+        <location filename="../src/app/UiaController.cpp" line="+98"/>
         <source>Sign-out was cancelled.</source>
         <translation>সাইন-আউট বাতিল করা হয়েছে।</translation>
     </message>
@@ -17381,7 +17391,7 @@ Note: importing keys does not verify this session.</source>
         <translation>অ্যাকাউন্টের সেশন-ব্যবস্থাপনা পৃষ্ঠা নির্ধারণ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+27"/>
         <source>The server refused the sign-out. The password may be wrong, or the session may not be yours to remove.</source>
         <translation>সার্ভার সাইন-আউট প্রত্যাখ্যান করেছে। পাসওয়ার্ড ভুল হতে পারে, অথবা সেশনটি সরানোর মতো আপনার নাও হতে পারে।</translation>
     </message>
@@ -17404,7 +17414,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>UiaPromptDialog</name>
     <message>
-        <location filename="../qml/UiaPromptDialog.qml" line="+59"/>
+        <location filename="../qml/UiaPromptDialog.qml" line="+54"/>
         <source>Confirm it&apos;s you</source>
         <translation>নিশ্চিত করুন এটি আপনিই</translation>
     </message>
@@ -17443,7 +17453,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>UpdateAvailableDialog</name>
     <message>
-        <location filename="../qml/UpdateAvailableDialog.qml" line="+117"/>
+        <location filename="../qml/UpdateAvailableDialog.qml" line="+94"/>
         <source>Update available</source>
         <translation>হালনাগাদ পাওয়া যাচ্ছে</translation>
     </message>
@@ -17468,12 +17478,12 @@ Note: importing keys does not verify this session.</source>
         <translation>নতুন কী আছে</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+25"/>
         <source>Release notes</source>
         <translation>রিলিজ নোট</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+30"/>
         <source>Updates for this installation are managed by Flatpak.</source>
         <translation>এই ইনস্টলেশনের হালনাগাদ Flatpak পরিচালনা করে।</translation>
     </message>
@@ -17483,7 +17493,7 @@ Note: importing keys does not verify this session.</source>
         <translation>এই ইনস্টলেশনের হালনাগাদ Snap পরিচালনা করে।</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+36"/>
         <source>Copied</source>
         <translation>অনুলিপি হয়েছে</translation>
     </message>
@@ -17503,7 +17513,7 @@ Note: importing keys does not verify this session.</source>
         <translation>হালনাগাদের নির্দেশনা নিন</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+9"/>
         <source>Update now</source>
         <translation>এখনই হালনাগাদ করুন</translation>
     </message>
@@ -17511,7 +17521,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>UpdateAvailablePrompt</name>
     <message>
-        <location filename="../qml/UpdateAvailablePrompt.qml" line="+96"/>
+        <location filename="../qml/UpdateAvailablePrompt.qml" line="+76"/>
         <source>Lightning %1 is available</source>
         <translation>Lightning %1 পাওয়া যাচ্ছে</translation>
     </message>
@@ -17534,12 +17544,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>UpdatesSettingsSection</name>
     <message>
-        <location filename="../qml/UpdatesSettingsSection.qml" line="+142"/>
+        <location filename="../qml/UpdatesSettingsSection.qml" line="+102"/>
         <source>Updates</source>
         <translation>হালনাগাদ</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+14"/>
         <source>Check for and install new Lightning releases. Every download is verified against a signed manifest before it is ever installed.</source>
         <translation>নতুন Lightning রিলিজ যাচাই করে ইনস্টল করুন। ইনস্টল করার আগে প্রতিটি ডাউনলোড একটি স্বাক্ষরিত ম্যানিফেস্টের বিপরীতে যাচাই করা হয়।</translation>
     </message>
@@ -17575,12 +17585,12 @@ Note: importing keys does not verify this session.</source>
         <translation>স্বয়ংক্রিয়ভাবে হালনাগাদ যাচাই করুন</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+19"/>
         <source>On by default; turn it off here at any time. Lightning periodically checks our release server for a newer version. The request never includes any account, device, or Matrix information, and creates no tracking identifier; Lightning sends only its own version number.</source>
         <translation>ডিফল্টে চালু; যেকোনো সময় এখানে বন্ধ করতে পারেন। Lightning পর্যায়ক্রমে আমাদের রিলিজ সার্ভারে নতুন সংস্করণ আছে কি না দেখে। ওই অনুরোধে কখনও কোনো অ্যাকাউন্ট, ডিভাইস বা Matrix তথ্য থাকে না, এবং কোনো ট্র্যাকিং শনাক্তকারী তৈরি হয় না; Lightning কেবল নিজের সংস্করণ নম্বর পাঠায়।</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+19"/>
         <source>Last checked: %1</source>
         <translation>সর্বশেষ যাচাই: %1</translation>
     </message>
@@ -17605,14 +17615,14 @@ Note: importing keys does not verify this session.</source>
         <translation>অবস্থা</translation>
     </message>
     <message>
-        <location line="+52"/>
-        <location line="+394"/>
+        <location line="+48"/>
+        <location line="+365"/>
         <location line="+48"/>
         <source>Dismiss</source>
         <translation>বাতিল করুন</translation>
     </message>
     <message>
-        <location line="-425"/>
+        <location line="-396"/>
         <source>No check has run since Lightning started.</source>
         <extracomment>Shown under Status when no update check has run since the application started, but one has run before -- the date is on the &quot;Last checked&quot; row above.</extracomment>
         <translation type="unfinished"></translation>
@@ -17648,7 +17658,7 @@ Note: importing keys does not verify this session.</source>
         <translation>হালনাগাদের পদ্ধতি: %1</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+19"/>
         <source>Updates for this installation are managed by Flatpak.</source>
         <translation>এই ইনস্টলেশনের হালনাগাদ Flatpak পরিচালনা করে।</translation>
     </message>
@@ -17663,7 +17673,7 @@ Note: importing keys does not verify this session.</source>
         <translation>হালনাগাদের নির্দেশনা নিন</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+28"/>
         <source>Copied</source>
         <translation>অনুলিপি হয়েছে</translation>
     </message>
@@ -17703,7 +17713,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ডাউনলোড যাচাই করা হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+20"/>
         <source>Update %1 downloaded and verified.</source>
         <translation>হালনাগাদ %1 ডাউনলোড ও যাচাই হয়েছে।</translation>
     </message>
@@ -17723,17 +17733,17 @@ Note: importing keys does not verify this session.</source>
         <translation>ইনস্টল হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+24"/>
         <source>Lightning %1 is ready to install.</source>
         <translation>Lightning %1 ইনস্টলের জন্য প্রস্তুত।</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+46"/>
         <source>The last update was installed successfully.</source>
         <translation>সর্বশেষ হালনাগাদটি সফলভাবে ইনস্টল হয়েছে।</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+8"/>
         <source>The last update could not be installed, and nothing was changed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17756,7 +17766,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>UserPicker</name>
     <message>
-        <location filename="../qml/UserPicker.qml" line="+77"/>
+        <location filename="../qml/UserPicker.qml" line="+72"/>
         <source>Type a name, an @user ID, or a #room address…</source>
         <translation>একটি নাম, একটি @ব্যবহারকারী আইডি, বা একটি #রুম ঠিকানা লিখুন…</translation>
     </message>
@@ -17771,7 +17781,7 @@ Note: importing keys does not verify this session.</source>
         <translation>ব্যবহারকারী খুঁজুন</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+68"/>
         <source>Searching…</source>
         <translation>খোঁজা হচ্ছে…</translation>
     </message>
@@ -17791,7 +17801,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 (%2)</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+50"/>
         <source>From your server</source>
         <translation>আপনার সার্ভার থেকে</translation>
     </message>
@@ -17804,12 +17814,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VerificationDialog</name>
     <message>
-        <location filename="../qml/VerificationDialog.qml" line="+122"/>
+        <location filename="../qml/VerificationDialog.qml" line="+86"/>
         <source>Session verification</source>
         <translation>সেশন যাচাই</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+11"/>
         <source>Verify this session</source>
         <translation>এই সেশন যাচাই করুন</translation>
     </message>
@@ -17819,7 +17829,7 @@ Note: importing keys does not verify this session.</source>
         <translation>বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+16"/>
         <source>Verifying proves this device is really yours, so your other sessions will share encryption keys with it and encrypted history becomes readable here.</source>
         <translation>যাচাই প্রমাণ করে এই ডিভাইসটি সত্যিই আপনার, ফলে আপনার অন্য সেশনগুলি এর সঙ্গে এনক্রিপশন কী ভাগ করবে এবং এনক্রিপ্টেড ইতিহাস এখানে পড়া যাবে।</translation>
     </message>
@@ -17827,7 +17837,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VerificationPanel</name>
     <message>
-        <location filename="../qml/VerificationPanel.qml" line="+69"/>
+        <location filename="../qml/VerificationPanel.qml" line="+49"/>
         <location line="+29"/>
         <source>Confirming verification…</source>
         <translation>যাচাই নিশ্চিত করা হচ্ছে…</translation>
@@ -17883,7 +17893,7 @@ Note: importing keys does not verify this session.</source>
         <translation>যাচাই বাতিল করা হয়েছে।</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+8"/>
         <source>Verification failed: %1</source>
         <translation>যাচাই ব্যর্থ: %1</translation>
     </message>
@@ -17898,12 +17908,12 @@ Note: importing keys does not verify this session.</source>
         <translation>অপেক্ষা…</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+38"/>
         <source>Verification QR code — scan with your other device</source>
         <translation>যাচাইয়ের QR কোড — আপনার অন্য ডিভাইস দিয়ে স্ক্যান করুন</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+22"/>
         <source>Only confirm if the other device reports success.</source>
         <translation>কেবল অন্য ডিভাইস সফলতার কথা জানালে নিশ্চিত করুন।</translation>
     </message>
@@ -17913,7 +17923,7 @@ Note: importing keys does not verify this session.</source>
         <translation>স্ক্যান করতে পারছেন না? অন্য ডিভাইসে বরং ইমোজি যাচাই বেছে নিন।</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+16"/>
         <source>It reported success</source>
         <translation>এটি সফল বলেছে</translation>
     </message>
@@ -17923,7 +17933,7 @@ Note: importing keys does not verify this session.</source>
         <translation>এটি বলেনি</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+61"/>
         <source>Accept</source>
         <translation>গ্রহণ করুন</translation>
     </message>
@@ -17933,7 +17943,7 @@ Note: importing keys does not verify this session.</source>
         <translation>এগুলি মেলে</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+13"/>
         <source>They do not match</source>
         <translation>এগুলি মেলে না</translation>
     </message>
@@ -17943,7 +17953,7 @@ Note: importing keys does not verify this session.</source>
         <translation>যাচাই বাতিল করুন</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+12"/>
         <source>Dismiss</source>
         <translation>বাতিল করুন</translation>
     </message>
@@ -17951,7 +17961,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VerifySessionPrompt</name>
     <message>
-        <location filename="../qml/VerifySessionPrompt.qml" line="+76"/>
+        <location filename="../qml/VerifySessionPrompt.qml" line="+53"/>
         <source>This session is not verified</source>
         <translation>এই সেশনটি যাচাই করা নেই</translation>
     </message>
@@ -17979,7 +17989,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VideoControlBar</name>
     <message>
-        <location filename="../qml/VideoControlBar.qml" line="+116"/>
+        <location filename="../qml/VideoControlBar.qml" line="+89"/>
         <source>Pause video</source>
         <translation>ভিডিও বিরতি দিন</translation>
     </message>
@@ -17994,7 +18004,7 @@ Note: importing keys does not verify this session.</source>
         <translation>প্লেব্যাক অবস্থান</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+62"/>
         <source>Playback speed %1x</source>
         <translation>প্লেব্যাক গতি %1x</translation>
     </message>
@@ -18017,12 +18027,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VideoPlayerCard</name>
     <message>
-        <location filename="../qml/VideoPlayerCard.qml" line="+329"/>
+        <location filename="../qml/VideoPlayerCard.qml" line="+274"/>
         <source>This video cannot be played</source>
         <translation>এই ভিডিওটি চালানো যাচ্ছে না</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+7"/>
         <source>Retry</source>
         <translation>আবার চেষ্টা করুন</translation>
     </message>
@@ -18030,7 +18040,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VoiceConnectedBar</name>
     <message>
-        <location filename="../qml/VoiceConnectedBar.qml" line="+55"/>
+        <location filename="../qml/VoiceConnectedBar.qml" line="+48"/>
         <source>Voice connected</source>
         <translation>ভয়েস সংযুক্ত</translation>
     </message>
@@ -18040,7 +18050,7 @@ Note: importing keys does not verify this session.</source>
         <translation>সংযোগ করা হচ্ছে…</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+34"/>
         <source>Unmute microphone</source>
         <translation>মাইক্রোফোন আনমিউট করুন</translation>
     </message>
@@ -18073,7 +18083,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VoicePreviewBar</name>
     <message>
-        <location filename="../qml/VoicePreviewBar.qml" line="+117"/>
+        <location filename="../qml/VoicePreviewBar.qml" line="+85"/>
         <source>Pause the preview</source>
         <translation>প্রাকদর্শন বিরতি দিন</translation>
     </message>
@@ -18083,7 +18093,7 @@ Note: importing keys does not verify this session.</source>
         <translation>রেকর্ডিং শুনুন</translation>
     </message>
     <message>
-        <location line="+95"/>
+        <location line="+72"/>
         <source>Recording waveform</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18111,17 +18121,17 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VoiceRecorder</name>
     <message>
-        <location filename="../src/media/VoiceRecorder.cpp" line="+65"/>
+        <location filename="../src/media/VoiceRecorder.cpp" line="+64"/>
         <source>The recording reached the maximum length and was discarded.</source>
         <translation>রেকর্ডিং সর্বোচ্চ দৈর্ঘ্যে পৌঁছেছে এবং বাতিল হয়েছে।</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+20"/>
         <source>The recording could not be finalized.</source>
         <translation>রেকর্ডিং চূড়ান্ত করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+71"/>
+        <location line="+69"/>
         <source>Nothing was recorded.</source>
         <translation>কিছুই রেকর্ড হয়নি।</translation>
     </message>
@@ -18141,7 +18151,7 @@ Note: importing keys does not verify this session.</source>
         <translation>রেকর্ডিংয়ের সংরক্ষণ প্রস্তুত করা যায়নি।</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+27"/>
         <source>Recording could not start.</source>
         <translation>রেকর্ডিং শুরু করা যায়নি।</translation>
     </message>
@@ -18149,7 +18159,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>WidgetController</name>
     <message>
-        <location filename="../src/models/WidgetController.cpp" line="+323"/>
+        <location filename="../src/models/WidgetController.cpp" line="+308"/>
         <source>Your full Matrix ID</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18194,7 +18204,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+3"/>
         <source>Something this build does not recognise (%1)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18232,17 +18242,17 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>WidgetOpenSheet</name>
     <message>
-        <location filename="../qml/WidgetOpenSheet.qml" line="+55"/>
+        <location filename="../qml/WidgetOpenSheet.qml" line="+46"/>
         <source>Open this widget?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+12"/>
         <source>Lightning opens widgets in your browser rather than inside the app, so the page cannot reach your account, your keys, or your messages.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+44"/>
         <source>Added by %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18265,12 +18275,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>lightning::update::UpdateManager</name>
     <message>
-        <location filename="../src/update/UpdateManager.cpp" line="+1144"/>
+        <location filename="../src/update/UpdateManager.cpp" line="+1043"/>
         <source>Lightning is installed for all users of this computer, so installing an update needs administrator approval, and Windows did not get it. Nothing was changed. Approve the prompt next time, or ask an administrator to install the update.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>The Windows installer refused the update (code %1). Installing the new version over the old one by hand usually works, and the code is worth reporting.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18315,7 +18325,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+21"/>
         <source>The update was stopped by one of Lightning&apos;s own safety checks and nothing was changed. This is a fault in Lightning rather than anything you did. Please report it with the code below.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18323,7 +18333,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2584"/>
+        <location filename="../src/main.cpp" line="+1992"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>নেটিভ Qt/QML Matrix ক্লায়েন্ট। ব্যাকএন্ড: --backend={mock,http,rust}। ডিফল্ট: rust (Rust SDK ছাড়া বিল্ডে http)।</translation>
     </message>
@@ -18333,7 +18343,7 @@ Note: importing keys does not verify this session.</source>
         <translation>--backend=mock-এর সামঞ্জস্য উপনাম।</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+7"/>
         <source>Windows: open a visible diagnostic console.</source>
         <translation>উইন্ডোজ: একটি দৃশ্যমান ডায়াগনস্টিক কনসোল খুলুন।</translation>
     </message>
@@ -18343,12 +18353,12 @@ Note: importing keys does not verify this session.</source>
         <translation>এই ফাইলের পাশাপাশি কনসোলে ডায়াগনস্টিক লগ মিরর করুন।</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+8"/>
         <source>Development-only: boot the mock backend with deterministic demo data for screenshots.</source>
         <translation>কেবল উন্নয়নের জন্য: স্ক্রিনশটের জন্য নির্ধারিত ডেমো ডেটা দিয়ে মক ব্যাকএন্ড চালু করুন।</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+8"/>
         <source>Development-only screenshot-demo option.</source>
         <translation>কেবল উন্নয়নের জন্য স্ক্রিনশট-ডেমো বিকল্প।</translation>
     </message>
