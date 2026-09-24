@@ -2,8 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import MatrixClient
 
-// The shared presence indicator. Anchor it to an avatar's bottom-right, set
-// `userId` and the `ring` colour of the surface behind it; watch/unwatch with
+// The shared presence indicator. Anchor it to an avatar corner (bottom-right in
+// lists, top-right in the room header and Room Information), set `userId` and
+// the `ring` colour of the surface behind it; watch/unwatch with
 // PresenceManager, state colours and hiding live here. Unknown presence renders
 // nothing: an unanswered lookup, a backend without presence and a server that
 // disabled it are all the same absence, never a fabricated offline.
@@ -119,6 +120,7 @@ Rectangle {
     // difference in form, readable without distinguishing hues (as Element X
     // does).
     Rectangle {
+        objectName: "presenceDotDisc"
         anchors.fill: parent
         anchors.margins: 2
         radius: width / 2

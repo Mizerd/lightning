@@ -16,6 +16,8 @@
 #include <QQmlEngine>
 #include <cmath>
 #include <QQmlExpression>
+#include <QQmlComponent>
+#include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
@@ -504,6 +506,130 @@ private:
                           Qt::NoModifier, Qt::NoScrollPhase, inverted);
         QCoreApplication::sendEvent(&window, &wheel);
         QCoreApplication::processEvents();
+    }
+
+    // A stand-in for PresenceManager with the same QML surface, so a test can
+    // set a peer's presence. The mock backend has no presence, so the real
+    // manager never answers.
+    static QObject *fakePresenceService(QQmlEngine &engine)
+    {
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"QML(
+import QtQuick
+QtObject {
+    property int revision: 0
+    // Differs from the real manager's epoch, so an injected dot re-watches.
+    property int sessionEpoch: 4242
+    property var infos: ({})
+    // When set, every user without an explicit report reads this state.
+    property string everyone: ""
+    property var watched: []
+    readonly property string watchedText: watched.join("\n")
+    function infoFor(u) {
+        if (infos[u] !== undefined)
+            return infos[u]
+        if (everyone !== "")
+            return ({ state: everyone, lastActiveAgoMs: -1, statusMsg: "" })
+        return ({})
+    }
+    function stateFor(u) {
+        var i = infoFor(u)
+        return i.state === undefined ? "" : i.state
+    }
+    function watch(u) { watched = watched.concat([u]) }
+    function unwatch(u) { watched = watched.filter(function (w) { return w !== u }) }
+    function report(u, info) {
+        var m = Object.assign({}, infos)
+        m[u] = info
+        infos = m
+        revision = revision + 1
+    }
+    function reportEveryone(s) {
+        everyone = s
+        revision = revision + 1
+    }
+}
+)QML"), QUrl());
+        QObject *fake = component.create(engine.rootContext());
+        if (!fake) {
+            qWarning("fakePresenceService: %s", qPrintable(component.errorString()));
+            return nullptr;
+        }
+        // Outlives the pane: the engine deletes its root objects before its
+        // children, so the dots' destruction handlers still find it.
+        QQmlEngine::setObjectOwnership(fake, QQmlEngine::CppOwnership);
+        fake->setParent(&engine);
+        return fake;
+    }
+
+    static void reportPresence(QObject *fake, const QString &userId,
+                               const QString &state, qint64 lastActiveAgoMs)
+    {
+        QVariantMap info{
+            { QStringLiteral("state"), state },
+            { QStringLiteral("lastActiveAgoMs"), lastActiveAgoMs },
+            { QStringLiteral("statusMsg"), QString() },
+        };
+        QMetaObject::invokeMethod(fake, "report", Q_ARG(QVariant, userId),
+                                  Q_ARG(QVariant, info));
+        QCoreApplication::processEvents();
+    }
+
+    // QQmlProperty::write, so the dot's default binding to app.presence is
+    // removed rather than left to overwrite the fake.
+    static bool injectPresence(QQuickItem *dot, QObject *fake)
+    {
+        const bool ok = QQmlProperty::write(dot, QStringLiteral("presenceService"),
+                                            QVariant::fromValue(fake));
+        QCoreApplication::processEvents();
+        return ok;
+    }
+
+    static QStringList watchedBy(QObject *fake)
+    {
+        return fake->property("watchedText").toString().split(
+            QLatin1Char('\n'), Qt::SkipEmptyParts);
+    }
+
+    static QColor themeColor(QQuickItem *root, const QString &token)
+    {
+        QQmlExpression expr(qmlContext(root), root,
+                            QStringLiteral("AppTheme.") + token);
+        return expr.evaluate().value<QColor>();
+    }
+
+    // "" when the dot sits at the avatar's top-right corner, wholly inside
+    // the avatar and inside `container`; otherwise what is wrong.
+    static QString presenceDotPlacement(QQuickItem *dot, QQuickItem *avatar,
+                                        QQuickItem *container)
+    {
+        if (dot->width() <= 0 || dot->height() <= 0)
+            return QStringLiteral("the dot has no size");
+        const QRectF inAvatar(dot->mapToItem(avatar, QPointF(0, 0)), dot->size());
+        const QRectF avatarRect(0, 0, avatar->width(), avatar->height());
+        if (!avatarRect.adjusted(-0.5, -0.5, 0.5, 0.5).contains(inAvatar))
+            return QStringLiteral("dot %1,%2 %3x%4 is not inside its %5x%6 avatar")
+                .arg(inAvatar.x()).arg(inAvatar.y()).arg(inAvatar.width())
+                .arg(inAvatar.height()).arg(avatar->width()).arg(avatar->height());
+        if (qAbs(inAvatar.top()) > 0.5
+                || qAbs(inAvatar.right() - avatar->width()) > 0.5)
+            return QStringLiteral("dot %1,%2 %3x%4 is not at the top-right of "
+                                  "its %5x%6 avatar")
+                .arg(inAvatar.x()).arg(inAvatar.y()).arg(inAvatar.width())
+                .arg(inAvatar.height()).arg(avatar->width()).arg(avatar->height());
+        const QRectF inContainer(dot->mapToItem(container, QPointF(0, 0)),
+                                 dot->size());
+        const QRectF containerRect(0, 0, container->width(), container->height());
+        if (!containerRect.adjusted(-0.5, -0.5, 0.5, 0.5).contains(inContainer))
+            return QStringLiteral("dot %1,%2 is outside its %3x%4 container")
+                .arg(inContainer.x()).arg(inContainer.y())
+                .arg(container->width()).arg(container->height());
+        return {};
+    }
+
+    static QVariant attached(QQuickItem *item, const QString &name)
+    {
+        return QQmlProperty::read(item, name, qmlContext(item));
     }
 
 private Q_SLOTS:
@@ -3897,6 +4023,185 @@ private Q_SLOTS:
         QCoreApplication::processEvents();
         // No warning assertion: waiting for real polish passes lets the host
         // audio stack log unrelated noise into the same sink.
+    }
+
+    // A 1:1 DM's header avatar, and Room Information's, carry the peer's
+    // presence dot at the top-right, coloured and worded from presence and
+    // following it live.
+    void aDmHeaderAvatarCarriesThePeersPresenceDot()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString dmId = QStringLiteral("!dm-bob:mock.local");
+        const QString bob = QStringLiteral("@bob:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, dmId,
+                                          {}, 0, 700, &timeline);
+        QVERIFY(root);
+        window.resize(1000, 700);
+        root->setSize(QSizeF(1000, 700));
+
+        auto *band = root->findChild<QQuickItem *>(QStringLiteral("roomHeaderBand"));
+        auto *avatar = root->findChild<QQuickItem *>(QStringLiteral("roomHeaderAvatar"));
+        auto *dot = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderPresenceDot"));
+        QVERIFY(band && avatar);
+        QVERIFY2(dot, "a DM's header avatar has no presence dot");
+        QCOMPARE(dot->property("userId").toString(), bob);
+        auto *disc = dot->findChild<QQuickItem *>(QStringLiteral("presenceDotDisc"));
+        QVERIFY(disc);
+
+        QObject *fake = fakePresenceService(engine);
+        QVERIFY(fake);
+        QVERIFY(injectPresence(dot, fake));
+        QCoreApplication::processEvents();
+        QVERIFY2(watchedBy(fake).contains(bob), "the header dot watches nobody");
+
+        // Unknown presence renders nothing.
+        QVERIFY(!dot->isVisible());
+
+        reportPresence(fake, bob, QStringLiteral("online"), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(dot->isVisible(), 2000);
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+        const QString placement = presenceDotPlacement(dot, avatar, band);
+        QVERIFY2(placement.isEmpty(), qPrintable(placement));
+        QCOMPARE(disc->property("color").value<QColor>(),
+                 themeColor(root, QStringLiteral("presenceOnline")));
+        QCOMPARE(dot->property("statusText").toString(), QStringLiteral("Online"));
+        QCOMPARE(attached(dot, QStringLiteral("ToolTip.text")).toString(),
+                 QStringLiteral("Online"));
+        QCOMPARE(attached(dot, QStringLiteral("Accessible.name")).toString(),
+                 QStringLiteral("Online"));
+        QVERIFY(!attached(dot, QStringLiteral("Accessible.ignored")).toBool());
+
+        // Hover shows the sentence.
+        const QPointF centre = dot->mapToScene(
+            QPointF(dot->width() / 2.0, dot->height() / 2.0));
+        QTest::mouseMove(&window, centre.toPoint());
+        QTRY_VERIFY_WITH_TIMEOUT(
+            attached(dot, QStringLiteral("ToolTip.visible")).toBool(), 2000);
+        QTest::mouseMove(&window, QPoint(2, 400));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !attached(dot, QStringLiteral("ToolTip.visible")).toBool(), 2000);
+
+        // Live: a later answer recolours and rewords the same dot.
+        reportPresence(fake, bob, QStringLiteral("unavailable"), 0);
+        QCOMPARE(disc->property("color").value<QColor>(),
+                 themeColor(root, QStringLiteral("presenceAway")));
+        QCOMPARE(dot->property("statusText").toString(), QStringLiteral("Away"));
+
+        reportPresence(fake, bob, QStringLiteral("offline"), 5 * 60000 + 1000);
+        QCOMPARE(disc->property("color").value<QColor>().alpha(), 0);
+        auto *discBorder = disc->property("border").value<QObject *>();
+        QVERIFY(discBorder);
+        QVERIFY(discBorder->property("width").toReal() >= 1.0);
+        QCOMPARE(discBorder->property("color").value<QColor>(),
+                 themeColor(root, QStringLiteral("presenceOffline")));
+        QCOMPARE(dot->property("statusText").toString(),
+                 QStringLiteral("Offline \u2014 active 5 min ago"));
+        QCOMPARE(attached(dot, QStringLiteral("ToolTip.text")).toString(),
+                 QStringLiteral("Offline \u2014 active 5 min ago"));
+
+        // Room Information shows the same dot on its large avatar.
+        auto *panel = root->findChild<QQuickItem *>(QStringLiteral("roomInfoPanel"));
+        QVERIFY(panel);
+        QVERIFY(QMetaObject::invokeMethod(panel, "openForRoom",
+                                          Q_ARG(QVariant, dmId)));
+        QVERIFY(root->setProperty("infoOpen", true));
+        QTRY_VERIFY_WITH_TIMEOUT(panel->isVisible() && panel->width() > 0, 2000);
+        auto *infoAvatar = panel->findChild<QQuickItem *>(
+            QStringLiteral("roomInfoAvatar"));
+        auto *infoDot = panel->findChild<QQuickItem *>(
+            QStringLiteral("roomInfoPresenceDot"));
+        QVERIFY(infoAvatar);
+        QVERIFY2(infoDot, "Room Information's avatar has no presence dot");
+        QCOMPARE(infoDot->property("userId").toString(), bob);
+        QVERIFY(injectPresence(infoDot, fake));
+        reportPresence(fake, bob, QStringLiteral("online"), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(infoDot->isVisible(), 2000);
+        QTest::qWait(60);
+        QCoreApplication::processEvents();
+        const QString infoPlacement =
+            presenceDotPlacement(infoDot, infoAvatar, panel);
+        QVERIFY2(infoPlacement.isEmpty(), qPrintable(infoPlacement));
+        auto *infoDisc = infoDot->findChild<QQuickItem *>(
+            QStringLiteral("presenceDotDisc"));
+        QVERIFY(infoDisc);
+        QCOMPARE(infoDisc->property("color").value<QColor>(),
+                 themeColor(root, QStringLiteral("presenceOnline")));
+        QCOMPARE(attached(infoDot, QStringLiteral("ToolTip.text")).toString(),
+                 QStringLiteral("Online"));
+
+        // Closing the panel releases its watch.
+        QVERIFY(root->setProperty("infoOpen", false));
+        QTRY_COMPARE_WITH_TIMEOUT(infoDot->property("userId").toString(),
+                                  QString(), 2000);
+    }
+
+    // A group room, and a DM with more than one other person, carry no
+    // presence dot and watch nobody, even when presence is known for everyone.
+    void aGroupRoomHeaderAvatarHasNoPresenceDot()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString generalId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, generalId,
+                                          {}, 0, 700, &timeline);
+        QVERIFY(root);
+        window.resize(1000, 700);
+        root->setSize(QSizeF(1000, 700));
+
+        auto *dot = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderPresenceDot"));
+        QVERIFY2(dot, "the header avatar has no presence dot slot");
+        QObject *fake = fakePresenceService(engine);
+        QVERIFY(fake);
+        QVERIFY(injectPresence(dot, fake));
+        QMetaObject::invokeMethod(fake, "reportEveryone",
+                                  Q_ARG(QVariant, QStringLiteral("online")));
+        QCoreApplication::processEvents();
+
+        QCOMPARE(dot->property("userId").toString(), QString());
+        QVERIFY2(!dot->isVisible(), "a group room shows a presence dot");
+        QCOMPARE(watchedBy(fake), QStringList{});
+
+        // A DM with two others: identityColorKey is the room id, so there is
+        // no single peer to show.
+        QVariantMap trio;
+        trio.insert(QStringLiteral("name"), QStringLiteral("Trio"));
+        trio.insert(QStringLiteral("isDirect"), true);
+        trio.insert(QStringLiteral("directUserIds"),
+                    QStringList{ QStringLiteral("@bob:mock.local"),
+                                 QStringLiteral("@carol:mock.local") });
+        trio.insert(QStringLiteral("identityColorKey"),
+                    QStringLiteral("!trio:mock.local"));
+        root->setProperty("currentRoom", trio);
+        QCoreApplication::processEvents();
+        QCOMPARE(dot->property("userId").toString(), QString());
+        QVERIFY2(!dot->isVisible(), "a group DM shows a presence dot");
+        QCOMPARE(watchedBy(fake), QStringList{});
+
+        // Room Information on the group room: no dot either.
+        auto *panel = root->findChild<QQuickItem *>(QStringLiteral("roomInfoPanel"));
+        QVERIFY(panel);
+        QVERIFY(QMetaObject::invokeMethod(panel, "openForRoom",
+                                          Q_ARG(QVariant, generalId)));
+        QVERIFY(root->setProperty("infoOpen", true));
+        QTRY_VERIFY_WITH_TIMEOUT(panel->isVisible() && panel->width() > 0, 2000);
+        auto *infoDot = panel->findChild<QQuickItem *>(
+            QStringLiteral("roomInfoPresenceDot"));
+        QVERIFY2(infoDot, "Room Information's avatar has no presence dot slot");
+        QVERIFY(injectPresence(infoDot, fake));
+        QCoreApplication::processEvents();
+        QCOMPARE(infoDot->property("userId").toString(), QString());
+        QVERIFY2(!infoDot->isVisible(), "Room Information shows a group room's dot");
+        QCOMPARE(watchedBy(fake), QStringList{});
     }
 
     // The room title outranks the header icon row: the row yields (folding

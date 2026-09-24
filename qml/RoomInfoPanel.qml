@@ -472,11 +472,32 @@ Rectangle {
                     RowLayout {
                         spacing: AppTheme.spacing12
                         Avatar {
+                            objectName: "roomInfoAvatar"
                             size: 56
                             name: root.roomData.name || ""
                             mxc: root.roomData.avatarUrl || ""
                             colorKey: root.roomData.identityColorKey || ""
                             circle: root.roomData.isDirect === true
+
+                            // As in the room header: unambiguous 1:1 DMs only,
+                            // inside the avatar's bounds. Gated on the panel
+                            // showing Overview, since the panel is not behind a
+                            // Loader and would otherwise keep a watch while
+                            // closed.
+                            PresenceDot {
+                                objectName: "roomInfoPresenceDot"
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                dotSize: 16
+                                ring: root.color
+                                hoverStatus: true
+                                userId: root.visible
+                                        && root.section === "overview"
+                                        && root.roomData.isDirect === true
+                                        && (root.roomData.identityColorKey || "")
+                                               .charAt(0) === "@"
+                                        ? root.roomData.identityColorKey : ""
+                            }
                         }
                         ColumnLayout {
                             Layout.fillWidth: true

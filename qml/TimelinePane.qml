@@ -811,6 +811,7 @@ Rectangle {
 
                 Avatar {
                     id: roomHeaderAvatar
+                    objectName: "roomHeaderAvatar"
                     visible: app.currentRoomId !== ""
                     size: 34
                     squareRadius: 9
@@ -821,6 +822,24 @@ Rectangle {
                     // People/DMs are circles; rooms and Spaces are rounded
                     // squares.
                     circle: root.currentRoom.isDirect === true
+
+                    // The peer's presence, on unambiguous 1:1 DMs only (the
+                    // room list's rule: identityColorKey is the partner's MXID
+                    // exactly then). A group DM or room watches nobody and
+                    // renders nothing. Kept inside the avatar's bounds so it
+                    // never reaches the title beside it or the band's clip.
+                    PresenceDot {
+                        objectName: "roomHeaderPresenceDot"
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        dotSize: 12
+                        ring: roomHeaderBand.color
+                        hoverStatus: true
+                        userId: root.currentRoom.isDirect === true
+                                && (root.currentRoom.identityColorKey || "")
+                                       .charAt(0) === "@"
+                                ? root.currentRoom.identityColorKey : ""
+                    }
                 }
                 ColumnLayout {
                     objectName: "roomHeaderIdentity"
