@@ -563,6 +563,8 @@ Rectangle {
                 required property string avatarUrl
                 required property int unreadTotal
                 required property int highlightTotal
+                required property bool hasUnread
+                required property int mentionCount
                 required property int level
                 required property string folderId
                 required property bool collapsed
@@ -754,6 +756,11 @@ Rectangle {
                                  : isPeople ? qsTr("Direct Messages")
                                  : spaceItem.spaceId === "@orphans"
                                    ? qsTr("Other rooms") : spaceItem.name
+                // Separate from the name, which is also the tooltip.
+                Accessible.description:
+                    spaceItem.mentionCount > 0
+                    ? qsTr("Mentions: %1").arg(spaceItem.mentionCount)
+                    : spaceItem.hasUnread ? qsTr("Unread messages") : ""
 
                 // The open folder's container: one surface behind the header
                 // and members, squared off between rows so the run reads as
@@ -1124,17 +1131,20 @@ Rectangle {
                         mxc: spaceItem.avatarUrl
                     }
 
-                    // Unread count badge with a rail-coloured ring.
+                    // Activity from RailEntryModel: a count for mentions, a dot
+                    // for anything else unread. Muted rooms light neither, a
+                    // mention excepted. Hidden on the open view, which already
+                    // shows it.
                     Rectangle {
-                        visible: spaceItem.unreadTotal > 0
+                        objectName: "railMentionBadge"
+                        visible: spaceItem.mentionCount > 0
                                  && !spaceItem.isActive
                         width: Math.max(AppTheme.scaled(18),
                                         badgeLabel.implicitWidth
                                         + AppTheme.scaled(6))
                         height: AppTheme.scaled(18)
                         radius: height / 2
-                        color: spaceItem.highlightTotal > 0
-                               ? AppTheme.mentionBadge : AppTheme.unreadBadge
+                        color: AppTheme.mentionBadge
                         border.color: AppTheme.rail
                         border.width: 2
                         anchors.top: parent.top
@@ -1145,13 +1155,29 @@ Rectangle {
                         Label {
                             id: badgeLabel
                             anchors.centerIn: parent
-                            text: spaceItem.unreadTotal > 99
-                                  ? "99+" : spaceItem.unreadTotal.toString()
+                            text: spaceItem.mentionCount > 99
+                                  ? "99+" : spaceItem.mentionCount.toString()
                             font.pixelSize: AppTheme.textMicro
                             font.weight: AppTheme.weightBold
-                            color: spaceItem.highlightTotal > 0
-                                   ? AppTheme.dangerText : AppTheme.accentText
+                            color: AppTheme.dangerText
                         }
+                    }
+                    // Same size and ring as a revealed room's dot.
+                    Rectangle {
+                        objectName: "railUnreadDot"
+                        visible: spaceItem.hasUnread
+                                 && spaceItem.mentionCount === 0
+                                 && !spaceItem.isActive
+                        width: AppTheme.scaled(10)
+                        height: AppTheme.scaled(10)
+                        radius: height / 2
+                        color: AppTheme.unreadBadge
+                        border.color: AppTheme.rail
+                        border.width: 2
+                        anchors.top: parent.top
+                        anchors.right: parent.right
+                        anchors.topMargin: -2
+                        anchors.rightMargin: -2
                     }
 
                     // The group ring, drawn wholly outside the tile (outset by
@@ -1232,7 +1258,9 @@ Rectangle {
                         railMenu.spaceMuted =
                             spaceItem.isRealSpace
                             && app.spaceIsMuted(spaceItem.spaceId)
-                        railMenu.spaceUnread = spaceItem.unreadTotal
+                        railMenu.spaceUnread = spaceItem.hasUnread
+                                               || spaceItem.mentionCount > 0
+                                               || spaceItem.unreadTotal > 0
                         var p = spaceItem.mapToItem(Overlay.overlay,
                                                     eventPoint.position.x,
                                                     eventPoint.position.y)
@@ -1415,8 +1443,15 @@ Rectangle {
                                              .avatarUrl || ""
                                 }
                                 Rectangle {
+                                    // The room list's rule: a count alone
+                                    // misses rooms that do not notify, and
+                                    // hasUnread alone misses a server count.
                                     visible: expansionRoomRow.modelData
                                                  .hasUnread === true
+                                             || (expansionRoomRow.modelData
+                                                     .unreadCount || 0) > 0
+                                             || (expansionRoomRow.modelData
+                                                     .highlightCount || 0) > 0
                                     width: AppTheme.scaled(10)
                                     height: AppTheme.scaled(10)
                                     radius: height / 2
@@ -1808,7 +1843,7 @@ Rectangle {
         property bool spaceMuted: false
         // Read once so "Mark as read" can be disabled when there is nothing to
         // mark.
-        property int spaceUnread: 0
+        property bool spaceUnread: false
         // Names the Space the menu belongs to, since the row is no longer under
         // the pointer.
         contextLabel: railMenu.isFolder
@@ -1853,7 +1888,7 @@ Rectangle {
             text: qsTr("Mark all rooms read")
             visible: !railMenu.isFolder && railMenu.spaceId === ""
             // Disabled when nothing is unread.
-            enabled: railMenu.spaceUnread > 0
+            enabled: railMenu.spaceUnread
             onTriggered: app.roomList.markAllRoomsRead()
         }
         AppMenuItem {
@@ -1862,7 +1897,7 @@ Rectangle {
             text: qsTr("Mark as read")
             visible: railMenu.isRealSpace
             // Disabled when nothing is unread.
-            enabled: railMenu.spaceUnread > 0
+            enabled: railMenu.spaceUnread
             onTriggered: app.markSpaceRead(railMenu.spaceId)
         }
         AppMenuItem {

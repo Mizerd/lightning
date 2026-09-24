@@ -1124,6 +1124,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Rail rows: the user's arrangement over the hierarchy, with the drag
     // preview in the model rather than QML.
     m_railEntries->setSources(m_spaces.get(), m_railLayout.get());
+    m_railEntries->setRoomSources(m_client.get(), m_settings.get());
     // Classic rail (depth style 1) flattens the model, not the paint, so the
     // drag arithmetic never counts hidden rows. Connected and applied once.
     const auto applyRailStyle = [this] {

@@ -1,21 +1,38 @@
 #include "spaces/RailEntryModel.h"
 
+#include "app/SettingsManager.h"
+#include "matrix/MatrixClient.h"
 #include "spaces/RailLayoutStore.h"
 #include "spaces/SpaceManager.h"
+
+#include <QSet>
+
+#include <algorithm>
 
 namespace {
 const QString kKindFolder = QStringLiteral("folder");
 const QString kKindSpace = QStringLiteral("space");
+// SettingsManager::roomNotificationMode(): 2 is mute.
+constexpr int kNotificationModeMute = 2;
 
 bool isPseudoId(const QString &id)
 {
     return id.isEmpty() || id.startsWith(QLatin1Char('@'));
 }
+
+struct RoomActivity {
+    bool unread = false;    // unread and not muted
+    int mentions = 0;
+    bool direct = false;
+};
 } // namespace
 
 RailEntryModel::RailEntryModel(QObject *parent)
     : QAbstractListModel(parent)
 {
+    m_modeRefresh.setSingleShot(true);
+    m_modeRefresh.setInterval(0);
+    connect(&m_modeRefresh, &QTimer::timeout, this, &RailEntryModel::refresh);
 }
 
 void RailEntryModel::setFlat(bool flat)
@@ -44,6 +61,22 @@ void RailEntryModel::setSources(SpaceManager *spaces, RailLayoutStore *layout)
     if (m_layout) {
         connect(m_layout, &RailLayoutStore::layoutChanged, this,
                 &RailEntryModel::refresh);
+    }
+    refresh();
+}
+
+void RailEntryModel::setRoomSources(MatrixClient *client,
+                                    SettingsManager *settings)
+{
+    if (m_settings)
+        disconnect(m_settings, nullptr, this, nullptr);
+    m_client = client;
+    m_settings = settings;
+    // Room changes arrive through SpaceManager::spacesChanged, which is
+    // rebuilt from the same client. Mode changes do not pass through it.
+    if (m_settings) {
+        connect(m_settings, &SettingsManager::roomNotificationModeChanged,
+                this, [this] { m_modeRefresh.start(); });
     }
     refresh();
 }
@@ -80,6 +113,8 @@ QHash<int, QByteArray> RailEntryModel::roleNames() const
         { DraggableRole, "draggable" },
         { BandPrevLevelRole, "bandPrevLevel" },
         { BandNextLevelRole, "bandNextLevel" },
+        { HasUnreadRole, "hasUnread" },
+        { MentionCountRole, "mentionCount" },
     };
 }
 
@@ -130,6 +165,10 @@ QVariant RailEntryModel::data(const QModelIndex &index, int role) const
         return row.value(QStringLiteral("bandPrevLevel"), -1);
     case BandNextLevelRole:
         return row.value(QStringLiteral("bandNextLevel"), -1);
+    case HasUnreadRole:
+        return row.value(QStringLiteral("hasUnread"), false);
+    case MentionCountRole:
+        return row.value(QStringLiteral("mentionCount"), 0);
     case DraggedRole:
         return m_dragging && !entryId.isEmpty() && entryId == m_dragEntryId;
     case DropTargetRole:
@@ -267,7 +306,95 @@ void RailEntryModel::refresh()
     // Backstop: Home is always present, but the tab must not vanish.
     if (peopleWanted && !peopleInserted)
         insertPeople();
+    stampActivity(rows);
     applyRows(std::move(rows));
+}
+
+// Each row answers for the rooms its own view lists: a Space its transitive
+// rooms, a folder the union of its members', and the pseudo rows the same
+// sets SpaceManager's totals use for them.
+void RailEntryModel::stampActivity(QVector<QVariantMap> &rows) const
+{
+    QHash<QString, RoomActivity> rooms;
+    if (m_client) {
+        const QList<RoomInfo> all = m_client->rooms();
+        rooms.reserve(all.size());
+        for (const RoomInfo &r : all) {
+            if (r.isSpace || r.membership != RoomInfo::Joined)
+                continue;
+            RoomActivity activity;
+            activity.direct = r.isDirect;
+            // The room list's unread rule: notification_count is 0 for a room
+            // whose push rules do not notify.
+            const bool unread = r.hasUnreadMessages || r.markedUnread
+                                || r.unreadCount > 0 || r.highlightCount > 0;
+            // Only an unread room needs its mode, which is a settings read.
+            const bool muted =
+                unread && m_settings
+                && m_settings->roomNotificationMode(r.id)
+                       == kNotificationModeMute;
+            activity.unread = unread && !muted;
+            // A mention survives a mute, as in the room list. Every notifying
+            // message in an unmuted DM is addressed to the user too.
+            activity.mentions = r.highlightCount;
+            if (r.isDirect && !muted)
+                activity.mentions = std::max(r.unreadCount, r.highlightCount);
+            rooms.insert(r.id, activity);
+        }
+    }
+
+    const auto inAnySpace = [this](const QString &roomId) {
+        return m_spaces && m_spaces->roomInAnySpace(roomId);
+    };
+    // Mirrors SpaceManager's pseudo-row totals. Home lists DMs only while
+    // they have no tile of their own.
+    const auto pseudoLists = [&](const QString &spaceId, const QString &roomId,
+                                 const RoomActivity &activity) {
+        if (spaceId == SpaceManager::allRoomsId()) {
+            return !m_peopleEntryVisible || activity.direct
+                   || !inAnySpace(roomId);
+        }
+        if (spaceId == SpaceManager::peopleId())
+            return activity.direct;
+        if (spaceId == SpaceManager::orphansId())
+            return !activity.direct && !inAnySpace(roomId);
+        return false;
+    };
+
+    for (QVariantMap &row : rows) {
+        QSet<QString> listed;
+        const QString spaceId = row.value(QStringLiteral("spaceId")).toString();
+        if (row.value(QStringLiteral("kind")).toString() == kKindFolder) {
+            if (m_spaces) {
+                const QStringList members =
+                    row.value(QStringLiteral("memberIds")).toStringList();
+                for (const QString &member : members) {
+                    for (const QString &roomId : m_spaces->roomsInSpace(member))
+                        listed.insert(roomId);
+                }
+            }
+        } else if (isPseudoId(spaceId)) {
+            for (auto it = rooms.constBegin(); it != rooms.constEnd(); ++it) {
+                if (pseudoLists(spaceId, it.key(), it.value()))
+                    listed.insert(it.key());
+            }
+        } else if (m_spaces) {
+            for (const QString &roomId : m_spaces->roomsInSpace(spaceId))
+                listed.insert(roomId);
+        }
+
+        bool anyUnread = false;
+        int mentions = 0;
+        for (const QString &roomId : std::as_const(listed)) {
+            const auto it = rooms.constFind(roomId);
+            if (it == rooms.constEnd())
+                continue;
+            anyUnread = anyUnread || it->unread;
+            mentions += it->mentions;
+        }
+        row.insert(QStringLiteral("hasUnread"), anyUnread);
+        row.insert(QStringLiteral("mentionCount"), mentions);
+    }
 }
 
 void RailEntryModel::appendSubspaces(const QString &parentId,

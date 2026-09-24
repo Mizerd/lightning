@@ -1223,6 +1223,39 @@ private slots:
         QVERIFY2(!dialog.contains(QRegularExpression(QStringLiteral("#[0-9a-fA-F]{6}"))),
                  "space settings hardcodes a colour");
     }
+
+    // The rail's activity indicators are fed from the room list in C++. A
+    // model with no room source reads false/0 everywhere, and every model
+    // test would still pass, so the wiring itself is pinned here.
+    void theRailActivityIndicatorsAreWiredToTheRoomList()
+    {
+        const QString controller =
+            withoutComments(readSrc(QStringLiteral("app/AppController.cpp")));
+        QVERIFY(!controller.isEmpty());
+        QVERIFY2(controller.contains(QStringLiteral(
+                     "m_railEntries->setRoomSources(m_client.get(), "
+                     "m_settings.get())")),
+                 "RailEntryModel is never given the room list, so no Space "
+                 "tile can show unread activity");
+
+        const QString rail =
+            withoutComments(read(QStringLiteral("SpacesRail.qml")));
+        QVERIFY2(rail.contains(QStringLiteral("required property bool hasUnread")),
+                 "the rail delegate does not declare hasUnread; an undeclared "
+                 "role reads as undefined");
+        QVERIFY2(rail.contains(QStringLiteral("required property int mentionCount")),
+                 "the rail delegate does not declare mentionCount");
+        // The badge counts mentions; the notification total is not the badge.
+        const int badge = rail.indexOf(QStringLiteral("\"railMentionBadge\""));
+        QVERIFY2(badge >= 0, "the rail has no mention badge");
+        QVERIFY2(rail.mid(badge, 200).contains(
+                     QStringLiteral("spaceItem.mentionCount > 0")),
+                 "the mention badge is not keyed on mentionCount");
+        const int dot = rail.indexOf(QStringLiteral("\"railUnreadDot\""));
+        QVERIFY2(dot >= 0, "the rail has no unread dot");
+        QVERIFY2(rail.mid(dot, 200).contains(QStringLiteral("spaceItem.hasUnread")),
+                 "the unread dot is not keyed on hasUnread");
+    }
 };
 
 QTEST_MAIN(NavigationLayoutContractTest)

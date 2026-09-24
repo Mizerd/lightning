@@ -4,11 +4,14 @@
 #include <QHash>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QVector>
 
+class MatrixClient;
 class RailLayoutStore;
+class SettingsManager;
 class SpaceManager;
 
 // The rows the Spaces rail draws, and the live state of a drag over them.
@@ -98,11 +101,22 @@ public:
         /// ends here when this is below d. Neighbour depths rather than
         /// booleans because a row sits on one region per ancestor.
         BandNextLevelRole,
+        /// Any room this row's view lists is unread and not muted. Keyed on
+        /// the unread state, not on a count: notification_count is 0 for a
+        /// room whose push rules do not notify.
+        HasUnreadRole,
+        /// The number the row's badge shows: highlights (mentions and
+        /// keywords), plus every notifying message in an unmuted DM. A room
+        /// listed twice under one row is counted once.
+        MentionCountRole,
     };
 
     explicit RailEntryModel(QObject *parent = nullptr);
 
     void setSources(SpaceManager *spaces, RailLayoutStore *layout);
+    /// The room list and per-room notification modes behind hasUnread and
+    /// mentionCount. Without them both read false/0.
+    void setRoomSources(MatrixClient *client, SettingsManager *settings);
 
     /// Flat (Classic) rail: top-level entries only, nothing expandable.
     /// A model flag, not a paint flag, so hidden rows never exist in the list
@@ -176,6 +190,8 @@ private:
     static void stampGroupField(QVector<QVariantMap> &rows);
     // `folderLast` over the folder's whole run, nested rows included.
     static void stampFolderRuns(QVector<QVariantMap> &rows);
+    /// Stamps hasUnread and mentionCount from the room list onto every row.
+    void stampActivity(QVector<QVariantMap> &rows) const;
     void appendSubspaces(const QString &parentId,
                          const QString &owningFolderId,
                          const QHash<QString, QVariantMap> &byId,
@@ -203,6 +219,10 @@ private:
 
     SpaceManager *m_spaces = nullptr;
     RailLayoutStore *m_layout = nullptr;
+    MatrixClient *m_client = nullptr;
+    SettingsManager *m_settings = nullptr;
+    /// Coalesces per-room mode writes: muting a Space writes every room.
+    QTimer m_modeRefresh;
     QVector<QVariantMap> m_rows;
 
     bool m_flat = false;

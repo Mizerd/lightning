@@ -1327,6 +1327,123 @@ private slots:
     // At the minimum rail width the expander is never nearer the rail's edge
     // than it is to its own tile. Asserted as that relation, which holds at
     // every width and text scale; every other case here runs at 160 px.
+    // Activity: a Space with unread and no mention shows the dot, one with
+    // mentions shows the count, a quiet one shows neither. Each sits on its
+    // tile's top-right corner and inside the rail at its narrowest.
+    void activityIndicatorsSitOnTheTileCornerInsideTheRail()
+    {
+        const QString alpha = m_spaceIds.at(0);
+        const QString bravo = m_spaceIds.at(1);
+        const QString charlie = m_spaceIds.at(2);
+        const QList<RoomInfo> saved = m_client->roomList;
+        const qreal savedWidth = m_rail->width();
+        auto restore = qScopeGuard([&] {
+            m_rail->setWidth(savedWidth);
+            entries()->setRoomSources(nullptr, nullptr);
+            m_client->roomList = saved;
+            Q_EMIT m_client->roomsChanged();
+            QCoreApplication::processEvents();
+        });
+
+        RoomInfo unread = joinedRoom(QStringLiteral("!alpha-room:example.org"),
+                                     QStringLiteral("Alpha room"));
+        // No notification count: the case the count badge never showed.
+        unread.hasUnreadMessages = true;
+        RoomInfo mentioned =
+            joinedRoom(QStringLiteral("!bravo-room:example.org"),
+                       QStringLiteral("Bravo room"));
+        mentioned.hasUnreadMessages = true;
+        mentioned.unreadCount = 4;
+        mentioned.highlightCount = 2;
+        QList<RoomInfo> rooms = saved;
+        for (RoomInfo &r : rooms) {
+            if (r.id == alpha)
+                r.childRoomIds = { unread.id };
+            else if (r.id == bravo)
+                r.childRoomIds = { mentioned.id };
+        }
+        rooms << unread << mentioned;
+        m_client->roomList = rooms;
+        entries()->setRoomSources(m_client, nullptr);
+        Q_EMIT m_client->roomsChanged();
+        QCoreApplication::processEvents();
+        QTRY_COMPARE_WITH_TIMEOUT(m_list->property("count").toInt(), 5, 3000);
+
+        const qreal minWidth = m_rail->property("minRailWidth").toReal();
+        QVERIFY2(minWidth > 0, "the rail reports no minimum width");
+        m_rail->setWidth(minWidth);
+        QCoreApplication::processEvents();
+        QTest::qWait(60);
+
+        struct Expect { QString id; bool dot; bool badge; };
+        const Expect expected[] = {
+            { alpha, true, false },
+            { bravo, false, true },
+            { charlie, false, false },
+        };
+        int placed = 0;
+        for (const Expect &e : expected) {
+            QQuickItem *row = delegateFor(e.id);
+            QVERIFY2(row, qPrintable(e.id));
+            QQuickItem *tile =
+                descendantNamed(row, QStringLiteral("railSpaceTile"));
+            QQuickItem *dot =
+                descendantNamed(row, QStringLiteral("railUnreadDot"));
+            QQuickItem *badge =
+                descendantNamed(row, QStringLiteral("railMentionBadge"));
+            QVERIFY2(tile && dot && badge,
+                     "a Space tile carries no activity indicators");
+            QTRY_COMPARE(dot->isVisible(), e.dot);
+            QCOMPARE(badge->isVisible(), e.badge);
+
+            QQuickItem *shown = e.dot ? dot : e.badge ? badge : nullptr;
+            if (!shown)
+                continue;
+            if (e.badge) {
+                QString text;
+                for (QQuickItem *child : badge->childItems()) {
+                    const QVariant t = child->property("text");
+                    if (t.isValid())
+                        text = t.toString();
+                }
+                // The mentions, not the notifications around them.
+                QCOMPARE(text, QStringLiteral("2"));
+            }
+            const QRectF tileRect = tile->mapRectToItem(
+                m_rail, QRectF(0, 0, tile->width(), tile->height()));
+            const QRectF mark = shown->mapRectToItem(
+                m_rail, QRectF(0, 0, shown->width(), shown->height()));
+            // The list clips, so that is the visible area.
+            const QRectF listRect = m_list->mapRectToItem(
+                m_rail, QRectF(0, 0, m_list->width(), m_list->height()));
+            QVERIFY2(mark.width() > 0 && mark.height() > 0, "zero-size mark");
+            // On the corner: overlapping the tile, centred in its top-right
+            // quadrant.
+            QVERIFY(mark.intersects(tileRect));
+            QVERIFY2(mark.center().x() > tileRect.center().x()
+                         && mark.center().y() < tileRect.center().y(),
+                     qPrintable(QStringLiteral("%1: mark at %2,%3 is not on "
+                                               "the tile's top-right corner")
+                                    .arg(e.id)
+                                    .arg(mark.center().x())
+                                    .arg(mark.center().y())));
+            // Inside the rail and the list, so nothing clips it.
+            QVERIFY2(mark.left() >= listRect.left()
+                         && mark.right() <= listRect.right()
+                         && mark.right() <= m_rail->width(),
+                     qPrintable(QStringLiteral("%1: mark spans %2..%3 in a "
+                                               "%4px rail")
+                                    .arg(e.id)
+                                    .arg(mark.left())
+                                    .arg(mark.right())
+                                    .arg(m_rail->width())));
+            QVERIFY(mark.top() >= listRect.top());
+            ++placed;
+        }
+        // Both marks were measured, not skipped.
+        QCOMPARE(placed, 2);
+    }
+
     void theGutterIsWideEnoughForTheGlyphItHolds()
     {
         RailFakeClient nested;
