@@ -432,12 +432,12 @@
         <translation>%1 在 %2 中发起了通话</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+41"/>
         <source>Incoming call</source>
         <translation>来电</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+46"/>
         <source>Missed call</source>
         <translation>未接来电</translation>
     </message>
@@ -1784,21 +1784,25 @@
     </message>
     <message>
         <location line="+2"/>
+        <location filename="../qml/SpaceLobby.qml" line="+288"/>
         <source>%1, collapsed</source>
         <translation>%1，折叠</translation>
     </message>
     <message>
         <location line="+0"/>
+        <location filename="../qml/SpaceLobby.qml" line="+2"/>
         <source>%1, expanded</source>
         <translation>%1，扩展</translation>
     </message>
     <message>
         <location line="+4"/>
+        <location filename="../qml/SpaceLobby.qml" line="+3"/>
         <source>Activate to expand</source>
         <translation>激活以扩展</translation>
     </message>
     <message>
         <location line="+0"/>
+        <location filename="../qml/SpaceLobby.qml" line="+1"/>
         <source>Activate to collapse</source>
         <translation>激活以折叠</translation>
     </message>
@@ -4192,7 +4196,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>IncomingCallPrompt</name>
     <message>
-        <location filename="../qml/IncomingCallPrompt.qml" line="+132"/>
+        <location filename="../qml/IncomingCallPrompt.qml" line="+148"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>This build can&apos;t join Matrix calls.</translation>
     </message>
@@ -4277,7 +4281,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>语音通话来电</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+42"/>
+        <source>Silence ringer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Silence the ringer for this call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+31"/>
         <source>%1 started a call.</source>
         <translation>%1 started a call.</translation>
     </message>
@@ -5595,7 +5609,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished">取消</translation>
     </message>
     <message>
-        <location line="+516"/>
+        <location line="+528"/>
         <source>The GIF could not be sent.</source>
         <translation>GIF 发送失败。</translation>
     </message>
@@ -5887,7 +5901,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>录制语音消息</translation>
     </message>
     <message>
-        <location line="-3380"/>
+        <location line="-3392"/>
         <source>A recording is already in progress.</source>
         <translation>已有录音正在进行。</translation>
     </message>
@@ -5897,7 +5911,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>语音录制不可用。</translation>
     </message>
     <message>
-        <location line="+3056"/>
+        <location line="+3068"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">更多</translation>
@@ -6009,7 +6023,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1128"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1171"/>
         <source>Today</source>
         <translation>今天</translation>
     </message>
@@ -6056,18 +6070,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+118"/>
-        <location line="+1219"/>
+        <location line="+1221"/>
         <location line="+1074"/>
         <source>Reply</source>
         <translation>回复</translation>
     </message>
     <message>
-        <location line="-2273"/>
+        <location line="-2274"/>
         <source>(original message not loaded)</source>
         <translation>（原消息未加载）</translation>
     </message>
     <message numerus="yes">
-        <location line="+160"/>
+        <location line="+161"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
@@ -6166,12 +6180,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+2452"/>
+        <location line="+2463"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location line="-2410"/>
+        <location line="-2421"/>
         <location line="+1216"/>
         <source>Cancel</source>
         <translation>取消</translation>
@@ -6183,12 +6197,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+253"/>
-        <location line="+1370"/>
+        <location line="+1375"/>
         <source>Hide image</source>
         <translation>隐藏图像</translation>
     </message>
     <message>
-        <location line="-1366"/>
+        <location line="-1371"/>
         <source>Hide</source>
         <translation>隐藏</translation>
     </message>
@@ -6345,28 +6359,28 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2302"/>
+        <location line="+2569"/>
         <source>Save as…</source>
         <translation>另存为…</translation>
     </message>
     <message>
-        <location line="-2272"/>
+        <location line="-2534"/>
         <source>Show image</source>
         <translation>显示图片</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+702"/>
+        <location line="+708"/>
         <source>Show link preview</source>
         <translation>显示链接预览</translation>
     </message>
     <message>
-        <location line="-693"/>
+        <location line="-699"/>
         <source>Copy image</source>
         <translation>复制图片</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+20"/>
         <source>View profile</source>
         <translation>查看个人资料</translation>
     </message>
@@ -6386,13 +6400,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1363"/>
-        <location line="+1370"/>
+        <location line="-1369"/>
+        <location line="+1376"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-4328"/>
+        <location line="-4376"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6407,37 +6421,56 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+27"/>
+        <location line="+525"/>
         <source>Sticker</source>
         <translation type="unfinished">贴纸</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-522"/>
         <source>Voice message</source>
         <translation type="unfinished">语音消息</translation>
     </message>
     <message>
         <location line="+1"/>
+        <location line="+519"/>
         <source>Audio</source>
         <translation type="unfinished">音频</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-517"/>
+        <location line="+515"/>
         <source>GIF</source>
         <translation type="unfinished">GIF</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-515"/>
+        <location line="+514"/>
+        <location line="+4765"/>
         <source>Image</source>
         <translation type="unfinished">图片</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-5277"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <location line="+494"/>
+        <source>%n image(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>%n attachment(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+4312"/>
+        <location line="+3862"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>删除编辑记录</translation>
@@ -6459,7 +6492,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>转发</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+46"/>
         <source>Report message</source>
         <translation>举报消息</translation>
     </message>
@@ -6547,12 +6580,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>回复对象</translation>
     </message>
     <message>
-        <location line="-2107"/>
+        <location line="-2118"/>
         <source>Show preview</source>
         <translation>显示预览</translation>
     </message>
     <message>
-        <location line="+1917"/>
+        <location line="+1923"/>
         <source>Remove edits?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6572,7 +6605,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+98"/>
+        <location line="+103"/>
         <source>Delete message?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6619,7 +6652,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>无法预览</translation>
     </message>
     <message>
-        <location line="+644"/>
+        <location line="+900"/>
         <source>Remove from saved</source>
         <translation>取消保存</translation>
     </message>
@@ -6644,14 +6677,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>贴纸加载失败 — 点击重试</translation>
     </message>
     <message>
-        <location line="-5948"/>
-        <location line="+6183"/>
+        <location line="-6254"/>
+        <location line="+521"/>
+        <location line="+4763"/>
+        <location line="+1205"/>
         <location line="+66"/>
         <source>Video</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="-1134"/>
+        <location line="+1151"/>
         <location line="+219"/>
         <source>Save %1 as…</source>
         <translation>将%1另存为…</translation>
@@ -6662,8 +6698,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location line="-6261"/>
-        <location line="+6386"/>
+        <location line="-6567"/>
+        <location line="+517"/>
+        <location line="+4877"/>
+        <location line="+1298"/>
         <location line="+31"/>
         <source>File</source>
         <translation>文件</translation>
@@ -6684,7 +6722,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>保存失败</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="-1329"/>
+        <location line="+1370"/>
         <source>file</source>
         <translation>文件</translation>
     </message>
@@ -7234,12 +7273,12 @@ Signing out and signing in again is the only fix.</source>
     <name>NotificationManager</name>
     <message>
         <location filename="../src/notifications/NotificationManager.cpp" line="+732"/>
-        <location line="+217"/>
+        <location line="+231"/>
         <source>Open</source>
         <translation>打开</translation>
     </message>
     <message>
-        <location line="-212"/>
+        <location line="-226"/>
         <source>Mark as read</source>
         <translation type="unfinished">标记为已读</translation>
     </message>
@@ -7254,7 +7293,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+214"/>
+        <location line="+228"/>
         <source>Join</source>
         <translation type="unfinished">加入</translation>
     </message>
@@ -7265,6 +7304,11 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+5"/>
+        <source>Silence</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Decline</source>
         <translation>拒绝</translation>
     </message>
@@ -7272,7 +7316,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-693"/>
+        <location line="-711"/>
         <source>Matrix room</source>
         <translation>Matrix 房间</translation>
     </message>
@@ -9289,6 +9333,8 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
+        <location filename="../qml/SpaceLobby.qml" line="-63"/>
+        <location line="+243"/>
         <source>Loading rooms…</source>
         <translation>正在加载房间…</translation>
     </message>
@@ -9871,7 +9917,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustTimeline</name>
     <message>
-        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+384"/>
+        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+467"/>
         <source>[unable to decrypt yet]</source>
         <translation>[暂时无法解密]</translation>
     </message>
@@ -13596,7 +13642,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+593"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+599"/>
         <location line="+191"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -13650,12 +13696,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+575"/>
+        <location line="+591"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>此家庭服务器上无法进行呼叫。</translation>
     </message>
     <message>
-        <location line="-552"/>
+        <location line="-568"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>尝试次数太多。稍后再试一次。</translation>
     </message>
@@ -13736,12 +13782,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+460"/>
+        <location line="+476"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>无法接通通话。</translation>
     </message>
     <message>
-        <location line="-458"/>
+        <location line="-474"/>
         <source>The calling service is having trouble.</source>
         <translation>呼叫服务出现问题。</translation>
     </message>
@@ -13777,12 +13823,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+15"/>
-        <location line="+32"/>
+        <location line="+46"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>This build can&apos;t join Matrix calls.</translation>
     </message>
     <message>
-        <location line="-30"/>
+        <location line="-44"/>
         <source>Still checking whether calling is available here. Try again in a moment.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13803,13 +13849,13 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+24"/>
+        <location line="+38"/>
         <location line="+5"/>
         <source>This build has no calling media support.</source>
         <translation>此版本没有通话媒体支持。</translation>
     </message>
     <message>
-        <location line="-19"/>
+        <location line="-33"/>
         <source>You don&apos;t have permission to start or join calls in this room. A room admin can raise your power level in it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13819,17 +13865,17 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+36"/>
         <source>Calling isn&apos;t ready yet.</source>
         <translation>呼叫尚未准备好。</translation>
     </message>
     <message>
-        <location line="-32"/>
+        <location line="-46"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
     <message>
-        <location line="+194"/>
+        <location line="+210"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>无法在通话中通知您。</translation>
     </message>
@@ -14385,9 +14431,37 @@ Note: importing keys does not verify this session.</source>
     </message>
 </context>
 <context>
+    <name>SpaceLobby</name>
+    <message>
+        <location filename="../qml/SpaceLobby.qml" line="-204"/>
+        <source>Rooms</source>
+        <translation type="unfinished">房间</translation>
+    </message>
+    <message>
+        <location line="+148"/>
+        <source>More actions for %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+117"/>
+        <source>%1, not joined</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+202"/>
+        <source>Open space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Remove from this Space</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>SpaceManager</name>
     <message>
-        <location filename="../src/spaces/SpaceManager.cpp" line="+249"/>
+        <location filename="../src/spaces/SpaceManager.cpp" line="+252"/>
         <source>All rooms</source>
         <translation>所有房间</translation>
     </message>
@@ -16352,7 +16426,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+958"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+974"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 将显示名称从“%2”改为“%3”，并更换了头像。</translation>
     </message>
@@ -16402,7 +16476,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 started a call.</translation>
     </message>
     <message>
-        <location line="+1294"/>
+        <location line="+1333"/>
         <source>%1 is typing…</source>
         <translation>%1 正在输入…</translation>
     </message>
@@ -16442,13 +16516,14 @@ Note: importing keys does not verify this session.</source>
         <translation>文件另存为…</translation>
     </message>
     <message>
-        <location line="+204"/>
-        <location line="+6509"/>
+        <location filename="../qml/SpaceLobby.qml" line="-483"/>
+        <location filename="../qml/TimelinePane.qml" line="+204"/>
+        <location line="+6464"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location line="-6508"/>
+        <location filename="../qml/TimelinePane.qml" line="-6463"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -16781,7 +16856,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+482"/>
+        <location line="+435"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>房间已添加 —— 正在等待服务器确认。</translation>
     </message>
@@ -16801,7 +16876,7 @@ Note: importing keys does not verify this session.</source>
         <translation>无法移除该房间 —— 你可能没有权限。</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+11"/>
         <source>The suggested flag could not be changed — you may not have permission.</source>
         <translation>无法更改“推荐”标记 —— 你可能没有权限。</translation>
     </message>
@@ -16851,7 +16926,8 @@ Note: importing keys does not verify this session.</source>
         <translation>横幅无法保存（%1）。</translation>
     </message>
     <message numerus="yes">
-        <location line="+68"/>
+        <location filename="../qml/SpaceLobby.qml" line="+97"/>
+        <location filename="../qml/TimelinePane.qml" line="+68"/>
         <source>%n room(s)</source>
         <comment>rooms inside a Space</comment>
         <translation>
@@ -16859,7 +16935,7 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location filename="../qml/TimelinePane.qml" line="+3"/>
         <source>%1 • %2 unread</source>
         <translation>%1 • %2 条未读</translation>
     </message>
@@ -16985,17 +17061,17 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+617"/>
+        <location line="+184"/>
         <source>Leave Space</source>
         <translation>退出空间</translation>
     </message>
     <message>
-        <location line="-611"/>
+        <location line="-178"/>
         <source>Leaving does not remove the rooms inside it.</source>
         <translation>退出不会移除其中的房间。</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location filename="../qml/SpaceLobby.qml" line="-221"/>
         <source>ROOMS AND SPACES</source>
         <translation>房间与空间</translation>
     </message>
@@ -17008,22 +17084,24 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+499"/>
+        <location filename="../qml/TimelinePane.qml" line="+120"/>
         <source>Remove</source>
         <translation>移除</translation>
     </message>
     <message>
-        <location line="-487"/>
+        <location line="+8"/>
+        <location line="+567"/>
         <source>Mark as not suggested</source>
         <translation>标记为不推荐</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-566"/>
+        <location line="+567"/>
         <source>Mark as suggested</source>
         <translation>标记为推荐</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="-556"/>
         <source>Search names and descriptions</source>
         <translation>搜索名称和描述</translation>
     </message>
@@ -17033,38 +17111,34 @@ Note: importing keys does not verify this session.</source>
         <translation>搜索房间和空间</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+14"/>
         <source>No rooms or spaces match “%1”.</source>
         <translation>没有与“%1”匹配的房间或空间。</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+28"/>
+        <location line="+243"/>
         <source>No rooms yet</source>
         <translation>还没有房间</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="-234"/>
         <source>Create a room here or add one of your existing rooms to organise it under this Space.</source>
         <translation>在此创建房间，或添加你已有的房间，把它组织到这个空间下。</translation>
     </message>
     <message>
-        <location line="+93"/>
-        <location line="+490"/>
+        <location line="+265"/>
+        <location filename="../qml/TimelinePane.qml" line="+160"/>
         <source>Room</source>
         <translation>房间</translation>
     </message>
     <message>
-        <location line="-430"/>
-        <source>Joined</source>
-        <translation>已加入</translation>
-    </message>
-    <message>
-        <location line="+12"/>
+        <location line="+258"/>
         <source>Suggested</source>
         <translation>推荐</translation>
     </message>
     <message numerus="yes">
-        <location line="+27"/>
+        <location line="-183"/>
         <source>Space · %n room(s)</source>
         <translation>
             <numerusform>空间 · %n 个房间</numerusform>
@@ -17078,34 +17152,34 @@ Note: importing keys does not verify this session.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+6"/>
+        <location line="+4"/>
         <source>%n member(s)</source>
         <translation>
             <numerusform>%n 位成员</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+63"/>
         <source>Request pending</source>
         <translation>请求待处理</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+22"/>
         <source>Ask to join</source>
         <translation>申请加入</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="+1"/>
         <source>Join</source>
         <translation>加入</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+140"/>
         <source>Select %1</source>
         <translation>选择 %1</translation>
     </message>
     <message numerus="yes">
-        <location line="+45"/>
+        <location filename="../qml/TimelinePane.qml" line="-189"/>
         <source>Remove %n room(s) from this Space?</source>
         <translation>
             <numerusform>从此空间移除 %n 个房间？</numerusform>
@@ -17117,8 +17191,8 @@ Note: importing keys does not verify this session.</source>
         <translation>这些房间会继续存在，你也仍在其中 —— 它们只是离开这个空间的列表。</translation>
     </message>
     <message>
-        <location line="-1830"/>
-        <location line="+1844"/>
+        <location line="-1352"/>
+        <location line="+1366"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>取消</translation>
@@ -18145,7 +18219,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>lightning::update::UpdateManager</name>
     <message>
-        <location filename="../src/update/UpdateManager.cpp" line="+1130"/>
+        <location filename="../src/update/UpdateManager.cpp" line="+1144"/>
+        <source>Lightning is installed for all users of this computer, so installing an update needs administrator approval, and Windows did not get it. Nothing was changed. Approve the prompt next time, or ask an administrator to install the update.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>The Windows installer refused the update (code %1). Installing the new version over the old one by hand usually works, and the code is worth reporting.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18198,7 +18277,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2581"/>
+        <location filename="../src/main.cpp" line="+2584"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>原生 Qt/QML Matrix 客户端。后端：--backend={mock,http,rust}。默认：rust（在没有 Rust SDK 的构建中为 http）。</translation>
     </message>

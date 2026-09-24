@@ -433,12 +433,12 @@
         <translation>%1 appelle dans %2</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+41"/>
         <source>Incoming call</source>
         <translation>Appel entrant</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+46"/>
         <source>Missed call</source>
         <translation>Appel manqué</translation>
     </message>
@@ -1786,21 +1786,25 @@
     </message>
     <message>
         <location line="+2"/>
+        <location filename="../qml/SpaceLobby.qml" line="+288"/>
         <source>%1, collapsed</source>
         <translation>%1, réduit</translation>
     </message>
     <message>
         <location line="+0"/>
+        <location filename="../qml/SpaceLobby.qml" line="+2"/>
         <source>%1, expanded</source>
         <translation>%1, développé</translation>
     </message>
     <message>
         <location line="+4"/>
+        <location filename="../qml/SpaceLobby.qml" line="+3"/>
         <source>Activate to expand</source>
         <translation>Activer pour développer</translation>
     </message>
     <message>
         <location line="+0"/>
+        <location filename="../qml/SpaceLobby.qml" line="+1"/>
         <source>Activate to collapse</source>
         <translation>Activer pour réduire</translation>
     </message>
@@ -4200,7 +4204,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>IncomingCallPrompt</name>
     <message>
-        <location filename="../qml/IncomingCallPrompt.qml" line="+132"/>
+        <location filename="../qml/IncomingCallPrompt.qml" line="+148"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>Cette version ne peut pas rejoindre les appels Matrix.</translation>
     </message>
@@ -4285,7 +4289,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>Appel vocal entrant</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+42"/>
+        <source>Silence ringer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Silence the ringer for this call</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+31"/>
         <source>%1 started a call.</source>
         <translation>%1 a démarré un appel.</translation>
     </message>
@@ -5608,7 +5622,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished">Annuler</translation>
     </message>
     <message>
-        <location line="+516"/>
+        <location line="+528"/>
         <source>The GIF could not be sent.</source>
         <translation>Le GIF n&apos;a pas pu être envoyé.</translation>
     </message>
@@ -5900,7 +5914,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Enregistrer un message vocal</translation>
     </message>
     <message>
-        <location line="-3380"/>
+        <location line="-3392"/>
         <source>A recording is already in progress.</source>
         <translation>Un enregistrement est déjà en cours.</translation>
     </message>
@@ -5910,7 +5924,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>L&apos;enregistrement vocal est indisponible.</translation>
     </message>
     <message>
-        <location line="+3056"/>
+        <location line="+3068"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">Plus</translation>
@@ -6022,7 +6036,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1128"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1171"/>
         <source>Today</source>
         <translation>Aujourd&apos;hui</translation>
     </message>
@@ -6069,18 +6083,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+118"/>
-        <location line="+1219"/>
+        <location line="+1221"/>
         <location line="+1074"/>
         <source>Reply</source>
         <translation>Répondre</translation>
     </message>
     <message>
-        <location line="-2273"/>
+        <location line="-2274"/>
         <source>(original message not loaded)</source>
         <translation>(message d&apos;origine non chargé)</translation>
     </message>
     <message numerus="yes">
-        <location line="+160"/>
+        <location line="+161"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
@@ -6180,12 +6194,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+2452"/>
+        <location line="+2463"/>
         <source>Retry</source>
         <translation>Réessayer</translation>
     </message>
     <message>
-        <location line="-2410"/>
+        <location line="-2421"/>
         <location line="+1216"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
@@ -6197,12 +6211,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+253"/>
-        <location line="+1370"/>
+        <location line="+1375"/>
         <source>Hide image</source>
         <translation>Masquer l&apos;image</translation>
     </message>
     <message>
-        <location line="-1366"/>
+        <location line="-1371"/>
         <source>Hide</source>
         <translation>Masquer</translation>
     </message>
@@ -6359,28 +6373,28 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+2302"/>
+        <location line="+2569"/>
         <source>Save as…</source>
         <translation>Enregistrer sous…</translation>
     </message>
     <message>
-        <location line="-2272"/>
+        <location line="-2534"/>
         <source>Show image</source>
         <translation>Afficher l&apos;image</translation>
     </message>
     <message>
         <location line="+20"/>
-        <location line="+702"/>
+        <location line="+708"/>
         <source>Show link preview</source>
         <translation>Afficher l&apos;aperçu du lien</translation>
     </message>
     <message>
-        <location line="-693"/>
+        <location line="-699"/>
         <source>Copy image</source>
         <translation>Copier l&apos;image</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+20"/>
         <source>View profile</source>
         <translation>Voir le profil</translation>
     </message>
@@ -6400,13 +6414,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1363"/>
-        <location line="+1370"/>
+        <location line="-1369"/>
+        <location line="+1376"/>
         <source>Edit</source>
         <translation>Modifier</translation>
     </message>
     <message>
-        <location line="-4328"/>
+        <location line="-4376"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6421,37 +6435,58 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+27"/>
+        <location line="+525"/>
         <source>Sticker</source>
         <translation type="unfinished">Autocollant</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-522"/>
         <source>Voice message</source>
         <translation type="unfinished">Message vocal</translation>
     </message>
     <message>
         <location line="+1"/>
+        <location line="+519"/>
         <source>Audio</source>
         <translation type="unfinished">Audio</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-517"/>
+        <location line="+515"/>
         <source>GIF</source>
         <translation type="unfinished">GIF</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-515"/>
+        <location line="+514"/>
+        <location line="+4765"/>
         <source>Image</source>
         <translation type="unfinished">Image</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-5277"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <location line="+494"/>
+        <source>%n image(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>%n attachment(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+4312"/>
+        <location line="+3862"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>Supprimer les modifications</translation>
@@ -6473,7 +6508,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Transférer</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+46"/>
         <source>Report message</source>
         <translation>Signaler le message</translation>
     </message>
@@ -6561,12 +6596,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Cible de la réponse</translation>
     </message>
     <message>
-        <location line="-2107"/>
+        <location line="-2118"/>
         <source>Show preview</source>
         <translation>Afficher l&apos;aperçu</translation>
     </message>
     <message>
-        <location line="+1917"/>
+        <location line="+1923"/>
         <source>Remove edits?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6586,7 +6621,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+98"/>
+        <location line="+103"/>
         <source>Delete message?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6633,7 +6668,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Aperçu indisponible</translation>
     </message>
     <message>
-        <location line="+644"/>
+        <location line="+900"/>
         <source>Remove from saved</source>
         <translation>Retirer des enregistrés</translation>
     </message>
@@ -6658,14 +6693,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>Échec du chargement de l&apos;autocollant — cliquez pour réessayer</translation>
     </message>
     <message>
-        <location line="-5948"/>
-        <location line="+6183"/>
+        <location line="-6254"/>
+        <location line="+521"/>
+        <location line="+4763"/>
+        <location line="+1205"/>
         <location line="+66"/>
         <source>Video</source>
         <translation>Vidéo</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="-1134"/>
+        <location line="+1151"/>
         <location line="+219"/>
         <source>Save %1 as…</source>
         <translation>Enregistrer %1 sous…</translation>
@@ -6676,8 +6714,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>vidéo</translation>
     </message>
     <message>
-        <location line="-6261"/>
-        <location line="+6386"/>
+        <location line="-6567"/>
+        <location line="+517"/>
+        <location line="+4877"/>
+        <location line="+1298"/>
         <location line="+31"/>
         <source>File</source>
         <translation>Fichier</translation>
@@ -6698,7 +6738,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Échec de l&apos;enregistrement</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="-1329"/>
+        <location line="+1370"/>
         <source>file</source>
         <translation>fichier</translation>
     </message>
@@ -7250,12 +7291,12 @@ Signing out and signing in again is the only fix.</source>
     <name>NotificationManager</name>
     <message>
         <location filename="../src/notifications/NotificationManager.cpp" line="+732"/>
-        <location line="+217"/>
+        <location line="+231"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
     <message>
-        <location line="-212"/>
+        <location line="-226"/>
         <source>Mark as read</source>
         <translation type="unfinished">Marquer comme lu</translation>
     </message>
@@ -7270,7 +7311,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+214"/>
+        <location line="+228"/>
         <source>Join</source>
         <translation type="unfinished">Rejoindre</translation>
     </message>
@@ -7281,6 +7322,11 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+5"/>
+        <source>Silence</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Decline</source>
         <translation>Refuser</translation>
     </message>
@@ -7288,7 +7334,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>Notifications</name>
     <message>
-        <location line="-693"/>
+        <location line="-711"/>
         <source>Matrix room</source>
         <translation>Salon Matrix</translation>
     </message>
@@ -9309,6 +9355,8 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
+        <location filename="../qml/SpaceLobby.qml" line="-63"/>
+        <location line="+243"/>
         <source>Loading rooms…</source>
         <translation>Chargement des salons…</translation>
     </message>
@@ -9892,7 +9940,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustTimeline</name>
     <message>
-        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+384"/>
+        <location filename="../src/matrix/RustTimelineIngest.cpp" line="+467"/>
         <source>[unable to decrypt yet]</source>
         <translation>[déchiffrement impossible pour l&apos;instant]</translation>
     </message>
@@ -13621,7 +13669,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+593"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+599"/>
         <location line="+191"/>
         <location line="+134"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -13675,12 +13723,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+575"/>
+        <location line="+591"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>Les appels ne sont pas disponibles sur ce serveur domestique.</translation>
     </message>
     <message>
-        <location line="-552"/>
+        <location line="-568"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Trop de tentatives. Réessayez dans un instant.</translation>
     </message>
@@ -13761,12 +13809,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+460"/>
+        <location line="+476"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>Impossible de se connecter à l&apos;appel.</translation>
     </message>
     <message>
-        <location line="-458"/>
+        <location line="-474"/>
         <source>The calling service is having trouble.</source>
         <translation>Le service appelant rencontre des problèmes.</translation>
     </message>
@@ -13802,12 +13850,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+15"/>
-        <location line="+32"/>
+        <location line="+46"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>Cette version ne peut pas rejoindre les appels Matrix.</translation>
     </message>
     <message>
-        <location line="-30"/>
+        <location line="-44"/>
         <source>Still checking whether calling is available here. Try again in a moment.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13828,13 +13876,13 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+24"/>
+        <location line="+38"/>
         <location line="+5"/>
         <source>This build has no calling media support.</source>
         <translation>Cette version n&apos;a pas de support multimédia d&apos;appel.</translation>
     </message>
     <message>
-        <location line="-19"/>
+        <location line="-33"/>
         <source>You don&apos;t have permission to start or join calls in this room. A room admin can raise your power level in it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13844,17 +13892,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+36"/>
         <source>Calling isn&apos;t ready yet.</source>
         <translation>L&apos;appel n&apos;est pas encore prêt.</translation>
     </message>
     <message>
-        <location line="-32"/>
+        <location line="-46"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Cette salle est cryptée et les appels cryptés ne sont pas encore disponibles sur cette version.</translation>
     </message>
     <message>
-        <location line="+194"/>
+        <location line="+210"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>Je n&apos;ai pas pu vous annoncer lors de l&apos;appel.</translation>
     </message>
@@ -14410,9 +14458,37 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
 </context>
 <context>
+    <name>SpaceLobby</name>
+    <message>
+        <location filename="../qml/SpaceLobby.qml" line="-204"/>
+        <source>Rooms</source>
+        <translation type="unfinished">Salons</translation>
+    </message>
+    <message>
+        <location line="+148"/>
+        <source>More actions for %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+117"/>
+        <source>%1, not joined</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+202"/>
+        <source>Open space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Remove from this Space</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>SpaceManager</name>
     <message>
-        <location filename="../src/spaces/SpaceManager.cpp" line="+249"/>
+        <location filename="../src/spaces/SpaceManager.cpp" line="+252"/>
         <source>All rooms</source>
         <translation>Tous les salons</translation>
     </message>
@@ -16387,7 +16463,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+958"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+974"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 a changé son nom affiché de « %2 » en « %3 » et a changé son avatar.</translation>
     </message>
@@ -16437,7 +16513,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>%1 a démarré un appel.</translation>
     </message>
     <message>
-        <location line="+1294"/>
+        <location line="+1333"/>
         <source>%1 is typing…</source>
         <translation>%1 est en train d&apos;écrire…</translation>
     </message>
@@ -16478,13 +16554,14 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Enregistrer le fichier sous…</translation>
     </message>
     <message>
-        <location line="+204"/>
-        <location line="+6509"/>
+        <location filename="../qml/SpaceLobby.qml" line="-483"/>
+        <location filename="../qml/TimelinePane.qml" line="+204"/>
+        <location line="+6464"/>
         <source>Space</source>
         <translation>Espace</translation>
     </message>
     <message>
-        <location line="-6508"/>
+        <location filename="../qml/TimelinePane.qml" line="-6463"/>
         <source>Home</source>
         <translation>Accueil</translation>
     </message>
@@ -16818,7 +16895,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+482"/>
+        <location line="+435"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>Salon ajouté — en attente de confirmation du serveur.</translation>
     </message>
@@ -16838,7 +16915,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Le salon n&apos;a pas pu être retiré — vous n&apos;avez peut-être pas la permission.</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+11"/>
         <source>The suggested flag could not be changed — you may not have permission.</source>
         <translation>L&apos;indicateur « suggéré » n&apos;a pas pu être modifié — vous n&apos;avez peut-être pas la permission.</translation>
     </message>
@@ -16888,7 +16965,8 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>La bannière n&apos;a pas pu être enregistrée (%1).</translation>
     </message>
     <message numerus="yes">
-        <location line="+68"/>
+        <location filename="../qml/SpaceLobby.qml" line="+97"/>
+        <location filename="../qml/TimelinePane.qml" line="+68"/>
         <source>%n room(s)</source>
         <comment>rooms inside a Space</comment>
         <translation>
@@ -16897,7 +16975,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         </translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location filename="../qml/TimelinePane.qml" line="+3"/>
         <source>%1 • %2 unread</source>
         <translation>%1 • %2 non lus</translation>
     </message>
@@ -17023,17 +17101,17 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+617"/>
+        <location line="+184"/>
         <source>Leave Space</source>
         <translation>Quitter l&apos;espace</translation>
     </message>
     <message>
-        <location line="-611"/>
+        <location line="-178"/>
         <source>Leaving does not remove the rooms inside it.</source>
         <translation>Quitter l&apos;espace ne supprime pas les salons qu&apos;il contient.</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location filename="../qml/SpaceLobby.qml" line="-221"/>
         <source>ROOMS AND SPACES</source>
         <translation>SALONS ET ESPACES</translation>
     </message>
@@ -17047,22 +17125,24 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     </message>
     <message>
         <location line="+13"/>
-        <location line="+499"/>
+        <location filename="../qml/TimelinePane.qml" line="+120"/>
         <source>Remove</source>
         <translation>Retirer</translation>
     </message>
     <message>
-        <location line="-487"/>
+        <location line="+8"/>
+        <location line="+567"/>
         <source>Mark as not suggested</source>
         <translation>Marquer comme non suggéré</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-566"/>
+        <location line="+567"/>
         <source>Mark as suggested</source>
         <translation>Marquer comme suggéré</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="-556"/>
         <source>Search names and descriptions</source>
         <translation>Rechercher dans les noms et descriptions</translation>
     </message>
@@ -17072,38 +17152,34 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Rechercher des salons et des espaces</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+14"/>
         <source>No rooms or spaces match “%1”.</source>
         <translation>Aucun salon ni espace ne correspond à « %1 ».</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+28"/>
+        <location line="+243"/>
         <source>No rooms yet</source>
         <translation>Aucun salon pour l&apos;instant</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="-234"/>
         <source>Create a room here or add one of your existing rooms to organise it under this Space.</source>
         <translation>Créez un salon ici ou ajoutez l&apos;un de vos salons existants pour l&apos;organiser sous cet espace.</translation>
     </message>
     <message>
-        <location line="+93"/>
-        <location line="+490"/>
+        <location line="+265"/>
+        <location filename="../qml/TimelinePane.qml" line="+160"/>
         <source>Room</source>
         <translation>Salon</translation>
     </message>
     <message>
-        <location line="-430"/>
-        <source>Joined</source>
-        <translation>Rejoint</translation>
-    </message>
-    <message>
-        <location line="+12"/>
+        <location line="+258"/>
         <source>Suggested</source>
         <translation>Suggéré</translation>
     </message>
     <message numerus="yes">
-        <location line="+27"/>
+        <location line="-183"/>
         <source>Space · %n room(s)</source>
         <translation>
             <numerusform>Espace · %n salon</numerusform>
@@ -17119,7 +17195,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+6"/>
+        <location line="+4"/>
         <source>%n member(s)</source>
         <translation>
             <numerusform>%n membre</numerusform>
@@ -17127,27 +17203,27 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         </translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+63"/>
         <source>Request pending</source>
         <translation>Demande en attente</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+22"/>
         <source>Ask to join</source>
         <translation>Demander à rejoindre</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="+1"/>
         <source>Join</source>
         <translation>Rejoindre</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+140"/>
         <source>Select %1</source>
         <translation>Sélectionner %1</translation>
     </message>
     <message numerus="yes">
-        <location line="+45"/>
+        <location filename="../qml/TimelinePane.qml" line="-189"/>
         <source>Remove %n room(s) from this Space?</source>
         <translation>
             <numerusform>Retirer %n salon de cet espace ?</numerusform>
@@ -17160,8 +17236,8 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Les salons continuent d&apos;exister et vous y restez — ils quittent seulement la liste de cet espace.</translation>
     </message>
     <message>
-        <location line="-1830"/>
-        <location line="+1844"/>
+        <location line="-1352"/>
+        <location line="+1366"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>Annuler</translation>
@@ -18189,7 +18265,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>lightning::update::UpdateManager</name>
     <message>
-        <location filename="../src/update/UpdateManager.cpp" line="+1130"/>
+        <location filename="../src/update/UpdateManager.cpp" line="+1144"/>
+        <source>Lightning is installed for all users of this computer, so installing an update needs administrator approval, and Windows did not get it. Nothing was changed. Approve the prompt next time, or ask an administrator to install the update.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>The Windows installer refused the update (code %1). Installing the new version over the old one by hand usually works, and the code is worth reporting.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18242,7 +18323,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2581"/>
+        <location filename="../src/main.cpp" line="+2584"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Client Matrix natif Qt/QML. Backend : --backend={mock,http,rust}. Par défaut : rust (http dans les versions sans le Rust SDK).</translation>
     </message>
