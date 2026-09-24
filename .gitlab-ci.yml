@@ -429,12 +429,14 @@ build-appimage:
     RUSTUP_INIT_SHA256: "dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71"
   before_script:
     - apt-get update
+    # qt6-svg-plugins: linuxdeploy-plugin-qt deploys the SVG icon engine once
+    # Qt6Svg is linked; build-appimage.sh prunes the image-format half.
     - >-
       apt-get install -y --no-install-recommends
       build-essential ca-certificates ccache cmake curl file git jq
       libsecret-1-dev libsqlite3-dev libssl-dev ninja-build patchelf
       pkg-config qt6-base-dev qt6-base-private-dev qt6-declarative-dev qt6-multimedia-dev qt6-svg-dev
-      qt6-tools-dev qt6-wayland qml6-module-qtmultimedia
+      qt6-svg-plugins qt6-tools-dev qt6-wayland qml6-module-qtmultimedia
       qml6-module-qtquick qml6-module-qtquick-controls
       qml6-module-qtquick-dialogs qml6-module-qtquick-effects
       qml6-module-qtquick-layouts qml6-module-qtquick-window zstd
