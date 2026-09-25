@@ -1293,15 +1293,35 @@ Popup {
                     modal: true
                     standardButtons: Dialog.NoButton
                     closePolicy: Popup.CloseOnEscape
-                    title: qsTr("Change role?")
+                    title: roleConfirm.selfDemotion
+                           ? qsTr("Lower your own role?")
+                           : qsTr("Change role?")
 
                     property int pendingLevel: 0
                     property string pendingLabel: ""
                     // A grant at or above your own level cannot be taken back;
                     // say so.
                     readonly property bool irreversible:
-                        app.roomInfo
+                        app.roomInfo && !root.isOwn
                         && roleConfirm.pendingLevel >= app.roomInfo.ownPowerLevel
+                    // Neither can lowering your own: nobody may raise
+                    // themselves. A creator (v12, 2^53 from the bridge)
+                    // cannot be lowered at all.
+                    readonly property bool selfDemotion:
+                        app.roomInfo && root.isOwn
+                        && roleConfirm.pendingLevel < app.roomInfo.ownPowerLevel
+                        && app.roomInfo.ownPowerLevel < 9007199254740992
+                    // The new level is below what changing roles needs here.
+                    // The two calls are Q_INVOKABLEs, which a binding does not
+                    // track; reading ownPowerLevel subscribes it to the
+                    // roster's membersChanged.
+                    readonly property bool losesRoleControl: {
+                        var _roster = app.roomInfo ? app.roomInfo.ownPowerLevel : 0
+                        return roleConfirm.selfDemotion
+                               && app.roomInfo.powerLevelKnown("m.room.power_levels")
+                               && roleConfirm.pendingLevel
+                                  < app.roomInfo.powerLevelForKey("m.room.power_levels")
+                    }
 
                     function openFor(level, label) {
                         pendingLevel = level
@@ -1335,6 +1355,31 @@ Popup {
                                        + "higher. You will not be able to "
                                        + "change it back.")
                         }
+                        Label {
+                            objectName: "profileSelfDemotionWarning"
+                            Layout.fillWidth: true
+                            visible: roleConfirm.selfDemotion
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.danger
+                            font.pixelSize: AppTheme.textMeta
+                            text: qsTr("You are lowering your own role. You "
+                                       + "will not be able to raise it back "
+                                       + "yourself: only someone whose role "
+                                       + "is above your new one can, and if "
+                                       + "nobody else holds a role as high "
+                                       + "as yours, nobody can.")
+                        }
+                        Label {
+                            objectName: "profileSelfDemotionLosesControl"
+                            Layout.fillWidth: true
+                            visible: roleConfirm.losesRoleControl
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.danger
+                            font.pixelSize: AppTheme.textMeta
+                            text: qsTr("You will also no longer be able to "
+                                       + "change roles or permissions in "
+                                       + "this room.")
+                        }
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: AppTheme.spacing8
@@ -1346,7 +1391,9 @@ Popup {
                             }
                             Button {
                                 objectName: "profileRoleConfirmAccept"
-                                text: qsTr("Change role")
+                                text: roleConfirm.selfDemotion
+                                      ? qsTr("Lower my role")
+                                      : qsTr("Change role")
                                 onClicked: {
                                     roleConfirm.close()
                                     app.roomInfo.setMemberPowerLevel(

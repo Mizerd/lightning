@@ -80,6 +80,10 @@ AppDialog {
         // on one Space).
         if (app.banners)
             app.banners.refreshRoom(targetSpaceId)
+        // Asked once per session, so the delete is offered only to a server
+        // administrator.
+        if (app.roomClosure)
+            app.roomClosure.checkServerAdmin()
         open()
     }
 
@@ -895,6 +899,64 @@ AppDialog {
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
                         }
+
+                        // Close, and for a server administrator delete.
+                        // Matrix has no delete for a room's own admins, so
+                        // "close" is offered and never called one.
+                        MenuSectionLabel {
+                            Layout.fillWidth: true
+                            Layout.topMargin: AppTheme.spacing12
+                            visible: closeSpaceButton.visible
+                                     || deleteSpaceButton.visible
+                            text: qsTr("Close or delete")
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            visible: closeSpaceButton.visible
+                            wrapMode: Text.WordWrap
+                            color: AppTheme.stormTextMuted
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                            text: qsTr("Closing makes the space and the rooms "
+                                       + "you choose invite-only and removes "
+                                       + "the members you are allowed to "
+                                       + "remove. Nothing is deleted: history "
+                                       + "stays on every server that took "
+                                       + "part.")
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing8
+                            AppButton {
+                                id: closeSpaceButton
+                                objectName: "spaceCloseButton"
+                                visible: root.infoIsOurs
+                                         && app.roomInfo.canChangeJoinRule
+                                         && !!app.roomClosure
+                                kind: "danger"
+                                size: "sm"
+                                text: qsTr("Close space…")
+                                onClicked: spaceCloseDialog.openFor(
+                                               root.spaceId, root.info.name || "",
+                                               true, "close")
+                            }
+                            AppButton {
+                                id: deleteSpaceButton
+                                objectName: "spaceDeleteButton"
+                                // Only after the server said this account is
+                                // one of its administrators.
+                                visible: !!app.roomClosure
+                                         && app.roomClosure.serverAdmin === "yes"
+                                kind: "danger"
+                                size: "sm"
+                                text: qsTr("Delete from server…")
+                                onClicked: spaceCloseDialog.openFor(
+                                               root.spaceId, root.info.name || "",
+                                               true, "delete")
+                            }
+                            Item { Layout.fillWidth: true }
+                        }
+                        RoomCloseDialog { id: spaceCloseDialog }
                     }
 
                     // ══ MEMBERS ══
@@ -1469,6 +1531,10 @@ AppDialog {
                                 spacing: AppTheme.spacing8
                                 readonly property string uid:
                                     modelData.userId || ""
+                                readonly property string name:
+                                    modelData.displayName || uid
+                                readonly property bool isOwn:
+                                    modelData.isOwn === true
                                 Avatar {
                                     size: 24
                                     name: roleRow.modelData.displayName
@@ -1507,8 +1573,9 @@ AppDialog {
                                     enabled: app.roomInfo.canSetPowerLevel(
                                                  roleRow.uid, 100)
                                              && !app.roomInfo.powerLevelPending
-                                    onClicked: app.roomInfo.setMemberPowerLevel(
-                                                   roleRow.uid, 100)
+                                    onClicked: roleConfirm.openFor(
+                                                   roleRow.uid, roleRow.name,
+                                                   100, text, roleRow.isOwn)
                                 }
                                 AppButton {
                                     storm: true
@@ -1517,8 +1584,9 @@ AppDialog {
                                     enabled: app.roomInfo.canSetPowerLevel(
                                                  roleRow.uid, 50)
                                              && !app.roomInfo.powerLevelPending
-                                    onClicked: app.roomInfo.setMemberPowerLevel(
-                                                   roleRow.uid, 50)
+                                    onClicked: roleConfirm.openFor(
+                                                   roleRow.uid, roleRow.name,
+                                                   50, text, roleRow.isOwn)
                                 }
                                 AppButton {
                                     storm: true
@@ -1528,9 +1596,10 @@ AppDialog {
                                                  roleRow.uid,
                                                  app.roomInfo.usersDefaultPowerLevel)
                                              && !app.roomInfo.powerLevelPending
-                                    onClicked: app.roomInfo.setMemberPowerLevel(
-                                                   roleRow.uid,
-                                                   app.roomInfo.usersDefaultPowerLevel)
+                                    onClicked: roleConfirm.openFor(
+                                                   roleRow.uid, roleRow.name,
+                                                   app.roomInfo.usersDefaultPowerLevel,
+                                                   text, roleRow.isOwn)
                                 }
                             }
                         }
@@ -1578,9 +1647,14 @@ AppDialog {
                                     { k: qsTr("Join rule"),
                                       v: root.infoIsOurs
                                          ? app.roomInfo.joinRule : "" },
+                                    // A creator's level is the bridge's 2^53
+                                    // sentinel, not a number to show.
                                     { k: qsTr("Your power level"),
-                                      v: root.infoIsOurs
-                                         ? String(app.roomInfo.ownPowerLevel) : "" },
+                                      v: !root.infoIsOurs ? ""
+                                         : app.roomInfo.ownPowerLevel >= 9007199254740992
+                                         ? app.roomInfo.roleLabelForLevel(
+                                               app.roomInfo.ownPowerLevel)
+                                         : String(app.roomInfo.ownPowerLevel) },
                                     { k: qsTr("Default power level"),
                                       v: root.infoIsOurs
                                          ? String(app.roomInfo.usersDefaultPowerLevel)
@@ -1679,6 +1753,7 @@ AppDialog {
         var uid = member.userId
         memberMenu.targetUserId = uid
         memberMenu.targetName = member.displayName || uid
+        memberMenu.targetIsOwn = member.isOwn === true
         memberMenu.canKick = app.roomInfo.canModerate(uid, "kick")
         memberMenu.canBan = app.roomInfo.canModerate(uid, "ban")
         memberMenu.canUnban = app.roomInfo.canModerate(uid, "unban")
@@ -1712,6 +1787,7 @@ AppDialog {
         menuWidth: 220
         property string targetUserId: ""
         property string targetName: ""
+        property bool targetIsOwn: false
         property bool canKick: false
         property bool canBan: false
         property bool canUnban: false
@@ -1740,7 +1816,8 @@ AppDialog {
                 onTriggered: roleConfirm.openFor(memberMenu.targetUserId,
                                                  memberMenu.targetName,
                                                  modelData.level,
-                                                 modelData.label)
+                                                 modelData.label,
+                                                 memberMenu.targetIsOwn)
             }
         }
         AppMenuSeparator {
@@ -1791,20 +1868,37 @@ AppDialog {
         objectName: "spaceMemberRoleConfirm"
         parent: Overlay.overlay
         width: Math.min(420, parent ? parent.width - 64 : 420)
-        title: qsTr("Change role?")
+        title: selfDemotion ? qsTr("Lower your own role?")
+                            : qsTr("Change role?")
         standardButtons: Dialog.Ok | Dialog.Cancel
         property string userId: ""
         property string name: ""
         property int level: 0
         property string label: ""
+        property bool isOwn: false
         // A grant at or above your own level cannot be taken back.
         readonly property bool irreversible:
-            root.infoIsOurs && level >= app.roomInfo.ownPowerLevel
-        function openFor(uid, displayName, newLevel, newLabel) {
+            root.infoIsOurs && !isOwn && level >= app.roomInfo.ownPowerLevel
+        // Neither can lowering your own: nobody may raise themselves. A
+        // creator (v12, 2^53 from the bridge) cannot be lowered at all.
+        readonly property bool selfDemotion:
+            root.infoIsOurs && isOwn && level < app.roomInfo.ownPowerLevel
+            && app.roomInfo.ownPowerLevel < 9007199254740992
+        // The new level is below what changing roles needs here.
+        // rosterTick: the two calls are Q_INVOKABLEs, which a binding does
+        // not track; the tick moves on every roster refresh.
+        readonly property bool losesRoleControl: {
+            var _t = root.rosterTick
+            return selfDemotion
+                   && app.roomInfo.powerLevelKnown("m.room.power_levels")
+                   && level < app.roomInfo.powerLevelForKey("m.room.power_levels")
+        }
+        function openFor(uid, displayName, newLevel, newLabel, own) {
             userId = uid
             name = displayName
             level = newLevel
             label = newLabel
+            isOwn = own === true
             open()
         }
         onAccepted: {
@@ -1830,6 +1924,31 @@ AppDialog {
                 wrapMode: Text.WordWrap
                 text: qsTr("This gives them your own level or higher. You "
                            + "will not be able to change it back.")
+                color: AppTheme.stormDanger
+                font.pixelSize: AppTheme.textMeta
+            }
+            Label {
+                objectName: "spaceSelfDemotionWarning"
+                Layout.fillWidth: true
+                visible: roleConfirm.selfDemotion
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                text: qsTr("You are lowering your own role. You will not be "
+                           + "able to raise it back yourself: only someone "
+                           + "whose role is above your new one can, and if "
+                           + "nobody else holds a role as high as yours, "
+                           + "nobody can.")
+                color: AppTheme.stormDanger
+                font.pixelSize: AppTheme.textMeta
+            }
+            Label {
+                objectName: "spaceSelfDemotionLosesControl"
+                Layout.fillWidth: true
+                visible: roleConfirm.losesRoleControl
+                textFormat: Text.PlainText
+                wrapMode: Text.WordWrap
+                text: qsTr("You will also no longer be able to change roles "
+                           + "or permissions in this space.")
                 color: AppTheme.stormDanger
                 font.pixelSize: AppTheme.textMeta
             }

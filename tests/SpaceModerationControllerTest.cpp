@@ -42,7 +42,9 @@ public:
     void logout() override { Q_EMIT loggedOut(); }
     bool restoreSession() override { return false; }
     bool isLoggedIn() const override { return true; }
-    QString currentUserId() const override { return QStringLiteral("@me:example.org"); }
+    // Changed by a test to stand for another account becoming active.
+    QString userId = QStringLiteral("@me:example.org");
+    QString currentUserId() const override { return userId; }
     QString homeserverUrl() const override { return {}; }
     void startSync() override {}
     void stopSync() override {}
@@ -394,11 +396,135 @@ private slots:
     {
         beginWithPlan(QStringLiteral("ban"));
         m_ctl->confirm(QString());
-        m_ctl->begin(kSpace, QString(), QStringLiteral("@other:example.org"),
-                     QString(), QStringLiteral("kick"));
+        QVERIFY(m_ctl->notice().isEmpty());
+        const bool started = m_ctl->begin(
+            kSpace, QString(), QStringLiteral("@other:example.org"), QString(),
+            QStringLiteral("kick"));
+        QVERIFY(!started);
         QCOMPARE(m_ctl->userId(), kTarget);
         QCOMPARE(m_ctl->phase(), QStringLiteral("running"));
         QCOMPARE(m_client->planCalls, 1);
+        // The refusal is visible, not silent.
+        QVERIFY(m_ctl->notice().contains(QStringLiteral("still running")));
+        // And it goes once the running flow has finished.
+        m_client->answerLast(true);
+        m_client->answerLast(true);
+        m_client->answerLast(true);
+        QCOMPARE(m_ctl->phase(), QStringLiteral("done"));
+        QVERIFY(m_ctl->notice().isEmpty());
+        QVERIFY(m_ctl->begin(kSpace, QString(), kTarget, QString(),
+                             QStringLiteral("kick")));
+    }
+
+    // Add-account never signs the previous account out: nothing more goes
+    // out through the client once it speaks for another account.
+    void aFlowNeverContinuesUnderAnotherAccount()
+    {
+        beginWithPlan(QStringLiteral("ban"));
+        m_ctl->confirm(QString());
+        QCOMPARE(m_client->sent.size(), 1);
+        m_client->userId = QStringLiteral("@other:example.org");
+        m_client->answerLast(true);
+        QCOMPARE(m_client->sent.size(), 1);
+        QCOMPARE(m_ctl->phase(), QStringLiteral("idle"));
+
+        cleanup();
+        init();
+        beginWithPlan(QStringLiteral("kick"));
+        m_ctl->confirm(QString());
+        m_ctl->resetForAccountChange();
+        QCOMPARE(m_ctl->phase(), QStringLiteral("idle"));
+        m_client->answerLast(true);
+        QCOMPARE(m_client->sent.size(), 1);
+    }
+
+    // A step that never answers does not hold the (modal) dialog for the
+    // session: the watchdog marks it not known and the rest go on. No wall
+    // clock: the hook expires it.
+    void aStepThatNeverAnswersDoesNotHoldTheDialog()
+    {
+        beginWithPlan(QStringLiteral("ban"));
+        m_ctl->confirm(QString());
+        QVERIFY(m_ctl->stepWatchdogArmedForTest());
+        QCOMPARE(m_ctl->stepWatchdogIntervalForTest(),
+                 SpaceModerationController::kStepTimeoutMs);
+        const auto first = m_client->sent.constFirst();
+        m_ctl->expireStepForTest();
+        QCOMPARE(m_client->sent.size(), 2);
+        QCOMPARE(m_ctl->spaceRow().value(QStringLiteral("status")).toString(),
+                 QStringLiteral("unknown"));
+        QCOMPARE(m_ctl->unknownCount(), 1);
+        // Its late answer is not counted.
+        Q_EMIT m_client->moderationFinished(first.opId, first.roomId,
+                                            first.userId, first.op, true, {});
+        QCOMPARE(m_ctl->succeededCount(), 0);
+        m_client->answerLast(true);
+        m_client->answerLast(true);
+        QCOMPARE(m_ctl->phase(), QStringLiteral("done"));
+        QVERIFY(!m_ctl->stepWatchdogArmedForTest());
+        QVERIFY(m_ctl->statusText().contains(QStringLiteral("1 not known")));
+    }
+
+    // Rooms the backend ran out of time for are listed, never offered, and
+    // the status line says how many.
+    void roomsNotCheckedInTimeAreNeverOffered()
+    {
+        m_ctl->begin(kSpace, QStringLiteral("Lounge"), kTarget,
+                     QStringLiteral("Spammer"), QStringLiteral("kick"));
+        Q_EMIT m_client->moderationPlanReceived(
+            m_client->lastPlanOpId, kTarget, QStringLiteral("kick"), false,
+            QVariantList{
+                planRow(kSpace, QString(), QStringLiteral("Lounge")),
+                planRow(kRoomA, QString()),
+                planRow(kRoomB, QStringLiteral("not_checked")),
+                planRow(kRoomC, QStringLiteral("not_checked")),
+            });
+        QCOMPARE(m_ctl->phase(), QStringLiteral("ready"));
+        QCOMPARE(m_ctl->uncheckedRoomCount(), 2);
+        QCOMPARE(m_ctl->eligibleRoomCount(), 1);
+        const QVariantMap b = roomRow(*m_ctl, kRoomB);
+        QCOMPARE(b.value(QStringLiteral("eligible")).toBool(), false);
+        QCOMPARE(b.value(QStringLiteral("reasonText")).toString(),
+                 SpaceModerationController::reasonText(
+                     QStringLiteral("not_checked")));
+        QVERIFY(m_ctl->statusText().contains(QStringLiteral("2 of the rooms")));
+
+        m_ctl->setRoomSelected(kRoomB, true);
+        m_ctl->confirm(QString());
+        m_client->answerLast(true);
+        m_client->answerLast(true);
+        QCOMPARE(m_ctl->phase(), QStringLiteral("done"));
+        QStringList rooms;
+        for (const auto &s : m_client->sent)
+            rooms.append(s.roomId);
+        QCOMPARE(rooms, (QStringList{ kSpace, kRoomA }));
+    }
+
+    // A plan that never answers ends the wait instead of spinning for ever.
+    void aPlanThatNeverAnswersFails()
+    {
+        m_ctl->setPlanTimeoutForTest(30);
+        m_ctl->begin(kSpace, QStringLiteral("Lounge"), kTarget,
+                     QStringLiteral("Spammer"), QStringLiteral("ban"));
+        QCOMPARE(m_ctl->phase(), QStringLiteral("planning"));
+        QTRY_COMPARE_WITH_TIMEOUT(m_ctl->phase(), QStringLiteral("failed"), 10000);
+        QVERIFY(m_ctl->statusText().contains(QStringLiteral("Nothing was changed")));
+        // A late answer does not revive it.
+        Q_EMIT m_client->moderationPlanReceived(
+            m_client->lastPlanOpId, kTarget, QStringLiteral("ban"), false,
+            QVariantList{ planRow(kSpace, QString()) });
+        QCOMPARE(m_ctl->phase(), QStringLiteral("failed"));
+        QVERIFY(!m_ctl->canConfirm());
+        QVERIFY(m_client->sent.isEmpty());
+    }
+
+    // An answer in time stops the watchdog.
+    void aPlanThatAnswersIsNotFailedLater()
+    {
+        m_ctl->setPlanTimeoutForTest(30);
+        beginWithPlan(QStringLiteral("kick"));
+        QTest::qWait(80);
+        QCOMPARE(m_ctl->phase(), QStringLiteral("ready"));
     }
 
     // What the user is asked to confirm: who, where, what happens to the
@@ -441,7 +567,7 @@ private slots:
             QStringLiteral("not_a_member"), QStringLiteral("already_banned"),
             QStringLiteral("not_banned"), QStringLiteral("no_permission"),
             QStringLiteral("outranked"), QStringLiteral("not_joined"),
-            QStringLiteral("unknown"),
+            QStringLiteral("unknown"), QStringLiteral("not_checked"),
         };
         QSet<QString> texts;
         for (const QString &reason : reasons)

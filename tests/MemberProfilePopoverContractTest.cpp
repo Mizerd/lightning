@@ -720,6 +720,48 @@ private slots:
         QVERIFY(body.contains(QStringLiteral("op === \"ban\" && showBan")));
         QVERIFY(body.contains(QStringLiteral("op === \"unban\" && showUnban")));
     }
+
+    // Lowering your own role cannot be undone by you, just like granting
+    // someone your own level; the confirmation says so. Driven on the real
+    // dialog's properties.
+    void loweringYourOwnRoleIsWarned()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        auto *confirm = find(QStringLiteral("profileRoleConfirmDialog"));
+        auto *warning = find(QStringLiteral("profileSelfDemotionWarning"));
+        QVERIFY(popover);
+        QVERIFY(confirm);
+        QVERIFY2(warning, "no self-demotion warning in the role confirmation");
+        const int own = int(m_controller->roomInfo()->ownPowerLevel());
+
+        popover->setProperty("isOwn", true);
+        confirm->setProperty("pendingLevel", own - 10);
+        QCOMPARE(confirm->property("selfDemotion").toBool(), true);
+        QCOMPARE(confirm->property("irreversible").toBool(), false);
+        QCOMPARE(confirm->property("title").toString(),
+                 QStringLiteral("Lower your own role?"));
+        QVERIFY(warning->property("text").toString()
+                    .contains(QStringLiteral("raise it back")));
+
+        // Someone else: the grant warning, not this one.
+        popover->setProperty("isOwn", false);
+        QCOMPARE(confirm->property("selfDemotion").toBool(), false);
+        confirm->setProperty("pendingLevel", own);
+        QCOMPARE(confirm->property("irreversible").toBool(), true);
+        QCOMPARE(confirm->property("title").toString(),
+                 QStringLiteral("Change role?"));
+        confirm->setProperty("pendingLevel", 0);
+
+        // A v12 creator (2^53 from the bridge) cannot be lowered at all, so
+        // the warning never offers it.
+        QFile file(QStringLiteral(QML_DIR "/MemberProfilePopover.qml"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(file.readAll());
+        const int at = src.indexOf(QStringLiteral("readonly property bool selfDemotion:"));
+        QVERIFY(at > 0);
+        QVERIFY(src.mid(at, 300).contains(
+            QStringLiteral("app.roomInfo.ownPowerLevel < 9007199254740992")));
+    }
 };
 
 int main(int argc, char *argv[])

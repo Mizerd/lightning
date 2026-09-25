@@ -97,6 +97,7 @@ mod qrlogin;
 mod profile;
 mod rooms;
 mod rtc;
+mod serveradmin;
 mod sfu;
 mod timeline;
 
@@ -6685,6 +6686,80 @@ pub unsafe extern "C" fn mx_rust_moderation_plan(
         let room_ids = unsafe { cstr_arg(room_ids_json) }?;
         let user_id = unsafe { cstr_arg(user_id) }?;
         rooms::moderation_plan(bridge, room_ids, user_id, op, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// Closure plan: for each room in `room_ids_json` (a JSON array), whether the
+/// viewer can close it and what closing would do. Sends nothing. Result
+/// event: room_closure_plan.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_room_closure_plan(
+    ptr: *mut c_void,
+    room_ids_json: *const c_char,
+    parent_ids_json: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_ids = unsafe { cstr_arg(room_ids_json) }?;
+        let parent_ids = unsafe { cstr_arg(parent_ids_json) }?;
+        rooms::closure_plan(bridge, room_ids, parent_ids, op_id).map(|_| String::new())
+    })
+}
+
+/// Close a room: invite-only, out of the directory and of the Spaces in
+/// `unlist_from_json` (a JSON array), every member the viewer outranks
+/// removed with `reason` (may be empty), then leave when `leave` is non-zero
+/// and every step succeeded. Deletes nothing. Result events:
+/// room_closure_progress, room_closure_result.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_close_room(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    reason: *const c_char,
+    leave: c_int,
+    unlist_from_json: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let reason = unsafe { cstr_arg(reason) }?;
+        let unlist_from = unsafe { cstr_arg(unlist_from_json) }?;
+        rooms::close_room(bridge, room_id, reason, leave != 0, unlist_from, op_id)
+            .map(|_| String::new())
+    })
+}
+
+/// Whether the account is a homeserver administrator (Synapse admin API).
+/// Result event: server_admin_status.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_server_admin_status(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        serveradmin::server_admin_status(bridge, op_id).map(|_| String::new())
+    })
+}
+
+/// Delete a room from this homeserver through Synapse's admin API (server
+/// administrators only; the server enforces it). `block` non-zero stops local
+/// users joining it again. Result events: admin_room_delete_progress,
+/// admin_room_delete_result.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_admin_delete_room(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    block: c_int,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        serveradmin::admin_delete_room(bridge, room_id, block != 0, op_id)
             .map(|_| String::new())
     })
 }

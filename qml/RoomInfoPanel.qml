@@ -113,6 +113,10 @@ Rectangle {
         // Re-query the room's server push-rule mode on open, so changes from
         // other clients land. A no-op on backends without server push rules.
         app.requestRoomNotificationMode(roomId)
+        // Asked once per session, so the delete is offered only to a server
+        // administrator.
+        if (app.roomClosure)
+            app.roomClosure.checkServerAdmin()
     }
     function refreshRoomData() {
         roomData = app.roomInfo.roomId !== ""
@@ -1399,6 +1403,33 @@ Rectangle {
                         enabled: !app.roomInfo.leavePending
                         onClicked: leaveConfirm.open()
                     }
+                    // Matrix has no delete for a room's own admins: closing
+                    // is offered, and says it is not a delete.
+                    AppButton {
+                        objectName: "roomCloseButton"
+                        visible: app.roomInfo.canChangeJoinRule
+                                 && !!app.roomClosure
+                        kind: "danger"
+                        text: qsTr("Close room…")
+                        onClicked: roomCloseDialog.openFor(
+                                       app.roomInfo.roomId,
+                                       root.roomData.name || "",
+                                       root.roomData.isSpace === true, "close")
+                    }
+                    // Only after the server said this account is one of its
+                    // administrators.
+                    AppButton {
+                        objectName: "roomDeleteButton"
+                        visible: !!app.roomClosure
+                                 && app.roomClosure.serverAdmin === "yes"
+                        kind: "danger"
+                        text: qsTr("Delete from server…")
+                        onClicked: roomCloseDialog.openFor(
+                                       app.roomInfo.roomId,
+                                       root.roomData.name || "",
+                                       root.roomData.isSpace === true, "delete")
+                    }
+                    RoomCloseDialog { id: roomCloseDialog }
                     Label {
                         visible: app.roomInfo.leaveError.length > 0
                         Layout.fillWidth: true

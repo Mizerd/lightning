@@ -13,6 +13,16 @@ Q_LOGGING_CATEGORY(lcRoomInfo, "lightning.roominfo")
 #include <functional>
 #include <utility>
 
+namespace {
+
+// The level rooms::CREATOR_POWER_LEVEL reports for a room creator (MSC4289,
+// room version 12): 2^53, above every finite level (at most 2^53 - 1). A
+// creator's power is not in m.room.power_levels, so no power-level event can
+// lower it.
+constexpr qlonglong kCreatorPowerLevel = qlonglong(1) << 53;
+
+} // namespace
+
 RoomInfoController::RoomInfoController(QObject *parent)
     : QObject(parent)
 {
@@ -589,6 +599,8 @@ QString RoomInfoController::roleLabelForLevel(qlonglong level) const
     // as its number, and nothing is rounded on save. The room's own
     // users_default is checked first, so a room whose default is 50 does not
     // call its ordinary members "Moderator".
+    if (level >= kCreatorPowerLevel)
+        return tr("Creator");
     if (level == m_usersDefaultPowerLevel)
         return tr("Member");
     if (level == 100)
@@ -623,8 +635,9 @@ bool RoomInfoController::canSetPowerLevel(const QString &userId,
         if (current == level)
             return false; // a no-op is not an action worth offering
         if (row.value(QStringLiteral("isOwn")).toBool()) {
-            // Self: demotion only.
-            return level < current;
+            // Self: demotion only, and never for a creator, whose level the
+            // v12 auth rules do not let any power-level event change.
+            return level < current && current < kCreatorPowerLevel;
         }
         // A peer at or above your own level is not yours to change.
         return current < m_ownPowerLevel;

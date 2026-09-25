@@ -1601,16 +1601,114 @@ Live validation: **NOT TESTED**.
   cycle-safe, depth 64).
 - The plan comes from Rust (`rooms::moderation_plan`), which SENDS NOTHING:
   store-first member reads, one bounded fetch per unsynced room (15 s), at
-  most 100 rooms. A room is offered only when the action can succeed
+  most 100 rooms, six rooms at once, and 25 s for the whole plan
+  (`assess_within_budget`). A room not assessed in time comes back
+  `not_checked`: listed, never offered, and counted in the status line. The
+  controller fails a plan that never answers after 40 s. A room is offered
+  only when the action can succeed
   (`moderation_verdict`: kick needs join or invite, ban needs not banned,
   unban needs banned; the SDK's own `can_kick`/`can_ban`/`can_do(Unban)`; the
   target strictly below the viewer). Others are listed with their reason.
 - `SpaceModerationController` dispatches ONLY plan-offered rooms, one at a
   time through the existing room kick/ban/unban path, and reports each room's
   own outcome. A failed step does not stop the rest, and "done" never hides a
-  failure.
+  failure. Asking for a new flow while one runs is refused VISIBLY: the dialog
+  opens on the running flow with a notice.
+- Lowering your OWN power level is confirmed like a grant of your own level,
+  with its own warning (you cannot raise yourself back; only someone above
+  your new level can), plus a second line when the new level can no longer
+  edit `m.room.power_levels`. In the Space settings member menu, the
+  Permissions tab's role buttons (which used to apply with no confirmation at
+  all) and the room member card. A v12 room CREATOR (MSC4289; the bridge
+  reports 2^53, one above the largest finite level, and the UI labels it
+  "Creator") is never offered a demotion: no power-level event can change
+  a creator's level, so `canSetPowerLevel` refuses it for the viewer's own
+  row.
 - A display name with no visible character (fillers, zero-width, format or
   tag characters) falls back to the localpart on the profile card.
+
+### Closing a room or Space, and deleting one as a server administrator
+
+Matrix has no client-side room deletion: a room exists on every server that
+took part, and no member can make other servers or other people's devices
+forget it. Element, Cinny, FluffyChat and Nheko offer none (Element's
+maintainers have declined Synapse admin APIs in the client; FluffyChat's
+"archive" is leave). Discord deletes a channel outright and asks for the
+server name before deleting a server. Lightning offers the two honest pieces.
+
+- **Close** (anyone who may set the join rule). The plan
+  (`rooms::closure_plan`, same budget and concurrency as the moderation plan,
+  SENDS NOTHING) says per room whether it is offered (`not_joined`,
+  `no_permission` = cannot set `m.room.join_rules`, `unknown`, `not_checked`)
+  and whom closing removes: members strictly below the viewer, and only
+  with the kick permission (joined, invited and knocking). Everyone else
+  STAYS and is named in the row; without the kick permission the row says
+  "you can't remove members here: all N stay", and a result names that as
+  the reason. A world-readable room says its history stays readable by
+  anyone. `rooms::close_room` then, in order: join rule to invite (a
+  failure stops here, nothing else changed), out of the public directory if
+  listed, out of the Spaces the caller names (one room only, optional), every
+  removable member kicked one at a time with the optional reason (at most
+  1000 per run), and LEAVES only when every step succeeded. The Spaces
+  offered for unlisting are only the parents where the viewer may send
+  `m.space.child` (the plan reads each parent too, from the store only, with
+  no member load); the others are named as "stays listed" and do not count
+  against the close. Anything less is
+  "partly closed": the viewer stays so it can be run again, and the row says
+  exactly what is left. It is never called a delete; the dialog says history
+  stays on every server that took part, people keep what their apps
+  downloaded, and anyone not below the viewer stays and can reopen it.
+- **Close a Space** cascades through `SpaceManager::moderationScopeRoomIds`
+  like Space moderation. Rooms run in reverse scope order, so a subspace's
+  rooms go before the subspace, and the Space itself LAST. A Space or
+  subspace is never LEFT while any room beneath it is partly closed, failed
+  or not known: once out of a Space it cannot be cascaded again. The row
+  says "you stayed: rooms inside it are not fully closed". A room another Space also lists
+  starts UNSELECTED and says so. Cascade rooms are not unlisted from the Space.
+- **Delete from server** (Synapse server administrators only). Offered only
+  after `GET /_synapse/admin/v1/users/{self}/admin` answered 200 with an
+  explicit `"admin": true`; 403, 404, a proxy hiding `/_synapse/admin`, MAS,
+  or any other answer reads as "not an administrator" and the button never
+  appears. Asked once per session, when Space settings or Room Information
+  opens, never in the background. Confirmed by TYPING the room's name (its id
+  when it has none). `DELETE /_synapse/admin/v2/rooms/{id}` with
+  `{"block": <choice>, "purge": true}`, then the delete status is followed
+  every 2 s for up to 10 minutes; past that the row says the server is still
+  deleting it rather than guessing. The dialog states the limit: this removes
+  the room from THIS homeserver; members on other servers keep it and its
+  history. Every path segment is percent-encoded, `.`/`..` are refused, and a
+  delete id other than letters, digits, `-` and `_` is not used.
+- `RoomClosureController` (app.roomClosure) is the one flow; `RoomCloseDialog`
+  renders it for both. The dialog can always be HIDDEN (a close can take
+  many minutes); the controller keeps going and the next open shows where it
+  is, or, once, how it ended. A step silent for 15 minutes (longer than every
+  backend bound; a close reports after every step and removal) reads "not
+  known yet" and the flow moves on. A flow, and the administrator answer,
+  are PINNED to the account that started them: add-account resets both
+  (`resetForAccountChange`, as Space moderation), and nothing more is sent
+  once the client speaks for another account. A DELETE that got no answer
+  (a timeout or lost response, not a refused connection) reads "not known:
+  check the room before trying again", never "failed"; a 400 says a delete
+  may already be running. A delete is confirmed by typing the name or the
+  room id; a name with characters nobody can type asks for the id. A Space
+  delete's title and text give the number of rooms it purges. Rooms the plan
+  could not assess, rooms past its cap (no row at all) and rooms still
+  waiting to run also keep the viewer in the Space. A 200 to the DELETE
+  without a usable delete id, and a 502/503/504 from a proxy, read "not
+  known" (the purge may be running), never "refused"; a delete whose status
+  never answered reads "not known", not "still deleting"; a join-rule change
+  that timed out reads "may or may not have changed". `serverAdmin` itself
+  reads "unknown" for any account other than the one the answer was about,
+  whatever reset did or did not run. Space moderation has a 3-minute step
+  watchdog ("not known", the rest go on), so a lost answer cannot hold its
+  modal dialog for the session. A 401 from the admin
+  API says "sign in again"; an administrator answer that could not be obtained (or a question
+  that could not be sent) is asked again after 10 minutes, a "not an administrator" answer is kept for the session. Entry points: Space settings > General > "Close or
+  delete", and Room Information beside "Leave room". A flow requested while
+  one runs is refused visibly, as in Space moderation.
+- NOT TESTED live: closing against a real homeserver, the rate-limit
+  behaviour of a large close (the SDK retries 429s within the 60 s per-request
+  bound), and the admin delete against a real Synapse.
 
 ### SVG images (thumbnails for SVGs the user sends)
 

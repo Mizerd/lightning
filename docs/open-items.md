@@ -34,14 +34,13 @@ Found by the §18 review of those three changes and deliberately left open.
 - ~~A timed-out SVG render keeps its thread-pool thread~~ FIXED 2026-09-25:
   renders run on a private two-thread pool, and a stuck render holds only
   that pool.
-- **The Space moderation plan has no overall time budget**: up to 100 rooms at
-  15 s each can leave the dialog on "Checking where you can do this…" for
-  minutes, with no progress shown.
-- **Lowering your own power level carries no warning**, in the Space members
-  menu and in the room profile card before it. It is as irreversible as
-  granting someone your own level.
-- **`SpaceMemberActionDialog.openFor` silently does nothing** while an earlier
-  flow is still running.
+- ~~The Space moderation plan has no overall time budget~~ FIXED 2026-09-25:
+  25 s for the whole plan, six rooms at once, late rooms `not_checked`.
+- ~~Lowering your own power level carries no warning~~ FIXED 2026-09-25, in the
+  Space settings (member menu and the Permissions tab's role buttons, which
+  had no confirmation at all) and the room member card.
+- ~~`SpaceMemberActionDialog.openFor` silently does nothing~~ FIXED
+  2026-09-25: it opens on the running flow with a notice.
 - ~~The Flatpak's `gst-ximagesrc` is pinned to gst-plugins-good 1.26.11 with
   nothing tying it to `runtime-version`~~ FIXED 2026-09-25:
   `test-flathub-manifest-pin.py` maps each KDE runtime to its GStreamer minor.

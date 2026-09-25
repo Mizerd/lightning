@@ -1789,16 +1789,19 @@ async fn members_snapshot_json(
 // Moderation (kick / ban)
 // ---------------------------------------------------------------------------
 
-// UserPowerLevel -> bridge integer. MSC4289 creators ("Infinite") map to a
-// sentinel above every finite level that survives the JSON f64 hop exactly.
-// Accepted edges: an explicit level above 1e9 would outrank a creator, and
-// C++ reads it as a 64-bit integer.
+/// The bridge integer for an MSC4289 creator ("Infinite"): 2^53, one above
+/// the largest finite level (a canonical-JSON integer is at most 2^53 - 1),
+/// and exactly representable in the JSON f64 hop. C++ mirrors it as
+/// kCreatorPowerLevel in RoomInfoController.cpp.
+pub(crate) const CREATOR_POWER_LEVEL: i64 = 1 << 53;
+
+// UserPowerLevel -> bridge integer; C++ reads it as a 64-bit integer.
 fn power_level_int(
     level: matrix_sdk::ruma::events::room::power_levels::UserPowerLevel,
 ) -> i64 {
     use matrix_sdk::ruma::events::room::power_levels::UserPowerLevel;
     match level {
-        UserPowerLevel::Infinite => 1_000_000_000,
+        UserPowerLevel::Infinite => CREATOR_POWER_LEVEL,
         UserPowerLevel::Int(v) => v.into(),
         // Non-exhaustive enum: an unknown variant reads as an ordinary member.
         _ => 0,
@@ -1870,6 +1873,46 @@ const MODERATION_PLAN_CAP: usize = 100;
 /// cannot hold the dialog.
 const MODERATION_PLAN_MEMBER_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(15);
+
+/// Bound on a whole plan. A room not assessed by then is reported as
+/// `not_checked` and is never offered.
+pub(crate) const MODERATION_PLAN_BUDGET: std::time::Duration =
+    std::time::Duration::from_secs(25);
+
+/// Rooms assessed at once. Store reads are cheap; this bounds how many
+/// member-list fetches run together.
+pub(crate) const MODERATION_PLAN_CONCURRENCY: usize = 6;
+
+/// Runs `assess` over `items`, at most `concurrency` at a time, keeping
+/// order, and stops waiting at `deadline`: an item with no answer by then
+/// gets `late(item)` instead. Nothing here retries.
+pub(crate) async fn assess_within_budget<T, R, F, Fut, L>(
+    items: Vec<T>,
+    concurrency: usize,
+    deadline: tokio::time::Instant,
+    assess: F,
+    late: L,
+) -> Vec<R>
+where
+    T: Clone,
+    F: Fn(T) -> Fut,
+    Fut: std::future::Future<Output = R>,
+    L: Fn(&T) -> R,
+{
+    use futures_util::StreamExt;
+    let answers: Vec<(T, Option<R>)> = futures_util::stream::iter(items)
+        .map(|item| {
+            let work = assess(item.clone());
+            async move { (item, tokio::time::timeout_at(deadline, work).await.ok()) }
+        })
+        .buffered(concurrency.max(1))
+        .collect()
+        .await;
+    answers
+        .into_iter()
+        .map(|(item, answer)| answer.unwrap_or_else(|| late(&item)))
+        .collect()
+}
 
 /// Whether `op` (0 kick, 1 ban, 2 unban) against a target is worth
 /// offering in one room: "" when it is, otherwise the reason it is not.
@@ -1974,84 +2017,35 @@ pub(crate) fn moderation_plan(
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let mut rows: Vec<serde_json::Value> = Vec::new();
-        for room_id in room_ids {
-            if !timelines.lifecycle_current(lifecycle) {
-                return;
-            }
-            let room = RoomId::parse(&room_id)
-                .ok()
-                .and_then(|id| client.get_room(&id))
-                .filter(|room| room.state() == RoomState::Joined);
-            let Some(room) = room else {
-                rows.push(json!({
+        let deadline = tokio::time::Instant::now() + MODERATION_PLAN_BUDGET;
+        let assess = |room_id: String| {
+            let client = client.clone();
+            let uid = uid.clone();
+            let own_id = own_id.clone();
+            async move { moderation_plan_row(&client, room_id, &uid, &own_id, op).await }
+        };
+        let rows = assess_within_budget(
+            room_ids,
+            MODERATION_PLAN_CONCURRENCY,
+            deadline,
+            assess,
+            |room_id: &String| {
+                // Out of time: say so, and never offer it.
+                let room = RoomId::parse(room_id).ok().and_then(|id| client.get_room(&id));
+                json!({
                     "room_id": room_id,
-                    "name": "",
-                    "is_space": false,
-                    "membership": "unknown",
-                    "reason": "not_joined",
-                }));
-                continue;
-            };
-            let name = room
-                .cached_display_name()
-                .map(|n| n.to_string())
-                .unwrap_or_default();
-            let own = room.get_member_no_sync(&own_id).await.ok().flatten();
-            // The store first; a room whose members were never loaded is
-            // fetched once (get_member syncs only when not synced yet).
-            let target = match room.get_member_no_sync(&uid).await {
-                Ok(Some(member)) => Ok(Some(member)),
-                _ => match tokio::time::timeout(
-                    MODERATION_PLAN_MEMBER_TIMEOUT,
-                    room.get_member(&uid),
-                )
-                .await
-                {
-                    Ok(Ok(member)) => Ok(member),
-                    _ => Err(()),
-                },
-            };
-            let (reason, membership, own_level, target_level) = match (&own, &target) {
-                (None, _) | (_, Err(())) => ("unknown", "unknown", 0, 0),
-                (Some(own), Ok(target)) => {
-                    let can_act = match op {
-                        0 => own.can_kick(),
-                        1 => own.can_ban(),
-                        _ => own.can_do(PowerLevelAction::Unban),
-                    };
-                    let own_level = power_level_int(own.power_level());
-                    let target_level = target
+                    "name": room
                         .as_ref()
-                        .map(|m| power_level_int(m.power_level()))
-                        .unwrap_or(0);
-                    (
-                        moderation_verdict(
-                            op,
-                            target.as_ref().map(|m| m.membership()),
-                            can_act,
-                            own_level,
-                            target_level,
-                        ),
-                        target
-                            .as_ref()
-                            .map(|m| membership_label(m.membership()))
-                            .unwrap_or("none"),
-                        own_level,
-                        target_level,
-                    )
-                }
-            };
-            rows.push(json!({
-                "room_id": room_id,
-                "name": name,
-                "is_space": room.is_space(),
-                "membership": membership,
-                "own_level": own_level,
-                "target_level": target_level,
-                "reason": reason,
-            }));
-        }
+                        .and_then(|r| r.cached_display_name())
+                        .map(|n| n.to_string())
+                        .unwrap_or_default(),
+                    "is_space": room.as_ref().map(|r| r.is_space()).unwrap_or(false),
+                    "membership": "unknown",
+                    "reason": "not_checked",
+                })
+            },
+        )
+        .await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
@@ -2064,6 +2058,577 @@ pub(crate) fn moderation_plan(
             "truncated": truncated,
             "rooms": rows,
         }));
+    });
+    Ok(())
+}
+
+/// One room's row of a moderation plan (see `moderation_plan`).
+async fn moderation_plan_row(
+    client: &matrix_sdk::Client,
+    room_id: String,
+    uid: &UserId,
+    own_id: &UserId,
+    op: u8,
+) -> serde_json::Value {
+    let room = RoomId::parse(&room_id)
+        .ok()
+        .and_then(|id| client.get_room(&id))
+        .filter(|room| room.state() == RoomState::Joined);
+    let Some(room) = room else {
+        return json!({
+            "room_id": room_id,
+            "name": "",
+            "is_space": false,
+            "membership": "unknown",
+            "reason": "not_joined",
+        });
+    };
+    let name = room
+        .cached_display_name()
+        .map(|n| n.to_string())
+        .unwrap_or_default();
+    let own = room.get_member_no_sync(own_id).await.ok().flatten();
+    // The store first; a room whose members were never loaded is fetched
+    // once (get_member syncs only when not synced yet).
+    let target = match room.get_member_no_sync(uid).await {
+        Ok(Some(member)) => Ok(Some(member)),
+        _ => match tokio::time::timeout(MODERATION_PLAN_MEMBER_TIMEOUT, room.get_member(uid))
+            .await
+        {
+            Ok(Ok(member)) => Ok(member),
+            _ => Err(()),
+        },
+    };
+    let (reason, membership, own_level, target_level) = match (&own, &target) {
+        (None, _) | (_, Err(())) => ("unknown", "unknown", 0, 0),
+        (Some(own), Ok(target)) => {
+            let can_act = match op {
+                0 => own.can_kick(),
+                1 => own.can_ban(),
+                _ => own.can_do(PowerLevelAction::Unban),
+            };
+            let own_level = power_level_int(own.power_level());
+            let target_level = target
+                .as_ref()
+                .map(|m| power_level_int(m.power_level()))
+                .unwrap_or(0);
+            (
+                moderation_verdict(
+                    op,
+                    target.as_ref().map(|m| m.membership()),
+                    can_act,
+                    own_level,
+                    target_level,
+                ),
+                target
+                    .as_ref()
+                    .map(|m| membership_label(m.membership()))
+                    .unwrap_or("none"),
+                own_level,
+                target_level,
+            )
+        }
+    };
+    json!({
+        "room_id": room_id,
+        "name": name,
+        "is_space": room.is_space(),
+        "membership": membership,
+        "own_level": own_level,
+        "target_level": target_level,
+        "reason": reason,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Closing a room (the honest stand-in for deleting one)
+// ---------------------------------------------------------------------------
+//
+// Matrix has no client-side room deletion. Closing a room makes it
+// invite-only, takes it out of the public directory and out of the Spaces the
+// caller names, removes every member the viewer outranks, and then leaves.
+// History stays on every server that took part, and anyone the viewer does
+// not outrank stays in the room and can reopen it.
+
+/// Rooms one closure plan may cover, like `MODERATION_PLAN_CAP`.
+const CLOSURE_PLAN_CAP: usize = 100;
+
+/// Members one close removes at most. A larger room is left partly closed,
+/// is not left, and can be closed again.
+pub(crate) const CLOSURE_KICK_CAP: usize = 1000;
+
+/// Bound on one request of a close (join rule, directory, one kick, leave).
+/// The SDK itself retries a rate-limited request within it.
+const CLOSURE_STEP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Bound on loading a room's member list for a close.
+const CLOSURE_MEMBERS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Staying members named in a plan row, for the confirmation.
+const CLOSURE_STAYING_NAMES: usize = 3;
+
+/// Whether closing a room is offered: "" when it is, otherwise why not.
+/// Setting the join rule is what makes a close a close; without it the room
+/// would stay open to anyone who finds it. Pure and unit-tested.
+fn closure_verdict(
+    joined: bool,
+    own_known: bool,
+    members_known: bool,
+    can_restrict: bool,
+) -> &'static str {
+    if !joined {
+        return "not_joined";
+    }
+    if !own_known || !members_known {
+        return "unknown";
+    }
+    if !can_restrict {
+        return "no_permission";
+    }
+    ""
+}
+
+/// Whether one other member is removed by a close: the viewer may kick and
+/// the member is strictly below them, as the server requires. Pure.
+fn closure_removes(can_kick: bool, own_level: i64, member_level: i64) -> bool {
+    can_kick && member_level < own_level
+}
+
+/// What a close did, as one word for the UI: "closed" only when the join
+/// rule is invite-only and every other step succeeded (the directory, the
+/// Spaces, every removal). Anything less is "partial" and the viewer stays,
+/// so it can be run again. Pure and unit-tested.
+fn closure_outcome(
+    join_rule_ok: bool,
+    members_read: bool,
+    other_failures: usize,
+    not_attempted: usize,
+) -> &'static str {
+    if !join_rule_ok {
+        "failed"
+    } else if !members_read || other_failures > 0 || not_attempted > 0 {
+        "partial"
+    } else {
+        "closed"
+    }
+}
+
+/// Members of `room` other than `own_id` that a close would consider:
+/// joined, invited and knocking. Store first; fetched once, bounded, when
+/// the list was never loaded.
+async fn closure_members(
+    room: &matrix_sdk::Room,
+    timeout: std::time::Duration,
+) -> Option<Vec<matrix_sdk::room::RoomMember>> {
+    let wanted = RoomMemberships::ACTIVE | RoomMemberships::KNOCK;
+    if room.are_members_synced() {
+        return room.members_no_sync(wanted).await.ok();
+    }
+    tokio::time::timeout(timeout, room.members(wanted))
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+}
+
+/// A parent Space's row of a closure plan: only whether the viewer may add
+/// or remove its children. Never offered for closing ("parent").
+async fn closure_parent_row(
+    client: &matrix_sdk::Client,
+    room_id: String,
+    own_id: &UserId,
+) -> serde_json::Value {
+    let room = RoomId::parse(&room_id)
+        .ok()
+        .and_then(|id| client.get_room(&id))
+        .filter(|room| room.state() == RoomState::Joined);
+    let can_edit_children = match &room {
+        Some(room) => room
+            .get_member_no_sync(own_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|m| m.can_send_state(StateEventType::SpaceChild))
+            .unwrap_or(false),
+        None => false,
+    };
+    json!({
+        "room_id": room_id,
+        "name": room
+            .as_ref()
+            .and_then(|r| r.cached_display_name())
+            .map(|n| n.to_string())
+            .unwrap_or_default(),
+        "is_space": room.as_ref().map(|r| r.is_space()).unwrap_or(false),
+        "reason": "parent",
+        "can_edit_children": can_edit_children,
+    })
+}
+
+/// One room's row of a closure plan (see `closure_plan`).
+async fn closure_plan_row(
+    client: &matrix_sdk::Client,
+    room_id: String,
+    own_id: &UserId,
+) -> serde_json::Value {
+    let room = RoomId::parse(&room_id)
+        .ok()
+        .and_then(|id| client.get_room(&id))
+        .filter(|room| room.state() == RoomState::Joined);
+    let Some(room) = room else {
+        return json!({
+            "room_id": room_id,
+            "name": "",
+            "is_space": false,
+            "reason": closure_verdict(false, false, false, false),
+        });
+    };
+    let name = room
+        .cached_display_name()
+        .map(|n| n.to_string())
+        .unwrap_or_default();
+    let own = room.get_member_no_sync(own_id).await.ok().flatten();
+    let members = closure_members(&room, MODERATION_PLAN_MEMBER_TIMEOUT).await;
+    let can_restrict = own
+        .as_ref()
+        .map(|m| m.can_send_state(StateEventType::RoomJoinRules))
+        .unwrap_or(false);
+    let can_kick = own.as_ref().map(|m| m.can_kick()).unwrap_or(false);
+    let own_level = own.as_ref().map(|m| power_level_int(m.power_level())).unwrap_or(0);
+    let mut removable = 0usize;
+    let mut staying = 0usize;
+    let mut staying_names: Vec<String> = Vec::new();
+    for member in members.iter().flatten() {
+        if member.user_id() == own_id {
+            continue;
+        }
+        if closure_removes(can_kick, own_level, power_level_int(member.power_level())) {
+            removable += 1;
+        } else {
+            staying += 1;
+            if staying_names.len() < CLOSURE_STAYING_NAMES {
+                staying_names.push(
+                    member
+                        .display_name()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| member.user_id().to_string()),
+                );
+            }
+        }
+    }
+    // Whether the viewer may add or remove this Space's children; read for
+    // the parents of a room being closed.
+    let can_edit_children = own
+        .as_ref()
+        .map(|m| m.can_send_state(StateEventType::SpaceChild))
+        .unwrap_or(false);
+    let world_readable = matches!(
+        room.history_visibility(),
+        Some(matrix_sdk::ruma::events::room::history_visibility::HistoryVisibility::WorldReadable)
+    );
+    json!({
+        "room_id": room_id,
+        "name": name,
+        "is_space": room.is_space(),
+        "reason": closure_verdict(true, own.is_some(), members.is_some(), can_restrict),
+        "join_rule": join_rule_str(room.join_rule().as_ref()),
+        "can_kick": can_kick,
+        "can_edit_children": can_edit_children,
+        "world_readable": world_readable,
+        "removable": removable,
+        "staying": staying,
+        "staying_names": staying_names,
+    })
+}
+
+// For each room in `room_ids_json` (a JSON array), whether the viewer can
+// close it and what closing would do; for each Space in `parent_ids_json`
+// not already listed, a "parent" row with only `can_edit_children`. Sends
+// nothing. Result event:
+// room_closure_plan { op_id, truncated, rooms: [ { room_id, name, is_space,
+// reason, join_rule, can_kick, can_edit_children, world_readable, removable,
+// staying, staying_names } ] } where an empty reason means closing is offered.
+pub(crate) fn closure_plan(
+    bridge: &RustClient,
+    room_ids_json: String,
+    parent_ids_json: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let own_id = client
+        .user_id()
+        .map(|u| u.to_owned())
+        .ok_or_else(|| "no active Matrix session".to_owned())?;
+    let requested: Vec<String> = serde_json::from_str(&room_ids_json)
+        .map_err(|_| "invalid room list".to_owned())?;
+    let mut room_ids: Vec<String> = Vec::new();
+    for id in requested {
+        if !room_ids.contains(&id) {
+            room_ids.push(id);
+        }
+    }
+    let truncated = room_ids.len() > CLOSURE_PLAN_CAP;
+    room_ids.truncate(CLOSURE_PLAN_CAP);
+    // Parents are read only for whether the viewer may change their
+    // children: store reads, no member load.
+    let parents: Vec<String> = serde_json::from_str::<Vec<String>>(&parent_ids_json)
+        .map_err(|_| "invalid parent list".to_owned())?
+        .into_iter()
+        .filter(|id| !room_ids.contains(id))
+        .take(CLOSURE_PLAN_CAP)
+        .collect();
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        let deadline = tokio::time::Instant::now() + MODERATION_PLAN_BUDGET;
+        let mut parent_rows: Vec<serde_json::Value> = Vec::new();
+        for parent_id in parents {
+            parent_rows.push(closure_parent_row(&client, parent_id, &own_id).await);
+        }
+        let mut rows = assess_within_budget(
+            room_ids,
+            MODERATION_PLAN_CONCURRENCY,
+            deadline,
+            |room_id: String| {
+                let client = client.clone();
+                let own_id = own_id.clone();
+                async move { closure_plan_row(&client, room_id, &own_id).await }
+            },
+            |room_id: &String| {
+                let room = RoomId::parse(room_id).ok().and_then(|id| client.get_room(&id));
+                json!({
+                    "room_id": room_id,
+                    "name": room
+                        .as_ref()
+                        .and_then(|r| r.cached_display_name())
+                        .map(|n| n.to_string())
+                        .unwrap_or_default(),
+                    "is_space": room.as_ref().map(|r| r.is_space()).unwrap_or(false),
+                    "reason": "not_checked",
+                })
+            },
+        )
+        .await;
+        rows.extend(parent_rows);
+        if !timelines.lifecycle_current(lifecycle) {
+            return;
+        }
+        enqueue(&events, json!({
+            "type": "room_closure_plan",
+            "op_id": op_id,
+            "lifecycle": lifecycle,
+            "truncated": truncated,
+            "rooms": rows,
+        }));
+    });
+    Ok(())
+}
+
+// Close one room: invite-only first (a failure stops here, having changed
+// nothing), then out of the public directory and out of `unlist_from_json`'s
+// Spaces, then remove every member the viewer outranks, one at a time. With
+// `leave`, the viewer leaves only when every step succeeded, so a partial
+// close can be run again. `reason` (may be empty) goes on each removal.
+// Result events: room_closure_progress { op_id, room_id, done, total } while
+// removing, then room_closure_result { op_id, room_id, outcome, join_rule,
+// directory, unlisted, unlist_failed, removed, remove_failed, not_attempted,
+// staying, members_read, can_kick, left, category }. Progress comes after
+// every removal.
+pub(crate) fn close_room(
+    bridge: &RustClient,
+    room_id: String,
+    reason: String,
+    leave: bool,
+    unlist_from_json: String,
+    op_id: u64,
+) -> Result<(), String> {
+    let client = require_client(bridge)?;
+    let room = joined_room(&client, &room_id)?;
+    let own_id = client
+        .user_id()
+        .map(|u| u.to_owned())
+        .ok_or_else(|| "no active Matrix session".to_owned())?;
+    let unlist_from: Vec<String> = serde_json::from_str(&unlist_from_json)
+        .map_err(|_| "invalid space list".to_owned())?;
+    let events = Arc::clone(&bridge.events);
+    let timelines = Arc::clone(&bridge.timelines);
+    let lifecycle = timelines.lifecycle();
+    bridge.spawn_room_action(async move {
+        use matrix_sdk::ruma::room::JoinRule;
+        let finish = |outcome: serde_json::Value| {
+            if timelines.lifecycle_current(lifecycle) {
+                let mut outcome = outcome;
+                outcome["type"] = json!("room_closure_result");
+                outcome["op_id"] = json!(op_id);
+                outcome["lifecycle"] = json!(lifecycle);
+                outcome["room_id"] = json!(room_id.clone());
+                enqueue(&events, outcome);
+            }
+        };
+        // After each step, and after every removal: the UI's step watchdog
+        // restarts on each. `total` 0 means removals have not started.
+        let progress = |done: usize, total: usize| {
+            if timelines.lifecycle_current(lifecycle) {
+                enqueue(&events, json!({
+                    "type": "room_closure_progress",
+                    "op_id": op_id,
+                    "lifecycle": lifecycle,
+                    "room_id": room_id.clone(),
+                    "done": done,
+                    "total": total,
+                }));
+            }
+        };
+        let own = room.get_member_no_sync(&own_id).await.ok().flatten();
+        let Some(own) = own else {
+            finish(json!({ "outcome": "failed", "join_rule": "failed", "category": "unknown" }));
+            return;
+        };
+        if !own.can_send_state(StateEventType::RoomJoinRules) {
+            finish(json!({ "outcome": "failed", "join_rule": "failed", "category": "forbidden" }));
+            return;
+        }
+
+        // 1. Invite-only. Nothing else happens without it.
+        let join_rule = if matches!(room.join_rule(), Some(JoinRule::Invite)) {
+            "already"
+        } else {
+            match tokio::time::timeout(
+                CLOSURE_STEP_TIMEOUT,
+                room.privacy_settings().update_join_rule(JoinRule::Invite),
+            )
+            .await
+            {
+                Ok(Ok(())) => "set",
+                Ok(Err(err)) => {
+                    finish(json!({
+                        "outcome": "failed",
+                        "join_rule": "failed",
+                        "category": classify_room_error(&err.to_string()),
+                    }));
+                    return;
+                }
+                Err(_) => {
+                    // Timed out: the change may still have landed.
+                    finish(json!({
+                        "outcome": "failed", "join_rule": "unknown", "category": "unknown",
+                    }));
+                    return;
+                }
+            }
+        };
+
+        progress(0, 0);
+
+        // 2. Out of the public directory, when listed there.
+        let directory = match tokio::time::timeout(
+            CLOSURE_STEP_TIMEOUT,
+            room.privacy_settings().get_room_visibility(),
+        )
+        .await
+        {
+            Ok(Ok(Visibility::Public)) => match tokio::time::timeout(
+                CLOSURE_STEP_TIMEOUT,
+                room.privacy_settings().update_room_visibility(Visibility::Private),
+            )
+            .await
+            {
+                Ok(Ok(())) => "unlisted",
+                _ => "failed",
+            },
+            Ok(Ok(_)) => "not_listed",
+            _ => "unknown",
+        };
+
+        progress(0, 0);
+
+        // 3. Out of the Spaces the caller named.
+        let mut unlisted = 0usize;
+        let mut unlist_failed = 0usize;
+        for space_id in &unlist_from {
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            match tokio::time::timeout(
+                CLOSURE_STEP_TIMEOUT,
+                remove_space_child(&client, space_id, &room_id),
+            )
+            .await
+            {
+                Ok(Ok(())) => unlisted += 1,
+                _ => unlist_failed += 1,
+            }
+            progress(0, 0);
+        }
+
+        // 4. Everyone the viewer outranks, one at a time.
+        let can_kick = own.can_kick();
+        let own_level = power_level_int(own.power_level());
+        let members = closure_members(&room, CLOSURE_MEMBERS_TIMEOUT).await;
+        let members_read = members.is_some();
+        let mut targets: Vec<OwnedUserId> = Vec::new();
+        let mut staying = 0usize;
+        for member in members.iter().flatten() {
+            if member.user_id() == &*own_id {
+                continue;
+            }
+            if closure_removes(can_kick, own_level, power_level_int(member.power_level())) {
+                targets.push(member.user_id().to_owned());
+            } else {
+                staying += 1;
+            }
+        }
+        let not_attempted = targets.len().saturating_sub(CLOSURE_KICK_CAP);
+        targets.truncate(CLOSURE_KICK_CAP);
+        let total = targets.len();
+        let reason_opt = (!reason.is_empty()).then_some(reason.as_str());
+        let mut removed = 0usize;
+        let mut remove_failed = 0usize;
+        for (index, user) in targets.iter().enumerate() {
+            if !timelines.lifecycle_current(lifecycle) {
+                return;
+            }
+            match tokio::time::timeout(CLOSURE_STEP_TIMEOUT, room.kick_user(user, reason_opt))
+                .await
+            {
+                Ok(Ok(())) => removed += 1,
+                _ => remove_failed += 1,
+            }
+            progress(index + 1, total);
+        }
+
+        // 5. Leave, only when the close is complete.
+        let other_failures = remove_failed
+            + unlist_failed
+            + usize::from(directory == "failed" || directory == "unknown");
+        let outcome = closure_outcome(true, members_read, other_failures, not_attempted);
+        let mut left = false;
+        let mut category = "";
+        if leave && outcome == "closed" {
+            match tokio::time::timeout(CLOSURE_STEP_TIMEOUT, room.leave()).await {
+                Ok(Ok(())) => left = true,
+                Ok(Err(err)) => category = classify_room_error(&err.to_string()),
+                Err(_) => category = "network",
+            }
+        }
+        finish(json!({
+            "outcome": outcome,
+            "join_rule": join_rule,
+            "directory": directory,
+            "unlisted": unlisted,
+            "unlist_failed": unlist_failed,
+            "removed": removed,
+            "remove_failed": remove_failed,
+            "not_attempted": not_attempted,
+            "staying": staying,
+            "members_read": members_read,
+            "can_kick": can_kick,
+            "left": left,
+            "category": category,
+        }));
+        if left {
+            crate::enqueue_rooms(&events, &client).await;
+        }
     });
     Ok(())
 }
@@ -4726,6 +5291,101 @@ mod tests {
 
         assert_eq!(moderation_verdict(9, Some(&join), true, 100, 0), "invalid");
     }
+
+    // A plan answers within its budget: a room that has not answered by the
+    // deadline is reported late, in order, and the others keep their answers.
+    #[tokio::test]
+    async fn a_plan_stops_waiting_at_its_deadline() {
+        let start = tokio::time::Instant::now();
+        let deadline = start + std::time::Duration::from_millis(200);
+        let rows = assess_within_budget(
+            vec![1u32, 2, 3, 4],
+            2,
+            deadline,
+            |n: u32| async move {
+                if n == 2 {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                }
+                format!("ok{n}")
+            },
+            |n: &u32| format!("late{n}"),
+        )
+        .await;
+        assert_eq!(rows, vec!["ok1", "late2", "ok3", "ok4"]);
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    // At most `concurrency` rooms are assessed at once.
+    #[tokio::test]
+    async fn a_plan_bounds_how_many_rooms_it_reads_at_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let running = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        let rows = assess_within_budget(
+            (0..12u32).collect(),
+            3,
+            deadline,
+            |n: u32| {
+                let running = Arc::clone(&running);
+                let peak = Arc::clone(&peak);
+                async move {
+                    let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(now, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    running.fetch_sub(1, Ordering::SeqCst);
+                    n
+                }
+            },
+            |_| u32::MAX,
+        )
+        .await;
+        assert_eq!(rows, (0..12u32).collect::<Vec<_>>());
+        assert!(peak.load(Ordering::SeqCst) <= 3);
+        assert!(peak.load(Ordering::SeqCst) >= 2);
+    }
+
+    // Closing is offered only where the viewer can make the room invite-only;
+    // without that it would stay open to anyone who finds it.
+    #[test]
+    fn closing_needs_the_join_rule_and_a_known_roster() {
+        assert_eq!(closure_verdict(true, true, true, true), "");
+        assert_eq!(closure_verdict(false, true, true, true), "not_joined");
+        assert_eq!(closure_verdict(true, false, true, true), "unknown");
+        assert_eq!(closure_verdict(true, true, false, true), "unknown");
+        assert_eq!(closure_verdict(true, true, true, false), "no_permission");
+    }
+
+    // A close removes only members strictly below the viewer, and only with
+    // the kick permission; everyone else stays and is counted as staying.
+    #[test]
+    fn closing_removes_only_members_below_the_viewer() {
+        assert!(closure_removes(true, 100, 50));
+        assert!(closure_removes(true, 100, 0));
+        assert!(closure_removes(true, 0, -1));
+        assert!(!closure_removes(true, 100, 100));
+        assert!(!closure_removes(true, 50, 100));
+        assert!(!closure_removes(false, 100, 0));
+        // A creator (MSC4289) outranks every finite level.
+        assert!(!closure_removes(true, 100, CREATOR_POWER_LEVEL));
+        // The largest finite level still ranks below a creator, both ways.
+        let max_finite: i64 = (1 << 53) - 1;
+        assert!(closure_removes(true, CREATOR_POWER_LEVEL, max_finite));
+        assert!(!closure_removes(true, max_finite, CREATOR_POWER_LEVEL));
+        assert_eq!(CREATOR_POWER_LEVEL as f64 as i64, CREATOR_POWER_LEVEL);
+    }
+
+    // "closed" only when everything succeeded; the viewer leaves only then.
+    #[test]
+    fn a_close_is_complete_only_when_every_step_succeeded() {
+        assert_eq!(closure_outcome(true, true, 0, 0), "closed");
+        assert_eq!(closure_outcome(false, true, 0, 0), "failed");
+        assert_eq!(closure_outcome(true, false, 0, 0), "partial");
+        assert_eq!(closure_outcome(true, true, 1, 0), "partial");
+        assert_eq!(closure_outcome(true, true, 0, 3), "partial");
+        assert!(CLOSURE_KICK_CAP >= 100);
+    }
+
 }
 
 // ---------------------------------------------------------------------------

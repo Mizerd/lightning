@@ -817,6 +817,157 @@ private Q_SLOTS:
         QVERIFY(!dialog.contains(QStringLiteral("Text.RichText")));
     }
 
+    // Asking for a new flow while one runs opens the dialog on the running
+    // flow and shows the controller's notice, instead of doing nothing.
+    void openingDuringARunningFlowIsNotSilent()
+    {
+        const QString dialog =
+            readQml(QStringLiteral("SpaceMemberActionDialog.qml"));
+        const int at = dialog.indexOf(QStringLiteral("function openFor("));
+        QVERIFY(at > 0);
+        const int end = dialog.indexOf(QStringLiteral("\n    }"), at);
+        QVERIFY(end > at);
+        const QString body = dialog.mid(at, end - at);
+        QVERIFY2(!body.contains(QStringLiteral("running")),
+                 "openFor returns early while a flow runs, so the click "
+                 "does nothing visible");
+        QVERIFY(body.contains(QStringLiteral("open()")));
+        QVERIFY(body.contains(QStringLiteral("ctl.begin(")));
+        QVERIFY(dialog.contains(QStringLiteral("root.ctl.notice")));
+    }
+
+    // A room creator (MSC4289, v12) holds a level no power-level event can
+    // change, so lowering it is never offered; anyone else may lower their
+    // own level.
+    void aCreatorIsNotOfferedToLowerTheirOwnLevel()
+    {
+        FakeClient client;
+        RoomInfoController ctl;
+        ctl.setClient(&client);
+        const qlonglong creator = qlonglong(1) << 53;
+        seed(ctl, client, /*ownPl=*/creator);
+        QVERIFY(!ctl.canSetPowerLevel(kMe, 100));
+        QVERIFY(!ctl.canSetPowerLevel(kMe, 0));
+        // Other members are still theirs to change.
+        QVERIFY(ctl.canSetPowerLevel(kZoe, 50));
+
+        FakeClient client2;
+        RoomInfoController admin;
+        admin.setClient(&client2);
+        seed(admin, client2, /*ownPl=*/100);
+        QVERIFY(admin.canSetPowerLevel(kMe, 50));
+
+        // And the confirmation never shows the self-demotion warning for one.
+        const QString dialog = readQml(QStringLiteral("SpaceSettingsDialog.qml"));
+        const int at = dialog.indexOf(QStringLiteral("readonly property bool selfDemotion:"));
+        QVERIFY(at > 0);
+        QVERIFY(dialog.mid(at, 300).contains(
+            QStringLiteral("app.roomInfo.ownPowerLevel < 9007199254740992")));
+        // A creator is labelled as one, and the largest finite level is not.
+        QCOMPARE(ctl.roleLabelForLevel(creator), QStringLiteral("Creator"));
+        QCOMPARE(ctl.roleLabelForLevel(creator - 1),
+                 QStringLiteral("Custom (%1)").arg(creator - 1));
+        // Reactive to roster refreshes, not frozen at first evaluation.
+        const int loses = dialog.indexOf(QStringLiteral("readonly property bool losesRoleControl:"));
+        QVERIFY(loses > 0);
+        QVERIFY(dialog.mid(loses, 200).contains(QStringLiteral("root.rosterTick")));
+    }
+
+    // Lowering your own role cannot be undone by you, exactly like granting
+    // someone your level; the confirmation says so, and every role control
+    // goes through it.
+    void loweringYourOwnRoleIsConfirmedWithAWarning()
+    {
+        const QString dialog = readQml(QStringLiteral("SpaceSettingsDialog.qml"));
+        const int at = dialog.indexOf(QStringLiteral("id: roleConfirm"));
+        QVERIFY(at > 0);
+        const QString confirm = dialog.mid(at, 5200);
+        QVERIFY(confirm.contains(QStringLiteral("readonly property bool selfDemotion:")));
+        QVERIFY(confirm.contains(
+            QStringLiteral("isOwn && level < app.roomInfo.ownPowerLevel")));
+        QVERIFY(confirm.contains(QStringLiteral("visible: roleConfirm.selfDemotion")));
+        QVERIFY(confirm.contains(QStringLiteral("raise it back")));
+        QVERIFY(confirm.contains(QStringLiteral("Lower your own role?")));
+
+        // The member menu tells it who is who.
+        QVERIFY(dialog.contains(
+            QStringLiteral("memberMenu.targetIsOwn = member.isOwn === true")));
+        QVERIFY(dialog.contains(QStringLiteral("memberMenu.targetIsOwn)")));
+
+        // The Permissions tab's role buttons used to set the level with no
+        // confirmation at all; now the dialog is the only writer.
+        QCOMPARE(dialog.count(QStringLiteral("setMemberPowerLevel(")), 1);
+        QVERIFY(confirm.contains(QStringLiteral("setMemberPowerLevel(")));
+        QCOMPARE(dialog.count(QStringLiteral("roleConfirm.openFor(")), 4);
+    }
+
+    // Matrix has no delete for a Space's own admins. The settings offer a
+    // close (gated on the join-rule power), and a delete only after the
+    // server said this account administers it.
+    void closeAndDeleteAreSeparateAndGated()
+    {
+        const QString dialog = readQml(QStringLiteral("SpaceSettingsDialog.qml"));
+        const int close = dialog.indexOf(QStringLiteral("objectName: \"spaceCloseButton\""));
+        QVERIFY(close > 0);
+        // Up to the next button, the delete.
+        const QString closeBlock = dialog.mid(
+            close, dialog.indexOf(QStringLiteral("AppButton {"), close) - close);
+        QVERIFY(closeBlock.contains(QStringLiteral("app.roomInfo.canChangeJoinRule")));
+        QVERIFY(closeBlock.contains(QStringLiteral("root.infoIsOurs")));
+        QVERIFY(closeBlock.contains(QStringLiteral("true, \"close\")")));
+        QVERIFY(!closeBlock.contains(QStringLiteral("Delete")));
+
+        const int del = dialog.indexOf(QStringLiteral("objectName: \"spaceDeleteButton\""));
+        QVERIFY(del > 0);
+        const QString deleteBlock = dialog.mid(
+            del, dialog.indexOf(QStringLiteral("RoomCloseDialog {"), del) - del);
+        QVERIFY(deleteBlock.contains(
+            QStringLiteral("app.roomClosure.serverAdmin === \"yes\"")));
+        QVERIFY(deleteBlock.contains(QStringLiteral("true, \"delete\")")));
+        QVERIFY(dialog.contains(QStringLiteral("RoomCloseDialog { id: spaceCloseDialog }")));
+        // The administrator question is asked when the dialog opens, not in
+        // the background.
+        const int open = dialog.indexOf(QStringLiteral("function openFor(targetSpaceId)"));
+        QVERIFY(open > 0);
+        QVERIFY(dialog.mid(open, 1600).contains(
+            QStringLiteral("app.roomClosure.checkServerAdmin()")));
+    }
+
+    // The close dialog renders the controller's own text; remote names are
+    // plain text; a delete is confirmed by typing; a click during a running
+    // flow opens it instead of doing nothing.
+    void theCloseDialogRendersTheControllersText()
+    {
+        const QString dialog = readQml(QStringLiteral("RoomCloseDialog.qml"));
+        QVERIFY(!dialog.isEmpty());
+        QVERIFY(dialog.contains(QStringLiteral("app.roomClosure")));
+        QVERIFY(dialog.contains(QStringLiteral("root.ctl.consequenceText")));
+        QVERIFY(dialog.contains(QStringLiteral("root.ctl.statusText")));
+        QVERIFY(dialog.contains(QStringLiteral("root.ctl.notice")));
+        QVERIFY(dialog.contains(QStringLiteral("root.ctl.confirm(")));
+        QVERIFY(dialog.contains(QStringLiteral("enabled: root.ctl && root.ctl.canConfirm")));
+        QVERIFY(dialog.contains(QStringLiteral("root.ctl.setTypedConfirmation(text)")));
+        // A close can run for many minutes: the dialog can always be hidden,
+        // and hiding hands the flow back to the controller instead of
+        // resetting it.
+        QVERIFY2(!dialog.contains(QStringLiteral("Popup.NoAutoClose")),
+                 "the dialog holds the whole app behind a modal while it runs");
+        QVERIFY(dialog.contains(QStringLiteral("ctl.viewClosed()")));
+        QVERIFY(!dialog.contains(QStringLiteral("ctl.reset()")));
+        const int cancel = dialog.indexOf(QStringLiteral("objectName: \"roomCloseCancel\""));
+        QVERIFY(cancel > 0);
+        const QString cancelBlock = dialog.mid(cancel, 500);
+        QVERIFY(!cancelBlock.contains(QStringLiteral("enabled:")));
+        QVERIFY(cancelBlock.contains(QStringLiteral("qsTr(\"Hide\")")));
+        QVERIFY(!dialog.contains(QStringLiteral("Text.StyledText")));
+        QVERIFY(!dialog.contains(QStringLiteral("Text.RichText")));
+        const int at = dialog.indexOf(QStringLiteral("function openFor("));
+        QVERIFY(at > 0);
+        const QString body = dialog.mid(at, dialog.indexOf(QStringLiteral("\n    }"), at) - at);
+        QVERIFY(!body.contains(QStringLiteral("running")));
+        QVERIFY(body.contains(QStringLiteral("open()")));
+    }
+
     // Sign-out and a Space switch clear the matrix; an empty map is the
     // unknown state.
     void switchingSpaceClearsTheMatrix()

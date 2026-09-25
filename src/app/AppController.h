@@ -62,6 +62,7 @@
 #include "app/RoomUpgradeController.h"
 #include "models/TimelineScrollController.h"
 #include "spaces/SpaceManager.h"
+#include "spaces/RoomClosureController.h"
 #include "spaces/SpaceModerationController.h"
 #include "threads/ThreadController.h"
 #include "calls/CallController.h"
@@ -339,6 +340,8 @@ class AppController : public QObject
     // Kick / ban / unban from a Space, with the optional cascade to its rooms.
     Q_PROPERTY(SpaceModerationController* spaceModeration
                    READ spaceModeration CONSTANT)
+    // Close a room or Space; delete one from the server as its administrator.
+    Q_PROPERTY(RoomClosureController* roomClosure READ roomClosure CONSTANT)
     Q_PROPERTY(MediaBridge* mediaBridge READ mediaBridge CONSTANT)
     /// Every signed-in account's last known avatar, on disk: the media cache
     /// is memory-only and an inactive account's avatar cannot be fetched.
@@ -601,6 +604,7 @@ public:
     {
         return m_spaceModeration.get();
     }
+    RoomClosureController *roomClosure() const { return m_roomClosure.get(); }
     MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
     AccountAvatarStore *accountAvatars() const
     {
@@ -1208,6 +1212,7 @@ private:
     QSet<QString> m_pendingCopyKeys;
     std::unique_ptr<RoomInfoController> m_roomInfo;
     std::unique_ptr<SpaceModerationController> m_spaceModeration;
+    std::unique_ptr<RoomClosureController> m_roomClosure;
     std::unique_ptr<MediaBridge> m_mediaBridge;
     std::unique_ptr<AccountAvatarStore> m_accountAvatars;
     std::unique_ptr<MediaVisibilityStore> m_mediaVisibility;

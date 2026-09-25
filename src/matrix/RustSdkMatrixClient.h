@@ -444,6 +444,12 @@ public:
     quint64 requestModerationPlan(const QStringList &roomIds,
                                   const QString &userId,
                                   const QString &op) override;
+    quint64 requestRoomClosurePlan(const QStringList &roomIds,
+                                   const QStringList &parentIds) override;
+    quint64 closeRoom(const QString &roomId, const QString &reason, bool leave,
+                      const QStringList &unlistFromSpaceIds) override;
+    quint64 requestServerAdminStatus() override;
+    quint64 adminDeleteRoom(const QString &roomId, bool block) override;
     // Room administration and pinned messages.
     quint64 setMemberPowerLevel(const QString &roomId, const QString &userId,
                                 qlonglong level) override;

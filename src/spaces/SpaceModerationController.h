@@ -9,6 +9,7 @@
 #include <functional>
 
 class MatrixClient;
+class QTimer;
 
 // Kick, ban or unban one member of a Space, optionally cascading to the rooms
 // beneath it.
@@ -33,8 +34,9 @@ class SpaceModerationController : public QObject
     Q_PROPERTY(QVariantMap spaceRow READ spaceRow NOTIFY stateChanged)
     // The rooms beneath the Space. Row shape: { roomId, name, isSpace,
     // eligible, reason, reasonText, selected, status, message }. `status` is
-    // "" before confirming, then "pending", "running", "ok", "failed" or
-    // "skipped" (not selected, or not offered).
+    // "" before confirming, then "pending", "running", "ok", "failed",
+    // "unknown" (no answer within the step watchdog) or "skipped" (not
+    // selected, or not offered).
     Q_PROPERTY(QVariantList rooms READ rooms NOTIFY stateChanged)
     Q_PROPERTY(bool spaceEligible READ spaceEligible NOTIFY stateChanged)
     Q_PROPERTY(int eligibleRoomCount READ eligibleRoomCount
@@ -46,9 +48,16 @@ class SpaceModerationController : public QObject
     // eligibleRoomCount > 0.
     Q_PROPERTY(bool cascade READ cascade WRITE setCascade NOTIFY stateChanged)
     Q_PROPERTY(bool planTruncated READ planTruncated NOTIFY stateChanged)
+    // Rooms the plan ran out of time for. Never offered.
+    Q_PROPERTY(int uncheckedRoomCount READ uncheckedRoomCount
+                   NOTIFY stateChanged)
+    // Set when a new flow was asked for while this one was still running;
+    // the view shows it beside the running flow. Cleared when it finishes.
+    Q_PROPERTY(QString notice READ notice NOTIFY stateChanged)
     Q_PROPERTY(bool canConfirm READ canConfirm NOTIFY stateChanged)
     Q_PROPERTY(int succeededCount READ succeededCount NOTIFY stateChanged)
     Q_PROPERTY(int failedCount READ failedCount NOTIFY stateChanged)
+    Q_PROPERTY(int unknownCount READ unknownCount NOTIFY stateChanged)
     Q_PROPERTY(int stepCount READ stepCount NOTIFY stateChanged)
     // Presentation text, built here so tests can read exactly what the user is
     // asked to confirm.
@@ -82,9 +91,12 @@ public:
     bool cascade() const { return m_cascade; }
     void setCascade(bool cascade);
     bool planTruncated() const { return m_planTruncated; }
+    int uncheckedRoomCount() const;
+    QString notice() const { return m_notice; }
     bool canConfirm() const;
     int succeededCount() const { return m_succeeded; }
     int failedCount() const { return m_failed; }
+    int unknownCount() const { return m_unknown; }
     int stepCount() const { return m_steps.size(); }
 
     QString title() const;
@@ -95,8 +107,8 @@ public:
 
     // Starts a new flow and asks the backend for the plan. `op` is "kick",
     // "ban" or "unban"; the names are presentation only. Refused while a flow
-    // is running.
-    Q_INVOKABLE void begin(const QString &spaceId, const QString &spaceName,
+    // is running, which sets `notice`. Returns whether a flow started.
+    Q_INVOKABLE bool begin(const QString &spaceId, const QString &spaceName,
                            const QString &userId, const QString &displayName,
                            const QString &op);
     // Rooms the plan did not offer cannot be selected.
@@ -108,9 +120,25 @@ public:
     // Forgets the flow. A step already sent still completes on the server;
     // its answer is ignored.
     Q_INVOKABLE void reset();
+    // Another account became active without this one signing out (add
+    // account): the flow belongs to the previous account.
+    void resetForAccountChange() { reset(); }
 
     // Plain text for a plan reason code, for the row that is not offered.
     static QString reasonText(const QString &reason);
+
+    // How long to wait for a plan before calling it failed. The backend
+    // answers within its own budget (rooms::MODERATION_PLAN_BUDGET, 25 s);
+    // this only catches an answer that never comes.
+    static constexpr int kPlanTimeoutMs = 40000;
+    void setPlanTimeoutForTest(int ms) { m_planTimeoutMs = ms; }
+    // One kick, ban or unban that never answers (its answer lost with a
+    // switched handle, say) would keep the modal dialog up for the session.
+    // Longer than any single SDK request with its own retries.
+    static constexpr int kStepTimeoutMs = 3 * 60 * 1000;
+    bool stepWatchdogArmedForTest() const;
+    int stepWatchdogIntervalForTest() const;
+    void expireStepForTest() { onStepTimedOut(); }
 
 Q_SIGNALS:
     void stateChanged();
@@ -130,6 +158,8 @@ private:
     static QVariantMap rowFromPlan(const QVariantMap &plan);
     static QString failureText(const QString &category);
     void setPhase(const QString &phase);
+    void onPlanTimedOut();
+    void onStepTimedOut();
     void dispatchNext();
     void markRow(const QString &roomId, const QString &status,
                  const QString &message);
@@ -150,6 +180,11 @@ private:
     bool m_planTruncated = false;
 
     quint64 m_planOp = 0;
+    QTimer *m_planTimer = nullptr;
+    int m_planTimeoutMs = kPlanTimeoutMs;
+    QString m_notice;
+    // The account the flow belongs to, pinned at begin().
+    QString m_flowUser;
     // The rooms to act on, in order, and the one in flight.
     QStringList m_steps;
     int m_nextStep = 0;
@@ -157,4 +192,6 @@ private:
     QString m_stepRoom;
     int m_succeeded = 0;
     int m_failed = 0;
+    int m_unknown = 0;
+    QTimer *m_stepTimer = nullptr;
 };

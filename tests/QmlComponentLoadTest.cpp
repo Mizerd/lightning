@@ -68,6 +68,8 @@ constexpr const char *kComponents[] = {
     "SpaceLobby",
     // Space kick/ban confirmation; renders app.spaceModeration.
     "SpaceMemberActionDialog",
+    // Close / server-admin delete confirmation; renders app.roomClosure.
+    "RoomCloseDialog",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

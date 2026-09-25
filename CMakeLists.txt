@@ -645,6 +645,8 @@ set(APP_SOURCES
     src/spaces/SpaceManager.cpp
     src/spaces/SpaceModerationController.h
     src/spaces/SpaceModerationController.cpp
+    src/spaces/RoomClosureController.h
+    src/spaces/RoomClosureController.cpp
     src/threads/ThreadManager.h
     src/threads/ThreadManager.cpp
     src/threads/ThreadController.h
@@ -779,6 +781,7 @@ set(APP_QML_FILES
     # Space-shaped surface, reached from the rail's menu.
     qml/SpaceMemberActionDialog.qml
     qml/SpaceSettingsDialog.qml
+    qml/RoomCloseDialog.qml
     qml/UnreadBadge.qml
     # Room-row call indicator, shared by both layouts. It must never ask
     # RtcController to refresh (that falls back to a full /state per idle room).
@@ -3019,6 +3022,19 @@ if(BUILD_TESTING)
     target_include_directories(space-moderation-controller-test PRIVATE src)
     target_link_libraries(space-moderation-controller-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME space-moderation-controller COMMAND space-moderation-controller-test)
+
+    # Closing a room or Space, and the server-admin delete: the plan gate, the
+    # cascade order, the typed confirmation and per-room outcomes.
+    qt_add_executable(room-closure-controller-test
+        tests/RoomClosureControllerTest.cpp
+        src/spaces/RoomClosureController.h
+        src/spaces/RoomClosureController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(room-closure-controller-test PRIVATE src)
+    target_link_libraries(room-closure-controller-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-closure-controller COMMAND room-closure-controller-test)
 
     # Call sounds wired to AppController / SfuCallController / CallController
     # through a recording sink; never opens an audio device.

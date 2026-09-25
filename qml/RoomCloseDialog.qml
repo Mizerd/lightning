@@ -3,66 +3,61 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// Confirms a kick, ban or unban from a Space and shows what happened.
+// Closes a room or a Space, or deletes one from the homeserver for a server
+// administrator, and shows what happened to each room.
 //
-// The flow lives in app.spaceModeration (SpaceModerationController); this
-// view only renders it. The consequence text, the cascade label and every
-// per-room outcome come from there, so what the user reads is what the tests
-// check. Rooms the backend's plan does not offer are listed with the reason
-// and cannot be selected: a partial power set is stated, not hidden.
+// The flow lives in app.roomClosure (RoomClosureController); this view only
+// renders it, so the text the user confirms is the text the tests check. A
+// close is never called a delete: Matrix has none, and the consequence text
+// says what stays. Rooms the plan does not offer are listed with the reason
+// and cannot be selected.
 AppDialog {
     id: root
-    objectName: "spaceMemberActionDialog"
+    objectName: "roomCloseDialog"
 
-    readonly property var ctl: app.spaceModeration
+    readonly property var ctl: app.roomClosure
     readonly property string phase: ctl ? ctl.phase : "idle"
+    readonly property string mode: ctl ? ctl.mode : ""
     readonly property bool running: phase === "running"
     readonly property bool finished: phase === "done" || phase === "failed"
 
     title: ctl ? ctl.title : ""
     parent: Overlay.overlay
     anchors.centerIn: parent
-    width: Math.min(520, parent ? parent.width - 64 : 520)
+    width: Math.min(560, parent ? parent.width - 64 : 560)
     standardButtons: Dialog.NoButton
-    // Steps already sent keep running on the server; the dialog stays until
-    // every one has answered so no outcome goes unreported.
-    closePolicy: running ? Popup.NoAutoClose : Popup.CloseOnEscape
+    // A close or delete can run for many minutes. Hiding the dialog leaves it
+    // running in the controller; the next open shows where it is, or how it
+    // ended.
+    closePolicy: Popup.CloseOnEscape
 
-    // `op` is "kick", "ban" or "unban". The names are shown, never trusted.
-    // While an earlier flow is still running the controller refuses the new
-    // one and sets its notice; the dialog opens on the running flow so the
-    // refusal is seen.
-    function openFor(spaceId, spaceName, userId, displayName, op) {
+    // `mode` is "close" or "delete". While an earlier flow runs the
+    // controller refuses the new one and sets its notice; the dialog opens on
+    // the running flow so that is seen.
+    function openFor(roomId, name, isSpace, mode) {
         if (!ctl)
             return
-        if (ctl.begin(spaceId, spaceName, userId, displayName, op))
+        if (ctl.begin(roomId, name, isSpace, mode)) {
             reasonField.text = ""
-        else if (ctl.phase === "idle")
-            return // refused with nothing to show
+            typedField.text = ""
+        } else if (ctl.phase === "idle") {
+            // Refused with nothing to show (no client, or no administrator
+            // answer for this account): open nothing.
+            return
+        }
         open()
     }
 
     onClosed: {
-        if (ctl && !running)
-            ctl.reset()
-    }
-
-    // The Space's roster changes with the action; re-read it when it is the
-    // one on screen.
-    Connections {
-        target: root.ctl
-        function onFinished(spaceId, userId, op, succeeded, failed) {
-            if (succeeded > 0 && app.roomInfo
-                    && app.roomInfo.roomId === spaceId)
-                app.roomInfo.refreshMembers()
-        }
+        if (ctl)
+            ctl.viewClosed()
     }
 
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing12
 
         Label {
-            objectName: "spaceMemberActionNotice"
+            objectName: "roomCloseNotice"
             Layout.fillWidth: true
             visible: text.length > 0
             textFormat: Text.PlainText
@@ -75,46 +70,81 @@ AppDialog {
         }
 
         Label {
-            objectName: "spaceMemberActionConsequence"
+            objectName: "roomCloseConsequence"
             Layout.fillWidth: true
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
             text: root.ctl ? root.ctl.consequenceText : ""
-            color: AppTheme.stormTextSecondary
+            color: root.mode === "delete" ? AppTheme.stormDanger
+                                          : AppTheme.stormTextSecondary
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textBody
         }
 
-        AppTextField {
-            id: reasonField
-            objectName: "spaceMemberActionReason"
-            Layout.fillWidth: true
-            storm: true
-            visible: root.phase === "ready"
-            placeholderText: qsTr("Reason (optional)")
+        // ── Close options ──
+        OptionRow {
+            objectName: "roomCloseLeave"
+            visible: root.mode === "close" && root.phase === "ready"
+            checked: root.ctl ? root.ctl.leaveAfter : false
+            text: qsTr("Leave once it is closed. If anything is left undone "
+                       + "you stay, so you can run it again.")
+            onToggled: root.ctl.leaveAfter = !root.ctl.leaveAfter
+        }
+        OptionRow {
+            objectName: "roomCloseUnlist"
+            visible: root.mode === "close" && root.phase === "ready"
+                     && root.ctl && root.ctl.parentSpaceNames.length > 0
+            checked: root.ctl ? root.ctl.unlistFromParents : false
+            text: root.ctl
+                  ? qsTr("Also remove it from %1")
+                        .arg(root.ctl.parentSpaceNames.join(", "))
+                  : ""
+            onToggled: root.ctl.unlistFromParents = !root.ctl.unlistFromParents
         }
         Label {
+            objectName: "roomCloseLockedParents"
             Layout.fillWidth: true
-            visible: reasonField.visible
+            visible: root.mode === "close" && root.phase === "ready"
+                     && root.ctl && root.ctl.lockedParentNames.length > 0
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
-            text: qsTr("The reason is recorded in each room it applies to, "
-                       + "where its members can read it.")
+            text: root.ctl
+                  ? qsTr("It stays listed in %1: you can't change that "
+                         + "space's rooms.")
+                        .arg(root.ctl.lockedParentNames.join(", "))
+                  : ""
             color: AppTheme.stormTextMuted
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textMeta
         }
+        AppTextField {
+            id: reasonField
+            objectName: "roomCloseReason"
+            Layout.fillWidth: true
+            storm: true
+            visible: root.mode === "close" && root.phase === "ready"
+            placeholderText: qsTr("Reason shown to the people removed (optional)")
+        }
 
-        // The Space's own step, first.
+        // ── Delete options ──
+        OptionRow {
+            objectName: "roomCloseBlock"
+            visible: root.mode === "delete" && root.phase === "ready"
+            checked: root.ctl ? root.ctl.block : false
+            text: qsTr("Stop anyone on this server joining it again")
+            onToggled: root.ctl.block = !root.ctl.block
+        }
+
+        // The target's own step, first.
         RowLayout {
-            objectName: "spaceMemberActionSpaceRow"
+            objectName: "roomCloseTargetRow"
             Layout.fillWidth: true
             visible: root.phase !== "planning" && root.phase !== "idle"
                      && root.phase !== "failed"
             spacing: AppTheme.spacing8
-            readonly property var row: root.ctl ? root.ctl.spaceRow : ({})
+            readonly property var row: root.ctl ? root.ctl.targetRow : ({})
             Icon {
-                name: "workspaces"
+                name: root.ctl && root.ctl.targetIsSpace ? "workspaces" : "tag"
                 size: 16
                 color: AppTheme.stormTextMuted
             }
@@ -122,7 +152,8 @@ AppDialog {
                 Layout.fillWidth: true
                 textFormat: Text.PlainText
                 elide: Label.ElideRight
-                text: qsTr("The space itself")
+                text: root.ctl && root.ctl.targetIsSpace
+                      ? qsTr("The space itself") : qsTr("The room")
                 color: AppTheme.stormText
                 font.family: AppTheme.uiFont
                 font.pixelSize: AppTheme.textBody
@@ -132,13 +163,12 @@ AppDialog {
 
         // Cascade choice.
         RowLayout {
-            objectName: "spaceMemberActionCascade"
+            objectName: "roomCloseCascade"
             Layout.fillWidth: true
-            visible: root.ctl && root.ctl.eligibleRoomCount > 0
-                     && root.phase === "ready"
+            visible: root.ctl && root.ctl.targetIsSpace
+                     && root.ctl.eligibleRoomCount > 0 && root.phase === "ready"
             spacing: AppTheme.spacing8
             AppSwitch {
-                objectName: "spaceMemberActionCascadeSwitch"
                 checked: root.ctl ? root.ctl.cascade : false
                 onToggled: root.ctl.cascade = !root.ctl.cascade
                 Accessible.name: cascadeText.text
@@ -161,11 +191,9 @@ AppDialog {
             }
         }
 
-        // Every room beneath the Space: offered ones selectable, the rest
-        // with the reason they are not offered.
         ListView {
             id: roomList
-            objectName: "spaceMemberActionRooms"
+            objectName: "roomCloseRooms"
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(contentHeight, 240)
             visible: count > 0 && root.phase !== "planning"
@@ -222,7 +250,7 @@ AppDialog {
         }
 
         Label {
-            objectName: "spaceMemberActionTruncated"
+            objectName: "roomCloseTruncated"
             Layout.fillWidth: true
             visible: root.ctl && root.ctl.planTruncated
             textFormat: Text.PlainText
@@ -235,6 +263,47 @@ AppDialog {
             font.pixelSize: AppTheme.textMeta
         }
 
+        // Typing the name is the confirmation of a delete.
+        Label {
+            Layout.fillWidth: true
+            visible: typedField.visible
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: !root.ctl ? ""
+                  : root.ctl.confirmationNameUsable
+                  ? qsTr("Type %1 to confirm. Its id, below, works too.")
+                        .arg(root.ctl.confirmationPhrase)
+                  : qsTr("Its name has characters that cannot be typed. Type "
+                         + "its id, below, to confirm.")
+            color: AppTheme.stormText
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textMeta
+        }
+        // The id, selectable so it can be copied.
+        TextEdit {
+            objectName: "roomCloseTypedId"
+            Layout.fillWidth: true
+            visible: typedField.visible
+            readOnly: true
+            selectByMouse: true
+            textFormat: TextEdit.PlainText
+            wrapMode: TextEdit.WrapAnywhere
+            text: root.ctl ? root.ctl.targetId : ""
+            color: AppTheme.stormTextSecondary
+            // The text fields' own selection colour, visible on every theme.
+            selectionColor: AppTheme.selectedHover
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textMeta
+        }
+        AppTextField {
+            id: typedField
+            objectName: "roomCloseTyped"
+            Layout.fillWidth: true
+            storm: true
+            visible: root.mode === "delete" && root.phase === "ready"
+            onTextChanged: if (root.ctl) root.ctl.setTypedConfirmation(text)
+        }
+
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -244,7 +313,7 @@ AppDialog {
                 size: 16
             }
             Label {
-                objectName: "spaceMemberActionStatus"
+                objectName: "roomCloseStatus"
                 Layout.fillWidth: true
                 textFormat: Text.PlainText
                 wrapMode: Text.WordWrap
@@ -263,18 +332,19 @@ AppDialog {
             spacing: AppTheme.spacing8
             Item { Layout.fillWidth: true }
             AppButton {
-                objectName: "spaceMemberActionCancel"
+                objectName: "roomCloseCancel"
                 storm: true
-                text: root.finished ? qsTr("Close") : qsTr("Cancel")
-                enabled: !root.running
+                // While running this only hides the dialog; the work goes on.
+                text: root.running ? qsTr("Hide")
+                                   : root.finished ? qsTr("Close")
+                                                   : qsTr("Cancel")
                 onClicked: root.close()
             }
             AppButton {
-                objectName: "spaceMemberActionConfirm"
+                objectName: "roomCloseConfirm"
                 storm: true
                 visible: !root.finished
-                kind: root.ctl && root.ctl.op === "unban" ? "primary"
-                                                          : "dangerPrimary"
+                kind: "dangerPrimary"
                 text: root.ctl ? root.ctl.confirmLabel : ""
                 enabled: root.ctl && root.ctl.canConfirm
                 onClicked: root.ctl.confirm(reasonField.text)
@@ -282,17 +352,42 @@ AppDialog {
         }
     }
 
-    // One row's outcome: before confirming, why it is not offered; after,
-    // what happened to it.
+    // A switch with its sentence; the whole row toggles it.
+    component OptionRow: RowLayout {
+        id: option
+        property bool checked: false
+        property string text: ""
+        signal toggled()
+        Layout.fillWidth: true
+        spacing: AppTheme.spacing8
+        AppSwitch {
+            checked: option.checked
+            onToggled: option.toggled()
+            Accessible.name: option.text
+        }
+        Label {
+            Layout.fillWidth: true
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: option.text
+            color: AppTheme.stormText
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textBody
+            TapHandler { onTapped: option.toggled() }
+        }
+    }
+
+    // One row's outcome: before confirming, what closing does there or why
+    // it is not offered; while running, its progress; after, what happened.
     component StepOutcome: RowLayout {
         id: outcome
         property var row: ({})
         readonly property string status: row && row.status ? row.status : ""
         spacing: AppTheme.spacing4
-        Layout.maximumWidth: 260
+        Layout.maximumWidth: 300
         Icon {
             visible: outcome.status === "ok" || outcome.status === "failed"
-                     || outcome.status === "unknown"
+                     || outcome.status === "partial"
             name: outcome.status === "ok" ? "check_circle" : "error"
             size: 15
             color: outcome.status === "ok" ? AppTheme.stormSuccess
@@ -305,25 +400,31 @@ AppDialog {
             horizontalAlignment: Text.AlignRight
             text: {
                 var r = outcome.row || {}
-                if (outcome.status === "failed"
+                if (outcome.status === "failed" || outcome.status === "ok"
+                        || outcome.status === "partial"
+                        || outcome.status === "following"
                         || outcome.status === "unknown")
                     return r.message || ""
-                if (outcome.status === "ok")
-                    return qsTr("Done")
                 if (outcome.status === "running")
-                    return qsTr("Working…")
+                    return r.progress || qsTr("Working…")
                 if (outcome.status === "pending")
                     return qsTr("Waiting")
                 if (r.eligible === false)
                     return r.reasonText || ""
                 if (outcome.status === "skipped")
                     return qsTr("Skipped")
-                return ""
+                if (r.alsoElsewhere > 0)
+                    return qsTr("Also in another space")
+                return r.summary || ""
             }
-            color: outcome.status === "failed" || outcome.status === "unknown"
+            color: outcome.status === "failed" || outcome.status === "partial"
+                   || outcome.status === "unknown"
                    ? AppTheme.stormDanger : AppTheme.stormTextMuted
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textMeta
+            ToolTip.visible: hover.hovered && text.length > 0 && truncated
+            ToolTip.text: text
+            HoverHandler { id: hover }
         }
     }
 }

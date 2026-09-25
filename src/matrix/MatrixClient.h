@@ -809,6 +809,32 @@ public:
                                           const QString &userId,
                                           const QString &op)
     { Q_UNUSED(roomIds); Q_UNUSED(userId); Q_UNUSED(op); return 0; }
+    // Closing a room (Matrix has no client-side delete). For each of
+    // `roomIds`, whether the viewer can make it invite-only and whom closing
+    // would remove. Sends nothing. Answers on roomClosurePlanReceived.
+    // `parentIds` are read only for whether the viewer may change their
+    // children (rows with reason "parent", never offered).
+    virtual quint64 requestRoomClosurePlan(const QStringList &roomIds,
+                                           const QStringList &parentIds)
+    { Q_UNUSED(roomIds); Q_UNUSED(parentIds); return 0; }
+    // Close one room: invite-only, unlisted from the directory and from
+    // `unlistFromSpaceIds`, every member the viewer outranks removed with
+    // `reason`, then left when `leave` and every step succeeded. Answers on
+    // roomClosureProgress / roomClosureFinished.
+    virtual quint64 closeRoom(const QString &roomId, const QString &reason,
+                              bool leave, const QStringList &unlistFromSpaceIds)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(reason); Q_UNUSED(leave);
+        Q_UNUSED(unlistFromSpaceIds);
+        return 0;
+    }
+    // Whether the account is a homeserver administrator. Asked only when a
+    // delete surface opens. Answers on serverAdminStatusReceived.
+    virtual quint64 requestServerAdminStatus() { return 0; }
+    // Delete a room from this homeserver (server administrators, Synapse
+    // admin API). Answers on adminRoomDeleteProgress / Finished.
+    virtual quint64 adminDeleteRoom(const QString &roomId, bool block)
+    { Q_UNUSED(roomId); Q_UNUSED(block); return 0; }
     // Set one member's power level; the SDK preserves every other level.
     // Answers on powerLevelChangeFinished. The server enforces permission.
     virtual quint64 setMemberPowerLevel(const QString &roomId,
@@ -1823,6 +1849,28 @@ Q_SIGNALS:
     void moderationPlanReceived(quint64 opId, const QString &userId,
                                 const QString &op, bool truncated,
                                 const QVariantList &rooms);
+    // Answer to requestRoomClosurePlan. Each row is { roomId, name, isSpace,
+    // reason, joinRule, canKick, canEditChildren, worldReadable, removable,
+    // staying, stayingNames }; an empty reason means closing is offered.
+    void roomClosurePlanReceived(quint64 opId, bool truncated,
+                                 const QVariantList &rooms);
+    void roomClosureProgress(quint64 opId, const QString &roomId, int done,
+                             int total);
+    // `result`: { outcome ("closed" | "partial" | "failed"), joinRule,
+    // directory, unlisted, unlistFailed, removed, removeFailed, notAttempted,
+    // staying, membersRead, canKick, left, category }.
+    void roomClosureFinished(quint64 opId, const QString &roomId,
+                             const QVariantMap &result);
+    // `detail`: "" (admin), "not_admin" or "unavailable".
+    void serverAdminStatusReceived(quint64 opId, bool admin,
+                                   const QString &detail);
+    void adminRoomDeleteProgress(quint64 opId, const QString &roomId,
+                                 const QString &status);
+    // `result`: { status, ok, removed, failedToRemove, category }; status
+    // "following" means the server had not finished when Lightning stopped
+    // following it.
+    void adminRoomDeleteFinished(quint64 opId, const QString &roomId,
+                                 const QVariantMap &result);
     // One member's power-level write completed. `level` echoes the request; the
     // authoritative value comes from the roster refresh that follows.
     void powerLevelChangeFinished(quint64 opId, const QString &roomId,

@@ -1074,6 +1074,41 @@ char *mx_rust_moderation_plan(void *client,
                               const char *user_id,
                               unsigned char op,
                               unsigned long long op_id);
+/* Closure plan: for each room in `room_ids_json` (a JSON array), whether the
+ * viewer can close it. Sends nothing. Result: room_closure_plan { op_id,
+ * truncated, rooms: [{ room_id, name, is_space, reason, join_rule, can_kick,
+ * can_edit_children, world_readable, removable, staying, staying_names }] },
+ * an empty reason meaning offered. */
+/* `parent_ids_json` (a JSON array): Spaces read only for whether the viewer
+ * may change their children, as rows with reason "parent". */
+char *mx_rust_room_closure_plan(void *client,
+                                const char *room_ids_json,
+                                const char *parent_ids_json,
+                                unsigned long long op_id);
+/* Close a room: invite-only, unlisted from the directory and from the Spaces
+ * in `unlist_from_json`, members the viewer outranks removed, then left when
+ * `leave` is non-zero and every step succeeded. Deletes nothing. Results:
+ * room_closure_progress { op_id, room_id, done, total }, room_closure_result
+ * { op_id, room_id, outcome, join_rule, directory, unlisted, unlist_failed,
+ * removed, remove_failed, not_attempted, staying, members_read, can_kick,
+ * left, category }. */
+char *mx_rust_close_room(void *client,
+                         const char *room_id,
+                         const char *reason,
+                         int leave,
+                         const char *unlist_from_json,
+                         unsigned long long op_id);
+/* Whether the account is a homeserver administrator (Synapse admin API).
+ * Result: server_admin_status { op_id, admin, detail }. */
+char *mx_rust_server_admin_status(void *client, unsigned long long op_id);
+/* Delete a room from this homeserver through Synapse's admin API. Results:
+ * admin_room_delete_progress { op_id, room_id, status },
+ * admin_room_delete_result { op_id, room_id, status, ok, removed,
+ * failed_to_remove, category }. */
+char *mx_rust_admin_delete_room(void *client,
+                                const char *room_id,
+                                int block,
+                                unsigned long long op_id);
 /* v0.7.x room administration. Set one member's power level; every other
  * user's level (including arbitrary custom numbers) is preserved by the
  * SDK. Result: room_power_level_result

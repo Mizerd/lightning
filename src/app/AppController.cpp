@@ -320,6 +320,37 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         return m_spaces ? m_spaces->moderationScopeRoomIds(spaceId)
                         : QStringList{};
     });
+    // Close a room or Space (Matrix has no client-side delete), or delete one
+    // from the homeserver as its administrator.
+    m_roomClosure = std::make_unique<RoomClosureController>(this);
+    m_roomClosure->setScopeResolver([this](const QString &spaceId) {
+        return m_spaces ? m_spaces->moderationScopeRoomIds(spaceId)
+                        : QStringList{};
+    });
+    m_roomClosure->setParentResolver([this](const QString &roomId) {
+        // The joined Spaces that list the room as a direct child.
+        QStringList parents;
+        if (!m_client)
+            return parents;
+        for (const RoomInfo &room : m_client->rooms()) {
+            if (room.isSpace && room.membership == RoomInfo::Joined
+                && room.childRoomIds.contains(roomId)) {
+                parents.append(room.id);
+            }
+        }
+        return parents;
+    });
+    m_roomClosure->setRoomInfoResolver([this](const QString &roomId) {
+        if (m_client) {
+            for (const RoomInfo &room : m_client->rooms()) {
+                if (room.id == roomId)
+                    return QVariantMap{ { QStringLiteral("name"), room.name },
+                                        { QStringLiteral("isSpace"),
+                                          room.isSpace } };
+            }
+        }
+        return QVariantMap{};
+    });
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
     m_accountAvatars = std::make_unique<AccountAvatarStore>(this);
     // Persist the active account's own avatar when its bytes pass through
@@ -1168,6 +1199,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_forward->setMediaBridge(m_mediaBridge.get());
     m_roomInfo->setClient(m_client.get());
     m_spaceModeration->setClient(m_client.get());
+    m_roomClosure->setClient(m_client.get());
     m_mediaBridge->setClient(m_client.get());
     m_pagination->setClient(m_client.get());
     m_pagination->setTimelineModel(m_timeline.get());
@@ -3976,6 +4008,12 @@ void AppController::onLoginSucceeded()
             m_mediaVisibility->reloadForAccount();
         if (m_moderation)
             m_moderation->resetForAccountChange();
+        // A running close, delete or Space moderation, and the server-admin
+        // answer, belong to the previous account.
+        if (m_roomClosure)
+            m_roomClosure->resetForAccountChange();
+        if (m_spaceModeration)
+            m_spaceModeration->resetForAccountChange();
     }
     // Stamp notifications with this account so actions taken after a later
     // switch can be refused. Set after the cache clear.

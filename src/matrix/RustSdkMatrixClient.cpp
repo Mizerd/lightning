@@ -6193,6 +6193,61 @@ quint64 RustSdkMatrixClient::requestModerationPlan(const QStringList &roomIds,
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::requestRoomClosurePlan(const QStringList &roomIds,
+                                                    const QStringList &parentIds)
+{
+    if (!m_rustHandle || roomIds.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray rooms = QJsonDocument(QJsonArray::fromStringList(roomIds))
+                                 .toJson(QJsonDocument::Compact);
+    const QByteArray parents =
+        QJsonDocument(QJsonArray::fromStringList(parentIds))
+            .toJson(QJsonDocument::Compact);
+    const QString result = takeRustString(mx_rust_room_closure_plan(
+        m_rustHandle, rooms.constData(), parents.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::closeRoom(const QString &roomId,
+                                       const QString &reason, bool leave,
+                                       const QStringList &unlistFromSpaceIds)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QByteArray why = reason.toUtf8();
+    const QByteArray spaces =
+        QJsonDocument(QJsonArray::fromStringList(unlistFromSpaceIds))
+            .toJson(QJsonDocument::Compact);
+    const QString result = takeRustString(mx_rust_close_room(
+        m_rustHandle, room.constData(), why.constData(), leave ? 1 : 0,
+        spaces.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::requestServerAdminStatus()
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QString result =
+        takeRustString(mx_rust_server_admin_status(m_rustHandle, opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::adminDeleteRoom(const QString &roomId, bool block)
+{
+    if (!m_rustHandle || roomId.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_admin_delete_room(
+        m_rustHandle, room.constData(), block ? 1 : 0, opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::setMemberPowerLevel(const QString &roomId,
                                                  const QString &userId,
                                                  qlonglong level)
@@ -9361,6 +9416,117 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             opId(), event.value(QStringLiteral("user_id")).toString(),
             event.value(QStringLiteral("op")).toString(),
             event.value(QStringLiteral("truncated")).toBool(), rooms);
+        return true;
+    }
+
+    if (type == QLatin1String("room_closure_plan")) {
+        QVariantList rooms;
+        const QJsonArray arr = event.value(QStringLiteral("rooms")).toArray();
+        for (const QJsonValue &v : arr) {
+            const QJsonObject o = v.toObject();
+            QVariantMap row;
+            row.insert(QStringLiteral("roomId"),
+                       o.value(QStringLiteral("room_id")).toString());
+            row.insert(QStringLiteral("name"),
+                       o.value(QStringLiteral("name")).toString());
+            row.insert(QStringLiteral("isSpace"),
+                       o.value(QStringLiteral("is_space")).toBool(false));
+            // Absent means not offered (the controller fails closed).
+            if (o.contains(QStringLiteral("reason")))
+                row.insert(QStringLiteral("reason"),
+                           o.value(QStringLiteral("reason")).toString());
+            row.insert(QStringLiteral("joinRule"),
+                       o.value(QStringLiteral("join_rule")).toString());
+            row.insert(QStringLiteral("canKick"),
+                       o.value(QStringLiteral("can_kick")).toBool(false));
+            row.insert(QStringLiteral("canEditChildren"),
+                       o.value(QStringLiteral("can_edit_children")).toBool(false));
+            row.insert(QStringLiteral("worldReadable"),
+                       o.value(QStringLiteral("world_readable")).toBool(false));
+            row.insert(QStringLiteral("removable"),
+                       o.value(QStringLiteral("removable")).toInt());
+            row.insert(QStringLiteral("staying"),
+                       o.value(QStringLiteral("staying")).toInt());
+            QStringList names;
+            for (const QJsonValue &n :
+                 o.value(QStringLiteral("staying_names")).toArray())
+                names.append(n.toString());
+            row.insert(QStringLiteral("stayingNames"), names);
+            rooms.append(row);
+        }
+        Q_EMIT roomClosurePlanReceived(
+            opId(), event.value(QStringLiteral("truncated")).toBool(), rooms);
+        return true;
+    }
+
+    if (type == QLatin1String("room_closure_progress")) {
+        Q_EMIT roomClosureProgress(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("done")).toInt(),
+            event.value(QStringLiteral("total")).toInt());
+        return true;
+    }
+
+    if (type == QLatin1String("room_closure_result")) {
+        QVariantMap result;
+        result.insert(QStringLiteral("outcome"),
+                      event.value(QStringLiteral("outcome")).toString());
+        result.insert(QStringLiteral("joinRule"),
+                      event.value(QStringLiteral("join_rule")).toString());
+        result.insert(QStringLiteral("directory"),
+                      event.value(QStringLiteral("directory")).toString());
+        const QList<QPair<QString, QString>> counts{
+            { QStringLiteral("unlisted"), QStringLiteral("unlisted") },
+            { QStringLiteral("unlist_failed"), QStringLiteral("unlistFailed") },
+            { QStringLiteral("removed"), QStringLiteral("removed") },
+            { QStringLiteral("remove_failed"), QStringLiteral("removeFailed") },
+            { QStringLiteral("not_attempted"), QStringLiteral("notAttempted") },
+            { QStringLiteral("staying"), QStringLiteral("staying") },
+        };
+        for (const auto &[key, name] : counts)
+            result.insert(name, event.value(key).toInt());
+        result.insert(QStringLiteral("membersRead"),
+                      event.value(QStringLiteral("members_read")).toBool());
+        if (event.contains(QStringLiteral("can_kick")))
+            result.insert(QStringLiteral("canKick"),
+                          event.value(QStringLiteral("can_kick")).toBool());
+        result.insert(QStringLiteral("left"),
+                      event.value(QStringLiteral("left")).toBool());
+        result.insert(QStringLiteral("category"),
+                      event.value(QStringLiteral("category")).toString());
+        Q_EMIT roomClosureFinished(
+            opId(), event.value(QStringLiteral("room_id")).toString(), result);
+        return true;
+    }
+
+    if (type == QLatin1String("server_admin_status")) {
+        Q_EMIT serverAdminStatusReceived(
+            opId(), event.value(QStringLiteral("admin")).toBool(false),
+            event.value(QStringLiteral("detail")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("admin_room_delete_progress")) {
+        Q_EMIT adminRoomDeleteProgress(
+            opId(), event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("status")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("admin_room_delete_result")) {
+        QVariantMap result;
+        result.insert(QStringLiteral("status"),
+                      event.value(QStringLiteral("status")).toString());
+        result.insert(QStringLiteral("ok"),
+                      event.value(QStringLiteral("ok")).toBool(false));
+        result.insert(QStringLiteral("removed"),
+                      event.value(QStringLiteral("removed")).toInt());
+        result.insert(QStringLiteral("failedToRemove"),
+                      event.value(QStringLiteral("failed_to_remove")).toInt());
+        result.insert(QStringLiteral("category"),
+                      event.value(QStringLiteral("category")).toString());
+        Q_EMIT adminRoomDeleteFinished(
+            opId(), event.value(QStringLiteral("room_id")).toString(), result);
         return true;
     }
 

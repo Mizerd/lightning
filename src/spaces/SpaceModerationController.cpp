@@ -3,6 +3,7 @@
 #include "matrix/MatrixClient.h"
 
 #include <QLoggingCategory>
+#include <QTimer>
 
 Q_LOGGING_CATEGORY(lcSpaceModeration, "lightning.spacemoderation")
 
@@ -18,7 +19,40 @@ bool isKnownOp(const QString &op)
 
 SpaceModerationController::SpaceModerationController(QObject *parent)
     : QObject(parent)
+    , m_planTimer(new QTimer(this))
 {
+    m_planTimer->setSingleShot(true);
+    connect(m_planTimer, &QTimer::timeout, this,
+            &SpaceModerationController::onPlanTimedOut);
+    m_stepTimer = new QTimer(this);
+    m_stepTimer->setSingleShot(true);
+    connect(m_stepTimer, &QTimer::timeout, this,
+            &SpaceModerationController::onStepTimedOut);
+}
+
+bool SpaceModerationController::stepWatchdogArmedForTest() const
+{
+    return m_stepTimer->isActive();
+}
+
+int SpaceModerationController::stepWatchdogIntervalForTest() const
+{
+    return m_stepTimer->interval();
+}
+
+void SpaceModerationController::onStepTimedOut()
+{
+    if (m_phase != QLatin1String("running") || m_stepOp == 0)
+        return;
+    qCWarning(lcSpaceModeration) << "step did not answer in" << kStepTimeoutMs
+                                 << "ms";
+    // A late answer is ignored; the server may still have done it.
+    m_stepOp = 0;
+    ++m_unknown;
+    markRow(m_stepRoom, QStringLiteral("unknown"),
+            tr("No answer. It may still have happened: check before "
+               "retrying."));
+    dispatchNext();
 }
 
 void SpaceModerationController::setClient(MatrixClient *client)
@@ -65,28 +99,39 @@ void SpaceModerationController::reset()
     m_cascade = true;
     m_planTruncated = false;
     m_planOp = 0;
+    m_planTimer->stop();
+    m_notice.clear();
+    m_flowUser.clear();
     m_steps.clear();
     m_nextStep = 0;
     m_stepOp = 0;
+    m_stepTimer->stop();
     m_stepRoom.clear();
     m_succeeded = 0;
     m_failed = 0;
+    m_unknown = 0;
     setPhase(QStringLiteral("idle"));
 }
 
-void SpaceModerationController::begin(const QString &spaceId,
+bool SpaceModerationController::begin(const QString &spaceId,
                                       const QString &spaceName,
                                       const QString &userId,
                                       const QString &displayName,
                                       const QString &op)
 {
     // A running flow is finished or reset first: its steps are already on
-    // the server and their answers must still be counted.
-    if (m_phase == QLatin1String("running"))
-        return;
+    // the server and their answers must still be counted. Say so rather
+    // than ignore the request.
+    if (m_phase == QLatin1String("running")) {
+        m_notice = tr("An earlier action is still running and is shown "
+                      "here. Start the new one when it has finished.");
+        Q_EMIT stateChanged();
+        return false;
+    }
     reset();
     if (!m_client || spaceId.isEmpty() || userId.isEmpty() || !isKnownOp(op))
-        return;
+        return false;
+    m_flowUser = m_client->currentUserId();
     m_spaceId = spaceId;
     m_spaceName = spaceName;
     m_userId = userId;
@@ -98,8 +143,22 @@ void SpaceModerationController::begin(const QString &spaceId,
     scope.removeAll(spaceId);
     scope.prepend(spaceId);
     m_planOp = m_client->requestModerationPlan(scope, userId, op);
+    if (m_planOp != 0)
+        m_planTimer->start(m_planTimeoutMs);
     setPhase(m_planOp != 0 ? QStringLiteral("planning")
                            : QStringLiteral("failed"));
+    return m_planOp != 0;
+}
+
+void SpaceModerationController::onPlanTimedOut()
+{
+    if (m_phase != QLatin1String("planning") || m_planOp == 0)
+        return;
+    // A late answer is ignored; nothing was sent.
+    qCWarning(lcSpaceModeration) << "plan did not answer in"
+                                 << m_planTimeoutMs << "ms";
+    m_planOp = 0;
+    setPhase(QStringLiteral("failed"));
 }
 
 QVariantMap SpaceModerationController::rowFromPlan(const QVariantMap &plan)
@@ -134,7 +193,12 @@ void SpaceModerationController::onPlanReceived(quint64 opId,
 {
     if (opId == 0 || opId != m_planOp || userId != m_userId || op != m_op)
         return;
+    if (!m_client || m_client->currentUserId() != m_flowUser) {
+        reset();
+        return;
+    }
     m_planOp = 0;
+    m_planTimer->stop();
     m_planTruncated = truncated;
     m_spaceRow.clear();
     m_rooms.clear();
@@ -191,6 +255,16 @@ int SpaceModerationController::selectedRoomCount() const
         const QVariantMap row = value.toMap();
         count += row.value(QStringLiteral("eligible")).toBool()
                  && row.value(QStringLiteral("selected")).toBool();
+    }
+    return count;
+}
+
+int SpaceModerationController::uncheckedRoomCount() const
+{
+    int count = 0;
+    for (const QVariant &value : m_rooms) {
+        count += value.toMap().value(QStringLiteral("reason")).toString()
+                 == QLatin1String("not_checked");
     }
     return count;
 }
@@ -281,6 +355,7 @@ void SpaceModerationController::confirm(const QString &reason)
     m_nextStep = 0;
     m_succeeded = 0;
     m_failed = 0;
+    m_unknown = 0;
     setPhase(QStringLiteral("running"));
     dispatchNext();
 }
@@ -307,6 +382,13 @@ void SpaceModerationController::markRow(const QString &roomId,
 
 void SpaceModerationController::dispatchNext()
 {
+    // Nothing more goes out through a client that now speaks for another
+    // account.
+    if (!m_client || m_client->currentUserId() != m_flowUser) {
+        qCWarning(lcSpaceModeration) << "account changed; flow dropped";
+        reset();
+        return;
+    }
     // One step at a time: a Space with many rooms would otherwise meet the
     // server's rate limit on its own requests.
     while (m_nextStep < m_steps.size()) {
@@ -328,12 +410,15 @@ void SpaceModerationController::dispatchNext()
         }
         m_stepOp = opId;
         m_stepRoom = roomId;
+        m_stepTimer->start(kStepTimeoutMs);
         markRow(roomId, QStringLiteral("running"), QString());
         Q_EMIT stateChanged();
         return;
     }
     m_stepOp = 0;
+    m_stepTimer->stop();
     m_stepRoom.clear();
+    m_notice.clear();
     qCDebug(lcSpaceModeration) << "done op=" << m_op << "ok=" << m_succeeded
                                << "failed=" << m_failed;
     setPhase(QStringLiteral("done"));
@@ -353,6 +438,7 @@ void SpaceModerationController::onModerationFinished(quint64 opId,
         return;
     }
     m_stepOp = 0;
+    m_stepTimer->stop();
     if (ok) {
         ++m_succeeded;
         markRow(roomId, QStringLiteral("ok"), QString());
@@ -379,6 +465,8 @@ QString SpaceModerationController::reasonText(const QString &reason)
         return tr("You are not in this room");
     if (reason == QLatin1String("unknown"))
         return tr("Their membership here could not be checked");
+    if (reason == QLatin1String("not_checked"))
+        return tr("Not checked in time; left unchanged");
     return tr("Not available here");
 }
 
@@ -462,18 +550,29 @@ QString SpaceModerationController::confirmLabel() const
 QString SpaceModerationController::statusText() const
 {
     if (m_phase == QLatin1String("planning"))
-        return tr("Checking where you can do this…");
+        return tr("Checking where you can do this… This takes at most "
+                  "half a minute.");
     if (m_phase == QLatin1String("failed"))
         return tr("Lightning could not check this space's rooms. Nothing "
                   "was changed.");
     if (m_phase == QLatin1String("ready") && !canConfirm())
         return tr("There is nowhere you can do this: see the reasons "
                   "below.");
+    if (m_phase == QLatin1String("ready") && uncheckedRoomCount() > 0)
+        return tr("%1 of the rooms could not be checked in time. They are "
+                  "not offered and will be left unchanged.")
+            .arg(uncheckedRoomCount());
     if (m_phase == QLatin1String("running"))
         return tr("Working: %1 of %2")
-            .arg(m_succeeded + m_failed + 1)
+            .arg(m_succeeded + m_failed + m_unknown + 1)
             .arg(m_steps.size());
     if (m_phase == QLatin1String("done")) {
+        if (m_unknown > 0)
+            return tr("Done: %1 succeeded, %2 failed, %3 not known. The rooms "
+                      "are marked below.")
+                .arg(m_succeeded)
+                .arg(m_failed)
+                .arg(m_unknown);
         if (m_failed == 0)
             return tr("Done: %1 succeeded.").arg(m_succeeded);
         return tr("Done with errors: %1 succeeded, %2 failed. The failed "
