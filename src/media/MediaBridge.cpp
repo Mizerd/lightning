@@ -1,5 +1,6 @@
 #include "media/MediaBridge.h"
 
+#include "media/AnimatedImageSniff.h"
 #include "media/ImageFormatSupport.h"
 
 #include "storage/PortableMode.h"
@@ -584,6 +585,173 @@ QString MediaBridge::mxcAnimatedSource(const QString &mxcUri)
     return {};
 }
 
+QString MediaBridge::motionFileUrl(const QString &cacheKey, qint64 maxPixels)
+{
+    if (m_motionVerdict.value(cacheKey, 0) > maxPixels)
+        return {};
+    const QString path = m_animatedFiles.value(cacheKey);
+    if (path.isEmpty() || !QFileInfo::exists(path))
+        return {};
+    m_animatedLru.removeOne(cacheKey);
+    m_animatedLru.prepend(cacheKey);
+    return QUrl::fromLocalFile(path).toString();
+}
+
+QString MediaBridge::writeMotionFile(const QString &cacheKey,
+                                     const QByteArray &bytes, qint64 maxPixels)
+{
+    namespace sniff = lightning::animsniff;
+    qint64 pixels = 0;
+    if (bytes.size() <= kMotionMaxBytes && sniff::isAnimation(bytes)) {
+        const QSize canvas = sniff::canvasSize(bytes);
+        if (canvas.isValid() && canvas.width() > 0 && canvas.height() > 0)
+            pixels = qint64(canvas.width()) * canvas.height();
+    }
+    if (m_motionVerdict.size() >= kMaxMotionVerdicts)
+        m_motionVerdict.clear(); // defensive bound; a verdict is re-learnable
+    m_motionVerdict.insert(cacheKey, pixels);
+    if (pixels <= 0 || pixels > maxPixels)
+        return {};
+    return writeAnimatedFile(cacheKey, bytes);
+}
+
+QString MediaBridge::avatarAnimationSource(const QString &mxcUri,
+                                           bool explicitIntent)
+{
+    if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
+        return {};
+    constexpr qint64 maxPixels = lightning::animsniff::kAvatarMaxPixels;
+    const QString cacheKey = QStringLiteral("motion:") + mxcUri;
+    const QString url = motionFileUrl(cacheKey, maxPixels);
+    if (!url.isEmpty())
+        return url;
+    // Known still, or an animation too large to play as an avatar: final for
+    // the session. An animation whose file was evicted is fetched again below.
+    const auto verdict = m_motionVerdict.constFind(cacheKey);
+    if (verdict != m_motionVerdict.constEnd()
+        && (verdict.value() <= 0 || verdict.value() > maxPixels))
+        return {};
+    if (failureBlocks(cacheKey))
+        return {};
+    // A server that answers thumbnails with the original (or implements
+    // MSC2705) already handed us the animation.
+    const QByteArray thumb =
+        cachedBytes(mxcCacheKey(mxcUri, kAvatarCanonicalEdge));
+    if (lightning::animsniff::isAnimation(thumb)) {
+        const QString written = writeMotionFile(cacheKey, thumb, maxPixels);
+        return written.isEmpty() ? QString{}
+                                 : QUrl::fromLocalFile(written).toString();
+    }
+    if (!explicitIntent) {
+        // Passive (autoplay) probes skip photos: a JPEG thumbnail cannot come
+        // from a GIF on Synapse. No thumbnail yet means no evidence either way.
+        const bool jpegThumb = thumb.size() >= 3
+            && static_cast<unsigned char>(thumb.at(0)) == 0xff
+            && static_cast<unsigned char>(thumb.at(1)) == 0xd8
+            && static_cast<unsigned char>(thumb.at(2)) == 0xff;
+        if (thumb.isEmpty() || jpegThumb)
+            return {};
+    }
+    // Heavy lane either way: a whole original must not delay chrome.
+    const int priority = explicitIntent ? 2 : 3;
+    if (!alreadyPending(cacheKey)) {
+        Pending request;
+        request.cacheKey = cacheKey;
+        request.isMxc = true;
+        request.mediaKey = mxcUri;
+        // Thumbnail class for the A/V refusal; size 0 fetches the original.
+        request.kind = 2;
+        request.size = 0;
+        request.priority = priority;
+        qCDebug(lcMediaTrace, "motion %s probe explicit=%d",
+                qUtf8Printable(keyTag(cacheKey)), explicitIntent ? 1 : 0);
+        dispatch(request);
+    } else if (explicitIntent) {
+        promoteQueuedRequest(cacheKey, priority, 0);
+    }
+    return {};
+}
+
+QString MediaBridge::wideAnimationSource(const QString &mxcUri)
+{
+    if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
+        return {};
+    constexpr qint64 maxPixels = lightning::animsniff::kBannerMaxPixels;
+    const QString cacheKey = QStringLiteral("motion:") + mxcUri;
+    const QString url = motionFileUrl(cacheKey, maxPixels);
+    if (!url.isEmpty())
+        return url;
+    const auto verdict = m_motionVerdict.constFind(cacheKey);
+    if (verdict != m_motionVerdict.constEnd()
+        && (verdict.value() <= 0 || verdict.value() > maxPixels))
+        return {};
+    // The banner's full payload, already fetched for the still picture.
+    const QByteArray bytes = cachedBytes(mxcCacheKey(mxcUri, 0));
+    if (bytes.isEmpty())
+        return {};
+    const QString written = writeMotionFile(cacheKey, bytes, maxPixels);
+    return written.isEmpty() ? QString{}
+                             : QUrl::fromLocalFile(written).toString();
+}
+
+int MediaBridge::passiveMotionSlots() const
+{
+    int passive = 0;
+    for (const MotionHolder &holder : m_motionOwners) {
+        if (!holder.intent)
+            ++passive;
+    }
+    return passive;
+}
+
+bool MediaBridge::claimMotionSlot(QObject *owner, bool intent)
+{
+    if (!owner)
+        return false;
+    const auto held = m_motionOwners.find(owner);
+    if (held != m_motionOwners.end()) {
+        if (intent || !held->intent)
+            return true;
+        // The intent ended: keep playing only as a passive holder.
+        if (passiveMotionSlots() < kMaxMotionSlots) {
+            held->intent = false;
+            return true;
+        }
+        releaseMotionSlot(owner);
+        return false;
+    }
+    const int total = static_cast<int>(m_motionOwners.size());
+    if (total >= kMaxMotionSlots + kMotionIntentReserve)
+        return false;
+    if (!intent && passiveMotionSlots() >= kMaxMotionSlots)
+        return false;
+    MotionHolder holder;
+    holder.intent = intent;
+    // The pointer is only a key here; it is never dereferenced after this.
+    holder.destroyed = connect(owner, &QObject::destroyed, this,
+                               [this, owner] { releaseMotionSlot(owner); });
+    m_motionOwners.insert(owner, holder);
+    return true;
+}
+
+void MediaBridge::releaseMotionSlot(QObject *owner)
+{
+    const auto it = m_motionOwners.find(owner);
+    if (it == m_motionOwners.end())
+        return;
+    disconnect(it->destroyed);
+    m_motionOwners.erase(it);
+    // One announcement per event-loop turn: a page of avatars scrolled away at
+    // once would otherwise wake every waiting avatar once per freed slot.
+    if (m_motionFreedPending)
+        return;
+    m_motionFreedPending = true;
+    QMetaObject::invokeMethod(this, [this] {
+        m_motionFreedPending = false;
+        Q_EMIT motionSlotFreed();
+    }, Qt::QueuedConnection);
+}
+
 QString MediaBridge::playableSource(const QString &mediaKey)
 {
     if (mediaKey.isEmpty()
@@ -1089,7 +1257,11 @@ void MediaBridge::dispatch(const Pending &request)
     Pending tracked = request;
     tracked.dispatchedAtMs = m_failureClock.elapsed();
     quint64 opId = 0;
-    if (tracked.isMxc)
+    if (tracked.isMxc
+        && tracked.cacheKey.startsWith(QLatin1String("motion:")))
+        opId = m_client->fetchMxcThumbnail(tracked.mediaKey, 0,
+                                           kMotionProbeHeight);
+    else if (tracked.isMxc)
         opId = m_client->fetchMxcThumbnail(tracked.mediaKey, tracked.size,
                                            tracked.size);
     else
@@ -1309,9 +1481,13 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     if (request.kind == 0 && looksLikeAvContainer(bytes))
         Q_EMIT playableSizeLearned(request.mediaKey,
                                    static_cast<qint64>(bytes.size()));
+    // A motion probe keeps only a file, and only for an animation.
+    const bool motionProbe =
+        request.cacheKey.startsWith(QLatin1String("motion:"));
     // Large playables live on disk; caching them would evict every image.
-    if (!((playableWanted || prefetchWanted)
-          && bytes.size() > kLargeCacheSkipBytes))
+    if (!motionProbe
+        && !((playableWanted || prefetchWanted)
+             && bytes.size() > kLargeCacheSkipBytes))
         insertCache(request.cacheKey, bytes);
     qCDebug(lcMediaTrace, "ready %s bytes=%lld mime=%s in=%lldms -> mediaCached",
             qUtf8Printable(keyTag(request.cacheKey)),
@@ -1321,6 +1497,16 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     ++m_burstCompleted;
     m_burstBytes += static_cast<qint64>(bytes.size());
     noteMediaActivity();
+    if (motionProbe) {
+        // A still original leaves only its verdict, so it is never fetched
+        // again this session and never enters this bridge's RAM cache (the
+        // SDK media store keeps its own copy; see avatarAnimationSource).
+        if (!writeMotionFile(request.cacheKey, bytes,
+                             lightning::animsniff::kAvatarMaxPixels)
+                 .isEmpty())
+            Q_EMIT animatedMediaReady(request.cacheKey);
+        return;
+    }
     if (m_animatedWanted.remove(request.cacheKey)) {
         const bool demanded = m_animatedDemanded.remove(request.cacheKey);
         if (!writeAnimatedFile(request.cacheKey, bytes).isEmpty())
@@ -1649,6 +1835,15 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
               qUtf8Printable(keyTag(request.cacheKey)),
               qUtf8Printable(category));
     dropInterestSets(request.cacheKey);
+    // An original over the motion-probe size class can never play: final for
+    // the session, like a still, rather than a transient mark that expires
+    // into another full download.
+    if (category == QLatin1String("too_large")
+        && request.cacheKey.startsWith(QLatin1String("motion:"))) {
+        if (m_motionVerdict.size() >= kMaxMotionVerdicts)
+            m_motionVerdict.clear();
+        m_motionVerdict.insert(request.cacheKey, 0);
+    }
     markFailed(request, category);
     Q_EMIT mediaFetchFailed(request.cacheKey, category);
 }
@@ -1861,6 +2056,7 @@ void MediaBridge::clear()
     m_animatedLru.clear();
     m_animatedWanted.clear();
     m_animatedDemanded.clear();
+    m_motionVerdict.clear();
     m_playableFiles.clear();
     m_playableSizes.clear();
     m_playableLru.clear();

@@ -84,6 +84,59 @@ public:
     // Bytes pass the same SVG/SVGZ, A/V-container and animation-magic checks as
     // everything else.
     Q_INVOKABLE QString mxcAnimatedSource(const QString &mxcUri);
+    // Animated avatars and banners (a GIF with two or more frames, or an
+    // animated WebP), drawn by QML over the still picture. A file:// URL once
+    // known, otherwise "".
+    //
+    // Server thumbnails never animate: Synapse 1.156 thumbnails a GIF to PNG
+    // and a WebP to JPEG and ignores MSC2705's `animated=true` (measured). So
+    // the ORIGINAL is fetched ("motion:" key), once per mxc per session, in
+    // the heavy lane. A still original leaves only its verdict: it never
+    // enters this bridge's RAM cache.
+    //
+    // What that costs: the transfer is the whole original, because matrix-sdk
+    // buffers media whole. Rust drops anything over kMotionMaxBytes before the
+    // FFI copy (the motion-probe size class, width 0 / height
+    // kMotionProbeHeight), but the bytes have been downloaded by then. The SDK
+    // media store keeps the original (use_cache, up to its 24 MiB retention
+    // cap), so a later session re-reads it from disk rather than the network;
+    // that is why no verdict is persisted here, which would be a new on-disk
+    // record of the avatars a user has seen.
+    //
+    // The probe runs only when the caller asks:
+    //   * explicitIntent (hover, a profile card): any format;
+    //   * otherwise only when the cached avatar thumbnail is not a JPEG, since
+    //     a JPEG thumbnail comes from a JPEG or WebP source and every photo
+    //     avatar would be downloaded in full for nothing.
+    // Canvas and byte bounds are in AnimatedImageSniff.h. animatedMediaReady
+    // fires with "motion:<mxc>" when a file is written.
+    Q_INVOKABLE QString avatarAnimationSource(const QString &mxcUri,
+                                              bool explicitIntent);
+    // The same for a banner, from the full payload wideImageSource() already
+    // holds. Never dispatches: "" until those bytes are cached.
+    Q_INVOKABLE QString wideAnimationSource(const QString &mxcUri);
+    // Bounds how many avatar animations play at once, so a list of animated
+    // avatars cannot hold unbounded decode buffers. An avatar that gets no slot
+    // stays still and retries on motionSlotFreed. Slots are keyed by owner and
+    // freed when the owner is destroyed, however QML tears it down. `intent`
+    // (hover, a profile card) may use a small reserve above the passive cap,
+    // so what the user is looking at still plays when a list took the rest.
+    // Claiming again without intent turns an intent slot back into a passive
+    // one, or gives it up (returns false) when the passive cap is full, so a
+    // hover that ended cannot keep a reserve slot for good.
+    // motionSlotFreed is emitted once per event-loop turn, however many slots
+    // were freed in it.
+    Q_INVOKABLE bool claimMotionSlot(QObject *owner, bool intent = false);
+    Q_INVOKABLE void releaseMotionSlot(QObject *owner);
+    int motionSlotsInUseForTest() const
+    {
+        return static_cast<int>(m_motionOwners.size());
+    }
+    static constexpr int kMaxMotionSlots = 24;
+    static constexpr int kMotionIntentReserve = 4;
+    // fetchMxcThumbnail(mxc, 0, kMotionProbeHeight) asks Rust for the original
+    // under the motion-probe size class (rust/src/rooms.rs mxc_fetch_cap).
+    static constexpr int kMotionProbeHeight = 1;
     // Inline video/audio playback. Same contract as animatedSource (validated
     // by container magic, 0600 file with an unguessable name, separate LRU,
     // wiped on sign-out), but returns a file:// URL for the in-process
@@ -216,6 +269,7 @@ Q_SIGNALS:
     // An expired transient failure mark was swept; consumers may re-request.
     void mediaRetryable(const QString &cacheKey);
     void animatedMediaReady(const QString &cacheKey);
+    void motionSlotFreed();
     void playableMediaReady(const QString &cacheKey);
     void mediaFetchFailed(const QString &cacheKey, const QString &category);
     // mediaKey identifies which save finished.
@@ -306,6 +360,13 @@ private:
     void writeSaveFile(const QUrl &destination, const QByteArray &bytes,
                        const QString &mediaKey);
     QString writeAnimatedFile(const QString &cacheKey, const QByteArray &bytes);
+    // Records the "motion:" verdict for `bytes` and writes the file when it is
+    // an animation within `maxPixels` and kMotionMaxBytes. Returns the path or
+    // "".
+    QString writeMotionFile(const QString &cacheKey, const QByteArray &bytes,
+                            qint64 maxPixels);
+    // A materialized motion file within `maxPixels`, as a URL, or "".
+    QString motionFileUrl(const QString &cacheKey, qint64 maxPixels);
     // Playable payloads are written on PlayableFileWriter's worker thread. The
     // size bound, container sniff and name derivation run here first so they
     // fail closed. Returns true when a write is under way (possibly coalesced),
@@ -409,6 +470,22 @@ private:
     // Keys with at least one non-speculative asker; only these report
     // mediaFetchFailed("invalid_gif").
     QSet<QString> m_animatedDemanded;
+    // "motion:" verdicts: the canvas area in pixels for an animation (which
+    // each caller compares with its own ceiling), 0 for anything that can
+    // never play: a still, more than kMotionMaxBytes, or an empty canvas. An
+    // mxc is immutable, so the answer never changes; bounded, cleared with the
+    // session.
+    QHash<QString, qint64> m_motionVerdict;
+    struct MotionHolder {
+        QMetaObject::Connection destroyed;
+        bool intent = false;
+    };
+    QHash<QObject *, MotionHolder> m_motionOwners;
+    bool m_motionFreedPending = false;
+    int passiveMotionSlots() const;
+    static constexpr int kMaxMotionVerdicts = 4096;
+    // Matches the Rust avatar and banner upload caps.
+    static constexpr qint64 kMotionMaxBytes = 8 * 1024 * 1024;
     // Playable registry. Shares the scratch dir with the animated path but has
     // its own larger LRU. The per-session suffix keeps names unguessable.
     QHash<QString, QString> m_playableFiles;

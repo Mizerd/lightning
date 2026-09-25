@@ -111,6 +111,22 @@ public:
     /// Cap for a role name ("avatar" | "banner"), for QML to pass to crop().
     Q_INVOKABLE int maxEdgeForRole(const QString &role) const;
 
+    /// Animated sources. Qt cannot encode a GIF or an animated WebP, so a crop
+    /// always flattens to one frame. To keep the motion the original FRAMES
+    /// are uploaded instead, uncropped (clients centre-crop avatars and banners
+    /// when drawing them), with metadata stripped (EXIF, XMP, GIF comments;
+    /// see animsniff::stripAnimationMetadata). load() reports `animated` and,
+    /// when the stripped file is clean and small enough, `animatedUrl`: that
+    /// 0600 copy, for the dialog's preview and the upload.
+    ///
+    /// True when the loaded source is an animation that Lightning would play
+    /// in that role (kMaxAnimatedUploadBytes, and the canvas bounds in
+    /// AnimatedImageSniff.h).
+    Q_INVOKABLE bool canKeepAnimation(const QString &role) const;
+    /// The stripped animation as a file:// URL for the upload sinks, or empty
+    /// with `lastError` "animation_too_large" | "no_source".
+    Q_INVOKABLE QUrl useAnimation(const QString &role);
+
     /// Releases the staged preview and decoded source when the dialog closes.
     Q_INVOKABLE void discard();
 
@@ -121,6 +137,9 @@ public:
     static constexpr qint64 kMaxSourceBytes = 64LL * 1024 * 1024;
     /// Decode ceiling, matching MediaImageProvider / StagedImageProvider.
     static constexpr int kMaxSourceEdge = 4096;
+    /// Matches the Rust avatar and banner upload caps (MAX_AVATAR_BYTES,
+    /// MAX_BANNER_BYTES).
+    static constexpr qint64 kMaxAnimatedUploadBytes = 8LL * 1024 * 1024;
     /// Written crops kept on disk. Sinks read the path asynchronously, so the
     /// newest must outlive the dialog.
     static constexpr int kRetainedOutputs = 4;
@@ -138,6 +157,11 @@ private:
     QImage m_source;
     QString m_sourceMime;
     QString m_previewToken;
+    // The loaded source's animation copy ("" when still or too large), its
+    // canvas area, and whether useAnimation() handed it to a sink.
+    QString m_animatedPath;
+    qint64 m_animatedPixels = 0;
+    bool m_animatedHandedOut = false;
     QString m_lastError;
     quint64 m_nextOutput = 1;
 };

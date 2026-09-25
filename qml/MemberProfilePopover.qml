@@ -558,6 +558,9 @@ Popup {
                     asynchronous: true
                     cache: true
                     visible: status === Image.Ready
+                    // Under a playing animation this first frame would show
+                    // through its transparent pixels.
+                    opacity: bannerMotion.shown ? 0 : 1
                     readonly property string mxc: {
                         if (!root.opened || !app.banners)
                             return ""
@@ -595,6 +598,15 @@ Popup {
                         }
                     }
                 }
+                // An animated banner plays over the still one, from the same
+                // bytes.
+                BannerMotion {
+                    id: bannerMotion
+                    objectName: "profileBannerMotion"
+                    anchors.fill: parent
+                    mxc: bannerImage.mxc
+                    stillReady: bannerImage.status === Image.Ready
+                }
             }
 
             // Storm §3.6 corner watermark: one oversized outline bolt, clipped
@@ -631,11 +643,14 @@ Popup {
                     color: AppTheme.stormPanel
                 }
                 Avatar {
+                    objectName: "profileCardAvatar"
                     anchors.centerIn: parent
                     size: 56
                     mxc: root.avatarMxc
                     name: root.visibleName
                     colorKey: root.userId
+                    // Opening the card is intent: probe any format.
+                    prominent: true
                 }
                 // Watched only while open (the userId gate).
                 PresenceDot {

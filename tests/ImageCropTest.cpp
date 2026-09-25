@@ -12,6 +12,7 @@
 #include <QDir>
 #include <QFile>
 #include <QImage>
+#include <QImageReader>
 #include <QImageWriter>
 #include <QPainter>
 #include <QTemporaryDir>
@@ -46,6 +47,46 @@ QByteArray encoded(const QImage &image, const char *format)
     QImageWriter writer(&buffer, format);
     writer.write(image);
     return bytes;
+}
+
+/// A real GIF: a w x h canvas with `frames` 1x1 frames, and an optional
+/// comment extension of `padding` bytes (to reach a byte size).
+QByteArray makeGif(int w, int h, int frames, int padding = 0)
+{
+    QByteArray g("GIF89a");
+    const auto le16 = [&g](int v) {
+        g.append(char(v & 0xff));
+        g.append(char((v >> 8) & 0xff));
+    };
+    le16(w);
+    le16(h);
+    g.append(char(0x80));
+    g.append('\0');
+    g.append('\0');
+    g.append(QByteArray("\xff\x00\x00\x00\x00\xff", 6));
+    g.append(QByteArray("\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00", 19));
+    if (padding > 0) {
+        g.append(QByteArray("\x21\xfe", 2));
+        for (int left = padding; left > 0; left -= 255) {
+            const int n = qMin(left, 255);
+            g.append(char(n));
+            g.append(QByteArray(n, 'x'));
+        }
+        g.append('\0');
+    }
+    for (int i = 0; i < frames; ++i) {
+        g.append(QByteArray("\x21\xf9\x04\x00\x0a\x00\x00\x00", 8));
+        g.append(char(0x2c));
+        le16(0);
+        le16(0);
+        le16(1);
+        le16(1);
+        g.append('\0');
+        g.append(char(0x02));
+        g.append(QByteArray("\x02\x44\x01\x00", 4));
+    }
+    g.append(char(0x3b));
+    return g;
 }
 
 bool writeFile(const QString &path, const QByteArray &bytes)
@@ -475,6 +516,206 @@ private Q_SLOTS:
         QVERIFY(!QFile::exists(written.first()));
         QVERIFY(QFile::exists(written.last()));
         cropper.clearSession();
+    }
+
+    // ---- animated sources ----
+
+    // Qt cannot encode an animation, so a crop flattens it. The original is
+    // kept instead: offered for an animated GIF, uploaded byte for byte, and
+    // written 0600.
+    void anAnimatedGifIsKeptByteForByte()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString gif = dir.filePath(QStringLiteral("anim.gif"));
+        const QByteArray original = makeGif(256, 256, 3);
+        QVERIFY(writeFile(gif, original));
+
+        StagedImageStore staged;
+        ImageCropper cropper;
+        cropper.setStagedImages(&staged);
+        const QVariantMap info = cropper.load(QUrl::fromLocalFile(gif));
+        QVERIFY(info.value(QStringLiteral("ok")).toBool());
+        QVERIFY(info.value(QStringLiteral("animated")).toBool());
+        const QUrl preview(info.value(QStringLiteral("animatedUrl")).toString());
+        QVERIFY(preview.isLocalFile());
+        // A copy the cropper sniffed, never the chosen file.
+        QVERIFY(preview.toLocalFile() != gif);
+        QVERIFY(cropper.canKeepAnimation(QStringLiteral("avatar")));
+        QVERIFY(cropper.canKeepAnimation(QStringLiteral("banner")));
+
+        const QUrl kept = cropper.useAnimation(QStringLiteral("avatar"));
+        QVERIFY(kept.isLocalFile());
+        QVERIFY(cropper.lastError().isEmpty());
+        QFile file(kept.toLocalFile());
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), original);
+        QCOMPARE(file.permissions()
+                     & (QFileDevice::ReadGroup | QFileDevice::ReadOther),
+                 QFileDevice::Permissions());
+        file.close();
+        // It outlives the dialog, like a crop.
+        cropper.discard();
+        QVERIFY(QFile::exists(kept.toLocalFile()));
+        cropper.clearSession();
+        QVERIFY(!QFile::exists(kept.toLocalFile()));
+    }
+
+    // One frame is a still picture: the ordinary crop, nothing kept.
+    void aSingleFrameGifIsNotAnAnimation()
+    {
+        QTemporaryDir dir;
+        const QString gif = dir.filePath(QStringLiteral("still.gif"));
+        QVERIFY(writeFile(gif, makeGif(64, 64, 1)));
+        StagedImageStore staged;
+        ImageCropper cropper;
+        cropper.setStagedImages(&staged);
+        const QVariantMap info = cropper.load(QUrl::fromLocalFile(gif));
+        QVERIFY(info.value(QStringLiteral("ok")).toBool());
+        QVERIFY(!info.value(QStringLiteral("animated")).toBool());
+        QVERIFY(info.value(QStringLiteral("animatedUrl")).toString().isEmpty());
+        QVERIFY(!cropper.canKeepAnimation(QStringLiteral("avatar")));
+        QVERIFY(cropper.useAnimation(QStringLiteral("avatar")).isEmpty());
+        QCOMPARE(cropper.lastError(), QStringLiteral("animation_too_large"));
+    }
+
+    // The bounds are the ones display applies, per role: what is uploaded as
+    // an animation is what Lightning will animate.
+    void theAnimationBoundsFollowTheRole()
+    {
+        QTemporaryDir dir;
+        const QString gif = dir.filePath(QStringLiteral("wide.gif"));
+        QVERIFY(writeFile(gif, makeGif(2048, 1024, 2))); // 2 MP
+        StagedImageStore staged;
+        ImageCropper cropper;
+        cropper.setStagedImages(&staged);
+        QVERIFY(cropper.load(QUrl::fromLocalFile(gif))
+                    .value(QStringLiteral("ok")).toBool());
+        QVERIFY(!cropper.canKeepAnimation(QStringLiteral("avatar")));
+        QVERIFY(cropper.canKeepAnimation(QStringLiteral("banner")));
+        QVERIFY(cropper.useAnimation(QStringLiteral("avatar")).isEmpty());
+        QCOMPARE(cropper.lastError(), QStringLiteral("animation_too_large"));
+        QVERIFY(!cropper.useAnimation(QStringLiteral("banner")).isEmpty());
+        cropper.clearSession();
+    }
+
+    // Over the upload cap there is no copy at all, and the still crop remains.
+    // The cap applies to what would be uploaded, after stripping: a comment
+    // alone cannot push a small animation over it, and frames can.
+    void anAnimationOverTheUploadCapIsNotCopied()
+    {
+        QTemporaryDir dir;
+        const QString padded = dir.filePath(QStringLiteral("padded.gif"));
+        QVERIFY(writeFile(padded, makeGif(64, 64, 2,
+                                          int(ImageCropper::kMaxAnimatedUploadBytes))));
+        {
+            StagedImageStore staged;
+            ImageCropper cropper;
+            cropper.setStagedImages(&staged);
+            const QVariantMap info = cropper.load(QUrl::fromLocalFile(padded));
+            QVERIFY(!info.value(QStringLiteral("animatedUrl")).toString()
+                         .isEmpty());
+            cropper.clearSession();
+        }
+        // ~23 bytes a frame: enough frames to pass 8 MiB of animation.
+        const int frames =
+            int(ImageCropper::kMaxAnimatedUploadBytes / 23) + 1000;
+        const QString gif = dir.filePath(QStringLiteral("huge.gif"));
+        QVERIFY(writeFile(gif, makeGif(64, 64, frames)));
+        StagedImageStore staged;
+        ImageCropper cropper;
+        cropper.setStagedImages(&staged);
+        const QVariantMap info = cropper.load(QUrl::fromLocalFile(gif));
+        QVERIFY(info.value(QStringLiteral("ok")).toBool());
+        QVERIFY(info.value(QStringLiteral("animated")).toBool());
+        QVERIFY(info.value(QStringLiteral("animatedUrl")).toString().isEmpty());
+        QVERIFY(!cropper.canKeepAnimation(QStringLiteral("banner")));
+        QVERIFY(!cropper.crop(0, 0, 64, 64, 512).isEmpty());
+        cropper.clearSession();
+    }
+
+    // The kept animation is public (avatars and banners reach every room),
+    // so its metadata goes, as the still path's re-encode drops EXIF.
+    void aKeptAnimationCarriesNoMetadata()
+    {
+        const QByteArray secret("GPS 54.6872N 25.2797E, Rokas's phone");
+        QByteArray dirty = makeGif(128, 128, 3);
+        // After header (13), colour table (6) and the looping extension (19).
+        QByteArray meta("\x21\xfe", 2);
+        meta.append(char(secret.size()));
+        meta.append(secret);
+        meta.append('\0');
+        meta.append(QByteArray("\x21\xff\x0bXMP DataXMP", 14));
+        meta.append(char(secret.size()));
+        meta.append(secret);
+        meta.append('\0');
+        dirty.insert(38, meta);
+        QVERIFY(dirty.contains(secret));
+
+        QTemporaryDir dir;
+        const QString gif = dir.filePath(QStringLiteral("dirty.gif"));
+        QVERIFY(writeFile(gif, dirty));
+        StagedImageStore staged;
+        ImageCropper cropper;
+        cropper.setStagedImages(&staged);
+        const QVariantMap info = cropper.load(QUrl::fromLocalFile(gif));
+        QVERIFY(info.value(QStringLiteral("ok")).toBool());
+        QVERIFY(cropper.canKeepAnimation(QStringLiteral("avatar")));
+        const QUrl kept = cropper.useAnimation(QStringLiteral("avatar"));
+        QFile file(kept.toLocalFile());
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray uploaded = file.readAll();
+        QVERIFY(!uploaded.contains(secret));
+        QVERIFY(!uploaded.contains("XMP DataXMP"));
+        QVERIFY(uploaded.contains("NETSCAPE2.0"));
+        // Still the same animation.
+        QCOMPARE(uploaded, makeGif(128, 128, 3));
+        QBuffer buffer;
+        buffer.setData(uploaded);
+        buffer.open(QIODevice::ReadOnly);
+        QImageReader reader(&buffer, "gif");
+        QCOMPARE(reader.imageCount(), 3);
+        cropper.clearSession();
+    }
+
+    // An animation the stripper cannot walk is never kept: the still crop is
+    // what remains.
+    void aMalformedAnimationIsNotKept()
+    {
+        QByteArray bad = makeGif(64, 64, 2);
+        // An application extension whose identifier block is the wrong size.
+        bad.insert(38, QByteArray("\x21\xff\x05short\x00", 9));
+        QTemporaryDir dir;
+        const QString gif = dir.filePath(QStringLiteral("bad.gif"));
+        QVERIFY(writeFile(gif, bad));
+        StagedImageStore staged;
+        ImageCropper cropper;
+        cropper.setStagedImages(&staged);
+        const QVariantMap info = cropper.load(QUrl::fromLocalFile(gif));
+        if (!info.value(QStringLiteral("ok")).toBool())
+            return; // Qt refused it outright: nothing is uploaded either way
+        QVERIFY(info.value(QStringLiteral("animatedUrl")).toString().isEmpty());
+        QVERIFY(!cropper.canKeepAnimation(QStringLiteral("banner")));
+        QVERIFY(cropper.useAnimation(QStringLiteral("banner")).isEmpty());
+        cropper.clearSession();
+    }
+
+    // A preview copy nobody uploaded goes with the dialog.
+    void anUnusedAnimationCopyIsRemovedOnDiscard()
+    {
+        QTemporaryDir dir;
+        const QString gif = dir.filePath(QStringLiteral("anim.gif"));
+        QVERIFY(writeFile(gif, makeGif(64, 64, 2)));
+        StagedImageStore staged;
+        ImageCropper cropper;
+        cropper.setStagedImages(&staged);
+        const QVariantMap info = cropper.load(QUrl::fromLocalFile(gif));
+        const QString copy =
+            QUrl(info.value(QStringLiteral("animatedUrl")).toString())
+                .toLocalFile();
+        QVERIFY(QFile::exists(copy));
+        cropper.discard();
+        QVERIFY(!QFile::exists(copy));
     }
 };
 

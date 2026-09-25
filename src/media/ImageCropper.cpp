@@ -1,5 +1,7 @@
 #include "media/ImageCropper.h"
 
+#include "media/AnimatedImageSniff.h"
+
 #include "media/StagedImageStore.h"
 
 #include "storage/PortableMode.h"
@@ -215,6 +217,36 @@ QVariantMap ImageCropper::load(const QUrl &fileUrl)
     m_sourceMime = mime;
     setError(QString());
 
+    // An animation is kept as its own frames (see canKeepAnimation), with its
+    // metadata stripped the way the still path's re-encode drops EXIF. The copy
+    // exists only for a file that strips cleanly, is still an animation and is
+    // small enough to upload.
+    namespace sniff = lightning::animsniff;
+    const bool animated = sniff::isAnimation(bytes);
+    const QByteArray clean =
+        animated ? sniff::stripAnimationMetadata(bytes) : QByteArray();
+    if (!clean.isEmpty() && sniff::isAnimation(clean)
+        && clean.size() <= kMaxAnimatedUploadBytes) {
+        const QSize canvas = sniff::canvasSize(clean);
+        const QString dir = outputDirectory();
+        if (canvas.isValid() && canvas.width() > 0 && canvas.height() > 0
+            && !dir.isEmpty()) {
+            const QString path = QDir(dir).filePath(
+                QStringLiteral("anim-%1.%2")
+                    .arg(m_nextOutput++)
+                    .arg(sniff::animationSuffix(clean)));
+            QSaveFile out(path);
+            if (out.open(QIODevice::WriteOnly)) {
+                out.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+                if (out.write(clean) == clean.size() && out.commit()) {
+                    m_animatedPath = path;
+                    m_animatedPixels =
+                        qint64(canvas.width()) * canvas.height();
+                }
+            }
+        }
+    }
+
     result.insert(QStringLiteral("ok"), true);
     result.insert(QStringLiteral("width"), m_source.width());
     result.insert(QStringLiteral("height"), m_source.height());
@@ -222,6 +254,11 @@ QVariantMap ImageCropper::load(const QUrl &fileUrl)
     result.insert(QStringLiteral("previewUrl"),
                   QStringLiteral("image://lightning-staged/") + m_previewToken);
     result.insert(QStringLiteral("error"), QString());
+    result.insert(QStringLiteral("animated"), animated);
+    result.insert(QStringLiteral("animatedUrl"),
+                  m_animatedPath.isEmpty()
+                      ? QString()
+                      : QUrl::fromLocalFile(m_animatedPath).toString());
     // Dimensions and type only, never the path.
     qCInfo(lcCrop) << "crop source loaded" << m_source.width() << "x"
                    << m_source.height() << mime;
@@ -330,6 +367,38 @@ QUrl ImageCropper::crop(double x, double y, double w, double h, int maxEdge)
     return QUrl::fromLocalFile(path);
 }
 
+bool ImageCropper::canKeepAnimation(const QString &role) const
+{
+    if (m_animatedPath.isEmpty() || m_animatedPixels <= 0)
+        return false;
+    const qint64 maxPixels = role == QLatin1String("banner")
+        ? lightning::animsniff::kBannerMaxPixels
+        : lightning::animsniff::kAvatarMaxPixels;
+    return m_animatedPixels <= maxPixels;
+}
+
+QUrl ImageCropper::useAnimation(const QString &role)
+{
+    if (m_source.isNull()) {
+        setError(QStringLiteral("no_source"));
+        return {};
+    }
+    if (!canKeepAnimation(role)) {
+        setError(QStringLiteral("animation_too_large"));
+        return {};
+    }
+    // Retained like a crop: the sink reads it after the dialog closes.
+    if (!m_animatedHandedOut) {
+        m_animatedHandedOut = true;
+        m_written.append(m_animatedPath);
+        while (m_written.size() > kRetainedOutputs)
+            QFile::remove(m_written.takeFirst());
+    }
+    setError(QString());
+    qCInfo(lcCrop) << "animation kept" << role << m_animatedPixels << "px";
+    return QUrl::fromLocalFile(m_animatedPath);
+}
+
 void ImageCropper::discard()
 {
     if (m_stagedImages && !m_previewToken.isEmpty())
@@ -337,6 +406,12 @@ void ImageCropper::discard()
     m_previewToken.clear();
     m_source = QImage();
     m_sourceMime.clear();
+    // A preview copy nobody uploaded is removed with the dialog.
+    if (!m_animatedPath.isEmpty() && !m_animatedHandedOut)
+        QFile::remove(m_animatedPath);
+    m_animatedPath.clear();
+    m_animatedPixels = 0;
+    m_animatedHandedOut = false;
 }
 
 void ImageCropper::clearSession()

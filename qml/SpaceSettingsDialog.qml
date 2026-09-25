@@ -569,6 +569,7 @@ AppDialog {
                                         sourceSize.width: 1200
                                         asynchronous: true
                                         visible: status === Image.Ready
+                                        opacity: bannerPreviewMotion.shown ? 0 : 1
                                         readonly property string mxc:
                                             bannerCard.bannerMxc
                                         // A counter the binding reads, never an
@@ -600,6 +601,13 @@ AppDialog {
                                                     bannerPreview.resolveTick++
                                             }
                                         }
+                                    }
+                                    BannerMotion {
+                                        id: bannerPreviewMotion
+                                        objectName: "spaceSettingsBannerMotion"
+                                        anchors.fill: parent
+                                        mxc: bannerPreview.mxc
+                                        stillReady: bannerPreview.status === Image.Ready
                                     }
                                     // "No banner" only when true: the preview
                                     // is also invisible while loading and after

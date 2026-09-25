@@ -10,6 +10,7 @@
 #include <QtTest/QtTest>
 
 #include <QBuffer>
+#include <QFile>
 #include <QImage>
 #include <QPainter>
 #include <QQmlApplicationEngine>
@@ -18,6 +19,7 @@
 #include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSGRendererInterface>
 #include <QSignalSpy>
 
 #include "app/AccountAvatarStore.h"
@@ -93,19 +95,112 @@ public:
     bool paginating(const QString &) const override { return false; }
 };
 
-// Minimal `app` context: Avatar.qml touches only app.mediaBridge.
+// The one setting Avatar.qml reads: GIF autoplay (0 Always, 1 On hover,
+// 2 Never).
+class SettingsShim : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(int gifAutoplay MEMBER m_gifAutoplay NOTIFY gifAutoplayChanged)
+public:
+    using QObject::QObject;
+    int m_gifAutoplay = 0;
+Q_SIGNALS:
+    void gifAutoplayChanged();
+};
+
+// Minimal `app` context: Avatar.qml touches app.mediaBridge and, for animated
+// avatars, app.settings (null here means "Never", as without settings).
 class AppShim : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(MediaBridge *mediaBridge READ mediaBridge CONSTANT)
+    Q_PROPERTY(QObject *settings READ settings CONSTANT)
 public:
-    explicit AppShim(MediaBridge *bridge, QObject *parent = nullptr)
-        : QObject(parent), m_bridge(bridge) {}
+    explicit AppShim(MediaBridge *bridge, QObject *settings = nullptr,
+                     QObject *parent = nullptr)
+        : QObject(parent), m_bridge(bridge), m_settings(settings) {}
     MediaBridge *mediaBridge() const { return m_bridge; }
+    QObject *settings() const { return m_settings; }
 
 private:
     MediaBridge *m_bridge;
+    QObject *m_settings;
 };
+
+// A real GIF: an edge x edge canvas, one full-canvas frame per colour, 100 ms
+// each, looping. LZW codes are written 3 bits wide with a clear code every two
+// literals, so the code table never grows past 3 bits.
+QByteArray solidFramesGif(int edge, const QList<QColor> &colours)
+{
+    QByteArray g("GIF89a");
+    const auto le16 = [&g](int v) {
+        g.append(char(v & 0xff));
+        g.append(char((v >> 8) & 0xff));
+    };
+    le16(edge);
+    le16(edge);
+    g.append(char(0x81)); // global colour table of four entries
+    g.append('\0');
+    g.append('\0');
+    for (int i = 0; i < 4; ++i) {
+        const QColor c = colours.value(i, Qt::black);
+        g.append(char(c.red()));
+        g.append(char(c.green()));
+        g.append(char(c.blue()));
+    }
+    g.append(QByteArray("\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00", 19));
+    for (int f = 0; f < colours.size() && f < 4; ++f) {
+        g.append(QByteArray("\x21\xf9\x04\x00\x0a\x00\x00\x00", 8));
+        g.append(char(0x2c));
+        le16(0);
+        le16(0);
+        le16(edge);
+        le16(edge);
+        g.append('\0');
+        g.append(char(0x02)); // LZW minimum code size
+        QList<int> codes;
+        const int pixels = edge * edge;
+        for (int p = 0; p < pixels; ++p) {
+            if (p % 2 == 0)
+                codes.append(4); // clear
+            codes.append(f);
+        }
+        codes.append(5); // end of information
+        QByteArray data;
+        quint32 acc = 0;
+        int bits = 0;
+        for (const int code : std::as_const(codes)) {
+            acc |= quint32(code) << bits;
+            bits += 3;
+            while (bits >= 8) {
+                data.append(char(acc & 0xff));
+                acc >>= 8;
+                bits -= 8;
+            }
+        }
+        if (bits > 0)
+            data.append(char(acc & 0xff));
+        for (qsizetype off = 0; off < data.size(); off += 255) {
+            const QByteArray block = data.mid(off, 255);
+            g.append(char(block.size()));
+            g.append(block);
+        }
+        g.append('\0');
+    }
+    g.append(char(0x3b));
+    return g;
+}
+
+QByteArray jpegOf(int edge, const QColor &color)
+{
+    QImage image(edge, edge, QImage::Format_RGB32);
+    image.fill(color);
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "JPEG");
+    return bytes;
+}
 
 // A synthetic avatar: left half opaque red, right half fully transparent,
 // with a soft alpha edge. After circular masking the transparent half sits
@@ -159,6 +254,7 @@ private:
     struct Harness {
         std::unique_ptr<FakeClient> client;
         std::unique_ptr<MediaBridge> bridge;
+        std::unique_ptr<SettingsShim> settings;
         std::unique_ptr<AppShim> shim;
         std::unique_ptr<QQmlApplicationEngine> engine;
         std::unique_ptr<QQuickWindow> window;
@@ -168,12 +264,14 @@ private:
 
     // Core stack without an Avatar: for tests that manipulate the bridge
     // (pre-marked failures) or spawn several Avatars against one bridge.
-    bool prepareCore(Harness &h)
+    bool prepareCore(Harness &h, bool withSettings = false)
     {
         h.client = std::make_unique<FakeClient>();
         h.bridge = std::make_unique<MediaBridge>();
         h.bridge->setClient(h.client.get());
-        h.shim = std::make_unique<AppShim>(h.bridge.get());
+        if (withSettings)
+            h.settings = std::make_unique<SettingsShim>();
+        h.shim = std::make_unique<AppShim>(h.bridge.get(), h.settings.get());
         h.engine = std::make_unique<QQmlApplicationEngine>();
         connect(h.engine.get(), &QQmlEngine::warnings, this,
                 [&h](const QList<QQmlError> &errors) {
@@ -265,7 +363,324 @@ private:
         return -1;
     }
 
+    // The index of the fetch for the original (edge 0), or -1.
+    static int originalFetchIndex(const Harness &h, const QString &mxc)
+    {
+        for (int i = h.client->fetches.size() - 1; i >= 0; --i) {
+            const auto &f = h.client->fetches.at(i);
+            if (f.key == mxc && f.width == 0)
+                return i;
+        }
+        return -1;
+    }
+
+    static QColor centre(const Harness &h, int size)
+    {
+        const QImage frame = h.window->grabWindow();
+        const qreal dpr = frame.devicePixelRatio();
+        return QColor(frame.pixel(int((20 + size / 2) * dpr),
+                                  int((20 + size / 2) * dpr)));
+    }
+
+    // An animated avatar at `size` whose still thumbnail (a PNG, as Synapse
+    // renders a GIF) has loaded.
+    bool readyAnimatedCandidate(Harness &h, int size, const QString &mxc,
+                                int gifAutoplay, const QByteArray &thumb)
+    {
+        if (!prepareCore(h, true))
+            return false;
+        h.settings->m_gifAutoplay = gifAutoplay;
+        if (!loadAvatar(h, size, mxc, QStringLiteral("Anim"),
+                        QStringLiteral("@anim:x")))
+            return false;
+        // The offscreen suite may render in software, where the shape mask
+        // cannot draw and motion is off by default; the logic is what these
+        // cases test (pixels only where the backend can show them).
+        h.avatar->setProperty("motionMaskable", true);
+        const int thumbIndex = finalEdgeFetchIndex(h, mxc, size);
+        if (thumbIndex < 0)
+            return false;
+        h.client->succeed(h.client->fetches.at(thumbIndex).opId, thumb);
+        return QTest::qWaitFor([&h] {
+            return state(h) == QStringLiteral("ready");
+        }, 5000);
+    }
+
 private Q_SLOTS:
+    // Autoplay "Always": the still thumbnail shows first, then the original is
+    // probed and plays, masked to the circle; the pixels actually change
+    // across frames. Leaving the screen tears the animation down and returns
+    // its slot.
+    void anAnimatedAvatarPlaysThenStopsOffScreen()
+    {
+        Harness h;
+        const QString mxc = QStringLiteral("mxc://x/animated");
+        const int size = 48;
+        QVERIFY(readyAnimatedCandidate(h, size, mxc, 0,
+                                       solidPng(64, QColor(200, 200, 200))));
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        const QList<QColor> colours = { QColor(255, 0, 0), QColor(0, 255, 0),
+                                        QColor(0, 0, 255),
+                                        QColor(255, 255, 0) };
+        h.client->succeed(h.client->fetches.at(original).opId,
+                          solidFramesGif(64, colours));
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        QCOMPARE(h.bridge->motionSlotsInUseForTest(), 1);
+
+        // Playing: the decoder advances through frames.
+        auto *movie = h.avatar->findChild<QQuickItem *>(
+            QStringLiteral("avatarAnimatedImage"));
+        QVERIFY(movie);
+        QVERIFY(movie->property("playing").toBool());
+        QSet<int> frames;
+        QSet<QRgb> seen;
+        QStringList sampled;
+        for (int i = 0; i < 16 && (frames.size() < 3 || seen.size() < 3); ++i) {
+            frames.insert(movie->property("currentFrame").toInt());
+            const QColor c = centre(h, size);
+            sampled << c.name();
+            for (const QColor &k : colours) {
+                if (colorsClose(c, k, 40))
+                    seen.insert(k.rgb());
+            }
+            QTest::qWait(60);
+        }
+        QVERIFY2(frames.size() >= 2,
+                 qPrintable(QStringLiteral("the animation showed %1 frame(s)")
+                                .arg(frames.size())));
+        // The pixels: the shape mask is a shader effect, which the software
+        // scene graph cannot draw, so they are only asserted where it can.
+        // The GUI run on real displays covers the rest.
+        const auto api = h.window->rendererInterface()->graphicsApi();
+        if (api == QSGRendererInterface::Software) {
+            qInfo("software scene graph: pixel check skipped (sampled %s)",
+                  qPrintable(sampled.join(QLatin1Char(' '))));
+        } else {
+            QVERIFY2(seen.size() >= 2,
+                     qPrintable(QStringLiteral("the avatar centre showed %1 of "
+                                               "the animation's colours: %2")
+                                    .arg(seen.size())
+                                    .arg(sampled.join(QLatin1Char(' ')))));
+            // Masked: the corner outside the circle is the window surface.
+            const QImage frame = h.window->grabWindow();
+            const qreal dpr = frame.devicePixelRatio();
+            QVERIFY(colorsClose(
+                QColor(frame.pixel(int(21 * dpr), int(21 * dpr))), kSurface));
+        }
+
+        h.avatar->setProperty("onScreen", false);
+        QTRY_VERIFY_WITH_TIMEOUT(!h.avatar->property("motionShown").toBool(),
+                                 5000);
+        QCOMPARE(h.bridge->motionSlotsInUseForTest(), 0);
+        auto *still = h.avatar->findChild<QQuickItem *>(
+            QStringLiteral("avatarImage"));
+        QVERIFY(still && still->isVisible());
+        QTRY_VERIFY_WITH_TIMEOUT(colorsClose(centre(h, size),
+                                             QColor(200, 200, 200), 20),
+                                 5000);
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // "Never" and reduced motion keep the still picture and fetch nothing
+    // beyond the thumbnail.
+    void neverAndReducedMotionFetchNoOriginal()
+    {
+        {
+            Harness h;
+            const QString mxc = QStringLiteral("mxc://x/never");
+            QVERIFY(readyAnimatedCandidate(h, 48, mxc, 2,
+                                           solidPng(64, Qt::gray)));
+            QTest::qWait(200);
+            QCOMPARE(originalFetchIndex(h, mxc), -1);
+            QVERIFY(!h.avatar->property("motionShown").toBool());
+        }
+        {
+            Harness h;
+            QVERIFY(prepareCore(h, true));
+            QObject *theme = h.engine->singletonInstance<QObject *>(
+                QStringLiteral("MatrixClient"), QStringLiteral("AppTheme"));
+            QVERIFY(theme);
+            theme->setProperty("reducedMotion", true);
+            const QString mxc = QStringLiteral("mxc://x/reduced");
+            QVERIFY(loadAvatar(h, 48, mxc, QStringLiteral("R"),
+                               QStringLiteral("@r:x")));
+            // Only reduced motion may be what stops it.
+            h.avatar->setProperty("motionMaskable", true);
+            h.client->succeed(
+                h.client->fetches.at(finalEdgeFetchIndex(h, mxc, 48)).opId,
+                solidPng(64, Qt::gray));
+            QTRY_COMPARE_WITH_TIMEOUT(state(h), QStringLiteral("ready"), 5000);
+            QTest::qWait(200);
+            QCOMPARE(originalFetchIndex(h, mxc), -1);
+            theme->setProperty("reducedMotion", false);
+        }
+    }
+
+    // "On hover": nothing is fetched until the pointer rests on the avatar,
+    // and then any format is probed, even behind a JPEG thumbnail.
+    void onHoverProbesOnlyUnderThePointer()
+    {
+        Harness h;
+        const QString mxc = QStringLiteral("mxc://x/hover");
+        const int size = 48;
+        QVERIFY(readyAnimatedCandidate(h, size, mxc, 1,
+                                       jpegOf(64, QColor(90, 90, 90))));
+        QTest::qWait(300);
+        QCOMPARE(originalFetchIndex(h, mxc), -1);
+        QTest::mouseMove(h.window.get(), QPoint(20 + size / 2, 20 + size / 2));
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        h.client->succeed(h.client->fetches.at(original).opId,
+                          solidFramesGif(64, { Qt::red, Qt::blue }));
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        // Leaving stops it.
+        QTest::mouseMove(h.window.get(), QPoint(2, 2));
+        QTRY_VERIFY_WITH_TIMEOUT(!h.avatar->property("motionShown").toBool(),
+                                 5000);
+        QCOMPARE(h.bridge->motionSlotsInUseForTest(), 0);
+    }
+
+    // A failed animation probe is about the animation only: the still
+    // picture stays loaded, not replaced by initials.
+    void aFailedProbeLeavesTheStillAvatarAlone()
+    {
+        Harness h;
+        const QString mxc = QStringLiteral("mxc://x/probe-fails");
+        QVERIFY(readyAnimatedCandidate(h, 48, mxc, 0, solidPng(64, Qt::gray)));
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        h.client->fail(h.client->fetches.at(original).opId,
+                       QStringLiteral("network"));
+        QCoreApplication::processEvents();
+        QCOMPARE(state(h), QStringLiteral("ready"));
+        QVERIFY(!h.avatar->property("fetchFailed").toBool());
+        auto *still = h.avatar->findChild<QQuickItem *>(
+            QStringLiteral("avatarImage"));
+        QVERIFY(still && still->isVisible());
+        // The retry sweep of that mark does not disturb it either.
+        h.bridge->setFailureRetryMsForTest(0);
+        h.bridge->checkInflightTimeouts();
+        QCoreApplication::processEvents();
+        QCOMPARE(state(h), QStringLiteral("ready"));
+        QVERIFY(!h.avatar->property("fetchFailed").toBool());
+        QCOMPARE(h.warnings, QStringList{});
+    }
+
+    // The bridge's scratch file can be evicted while an avatar holds its URL.
+    // Activation asks again, and a load error retries once, so either way
+    // the animation is fetched back rather than latched off.
+    void anEvictedAnimationIsFetchedBack()
+    {
+        Harness h;
+        const QString mxc = QStringLiteral("mxc://x/evicted");
+        QVERIFY(readyAnimatedCandidate(h, 40, mxc, 0, solidPng(64, Qt::gray)));
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        const QByteArray gif = solidFramesGif(16, { Qt::red, Qt::blue });
+        h.client->succeed(h.client->fetches.at(original).opId, gif);
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        const auto filePath = [&h, &mxc] {
+            return QUrl(h.bridge->avatarAnimationSource(mxc, true))
+                .toLocalFile();
+        };
+
+        // 1. Evicted while off screen: coming back asks the bridge again.
+        h.avatar->setProperty("onScreen", false);
+        QVERIFY(QFile::remove(filePath()));
+        h.avatar->setProperty("onScreen", true);
+        QCOMPARE(h.avatar->property("_motionSrc").toString(), QString());
+        const int refetch = originalFetchIndex(h, mxc);
+        QVERIFY2(refetch > original, "coming back on screen reused a URL "
+                                     "whose file is gone");
+        h.client->succeed(h.client->fetches.at(refetch).opId, gif);
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+
+        // 2. Evicted while waiting for a slot: the stale URL fails to load
+        // once, and the retry fetches it back.
+        QObject holders;
+        for (int i = h.bridge->motionSlotsInUseForTest();
+             i < MediaBridge::kMaxMotionSlots; ++i)
+            QVERIFY(h.bridge->claimMotionSlot(new QObject(&holders)));
+        QQmlComponent component(h.engine.get());
+        component.loadFromModule(QStringLiteral("MatrixClient"),
+                                 QStringLiteral("Avatar"));
+        QQuickItem *second = spawnAvatar(h, component, 40, mxc,
+                                         QStringLiteral("Anim"),
+                                         QStringLiteral("@anim:x"));
+        QVERIFY(second);
+        second->setProperty("motionMaskable", true);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !second->property("_motionSrc").toString().isEmpty(), 5000);
+        QVERIFY(!second->property("motionShown").toBool()); // no slot
+        const int before = originalFetchIndex(h, mxc);
+        QVERIFY(QFile::remove(filePath()));
+        h.bridge->releaseMotionSlot(holders.children().first());
+        int again = -1;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (again = originalFetchIndex(h, mxc)) > before, 5000);
+        h.client->succeed(h.client->fetches.at(again).opId, gif);
+        QTRY_VERIFY_WITH_TIMEOUT(second->property("motionShown").toBool(),
+                                 5000);
+        QVERIFY(!second->property("_motionFailed").toBool());
+        delete second;
+    }
+
+    // Two avatars of one identity share one probe; with every slot taken a
+    // third stays still until one is freed.
+    void playingAvatarsAreBoundedBySlots()
+    {
+        Harness h;
+        const QString mxc = QStringLiteral("mxc://x/slots");
+        QVERIFY(readyAnimatedCandidate(h, 40, mxc, 0, solidPng(64, Qt::gray)));
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        h.client->succeed(h.client->fetches.at(original).opId,
+                          solidFramesGif(16, { Qt::red, Qt::blue }));
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        QObject holders;
+        QList<QObject *> others;
+        for (int i = 1; i < MediaBridge::kMaxMotionSlots; ++i) {
+            others.append(new QObject(&holders));
+            QVERIFY(h.bridge->claimMotionSlot(others.last()));
+        }
+
+        QQmlComponent component(h.engine.get());
+        component.loadFromModule(QStringLiteral("MatrixClient"),
+                                 QStringLiteral("Avatar"));
+        QQuickItem *second = spawnAvatar(h, component, 40, mxc,
+                                         QStringLiteral("Anim"),
+                                         QStringLiteral("@anim:x"));
+        QVERIFY(second);
+        second->setProperty("motionMaskable", true);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            second->property("presentationState").toString(),
+            QStringLiteral("ready"), 5000);
+        QTest::qWait(200);
+        QVERIFY(!second->property("motionShown").toBool());
+        QCOMPARE(originalFetchIndex(h, mxc), original); // no second probe
+
+        h.bridge->releaseMotionSlot(others.first());
+        QTRY_VERIFY_WITH_TIMEOUT(second->property("motionShown").toBool(),
+                                 5000);
+        QCOMPARE(h.bridge->motionSlotsInUseForTest(),
+                 MediaBridge::kMaxMotionSlots);
+        // A destroyed avatar gives its slot back.
+        delete second;
+        QCOMPARE(h.bridge->motionSlotsInUseForTest(),
+                 MediaBridge::kMaxMotionSlots - 1);
+    }
+
     // A decoded avatar's transparent pixels reveal the surrounding surface,
     // not the fallback colour, at every common size.
     void transparentAvatarRevealsSurfaceNotFallback()

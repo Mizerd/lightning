@@ -12,6 +12,9 @@ import MatrixClient
 // bitmap by MediaImageProvider via the "|shape:" suffix, once per cached
 // image, rather than a per-item MultiEffect mask (two extra render passes
 // per avatar per frame).
+//
+// An animated avatar (GIF or animated WebP) plays over that still picture;
+// see the "Animated avatars" block below.
 Rectangle {
     id: root
 
@@ -116,6 +119,164 @@ Rectangle {
     readonly property bool showingFallback:
         root.src === "" && root.fallbackSource !== ""
 
+    // ── Animated avatars ──
+    // The still thumbnail always loads first; an animation is layered over it
+    // only while it may play, and the layer is torn down (active: false) the
+    // moment it may not. Policy follows the GIF autoplay setting, which
+    // already governs all passive media: Always plays what is on screen, On
+    // hover plays while the pointer rests on the avatar, Never and reduced
+    // motion keep every avatar still and fetch nothing extra. Server
+    // thumbnails never animate, so finding out needs the original; see
+    // MediaBridge::avatarAnimationSource.
+    //
+    // Call sites may opt out (e.g. tiny facepiles).
+    property bool animate: true
+    // Profile card, Space Home: probe any format, not only non-JPEG
+    // thumbnails.
+    property bool prominent: false
+    readonly property int _motionMode:
+        (typeof app !== "undefined" && app && app.settings)
+        ? app.settings.gifAutoplay : 2
+    // The shape mask is a shader effect, which the software scene graph
+    // cannot draw: there the animation would cover the still picture with
+    // nothing. Writable only so tests can drive playback on that backend.
+    property bool motionMaskable:
+        root.GraphicsInfo.api !== GraphicsInfo.Software
+    readonly property bool _motionAllowed:
+        animate && hasImage && _motionMode !== 2 && !AppTheme.reducedMotion
+        && size >= 20 && motionMaskable
+    // Set after a short dwell, so a pointer crossing a list starts nothing.
+    property bool _hovered: false
+    readonly property bool _windowShown:
+        root.Window.visibility !== Window.Minimized
+        && root.Window.visibility !== Window.Hidden
+    readonly property bool _wantsMotion:
+        _motionAllowed && onScreen && visible && _windowShown && _inViewport
+        && presentationState === "ready"
+        && (_motionMode === 0 || _hovered)
+    property string _motionSrc: ""
+    // The decoder refused the file (e.g. no WebP plugin): stay still.
+    property bool _motionFailed: false
+    // One reload is allowed after an error: the scratch file may have been
+    // evicted, and asking the bridge again fetches it back.
+    property bool _motionRetried: false
+
+    // Many sites cannot bind `onScreen` (Repeaters inside a Flickable on Home,
+    // the Space lobby, room info), so it stays true there. The avatar checks
+    // the nearest Flickable's viewport itself: on asking, and again once
+    // scrolling pauses, and only while it is on screen by every other measure.
+    property Item _viewport: null
+    property bool _inViewport: true
+    function _findViewport() {
+        for (var p = root.parent; p; p = p.parent) {
+            if (p.contentY !== undefined && p.flickableDirection !== undefined)
+                return p
+        }
+        return null
+    }
+    function _checkViewport() {
+        var f = _viewport
+        if (!f || width <= 0 || height <= 0) {
+            _inViewport = true
+            return
+        }
+        var r = root.mapToItem(f, 0, 0, width, height)
+        _inViewport = r.x + r.width > 0 && r.x < f.width
+                      && r.y + r.height > 0 && r.y < f.height
+    }
+    onParentChanged: _viewport = _findViewport()
+    Connections {
+        target: root._viewport
+        // Hover mode needs no viewport: a hovered avatar is on screen.
+        enabled: root._motionAllowed && root.onScreen
+                 && root.presentationState === "ready"
+                 && (root._motionMode === 0 || root._hovered)
+        function onContentYChanged() { viewportSettle.restart() }
+        function onContentXChanged() { viewportSettle.restart() }
+        function onHeightChanged() { viewportSettle.restart() }
+        function onWidthChanged() { viewportSettle.restart() }
+    }
+    Timer {
+        id: viewportSettle
+        interval: 120
+        onTriggered: root._checkViewport()
+    }
+    property bool _slotHeld: false
+    readonly property bool _playing:
+        _slotHeld && _motionSrc !== "" && !_motionFailed
+    readonly property bool motionShown:
+        motionLoader.item !== null
+        && motionLoader.item.status === AnimatedImage.Ready
+
+    function _requestMotion() {
+        _checkViewport()
+        if (!_wantsMotion || _motionFailed || !bridge)
+            return
+        // Asked on every activation, never cached here: the bridge's file can
+        // be evicted meanwhile, and a stale URL would only fail to load. Hover
+        // or a profile card asks for any format; a passive ask only where the
+        // thumbnail allows (see avatarAnimationSource).
+        _motionSrc = bridge.avatarAnimationSource(mxc, prominent || _hovered)
+        _syncSlot()
+    }
+    function _motionError() {
+        if (!_motionRetried) {
+            _motionRetried = true
+            _motionSrc = ""
+            _requestMotion()
+            return
+        }
+        _motionFailed = true
+        _syncSlot()
+    }
+    // A slot is held exactly while the animation should play.
+    function _syncSlot() {
+        var want = _wantsMotion && _motionSrc !== "" && !_motionFailed
+        if (want && !_slotHeld && bridge) {
+            _slotHeld = bridge.claimMotionSlot(root, prominent || _hovered)
+        } else if (!want && _slotHeld) {
+            _slotHeld = false
+            if (bridge)
+                bridge.releaseMotionSlot(root)
+        }
+    }
+    on_WantsMotionChanged: {
+        if (_wantsMotion)
+            _requestMotion()
+        else
+            _syncSlot()
+    }
+    // A destroyed avatar's slot is freed by the bridge (destroyed()).
+
+    // Hover is intent in both modes: On hover plays under the pointer, and
+    // under Always it probes an avatar the passive rule skipped (a JPEG
+    // thumbnail may still be an animated WebP).
+    on_HoveredChanged: {
+        if (_hovered) {
+            _requestMotion()   // also retries a refused slot, with intent
+        } else if (_slotHeld && !prominent && bridge) {
+            // The intent is over: keep playing only as a passive holder, so a
+            // hover never keeps a reserve slot for good.
+            _slotHeld = bridge.claimMotionSlot(root, false)
+        }
+    }
+    HoverHandler {
+        enabled: root._motionAllowed
+        onHoveredChanged: {
+            if (hovered) {
+                hoverDwell.restart()
+            } else {
+                hoverDwell.stop()
+                root._hovered = false
+            }
+        }
+    }
+    Timer {
+        id: hoverDwell
+        interval: 200
+        onTriggered: root._hovered = true
+    }
+
     function refresh() {
         // Recovery point in case both earlier bridge lookups missed.
         resolveBridge()
@@ -142,9 +303,15 @@ Rectangle {
         // A new identity is a new attempt; the old failure must not leak
         // across delegate reuse.
         fetchFailed = false
+        _motionSrc = ""
+        _motionFailed = false
+        _motionRetried = false
+        _syncSlot()
         refresh()
+        _requestMotion()
     }
     Component.onCompleted: {
+        _viewport = _findViewport()
         // Completion half of the defensive bridge resolution; refresh() calls
         // resolveBridge() itself.
         refresh()
@@ -158,18 +325,32 @@ Rectangle {
             // resolved: same-sender rows share an mxc, and refreshing them all
             // on every completion churns. Failed avatars still retry.
             if (cacheKey.endsWith(":" + root.mxc)
+                && !cacheKey.startsWith("motion:")
                 && (root.src === "" || root.fetchFailed))
                 root.refresh()
         }
+        // "motion:" keys are the animation probe, never the still picture: a
+        // failed probe must not turn a loaded avatar into initials.
         function onMediaFetchFailed(cacheKey, category) {
-            if (cacheKey.endsWith(":" + root.mxc))
+            if (cacheKey.endsWith(":" + root.mxc)
+                && !cacheKey.startsWith("motion:"))
                 root.fetchFailed = true
         }
         function onMediaRetryable(cacheKey) {
             // An expired transient failure: re-resolve. Bounded, since the
             // bridge re-arms the mark on another failure.
-            if (cacheKey.endsWith(":" + root.mxc))
+            if (cacheKey.endsWith(":" + root.mxc)
+                && !cacheKey.startsWith("motion:"))
                 root.refresh()
+        }
+        function onAnimatedMediaReady(cacheKey) {
+            if (cacheKey === "motion:" + root.mxc)
+                root._requestMotion()
+        }
+        function onMotionSlotFreed() {
+            if (root._wantsMotion && root._motionSrc !== ""
+                && !root._slotHeld)
+                root._syncSlot()
         }
     }
 
@@ -212,7 +393,7 @@ Rectangle {
         id: fallbackMask
         anchors.fill: parent
         visible: false
-        layer.enabled: root.showingFallback
+        layer.enabled: root.showingFallback || root._playing
         Rectangle {
             anchors.fill: parent
             radius: root.circle ? width / 2 : root.radius
@@ -245,7 +426,9 @@ Rectangle {
             maskSpreadAtMin: 1.0
         }
         // Only shown once fully decoded: no broken-image glyph, no flash.
-        visible: img.status === Image.Ready
+        // Hidden under a playing animation, whose transparent pixels would
+        // otherwise show this first frame through.
+        visible: img.status === Image.Ready && !root.motionShown
         // Self-heal a cache hit evicted before the provider read it (Error):
         // refresh() re-dispatches, and re-cached bytes get a new revision
         // URL. A cache hit returns the identical string, so no loop.
@@ -255,4 +438,34 @@ Rectangle {
         }
     }
 
+    // The animation, masked to the avatar's shape. Only instantiated while it
+    // plays, so a paused or scrolled-away avatar holds no decoder.
+    Loader {
+        id: motionLoader
+        objectName: "avatarMotion"
+        anchors.fill: parent
+        active: root._playing
+        sourceComponent: AnimatedImage {
+            objectName: "avatarAnimatedImage"
+            source: root._motionSrc
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            // One frame at a time; a cached animation holds every frame.
+            cache: false
+            playing: true
+            smooth: true
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                maskEnabled: true
+                maskSource: fallbackMask
+                maskThresholdMin: 0.5
+                maskSpreadAtMin: 1.0
+            }
+            onStatusChanged: {
+                // Deferred: handling it tears this very item down.
+                if (status === AnimatedImage.Error)
+                    Qt.callLater(root._motionError)
+            }
+        }
+    }
 }

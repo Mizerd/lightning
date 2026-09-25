@@ -250,6 +250,27 @@ private Q_SLOTS:
                  "a closed dialog leaves the source staged");
     }
 
+    // An animation is previewed from the copy the cropper wrote after
+    // sniffing it, never the chosen file, and "Keep animation" uploads through
+    // the cropper too.
+    void aKeptAnimationComesOnlyFromTheCropper()
+    {
+        const QString code =
+            withoutComments(read(QStringLiteral("ImageCropDialog.qml")));
+        QVERIFY(!code.isEmpty());
+        QVERIFY2(code.contains(QStringLiteral("source: root.animatedUrl")),
+                 "the animated preview is gone, so this case tests nothing");
+        QCOMPARE(code.count(QStringLiteral("root.animatedUrl =")), 2);
+        QVERIFY2(code.contains(
+                     QStringLiteral("root.animatedUrl = info.animatedUrl")),
+                 "the animated preview no longer comes from the sniffing gate");
+        QVERIFY2(code.contains(QStringLiteral("app.imageCrop.useAnimation(")),
+                 "a kept animation no longer goes through the cropper");
+        QVERIFY2(code.contains(
+                     QStringLiteral("app.imageCrop.canKeepAnimation(")),
+                 "the dialog decides by itself whether an animation fits");
+    }
+
     // A refused file is explained in the dialog, not swallowed.
     void aRefusalIsShownInTheDialogRatherThanSwallowed()
     {

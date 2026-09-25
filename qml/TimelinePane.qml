@@ -5350,6 +5350,9 @@ Rectangle {
                         sourceSize.width: 1600
                         asynchronous: true
                         visible: status === Image.Ready
+                        // Under a playing animation this first frame would
+                        // show through its transparent pixels.
+                        opacity: spaceBannerMotion.shown ? 0 : 1
                         readonly property string mxc:
                             spaceBannerCard.bannerMxc
                         // A counter, never an assignment to `source`: assigning
@@ -5371,6 +5374,16 @@ Rectangle {
                                     spaceBannerImage.resolveTick++
                             }
                         }
+                    }
+                    // An animated banner plays over the still one, from the
+                    // same bytes.
+                    BannerMotion {
+                        id: spaceBannerMotion
+                        objectName: "spaceBannerMotion"
+                        anchors.fill: parent
+                        mxc: spaceBannerImage.mxc
+                        stillReady: spaceBannerImage.status === Image.Ready
+                        fillMode: spaceBannerImage.fillMode
                     }
                     // A wash under the controls keeps their contrast on any
                     // image.
@@ -5554,10 +5567,13 @@ Rectangle {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
                         Avatar {
+                            objectName: "spaceHomeAvatar"
                             size: 56
                             name: spaceHome.info.name || ""
                             mxc: spaceHome.info.avatarUrl || ""
                             colorKey: spaceHome.spaceId
+                            // Opening a Space is intent: probe any format.
+                            prominent: true
                         }
                         ColumnLayout {
                             Layout.fillWidth: true

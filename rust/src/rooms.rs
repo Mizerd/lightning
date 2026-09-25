@@ -4413,6 +4413,25 @@ pub(crate) fn media_size_cap(timeout_class: u32) -> u64 {
     }
 }
 
+/// A motion probe (an animated avatar or banner, MediaBridge's "motion:" key)
+/// asks for the original file with width 0 and this height, which keeps the
+/// FFI signature. Must match MediaBridge::kMotionProbeHeight.
+pub(crate) const MOTION_PROBE_HEIGHT: u64 = 1;
+/// Nothing larger can play (MediaBridge::kMotionMaxBytes, the avatar and
+/// banner upload caps), so it is dropped here instead of being parked and
+/// copied across the FFI. The download itself is not bounded: matrix-sdk
+/// buffers media whole.
+pub(crate) const MOTION_PROBE_MAX_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Size cap for an mxc fetch: the motion-probe class, or the standard one.
+pub(crate) fn mxc_fetch_cap(width: u64, height: u64) -> u64 {
+    if width == 0 && height == MOTION_PROBE_HEIGHT {
+        MOTION_PROBE_MAX_BYTES
+    } else {
+        media_size_cap(0)
+    }
+}
+
 /// Largest payload the SDK media store may cache (retention max_file_size,
 /// set in build_client). Keeps avatars, thumbnails, stickers, images and
 /// 20 MiB GIFs cacheable; videos and large audio bypass sqlite, since one
@@ -4597,6 +4616,7 @@ pub(crate) fn media_fetch_mxc(
     let results = Arc::clone(&bridge.media_results);
     let lifecycle = timelines.lifecycle();
     let aborts = Arc::clone(&bridge.media_fetch_aborts);
+    let size_cap = mxc_fetch_cap(width, height);
     bridge.spawn_media_fetch(op_id, async move {
         let format = if width == 0 || height == 0 {
             MediaFormat::File
@@ -4631,7 +4651,7 @@ pub(crate) fn media_fetch_mxc(
             }
             Ok(Ok(bytes)) => {
                 let size = bytes.len() as u64;
-                if size > media_size_cap(0) {
+                if size > size_cap {
                     emit_media_failed(
                         &terminal, &results, op_id, lifecycle, &mxc, 2,
                         "too_large",
@@ -4708,6 +4728,16 @@ mod tests {
         assert!(media_timeout_secs(2) < 300);
         // Unknown classes fall back to the strictest bound.
         assert_eq!(media_timeout_secs(99), 40);
+    }
+
+    #[test]
+    fn a_motion_probe_has_its_own_size_class() {
+        // Width 0 / height 1: the original, capped at what can ever play.
+        assert_eq!(mxc_fetch_cap(0, MOTION_PROBE_HEIGHT), 8 * 1024 * 1024);
+        // Everything else keeps the standard class.
+        assert_eq!(mxc_fetch_cap(0, 0), media_size_cap(0));
+        assert_eq!(mxc_fetch_cap(224, 224), media_size_cap(0));
+        assert_eq!(mxc_fetch_cap(1, 1), media_size_cap(0));
     }
 
     #[test]

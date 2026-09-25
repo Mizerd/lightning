@@ -28,6 +28,13 @@ import MatrixClient
 //
 // A circular avatar still produces a square image: Matrix avatars are square
 // and clients draw the circle.
+//
+// Animated sources (GIF, animated WebP): Qt cannot encode an animation, so any
+// crop flattens it to one frame. "Keep animation" uploads the original frames
+// instead, uncropped and with the metadata stripped, the frame locked to the
+// centre, which is where clients crop it when drawing. The animated preview is
+// `animatedUrl`, the stripped copy the cropper wrote after sniffing it, never
+// the chosen file.
 AppDialog {
     id: root
 
@@ -49,6 +56,9 @@ AppDialog {
         root.srcW = 0
         root.srcH = 0
         root.previewUrl = ""
+        root.animated = false
+        root.animatedUrl = ""
+        root.canKeepAnimation = false
         var info = app.imageCrop.load(fileUrl)
         if (!info || !info.ok) {
             root.errorText = root._describe(info ? info.error : "")
@@ -56,7 +66,12 @@ AppDialog {
             root.previewUrl = info.previewUrl
             root.srcW = info.width
             root.srcH = info.height
+            root.animated = info.animated === true
+            root.animatedUrl = info.animatedUrl || ""
+            // Asked once here, not bound: it is a Q_INVOKABLE with no notify.
+            root.canKeepAnimation = app.imageCrop.canKeepAnimation(root.role)
         }
+        root.keepAnimation = root.canKeepAnimation
         root.open()
         // The viewport has no geometry until the popup is laid out.
         Qt.callLater(root._reset)
@@ -67,6 +82,13 @@ AppDialog {
     property int srcW: 0                 // decoded source width, in pixels
     property int srcH: 0
     property string errorText: ""
+    /// The source is an animation, and whether it can be kept in this role.
+    property bool animated: false
+    property string animatedUrl: ""
+    property bool canKeepAnimation: false
+    /// Upload the original animation rather than a cropped still frame.
+    property bool keepAnimation: false
+    readonly property bool cropLocked: keepAnimation && canKeepAnimation
     /// Displayed pixels per source pixel.
     property real imgScale: 1.0
     /// Top-left of the drawn image, in viewport coordinates.
@@ -117,6 +139,9 @@ AppDialog {
                         + "incomplete, or in a format this build can't read.")
         if (category === "unreadable")
             return qsTr("That file couldn't be read.")
+        if (category === "animation_too_large")
+            return qsTr("That animation can't be kept. "
+                        + "Turn off \"Keep animation\" to use a still frame.")
         return qsTr("That picture couldn't be used.")
     }
 
@@ -226,6 +251,16 @@ AppDialog {
     function _accept() {
         if (!ready)
             return
+        if (root.cropLocked) {
+            var kept = app.imageCrop.useAnimation(root.role)
+            if (!kept || kept.toString().length === 0) {
+                root.errorText = root._describe(app.imageCrop.lastError)
+                return
+            }
+            root.cropped(kept)
+            root.close()
+            return
+        }
         var sx = (cropX - panX) / imgScale
         var sy = (cropY - panY) / imgScale
         var sw = cropW / imgScale
@@ -283,6 +318,27 @@ AppDialog {
                     width: root.drawnW
                     height: root.drawnH
                 }
+                // The animation that will be uploaded, over the still frame.
+                Loader {
+                    objectName: "cropAnimatedPreview"
+                    x: root.panX
+                    y: root.panY
+                    width: root.drawnW
+                    height: root.drawnH
+                    // Plays only where every other animation would: the
+                    // still frame beneath stands in otherwise.
+                    active: root.cropLocked && root.animatedUrl.length > 0
+                            && !AppTheme.reducedMotion
+                            && app.settings.gifAutoplay !== 2
+                    sourceComponent: AnimatedImage {
+                        source: root.animatedUrl
+                        fillMode: Image.Stretch
+                        asynchronous: true
+                        cache: false
+                        playing: true
+                        smooth: true
+                    }
+                }
 
                 // ── The mask: everything outside the frame, dimmed ── One
                 // OddEvenFill path punches the frame out of the viewport, so
@@ -338,6 +394,8 @@ AppDialog {
                     id: stageArea
                     objectName: "cropStageArea"
                     anchors.fill: parent
+                    // A kept animation is uploaded whole; nothing to move.
+                    enabled: !root.cropLocked
                     acceptedButtons: Qt.LeftButton
                     hoverEnabled: true
                     cursorShape: containsMouse
@@ -405,7 +463,7 @@ AppDialog {
                 }
 
                 Repeater {
-                    model: root.ready ? 4 : 0
+                    model: root.ready && !root.cropLocked ? 4 : 0
                     delegate: Item {
                         required property int index
                         readonly property real hx: (index === 0 || index === 3)
@@ -460,10 +518,44 @@ AppDialog {
             }
         }
 
+        // ── Animation ──
+        RowLayout {
+            Layout.fillWidth: true
+            visible: root.ready && root.animated
+            spacing: AppTheme.spacing8
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: AppTheme.stormTextSecondary
+                font.pixelSize: AppTheme.textBody
+                text: root.canKeepAnimation
+                      ? qsTr("Keep animation")
+                      : qsTr("This animation can't be kept (it is too large "
+                             + "or unreadable), so a still frame will be used.")
+            }
+            AppSwitch {
+                objectName: "cropKeepAnimationSwitch"
+                visible: root.canKeepAnimation
+                checked: root.keepAnimation
+                Accessible.name: qsTr("Keep animation")
+                onToggled: {
+                    root.keepAnimation = !root.keepAnimation
+                    // The kept animation is shown centred, as it will be drawn.
+                    if (root.keepAnimation)
+                        root._reset()
+                }
+            }
+        }
+
         // ── Zoom ──
+        // Hidden but still laid out while an animation is kept, so toggling
+        // "Keep animation" never moves the switch out from under the pointer.
         RowLayout {
             Layout.fillWidth: true
             visible: root.ready
+            opacity: root.cropLocked ? 0 : 1
+            enabled: !root.cropLocked
             spacing: AppTheme.spacing8
 
             Icon {
@@ -521,12 +613,28 @@ AppDialog {
         }
 
         Label {
+            id: cropHint
             Layout.fillWidth: true
             visible: root.ready
+            // Two lines either way, for the same reason as the zoom row.
+            Layout.minimumHeight: root.animated
+                                  ? Math.ceil(hintMetrics.lineSpacing * 2)
+                                  : 0
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.textMeta
-            text: root.circular
+            FontMetrics {
+                id: hintMetrics
+                font: cropHint.font
+            }
+            text: root.cropLocked
+                  ? (root.circular
+                     ? qsTr("An animation is uploaded whole and can't be "
+                            + "cropped. Everyone sees it centred, as outlined.")
+                     : qsTr("An animation is uploaded whole and can't be "
+                            + "cropped. It is shown roughly as outlined; some "
+                            + "views crop it differently."))
+                  : root.circular
                   ? qsTr("Drag to move the picture, drag the frame to move "
                          + "the crop, and drag a corner to resize it. Only "
                          + "the circle is shown, and a square picture is "

@@ -1732,3 +1732,43 @@ server name before deleting a server. Lightning offers the two honest pieces.
   add the qsvg image-format PLUGIN, which the AppImage, macOS and Windows
   builds leave out and then assert absent. The screen also refuses a document whose entity
   references could expand past 2M characters, checked before any expansion.
+
+### Animated avatars and banners (GIF, animated WebP)
+
+User avatars, room and Space avatars, profile banners (MSC4427) and Space
+banners (`page.codeberg.everypizza.room.banner`) play when they are a GIF with
+two or more frames or an animated WebP.
+
+- **Thumbnails never animate.** Measured on Synapse 1.156: `animated=true`
+  (MSC2705) is ignored, a GIF thumbnail comes back as PNG and a WebP one as
+  JPEG. So the still thumbnail is always drawn first, and the ORIGINAL is
+  fetched to find out (`MediaBridge::avatarAnimationSource`, "motion:" key):
+  once per mxc per session, in the heavy lane.
+- **What that costs.** The transfer is the whole original: matrix-sdk 0.18
+  buffers media whole. Rust drops anything over 8 MiB (the motion-probe size
+  class, `mxc_fetch_cap`) before the FFI copy, but after the download. The
+  SDK media store keeps the original (`use_cache`, 24 MiB retention cap), so a
+  later session re-reads it from disk, not the network. No verdict is
+  persisted by Lightning: that would be a new on-disk record of the avatars a
+  user has seen.
+- **When it probes.** On hover and in a profile card (any format); otherwise,
+  under autoplay "Always", only when the thumbnail is not a JPEG (a JPEG
+  thumbnail is a JPEG or WebP source: every photo would be downloaded in full
+  for nothing). So an animated WebP avatar plays in lists only once hovered.
+- **Policy.** The "Autoplay and prefetch media" setting and Reduce motion. Never
+  and Reduce motion fetch nothing extra. The avatar must also be on screen:
+  `onScreen`, visible, a window that is not minimised or hidden, and inside
+  its nearest Flickable's viewport (checked by the avatar itself, because
+  Repeater sites cannot bind `onScreen`). Off on the software scene graph,
+  where the shape mask cannot draw.
+- **Bounds.** 24 playing avatars plus 4 for hover and the profile card; avatar
+  canvas 512 x 512, banner 4 MP, 8 MiB; `cache: false`; the layer is torn down
+  (`Loader active: false`) whenever it may not play.
+- **Security.** Nothing reaches a decoder before the markup/SVG and A/V byte
+  sniff. Files are 0600 in the 0700 scratch directory, wiped on sign-out, and
+  read by the app alone.
+- **Uploading.** Qt cannot encode an animation, so a crop flattens it. "Keep
+  animation" in the crop dialog uploads the original frames uncropped (clients
+  centre-crop), with metadata stripped first by a bounded parser that refuses
+  anything malformed: GIF comments and every application extension except the
+  looping ones (XMP), WebP EXIF and XMP chunks.

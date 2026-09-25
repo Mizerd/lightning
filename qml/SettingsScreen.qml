@@ -5615,6 +5615,7 @@ Item {
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: true
                                         visible: status === Image.Ready
+                                        opacity: ownBannerMotion.shown ? 0 : 1
                                         readonly property string mxc: {
                                             if (!app.banners)
                                                 return ""
@@ -5641,6 +5642,13 @@ Item {
                                                     ownBannerImage.resolveTick++
                                             }
                                         }
+                                    }
+                                    BannerMotion {
+                                        id: ownBannerMotion
+                                        objectName: "ownProfileBannerMotion"
+                                        anchors.fill: parent
+                                        mxc: ownBannerImage.mxc
+                                        stillReady: ownBannerImage.status === Image.Ready
                                     }
                                     Label {
                                         anchors.centerIn: parent

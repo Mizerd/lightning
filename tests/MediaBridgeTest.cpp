@@ -6,11 +6,13 @@
 
 #include "matrix/MatrixClient.h"
 #include "media/MediaBridge.h"
+#include "media/AnimatedImageSniff.h"
 #include "media/MediaImageProvider.h"
 
 #include <QBuffer>
 #include <QCryptographicHash>
 #include <QElapsedTimer>
+#include <QImageReader>
 #include <QLoggingCategory>
 #include <QTemporaryDir>
 #include <QFileInfo>
@@ -117,6 +119,156 @@ public:
 };
 
 const QString kMxc = QStringLiteral("mxc://example.org/avatar1");
+
+QByteArray makeGif(int w, int h, int frames, const QByteArray &extra);
+
+// A real, decodable GIF: a w x h canvas with `frames` 1x1 frames.
+QByteArray makeGif(int w, int h, int frames)
+{
+    return makeGif(w, h, frames, QByteArray());
+}
+
+// A GIF comment extension carrying `text`, in 255-byte sub-blocks.
+QByteArray gifComment(const QByteArray &text)
+{
+    QByteArray b("\x21\xfe", 2);
+    for (qsizetype off = 0; off < text.size(); off += 255) {
+        const QByteArray part = text.mid(off, 255);
+        b.append(char(part.size()));
+        b.append(part);
+    }
+    b.append('\0');
+    return b;
+}
+
+// An application extension with an 11-byte identifier and one data block.
+QByteArray gifAppExtension(const QByteArray &id11, const QByteArray &data)
+{
+    QByteArray b("\x21\xff\x0b", 3);
+    b.append(id11.left(11));
+    b.append(char(data.size()));
+    b.append(data);
+    b.append('\0');
+    return b;
+}
+
+// The same, with `extra` blocks placed after the looping extension.
+QByteArray makeGif(int w, int h, int frames, const QByteArray &extra)
+{
+    QByteArray g("GIF89a");
+    const auto le16 = [&g](int v) {
+        g.append(char(v & 0xff));
+        g.append(char((v >> 8) & 0xff));
+    };
+    le16(w);
+    le16(h);
+    g.append(char(0x80)); // global colour table, two entries
+    g.append('\0');
+    g.append('\0');
+    g.append(QByteArray("\xff\x00\x00\x00\x00\xff", 6));
+    g.append(QByteArray("\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00", 19));
+    g.append(extra);
+    for (int i = 0; i < frames; ++i) {
+        g.append(QByteArray("\x21\xf9\x04\x00\x0a\x00\x00\x00", 8));
+        g.append(char(0x2c));
+        le16(0);
+        le16(0);
+        le16(1);
+        le16(1);
+        g.append('\0');
+        g.append(char(0x02));
+        g.append(QByteArray("\x02\x44\x01\x00", 4));
+    }
+    g.append(char(0x3b));
+    return g;
+}
+
+// The first 30 bytes of an extended WebP: the VP8X header alone.
+QByteArray makeWebpHeader(int w, int h, bool animated)
+{
+    QByteArray b("RIFF");
+    b.append(QByteArray("\x16\x00\x00\x00", 4));
+    b.append("WEBPVP8X");
+    b.append(QByteArray("\x0a\x00\x00\x00", 4));
+    b.append(char(animated ? 0x02 : 0x00));
+    b.append(QByteArray(3, '\0'));
+    for (const int v : { w - 1, h - 1 }) {
+        b.append(char(v & 0xff));
+        b.append(char((v >> 8) & 0xff));
+        b.append(char((v >> 16) & 0xff));
+    }
+    return b;
+}
+
+// A real two-frame animated WebP (ImageMagick, 474 bytes): VP8X, ANIM and two
+// ANMF chunks, no metadata.
+QByteArray realAnimatedWebp()
+{
+    return QByteArray::fromHex(
+        "52494646d201000057454250565038580a00000002000000ff0000ff0000414e494d0600"
+        "0000ffffffff0000414e4d46d4000000000000000000ff0000ff0000fa00000256503820"
+        "bc0000009011009d012a000100013e31188c44a221a1101400200304b4b770bb588f6e03"
+        "f003f000000b55a841769502c976bc5c9c87bed9390f7db2721efb64e43df6c9c87bed93"
+        "90f7db2721efb64e43df6c9c87bed9390f7db2721efb64e43df6c9c87bed9390f7db2721"
+        "efb64e43df6c9c87bed9390f7db2721efb64e43df6c9c87bed9390f7db2721efb64e43df"
+        "6c9c87bed9390f7d6000feffb10afffff6331fb467f9257ffff8331fc198fe0cc7ff09f3"
+        "06090e000000000000000000414e4d46ca000000000000000000ff0000ff0000fa000000"
+        "56503820b2000000d410009d012a000100013e3112894481010000609696ee176b11edc0"
+        "7e0000013d7feacb4affd59695ffab2d2bff565a57feacb4affd59695ffab2d2bff565a5"
+        "7feacb4affd59695ffab2d2bff565a57feacb4affd59695ffab2d2bff565a57feacb4aff"
+        "d59695ffab2d2bff565a57feacb4affd59695ffab2d2bff565a57feacb4affd59695ffab"
+        "2d2bff565a57a000feffe62ce7ffff8599fc2ccfe1667ff0b33ffff855b862193a000000"
+        "000000000000");
+}
+
+// A little-endian RIFF chunk, padded to even length.
+QByteArray riffChunk(const char *fourcc, const QByteArray &payload)
+{
+    QByteArray b(fourcc, 4);
+    const quint32 n = quint32(payload.size());
+    for (int i = 0; i < 4; ++i)
+        b.append(char((n >> (8 * i)) & 0xff));
+    b.append(payload);
+    if (n & 1u)
+        b.append('\0');
+    return b;
+}
+
+// `webp` with EXIF and XMP chunks appended, their VP8X flags set and the RIFF
+// size fixed, the way a camera or editor writes them.
+QByteArray withWebpMetadata(QByteArray webp, const QByteArray &exif,
+                            const QByteArray &xmp)
+{
+    webp.append(riffChunk("EXIF", exif));
+    webp.append(riffChunk("XMP ", xmp));
+    webp[20] = char(static_cast<unsigned char>(webp.at(20)) | 0x0C);
+    const quint32 riff = quint32(webp.size() - 8);
+    for (int i = 0; i < 4; ++i)
+        webp[4 + i] = char((riff >> (8 * i)) & 0xff);
+    return webp;
+}
+
+QByteArray pngBytes()
+{
+    QImage image(8, 8, QImage::Format_RGB32);
+    image.fill(Qt::green);
+    QByteArray png;
+    QBuffer buffer(&png);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "PNG");
+    return png;
+}
+
+QByteArray jpegBytes()
+{
+    QImage image(8, 8, QImage::Format_RGB32);
+    image.fill(Qt::green);
+    QByteArray jpg;
+    QBuffer buffer(&jpg);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "JPEG");
+    return jpg;
+}
 
 } // namespace
 
@@ -2293,6 +2445,445 @@ private Q_SLOTS:
         // Without the shape the same request decodes at the source size.
         QCOMPARE(provider.requestImage(id, &reported, QSize(224, 224)).size(),
                  QSize(100, 100));
+    }
+
+    // ---- Animated avatars and banners ----
+
+    // The sniff that decides "animation" walks GIF blocks: one frame is a
+    // still picture, a truncated second frame does not count, and a WebP is
+    // animated only with the VP8X animation bit.
+    void theAnimationSniffCountsFramesAndReadsTheCanvas()
+    {
+        namespace sniff = lightning::animsniff;
+        QCOMPARE(sniff::gifFrameCount(makeGif(40, 30, 1)), 1);
+        QCOMPARE(sniff::gifFrameCount(makeGif(40, 30, 3), 9), 3);
+        QVERIFY(!sniff::isAnimation(makeGif(40, 30, 1)));
+        QVERIFY(sniff::isAnimation(makeGif(40, 30, 2)));
+        const QByteArray two = makeGif(40, 30, 2);
+        // Cut inside the second frame's data: one complete frame.
+        QCOMPARE(sniff::gifFrameCount(two.left(two.size() - 4)), 1);
+        QCOMPARE(sniff::canvasSize(two), QSize(40, 30));
+        QCOMPARE(sniff::animationSuffix(two), QStringLiteral("gif"));
+        QVERIFY(sniff::isAnimation(makeWebpHeader(640, 200, true)));
+        QVERIFY(!sniff::isAnimation(makeWebpHeader(640, 200, false)));
+        QCOMPARE(sniff::canvasSize(makeWebpHeader(640, 200, true)),
+                 QSize(640, 200));
+        QCOMPARE(sniff::animationSuffix(makeWebpHeader(640, 200, true)),
+                 QStringLiteral("webp"));
+        QVERIFY(!sniff::isAnimation(QByteArrayLiteral("<svg/>")));
+        QVERIFY(!sniff::isAnimation(pngBytes()));
+        // The frames Qt decodes agree with the count.
+        QByteArray bytes = makeGif(40, 30, 3);
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::ReadOnly);
+        QImageReader reader(&buffer, "gif");
+        QCOMPARE(reader.imageCount(), 3);
+    }
+
+    // A passive probe needs evidence: no thumbnail yet, or a JPEG one (a
+    // photo, or a WebP on Synapse), dispatches nothing. Hover or a profile
+    // card (explicit) always may.
+    void aPassiveProbeSkipsJpegThumbnailsAndAnExplicitOneDoesNot()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, false), QString());
+        QCOMPARE(client.fetches.size(), 0); // no thumbnail: no evidence
+
+        bridge.avatarSource(kMxc, 40);
+        QCOMPARE(client.fetches.size(), 1);
+        client.succeed(client.fetches.first().opId, jpegBytes(),
+                       QStringLiteral("image/jpeg"));
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, false), QString());
+        QCOMPARE(client.fetches.size(), 1); // a JPEG thumbnail: skipped
+
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, true), QString());
+        QCOMPARE(client.fetches.size(), 2);
+        QCOMPARE(client.fetches.last().key, kMxc);
+        // The original, not a thumbnail.
+        QCOMPARE(client.fetches.last().width, 0);
+        // The motion-probe size class (rust/src/rooms.rs mxc_fetch_cap).
+        QCOMPARE(client.fetches.last().height, MediaBridge::kMotionProbeHeight);
+    }
+
+    // A PNG thumbnail (Synapse's rendering of a GIF) lets a passive probe
+    // fetch the original; an animation becomes a 0600 file and a signal.
+    void aProbedAnimationBecomesAFileAndASignal()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        bridge.avatarSource(kMxc, 40);
+        client.succeed(client.fetches.first().opId, pngBytes());
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, false), QString());
+        QCOMPARE(client.fetches.size(), 2);
+        // Asking again while in flight does not dispatch twice.
+        bridge.avatarAnimationSource(kMxc, false);
+        QCOMPARE(client.fetches.size(), 2);
+
+        client.succeed(client.fetches.last().opId, makeGif(64, 64, 2),
+                       QStringLiteral("image/gif"));
+        QCOMPARE(ready.count(), 1);
+        QCOMPARE(ready.first().first().toString(),
+                 QStringLiteral("motion:") + kMxc);
+        const QString url = bridge.avatarAnimationSource(kMxc, false);
+        QVERIFY(url.startsWith(QStringLiteral("file://")));
+        const QString path = QUrl(url).toLocalFile();
+        QVERIFY(path.endsWith(QStringLiteral(".gif")));
+        QCOMPARE(QFileInfo(path).permissions()
+                     & (QFileDevice::ReadGroup | QFileDevice::WriteGroup
+                        | QFileDevice::ReadOther | QFileDevice::WriteOther),
+                 QFileDevice::Permissions());
+        client.logout();
+        QVERIFY(!QFileInfo::exists(path));
+    }
+
+    // A still original is remembered and dropped: no cache entry, no file,
+    // and it is never fetched again this session, however it is asked.
+    void aStillOriginalIsRememberedAndNeverFetchedAgain()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        QSignalSpy cached(&bridge, &MediaBridge::mediaCached);
+        bridge.avatarAnimationSource(kMxc, true);
+        QCOMPARE(client.fetches.size(), 1);
+        const qint64 before = bridge.cacheBytesUsed();
+        // A single-frame GIF is a still picture too.
+        client.succeed(client.fetches.first().opId, makeGif(64, 64, 1),
+                       QStringLiteral("image/gif"));
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(cached.count(), 0);
+        QCOMPARE(bridge.cacheBytesUsed(), before);
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, true), QString());
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, false), QString());
+        QCOMPARE(client.fetches.size(), 1);
+        // A new session forgets the verdict.
+        client.logout();
+        bridge.avatarAnimationSource(kMxc, true);
+        QCOMPARE(client.fetches.size(), 2);
+    }
+
+    // A server that answers the thumbnail with the animation itself (an
+    // original, or MSC2705) costs no second fetch.
+    void anAnimatedThumbnailNeedsNoSecondFetch()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.avatarSource(kMxc, 40);
+        client.succeed(client.fetches.first().opId, makeGif(64, 64, 2),
+                       QStringLiteral("image/gif"));
+        QVERIFY(bridge.avatarAnimationSource(kMxc, false)
+                    .startsWith(QStringLiteral("file://")));
+        QCOMPARE(client.fetches.size(), 1);
+    }
+
+    // The canvas bound is per role: an animation too large to play as an
+    // avatar is refused there and still plays as a banner, from the banner's
+    // own cached bytes. SVG never becomes a motion file.
+    void theCanvasBoundIsPerRoleAndMarkupNeverPlays()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const QByteArray big = makeGif(2048, 1024, 2); // 2 MP
+        bridge.avatarAnimationSource(kMxc, true);
+        client.succeed(client.fetches.last().opId, big,
+                       QStringLiteral("image/gif"));
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, true), QString());
+        const int fetched = client.fetches.size();
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, true), QString());
+        QCOMPARE(client.fetches.size(), fetched); // final for the session
+
+        // The banner path never dispatches; it reads wideImageSource's bytes.
+        QCOMPARE(bridge.wideAnimationSource(kMxc), QString());
+        QCOMPARE(client.fetches.size(), fetched);
+        bridge.wideImageSource(kMxc);
+        client.succeed(client.fetches.last().opId, big,
+                       QStringLiteral("image/gif"));
+        QVERIFY(bridge.wideAnimationSource(kMxc)
+                    .startsWith(QStringLiteral("file://")));
+        // ...and the avatar path still refuses the file the banner wrote.
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, true), QString());
+
+        const QString svg = QStringLiteral("mxc://example.org/svg");
+        bridge.avatarAnimationSource(svg, true);
+        client.succeed(client.fetches.last().opId,
+                       QByteArrayLiteral("<svg xmlns=\"http://www.w3.org/2000/svg\"/>"),
+                       QStringLiteral("image/gif"));
+        QCOMPARE(bridge.failureCategory(QStringLiteral("motion:") + svg),
+                 QStringLiteral("rejected"));
+        QCOMPARE(bridge.avatarAnimationSource(svg, true), QString());
+        bridge.wideImageSource(svg);
+        QCOMPARE(bridge.wideAnimationSource(svg), QString());
+    }
+
+    // A still banner stays a still: no file, and asking again is free.
+    void aStillBannerHasNoAnimation()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.wideImageSource(kMxc);
+        client.succeed(client.fetches.last().opId, pngBytes());
+        QCOMPARE(bridge.wideAnimationSource(kMxc), QString());
+        QCOMPARE(bridge.wideAnimationSource(kMxc), QString());
+        QCOMPARE(client.fetches.size(), 1);
+    }
+
+    // Playing avatars are bounded; a freed slot is announced (once per
+    // event-loop turn), a second claim by one owner is the same slot, and a
+    // destroyed owner frees its slot.
+    void motionSlotsAreBoundedAndFreedWithTheirOwner()
+    {
+        MediaBridge bridge;
+        QSignalSpy freed(&bridge, &MediaBridge::motionSlotFreed);
+        QList<QObject *> owners;
+        for (int i = 0; i < MediaBridge::kMaxMotionSlots + 1; ++i)
+            owners.append(new QObject(&bridge));
+        for (int i = 0; i < MediaBridge::kMaxMotionSlots; ++i)
+            QVERIFY(bridge.claimMotionSlot(owners.at(i)));
+        QVERIFY(bridge.claimMotionSlot(owners.first())); // already held
+        QCOMPARE(bridge.motionSlotsInUseForTest(), MediaBridge::kMaxMotionSlots);
+        QVERIFY(!bridge.claimMotionSlot(owners.last()));
+        QVERIFY(!bridge.claimMotionSlot(nullptr));
+        // Intent has a small reserve above the passive cap, and no more.
+        QList<QObject *> intents;
+        for (int i = 0; i < MediaBridge::kMotionIntentReserve + 1; ++i)
+            intents.append(new QObject(&bridge));
+        for (int i = 0; i < MediaBridge::kMotionIntentReserve; ++i)
+            QVERIFY(bridge.claimMotionSlot(intents.at(i), true));
+        QVERIFY(!bridge.claimMotionSlot(intents.last(), true));
+        // Several releases in one turn are announced once.
+        for (int i = 0; i < MediaBridge::kMotionIntentReserve; ++i)
+            bridge.releaseMotionSlot(intents.at(i));
+        QCOMPARE(freed.count(), 0);
+        QTRY_COMPARE(freed.count(), 1);
+        QCoreApplication::processEvents();
+        QCOMPARE(freed.count(), 1);
+        freed.clear();
+
+        bridge.releaseMotionSlot(owners.at(1));
+        QTRY_COMPARE(freed.count(), 1);
+        bridge.releaseMotionSlot(owners.at(1)); // not held: nothing happens
+        QCoreApplication::processEvents();
+        QCOMPARE(freed.count(), 1);
+        QVERIFY(bridge.claimMotionSlot(owners.last()));
+
+        delete owners.at(2); // never released explicitly
+        QCOMPARE(bridge.motionSlotsInUseForTest(),
+                 MediaBridge::kMaxMotionSlots - 1);
+        QTRY_COMPARE(freed.count(), 2);
+    }
+
+    // A hover's intent slot does not outlive the hover: claiming again
+    // without intent keeps it only as a passive slot, and gives it up when
+    // the passive cap is full.
+    void anIntentSlotIsGivenBackWhenTheIntentEnds()
+    {
+        MediaBridge bridge;
+        QObject hoverA, hoverB;
+        QList<QObject *> passive;
+        for (int i = 0; i < MediaBridge::kMaxMotionSlots; ++i)
+            passive.append(new QObject(&bridge));
+        for (int i = 0; i < MediaBridge::kMaxMotionSlots - 1; ++i)
+            QVERIFY(bridge.claimMotionSlot(passive.at(i)));
+        QVERIFY(bridge.claimMotionSlot(&hoverA, true));
+        // One passive slot is left, so hover A becomes that passive holder.
+        QVERIFY(bridge.claimMotionSlot(&hoverA, false));
+        QVERIFY(!bridge.claimMotionSlot(passive.last()));
+        // Passive cap now full: hover B's slot goes when its intent ends.
+        QVERIFY(bridge.claimMotionSlot(&hoverB, true));
+        QCOMPARE(bridge.motionSlotsInUseForTest(),
+                 MediaBridge::kMaxMotionSlots + 1);
+        QVERIFY(!bridge.claimMotionSlot(&hoverB, false));
+        QCOMPARE(bridge.motionSlotsInUseForTest(), MediaBridge::kMaxMotionSlots);
+        // So four hovers in a row cannot exhaust the reserve.
+        for (int i = 0; i < 2 * MediaBridge::kMotionIntentReserve; ++i) {
+            QObject hover;
+            QVERIFY(bridge.claimMotionSlot(&hover, true));
+            QVERIFY(!bridge.claimMotionSlot(&hover, false));
+        }
+        bridge.releaseMotionSlot(&hoverA);
+    }
+
+    // Over kMotionMaxBytes, or with an empty canvas, an animation never plays
+    // and is final for the session.
+    void anOversizeOrEmptyCanvasAnimationNeverPlays()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy ready(&bridge, &MediaBridge::animatedMediaReady);
+        // Past the byte bound by a comment extension.
+        const QByteArray huge =
+            makeGif(64, 64, 2, gifComment(QByteArray(8 * 1024 * 1024, 'x')));
+        QVERIFY(lightning::animsniff::isAnimation(huge));
+        bridge.avatarAnimationSource(kMxc, true);
+        client.succeed(client.fetches.last().opId, huge,
+                       QStringLiteral("image/gif"));
+        QCOMPARE(ready.count(), 0);
+        const int fetched = client.fetches.size();
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, true), QString());
+        QCOMPARE(client.fetches.size(), fetched);
+
+        const QString flat = QStringLiteral("mxc://example.org/flat");
+        const QByteArray zeroWidth = makeGif(0, 64, 2);
+        QVERIFY(lightning::animsniff::isAnimation(zeroWidth));
+        bridge.avatarAnimationSource(flat, true);
+        client.succeed(client.fetches.last().opId, zeroWidth,
+                       QStringLiteral("image/gif"));
+        QCOMPARE(ready.count(), 0);
+        QCOMPARE(bridge.avatarAnimationSource(flat, true), QString());
+        bridge.wideImageSource(flat);
+        client.succeed(client.fetches.last().opId, zeroWidth,
+                       QStringLiteral("image/gif"));
+        QCOMPARE(bridge.wideAnimationSource(flat), QString());
+    }
+
+    // Even an explicit probe downloads a whole original, so it waits in the
+    // heavy lane rather than taking the slots chrome keeps free.
+    void anExplicitProbeUsesTheHeavyLane()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        for (int i = 0; i < 6; ++i)
+            bridge.mediaSource(QStringLiteral("$full%1").arg(i),
+                               QStringLiteral("full"));
+        QCOMPARE(bridge.inflightCountForTest(), 6);
+        bridge.avatarAnimationSource(kMxc, true);
+        QCOMPARE(bridge.inflightCountForTest(), 6);
+        QCOMPARE(bridge.queuedCountForTest(), 1);
+        // Chrome still gets through.
+        bridge.avatarSource(QStringLiteral("mxc://example.org/other"), 40);
+        QCOMPARE(bridge.inflightCountForTest(), 7);
+    }
+
+    // Rust refuses an original over the probe's size class as "too_large":
+    // final for the session, not a transient mark that expires into another
+    // full download.
+    void aTooLargeProbeIsNotRetried()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.setFailureRetryMsForTest(0);
+        bridge.avatarAnimationSource(kMxc, true);
+        QCOMPARE(client.fetches.size(), 1);
+        client.fail(client.fetches.last().opId, QStringLiteral("too_large"));
+        bridge.checkInflightTimeouts(); // sweeps expired marks
+        QCOMPARE(bridge.avatarAnimationSource(kMxc, true), QString());
+        QCOMPARE(client.fetches.size(), 1);
+        // A transient failure, by contrast, may be asked again.
+        const QString other = QStringLiteral("mxc://example.org/net");
+        bridge.avatarAnimationSource(other, true);
+        client.fail(client.fetches.last().opId, QStringLiteral("network"));
+        bridge.checkInflightTimeouts();
+        bridge.avatarAnimationSource(other, true);
+        QCOMPARE(client.fetches.size(), 3);
+    }
+
+    // Keep-animation uploads the original frames, so metadata must be taken
+    // out first: GIF comments and non-looping application extensions (XMP),
+    // with the looping extension and every frame kept.
+    void gifMetadataIsStrippedAndTheAnimationKept()
+    {
+        namespace sniff = lightning::animsniff;
+        const QByteArray secret("GPS 54.6872N 25.2797E, taken by my phone");
+        const QByteArray xmp =
+            QByteArrayLiteral("<x:xmpmeta>") + secret + "</x:xmpmeta>";
+        const QByteArray dirty = makeGif(
+            64, 64, 3,
+            gifComment(secret) + gifAppExtension("XMP DataXMP", xmp)
+                + gifAppExtension("ICCRGBG1012", QByteArray(40, 'i')));
+        QVERIFY(dirty.contains(secret));
+        const QByteArray clean = sniff::stripGifMetadata(dirty);
+        QVERIFY(!clean.isEmpty());
+        QVERIFY(!clean.contains(secret));
+        QVERIFY(!clean.contains("XMP DataXMP"));
+        QVERIFY(!clean.contains("ICCRGBG1"));
+        QVERIFY(clean.contains("NETSCAPE2.0")); // it still loops
+        QCOMPARE(sniff::gifFrameCount(clean, 9), 3);
+        QCOMPARE(sniff::canvasSize(clean), QSize(64, 64));
+        // Nothing but the metadata went: a clean file is unchanged.
+        const QByteArray plain = makeGif(64, 64, 3);
+        QCOMPARE(sniff::stripGifMetadata(plain), plain);
+        QByteArray bytes = clean;
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::ReadOnly);
+        QImageReader reader(&buffer, "gif");
+        QCOMPARE(reader.imageCount(), 3);
+        // Bytes after the trailer are dropped too.
+        QCOMPARE(sniff::stripGifMetadata(plain + secret), plain);
+    }
+
+    void webpMetadataIsStrippedAndTheAnimationKept()
+    {
+        namespace sniff = lightning::animsniff;
+        const QByteArray secret("GPS 54.6872N 25.2797E");
+        const QByteArray webp = realAnimatedWebp();
+        QVERIFY(sniff::isAnimation(webp));
+        const QByteArray dirty = withWebpMetadata(
+            webp, QByteArray("Exif\0\0", 6) + secret,
+            QByteArrayLiteral("<x:xmpmeta>") + secret + "</x:xmpmeta>");
+        QVERIFY(dirty.contains(secret));
+        const QByteArray clean = sniff::stripWebpMetadata(dirty);
+        QVERIFY(!clean.isEmpty());
+        QVERIFY(!clean.contains(secret));
+        QVERIFY(!clean.contains("EXIF"));
+        QVERIFY(!clean.contains("XMP "));
+        // Flags cleared, RIFF size rewritten: byte for byte the clean original.
+        QCOMPARE(clean, webp);
+        QVERIFY(sniff::isAnimation(clean));
+        // Trailing bytes past the RIFF payload are dropped.
+        QCOMPARE(sniff::stripWebpMetadata(webp + secret), webp);
+        // So is a chunk nobody here knows, whatever it is called.
+        for (const char *fourcc : { "Exif", "zTXt" }) {
+            QByteArray vendor = webp + riffChunk(fourcc, secret);
+            const quint32 riff = quint32(vendor.size() - 8);
+            for (int i = 0; i < 4; ++i)
+                vendor[4 + i] = char((riff >> (8 * i)) & 0xff);
+            QVERIFY(vendor.contains(secret));
+            QCOMPARE(sniff::stripWebpMetadata(vendor), webp);
+        }
+        if (QImageReader::supportedImageFormats().contains("webp")) {
+            QByteArray bytes = clean;
+            QBuffer buffer(&bytes);
+            buffer.open(QIODevice::ReadOnly);
+            QImageReader reader(&buffer, "webp");
+            QCOMPARE(reader.imageCount(), 2);
+        }
+    }
+
+    // Anything the parser cannot walk is refused, never passed through.
+    void malformedAnimationsAreRefusedByTheStripper()
+    {
+        namespace sniff = lightning::animsniff;
+        const QByteArray gif = makeGif(64, 64, 2, gifComment("note"));
+        QVERIFY(sniff::stripGifMetadata(gif.left(gif.size() - 1)).isEmpty());
+        QVERIFY(sniff::stripGifMetadata(gif.left(40)).isEmpty());
+        QByteArray badApp = makeGif(64, 64, 2,
+                                    QByteArray("\x21\xff\x05short\x00", 9));
+        QVERIFY(sniff::stripGifMetadata(badApp).isEmpty());
+        QByteArray badTag = makeGif(64, 64, 2, QByteArray("\x42", 1));
+        QVERIFY(sniff::stripGifMetadata(badTag).isEmpty());
+
+        const QByteArray webp = realAnimatedWebp();
+        QByteArray longRiff = webp;
+        longRiff[4] = char(0xff); // RIFF size past the end
+        QVERIFY(sniff::stripWebpMetadata(longRiff).isEmpty());
+        QByteArray longChunk = webp;
+        longChunk[17] = char(0xff); // VP8X size 65290: past the RIFF payload
+        QVERIFY(sniff::stripWebpMetadata(longChunk).isEmpty());
+        QVERIFY(sniff::stripWebpMetadata(webp.left(30)).isEmpty());
+        QVERIFY(sniff::stripAnimationMetadata(pngBytes()).isEmpty());
+        QVERIFY(sniff::stripAnimationMetadata(
+                    QByteArrayLiteral("<svg xmlns=\"x\"/>")).isEmpty());
     }
 };
 
