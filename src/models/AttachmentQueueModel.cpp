@@ -17,6 +17,8 @@
 #include <QThreadPool>
 #include <QTimer>
 
+#include <memory>
+
 AttachmentQueueModel::AttachmentQueueModel(QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -210,11 +212,13 @@ void AttachmentQueueModel::startPosterJob(int row)
     m_posterExtractor->requestPoster(entry.posterTag, entry.localPath);
 }
 
-// Rendered on the global pool: a complex SVG can take a while and must not
-// stall the GUI thread. The render cannot be interrupted, so a timer bounds
-// how long it may hold the dispatch; a late result is ignored by
-// applyPoster(). A refusal or a build without Qt SVG sends the file with no
-// thumbnail.
+// Rendered off the GUI thread on the SVG pool (svgthumb::renderPool()): a
+// complex SVG can take a while. The render cannot be interrupted, so a timer
+// bounds how long it may hold the dispatch and a late result is ignored by
+// applyPoster(). A render queued behind others waits at most that long too:
+// the timer cancels it. Only while every pool thread is held by a render past
+// its timeout (a hostile file) is a new one refused. A refusal or a build
+// without Qt SVG sends the file with no thumbnail.
 void AttachmentQueueModel::startSvgThumbnailJob(int row)
 {
     const QString tag = m_entries.at(row).posterTag;
@@ -222,9 +226,17 @@ void AttachmentQueueModel::startSvgThumbnailJob(int row)
         applyPoster(tag, {}, {}, {}, 0);
         return;
     }
+    if (lightning::svgthumb::poolExhausted()) {
+        qCInfo(lcAttach) << "svg thumbnail skipped reason=busy";
+        applyPoster(tag, {}, {}, {}, 0);
+        return;
+    }
     const QString path = m_entries.at(row).localPath;
     QPointer<AttachmentQueueModel> self(this);
-    QThreadPool::globalInstance()->start([self, tag, path] {
+    const auto ticket = std::make_shared<lightning::svgthumb::RenderTicket>();
+    lightning::svgthumb::renderPool()->start([self, tag, path, ticket] {
+        if (!ticket->begin())
+            return; // timed out while queued
         QByteArray bytes;
         QFile file(path);
         // One byte over the bound, so an oversized file is refused rather
@@ -233,6 +245,7 @@ void AttachmentQueueModel::startSvgThumbnailJob(int row)
             bytes = file.read(lightning::svgthumb::kMaxSourceBytes + 1);
         const lightning::svgthumb::Result result =
             lightning::svgthumb::render(bytes);
+        ticket->finish();
         QCoreApplication *app = QCoreApplication::instance();
         if (!app)
             return;
@@ -246,6 +259,12 @@ void AttachmentQueueModel::startSvgThumbnailJob(int row)
             self->applyPoster(tag, result.png, result.size, result.intrinsic, 0);
         }, Qt::QueuedConnection);
     });
+    // Not tied to this model: a render still hung after the model is gone
+    // must still count as stuck.
+    if (QCoreApplication *app = QCoreApplication::instance()) {
+        QTimer::singleShot(kSvgThumbnailTimeoutMs, app,
+                           [ticket] { ticket->expire(); });
+    }
     QTimer::singleShot(kSvgThumbnailTimeoutMs, this, [this, tag] {
         const int pending = rowForPosterTag(tag);
         if (pending >= 0 && m_entries.at(pending).posterPending) {

@@ -3,6 +3,7 @@
 #include "gif/GifProvider.h"
 #include "gif/GifResultModel.h"
 #include "gif/GifFavoritesModel.h"
+#include "gif/GifPreviewCache.h"
 #include "gif/GifRecentModel.h"
 #include "gif/GifSavedModel.h"
 #include "gif/GifStarredStore.h"
@@ -42,6 +43,9 @@ class GifSearchController : public QObject
     // The picker's single "Saved" list, a view over both collections (see
     // GifSavedModel).
     Q_PROPERTY(GifSavedModel *saved READ saved CONSTANT)
+    // Validated local copies of the tiles' provider previews (see
+    // GifPreviewCache). A tile never loads a provider URL itself.
+    Q_PROPERTY(GifPreviewCache *previews READ previews CONSTANT)
     Q_PROPERTY(bool available READ available NOTIFY availableChanged)
     Q_PROPERTY(QStringList providerIds READ providerIds CONSTANT)
     Q_PROPERTY(QString providerId READ providerId NOTIFY providerChanged)
@@ -86,6 +90,7 @@ public:
     GifRecentModel *recent() { return m_recent.get(); }
     GifStarredStore *starredStore() const { return m_starred.get(); }
     GifSavedModel *saved() const { return m_saved.get(); }
+    GifPreviewCache *previews() const { return m_previews.get(); }
 
     // Opens/closes the local saved store for an account-scoped, validated
     // directory (matrix::app_data::accountRoot()). Called only by AppController
@@ -174,6 +179,7 @@ private:
     // Declared after both sources so it is constructed last and destroyed
     // first.
     std::unique_ptr<GifSavedModel> m_saved;
+    std::unique_ptr<GifPreviewCache> m_previews;
     GifTransport *m_transport = nullptr;
 
     QString m_activeProviderId = QStringLiteral("giphy");

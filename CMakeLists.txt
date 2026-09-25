@@ -183,9 +183,9 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     Multimedia
 )
 # Qt SVG library for thumbnails of SVGs the user sends. Linking it makes the
-# deploy tools add the qsvg image PLUGIN, which the AppImage and macOS builds
-# prune: nothing received is decoded as SVG. Global so every target compiling
-# SvgThumbnail.h sees one definition.
+# deploy tools add the qsvg image PLUGIN, which the AppImage, macOS and Windows
+# builds leave out: nothing received is decoded as SVG. Global so every target
+# compiling SvgThumbnail.h sees one definition.
 option(LIGHTNING_REQUIRE_QT_SVG "Fail configure without Qt SVG" OFF)
 find_package(Qt6 6.5 QUIET COMPONENTS Svg)
 if(TARGET Qt6::Svg)
@@ -550,6 +550,8 @@ set(APP_SOURCES
     src/gif/GifStarredStore.h
     src/gif/GifStarredStore.cpp
     src/gif/GifTransport.h
+    src/gif/GifPreviewCache.h
+    src/gif/GifPreviewCache.cpp
     src/gif/GifSearchController.h
     src/gif/GifSearchController.cpp
     src/gif/GifSendController.h
@@ -1644,6 +1646,8 @@ if(BUILD_TESTING)
         src/gif/GifStarredStore.h
         src/gif/GifStarredStore.cpp
         src/gif/GifTransport.h
+        src/gif/GifPreviewCache.h
+        src/gif/GifPreviewCache.cpp
         src/gif/GifSearchController.h
         src/gif/GifSearchController.cpp
     )
@@ -1671,6 +1675,9 @@ if(BUILD_TESTING)
         tests/GifSendControllerDedupTest.cpp
         src/gif/GifSendController.h
         src/gif/GifSendController.cpp
+        src/gif/GifTransport.h
+        src/gif/MatrixGifTransport.h
+        src/gif/MatrixGifTransport.cpp
         src/gif/GifResponseParser.h
         src/gif/GifResponseParser.cpp
         src/gif/GifResultModel.h

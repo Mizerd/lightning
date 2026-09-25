@@ -31,6 +31,12 @@ WHAT THIS ASSERTS, and why each one:
    pin, reading as evidence for it. Prose that describes the old state as
    current is how the README drifted a whole release too.
 
+5. The gst-ximagesrc module (the one plugin built into /app because the KDE
+   runtime's GStreamer has no ximagesrc) is built from the GStreamer series the
+   pinned runtime ships, and both manifests pin the same tarball and sha256.
+   GStreamer still loads a plugin from an older minor, so a runtime bump that
+   forgets it keeps working and goes stale in silence.
+
 It deliberately does NOT fetch anything. A test that needs the network fails
 for reasons that are not the code, and `config-tests` runs on every pipeline.
 """
@@ -42,7 +48,20 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "org.lightning_matrix.Lightning.yaml"
+CI_MANIFEST = (ROOT / "packaging-ci" / "packaging" / "flatpak"
+               / "org.lightning_matrix.Lightning.yaml.in")
 CMAKE = ROOT / "CMakeLists.txt"
+
+# The GStreamer series (major.minor) each org.kde.Platform runtime-version
+# ships. When bumping runtime-version, add the new runtime here and move the
+# gst-ximagesrc tarball in BOTH manifests to that series. To read a runtime's
+# version:
+#   flatpak run --command=gst-inspect-1.0 org.kde.Platform//<ver> --version
+# 6.11: 1.26.11, measured in the Flatpak by pipeline 230 on 2026-09-17
+# (docs/live-validation.md).
+KDE_RUNTIME_GSTREAMER = {
+    "6.11": "1.26",
+}
 
 failures = []
 checks = 0
@@ -65,7 +84,71 @@ def tree_version() -> str:
     return m.group(1)
 
 
+def ximagesrc_source(text: str):
+    """(url, sha256) of the gst-ximagesrc module's archive, or None."""
+    m = re.search(r"^(\s*)- name:\s*gst-ximagesrc\s*$", text, re.M)
+    if not m:
+        return None
+    indent = m.group(1)
+    rest = text[m.end():]
+    end = re.search(rf"^{re.escape(indent)}- name:", rest, re.M)
+    block = rest[:end.start()] if end else rest
+    url = re.search(r"^\s*url:\s*(\S+)\s*$", block, re.M)
+    sha = re.search(r"^\s*sha256:\s*(\S+)\s*$", block, re.M)
+    if not url or not sha:
+        return None
+    return url.group(1), sha.group(1)
+
+
+def runtime_version(text: str):
+    m = re.search(r'^runtime-version:\s*"?([^"\s]+)"?\s*$', text, re.M)
+    return m.group(1) if m else None
+
+
+def check_ximagesrc_pin() -> None:
+    print("gst-ximagesrc against the runtime's GStreamer")
+    if not CI_MANIFEST.is_file():
+        check(False, f"{CI_MANIFEST} exists")
+        return
+    manifests = {"submission": MANIFEST.read_text(),
+                 "CI": CI_MANIFEST.read_text()}
+    runtimes = {name: runtime_version(text) for name, text in manifests.items()}
+    sources = {name: ximagesrc_source(text) for name, text in manifests.items()}
+    for name in manifests:
+        check(runtimes[name] is not None,
+              f"the {name} manifest pins a runtime-version")
+        check(sources[name] is not None,
+              f"the {name} manifest builds gst-ximagesrc from one archive "
+              f"with a sha256")
+    check(runtimes["submission"] == runtimes["CI"],
+          f"both manifests use one runtime-version ({runtimes})")
+    check(sources["submission"] == sources["CI"],
+          "both manifests pin the same gst-plugins-good tarball and sha256")
+    source = sources["submission"]
+    runtime = runtimes["submission"]
+    if source is None or runtime is None:
+        return
+    url, sha = source
+    check(re.fullmatch(r"[0-9a-f]{64}", sha) is not None,
+          "the tarball sha256 is 64 hex characters")
+    version = re.search(r"/gst-plugins-good-(\d+)\.(\d+)\.(\d+)\.tar\.xz$",
+                        url)
+    check(version is not None,
+          f"the archive is a gst-plugins-good release tarball ({url})")
+    series = KDE_RUNTIME_GSTREAMER.get(runtime)
+    check(series is not None,
+          f"the GStreamer series of org.kde.Platform {runtime} is recorded in "
+          f"KDE_RUNTIME_GSTREAMER (add it when bumping runtime-version)")
+    if version is None or series is None:
+        return
+    pinned = f"{version.group(1)}.{version.group(2)}"
+    check(pinned == series,
+          f"gst-plugins-good {version.group(0)[len('/gst-plugins-good-'):-7]} "
+          f"is from the runtime's GStreamer {series} series")
+
+
 def main() -> int:
+    check_ximagesrc_pin()
     print("Flathub submission manifest pin")
     if not MANIFEST.is_file():
         print(f"  FAIL: {MANIFEST} is missing")

@@ -8,9 +8,10 @@ import MatrixClient
 // app.gif: the controller owns provider selection, request lifecycle,
 // debounce, pagination and safe-search; this component only presents them.
 //
-// Tiles load the provider's small preview (a public CDN URL, no Matrix
-// secret) directly; the full GIF is downloaded and validated only when
-// chosen, on its way into the Matrix attachment pipeline.
+// Tiles never load a provider URL themselves: previews and stills come from
+// app.gif.previews as local copies of downloaded, GIF-validated bytes, so an
+// SVG answer cannot reach Qt's image decoders. The full GIF is downloaded and
+// validated only when chosen, on its way into the Matrix attachment pipeline.
 //
 // A star means one thing everywhere: "save this GIF". Saved GIFs live in one
 // Saved tab (GifSavedModel merges the two stores, which stay separate for the
@@ -628,6 +629,24 @@ AnchoredPopup {
                 readonly property string localExt:
                     tile.provider === "local"
                         ? picker.gif.starredStore.sourceExt(tile.gifId) : ""
+                // Provider tiles: validated local copies from
+                // app.gif.previews, "" until downloaded. The revision
+                // re-evaluates them as copies arrive.
+                readonly property string stillSource: {
+                    var rev = picker.gif.previews.revision
+                    return tile.provider === "local" ? ""
+                        : picker.gif.previews.source(tile.stillUrl, true)
+                }
+                readonly property string previewSource: {
+                    var rev = picker.gif.previews.revision
+                    return tile.provider === "local" ? ""
+                        : picker.gif.previews.source(tile.previewUrl, false)
+                }
+                // Keeps this tile's copies cached while it exists.
+                readonly property var heldUrls: tile.provider === "local"
+                    ? [] : [tile.stillUrl, tile.previewUrl]
+                onHeldUrlsChanged: picker.gif.previews.hold(tile, heldUrls)
+                Component.onCompleted: picker.gif.previews.hold(tile, heldUrls)
 
                 // The record this delegate is rendering, from its own
                 // properties rather than re-queried by index, so a click sends
@@ -659,14 +678,16 @@ AnchoredPopup {
                     border.color: AppTheme.bolt
                     clip: true
 
-                    // The still shows immediately; the animation plays on top
-                    // once decoded, only while the picker is visible. Local
+                    // The still (fetched first; GIF stills only) shows until
+                    // the animation is decoded, which then plays on top only
+                    // while the picker is visible. Local
                     // PNG/JPEG/WebP tiles never reach AnimatedImage Ready, so
                     // this Image remains their renderer.
                     Image {
+                        id: still
                         anchors.fill: parent
                         source: tile.provider === "local"
-                                ? tile.localSource : tile.stillUrl
+                                ? tile.localSource : tile.stillSource
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -693,7 +714,7 @@ AnchoredPopup {
                                 ? (tile.localExt.length === 0
                                    || tile.localExt === "gif"
                                    ? tile.localSource : "")
-                                : tile.previewUrl
+                                : tile.previewSource
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -705,6 +726,19 @@ AnchoredPopup {
                         Accessible.role: Accessible.Button
                         Accessible.name: tile.title.length > 0
                             ? qsTr("GIF: %1").arg(tile.title) : qsTr("GIF")
+                    }
+
+                    // Placeholder while a provider tile has nothing to show
+                    // yet (a KLIPY still is never fetched).
+                    Icon {
+                        objectName: "gifTilePlaceholder"
+                        anchors.centerIn: parent
+                        visible: tile.provider !== "local"
+                                 && still.status !== Image.Ready
+                                 && anim.status !== AnimatedImage.Ready
+                        name: "gif_box"
+                        size: 28
+                        color: AppTheme.textMuted
                     }
 
                     // The tile body sends; right-click or the star

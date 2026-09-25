@@ -9,6 +9,7 @@
 // GifSendControllerTest's FakeSendClient harness.
 #include "gif/GifSendController.h"
 #include "gif/GifRecentModel.h"
+#include "gif/MatrixGifTransport.h"
 #include "matrix/MockMatrixClient.h"
 
 #include <QCoreApplication>
@@ -132,6 +133,7 @@ private Q_SLOTS:
     void differentGifNotDeduplicated();
     void repeatAfterSuccessIsNotBlocked();
     void repeatAfterFailureIsNotBlocked();
+    void transportRelaysDownloadsAndSessionEnd();
 };
 
 void GifSendControllerDedupTest::identicalRoomActivationWhileFirstInFlightSendsOnce()
@@ -231,6 +233,38 @@ void GifSendControllerDedupTest::repeatAfterFailureIsNotBlocked()
     send->sendToRoom(QStringLiteral("!room:hs"), gifMap("giphy", "a"));
     QCOMPARE(client->downloadedUrls.size(), 2);
     QCOMPARE(send->activeCount(), 1);
+}
+
+// The picker's preview cache hears downloads and sign-out only through
+// MatrixGifTransport, so both relays are load-bearing.
+void GifSendControllerDedupTest::transportRelaysDownloadsAndSessionEnd()
+{
+    FakeDedupClient client;
+    MatrixGifTransport transport;
+    transport.setClient(&client);
+    QSignalSpy downloaded(&transport, &GifTransport::downloadFinished);
+    QSignalSpy ended(&transport, &GifTransport::sessionEnded);
+
+    const QString url =
+        QStringLiteral("https://media.giphy.com/media/relay/200w.gif");
+    const quint64 op = transport.download(url);
+    QVERIFY(op != 0);
+    QCOMPARE(client.downloadedUrls, QList<QString>{ url });
+
+    client.finishDownload(op, true);
+    QCOMPARE(downloaded.count(), 1);
+    QCOMPARE(downloaded.at(0).at(0).toULongLong(), op);
+    QVERIFY(downloaded.at(0).at(1).toBool());
+    QCOMPARE(downloaded.at(0).at(2).toByteArray(),
+             FakeDedupClient::realGifBytes());
+    client.finishDownload(op + 1, false);
+    QCOMPARE(downloaded.count(), 2);
+    QVERIFY(!downloaded.at(1).at(1).toBool());
+    QCOMPARE(downloaded.at(1).at(3).toString(), QStringLiteral("network"));
+
+    QCOMPARE(ended.count(), 0);
+    Q_EMIT client.loggedOut();
+    QCOMPARE(ended.count(), 1);
 }
 
 QTEST_MAIN(GifSendControllerDedupTest)

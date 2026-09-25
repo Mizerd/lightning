@@ -1972,7 +1972,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tracing-subscriber",
- "unicode-normalization",
  "url",
 ]
 

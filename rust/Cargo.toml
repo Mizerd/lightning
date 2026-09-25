@@ -42,8 +42,6 @@ reqwest = { version = "0.13.4", default-features = false, features = ["rustls", 
 url = "2"
 # The local message index. Already in Cargo.lock via matrix-sdk-sqlite.
 rusqlite = { version = "0.37", default-features = false }
-# Already in Cargo.lock at this version via idna/url.
-unicode-normalization = "0.1"
 base64 = "0.22"
 html5ever = "0.39.0"
 tendril = "0.5"

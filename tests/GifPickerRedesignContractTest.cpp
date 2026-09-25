@@ -265,8 +265,10 @@ private Q_SLOTS:
         QVERIFY(picker.contains(QStringLiteral("playing: picker.visible")));
         {
             // A locally saved tile has no provider URLs; both image branches
-            // switch on tile.provider, and the non-local fallback is exactly
-            // tile.stillUrl / tile.previewUrl. Bounded to the tile delegate.
+            // switch on tile.provider, and the non-local fallback is the
+            // validated local copy from app.gif.previews, never the provider
+            // URL itself (an SVG answer must not reach Qt's decoders). Bounded
+            // to the tile delegate.
             const int tileStart =
                 picker.indexOf(QStringLiteral("delegate: Item {"));
             const int tileEnd = picker.indexOf(
@@ -275,7 +277,7 @@ private Q_SLOTS:
             const QString tileBlock = picker.mid(tileStart, tileEnd - tileStart);
             QVERIFY(tileBlock.contains(QStringLiteral(
                 "source: tile.provider === \"local\"\n"
-                "                                ? tile.localSource : tile.stillUrl")));
+                "                                ? tile.localSource : tile.stillSource")));
             // A local still (png/jpg/webp) never feeds the movie backend: the
             // local branch narrows to GIF or legacy rows.
             QVERIFY(tileBlock.contains(QStringLiteral(
@@ -283,7 +285,17 @@ private Q_SLOTS:
                 "                                ? (tile.localExt.length === 0\n"
                 "                                   || tile.localExt === \"gif\"\n"
                 "                                   ? tile.localSource : \"\")\n"
-                "                                : tile.previewUrl")));
+                "                                : tile.previewSource")));
+            QVERIFY(tileBlock.contains(QStringLiteral(
+                "picker.gif.previews.source(tile.stillUrl, true)")));
+            QVERIFY(tileBlock.contains(QStringLiteral(
+                "picker.gif.previews.source(tile.previewUrl, false)")));
+            QVERIFY(tileBlock.contains(QStringLiteral(
+                "picker.gif.previews.hold(tile, heldUrls)")));
+            QVERIFY(!tileBlock.contains(QStringLiteral(": tile.previewUrl\n")));
+            QVERIFY(!tileBlock.contains(QStringLiteral(": tile.stillUrl\n")));
+            QVERIFY(!tileBlock.contains(QStringLiteral("source: tile.previewUrl")));
+            QVERIFY(!tileBlock.contains(QStringLiteral("source: tile.stillUrl")));
             // The sendable original is never a live image source. tile.gifUrl
             // appears legitimately in snapshot()'s field capture, so the check
             // is scoped to a `source:` binding.

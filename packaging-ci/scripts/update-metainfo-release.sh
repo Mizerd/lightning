@@ -56,9 +56,7 @@ if [ "$command" = check ]; then
 import re, sys
 path, want = sys.argv[1], sys.argv[2]
 text = open(path, encoding="utf-8").read()
-# Mask comments -- same length, so offsets still line up -- before looking for
-# any element. A comment that merely NAMES a tag is not that tag, and a search
-# that cannot tell the difference will splice into prose.
+# Mask comments (same length) so a comment naming a tag never matches.
 text = re.sub(r"<!--.*?-->", lambda m: " " * len(m.group(0)), text, flags=re.S)
 block = re.search(r"<releases\b[^>]*>(.*?)</releases>", text, re.S)
 if not block:
@@ -100,13 +98,8 @@ import html, re, sys, textwrap
 
 path, notes_path, version, date, url_prefix = sys.argv[1:6]
 
-# --- the lead paragraph of the release notes -------------------------------
-#
-# Everything between the "# Lightning X.Y.Z" title and the first "## " section,
-# first non-empty block only. Deliberately NOT the "## " headings: several
-# releases head a section "Calls", "Under the hood" or "Known limitations",
-# which say nothing on their own and would read as a changelog that is mostly
-# filler. The lead paragraph is the summary its author already wrote.
+# The notes' lead paragraph: the first block under the title, before any
+# "## " section. Section headings alone say nothing.
 lines = open(notes_path, encoding="utf-8").read().splitlines()
 start = next((i + 1 for i, l in enumerate(lines) if l.startswith("# ")), None)
 if start is None:
@@ -131,9 +124,8 @@ text = re.sub(r"\*\*(.+?)\*\*", r"<em>\1</em>", text)      # AppStream has no <s
 text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
 text = re.sub(r"\s+", " ", text).strip()
 
-# NEVER break on a hyphen or inside a word. textwrap's defaults do both, and
-# AppStream collapses the newline to a SPACE: 0.9.9's "first-class" wrapped as
-# "first-" / "class" and the Flathub store page read "first- class".
+# Never break on a hyphen or inside a word: AppStream turns the newline into
+# a space ("first- class").
 body = "\n".join("          " + l for l in textwrap.wrap(
     text, 70, break_on_hyphens=False, break_long_words=False))
 entry = (
@@ -145,13 +137,9 @@ entry = (
     f"    </release>\n"
 )
 
-# --- splice it in ----------------------------------------------------------
-#
-# Every match is found in a COMMENT-MASKED copy and applied to the original by
-# offset. The mask is the same length as what it replaces, so the offsets are
-# identical in both. This is not fastidiousness: a first revision searched the
-# raw text, matched a comment that merely named the element, and replaced the
-# whole document with one release entry.
+# Splice it in. Matches come from a comment-masked copy of the same length and
+# apply to the original by offset, so a comment naming an element never
+# matches.
 doc = open(path, encoding="utf-8").read()
 masked = re.sub(r"<!--.*?-->", lambda m: " " * len(m.group(0)), doc, flags=re.S)
 
@@ -159,9 +147,8 @@ v = re.escape(version)
 spans = [m.span() for m in re.finditer(
     rf'[ \t]*<release\b[^>]*\bversion="{v}"[^>]*(?:/>|>.*?</release>)[ \t]*\n',
     masked, flags=re.S)]
-# Idempotent: drop any existing entry for this exact version, paired or
-# self-closing, before prepending the new one. Reverse order so earlier
-# offsets stay valid.
+# Replace any existing entry for this version. Reverse order keeps offsets
+# valid.
 for start, end in reversed(spans):
     doc = doc[:start] + doc[end:]
     masked = masked[:start] + masked[end:]

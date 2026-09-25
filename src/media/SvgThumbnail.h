@@ -20,6 +20,12 @@
 // Rendering needs Qt SVG (`LIGHTNING_HAVE_QT_SVG`, set by CMake when the
 // module is linked). Without it `render()` reports "unavailable". The screen
 // is Qt Core only and always compiled.
+//
+// Renders run on renderPool(), never the global pool: QtSvg cannot be
+// interrupted, so a hostile file can hold its thread long after the caller
+// gave up on it. A render still running when its caller's timeout fires is
+// counted as stuck (RenderTicket); callers queue renders normally and refuse
+// only while every pool thread is stuck.
 
 #include <QByteArray>
 #include <QBuffer>
@@ -28,9 +34,11 @@
 #include <QSizeF>
 #include <QString>
 #include <QStringView>
+#include <QThreadPool>
 #include <QXmlStreamReader>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 #if defined(LIGHTNING_HAVE_QT_SVG)
@@ -57,6 +65,73 @@ inline constexpr int kMaxThumbHeight = 600;
 inline constexpr qsizetype kMaxThumbBytes = 2 * 1024 * 1024;
 /// Declared intrinsic sizes beyond this are clamped for the event metadata.
 inline constexpr int kMaxIntrinsicEdge = 65535;
+
+/// Renders that may run at once. A render stuck in QtSvg keeps its thread,
+/// so this is also how many threads hostile files can ever hold.
+inline constexpr int kMaxConcurrentRenders = 2;
+
+/// The pool renders run on. Deliberately never destroyed: its destructor
+/// would wait at exit for a render that may never finish.
+inline QThreadPool *renderPool()
+{
+    static QThreadPool *const pool = [] {
+        auto *created = new QThreadPool;
+        created->setObjectName(QStringLiteral("svg-thumbnail"));
+        created->setMaxThreadCount(kMaxConcurrentRenders);
+        return created;
+    }();
+    return pool;
+}
+
+/// Renders that outlived their caller's timeout and still hold a pool thread.
+inline std::atomic<int> &stuckRenders()
+{
+    static std::atomic<int> count{0};
+    return count;
+}
+
+/// True while every pool thread is held by a stuck render: a new render would
+/// only queue behind them.
+inline bool poolExhausted()
+{
+    return stuckRenders().load() >= kMaxConcurrentRenders;
+}
+
+/// One render's life, shared by the worker and the caller's timeout.
+class RenderTicket
+{
+public:
+    /// Worker, before rendering. False when the caller already gave up.
+    bool begin()
+    {
+        int expected = Queued;
+        return m_state.compare_exchange_strong(expected, Running);
+    }
+    /// Worker, after rendering.
+    void finish()
+    {
+        if (m_state.exchange(Done) == Stuck)
+            --stuckRenders();
+    }
+    /// The caller's timeout. A queued render will not run; a running one
+    /// counts as stuck until it returns.
+    void expire()
+    {
+        int expected = Queued;
+        if (m_state.compare_exchange_strong(expected, Cancelled)
+            || expected != Running)
+            return;
+        // Counted first, so finish() can never decrement before this.
+        ++stuckRenders();
+        expected = Running;
+        if (!m_state.compare_exchange_strong(expected, Stuck))
+            --stuckRenders(); // it finished in between
+    }
+
+private:
+    enum State { Queued, Running, Done, Cancelled, Stuck };
+    std::atomic<int> m_state{Queued};
+};
 
 /// True for the MIME types QMimeDatabase reports for SVG and SVGZ.
 inline bool isSvgMime(const QString &mime)

@@ -102,6 +102,9 @@ for forbidden in "$STAGE/qml/QtTest" "$STAGE/qml/Qt/test" \
     "$STAGE/Qt6Test.dll" "$STAGE/Qt6QuickTest.dll"; do
     [[ ! -e "$forbidden" ]] || die "test-only Qt runtime found in portable payload: $forbidden"
 done
+# The SVG image plugin would let a received SVG reach a decoder (CLAUDE.md §6).
+[[ ! -e "$STAGE/plugins/imageformats/qsvg.dll" ]] || \
+    die "the SVG image plugin was staged: plugins/imageformats/qsvg.dll"
 
 # --- The call media engine ---------------------------------------------------
 #
@@ -290,6 +293,9 @@ awk -F'\t' 'NR > 3 { split($3, n, "|"); print (n[2] != "" ? n[2] : n[1]) }' \
     "$REPORTS/msi-File.idt" | LC_ALL=C sort >"$msi_payload"
 # The File table records names, not paths, so compare basenames.
 unzip -Z1 "$portable" | sed 's:.*/::' | grep -v '^$' | LC_ALL=C sort >"$zip_payload"
+if grep -Fxq 'qsvg.dll' "$msi_payload" "$zip_payload"; then
+    die "the SVG image plugin qsvg.dll is in the MSI or the portable ZIP"
+fi
 
 # The install scope marker (issue #14) appears as two File rows of one name
 # under opposite component conditions.
@@ -419,6 +425,8 @@ for plugin in "${gst_plugins[@]}"; do
     [[ -f "$EXTRACTED/$gst_plugin_dir/$plugin" ]] || \
         die "extracted portable ZIP is missing the GStreamer plugin $gst_plugin_dir/$plugin"
 done
+[[ ! -e "$EXTRACTED/plugins/imageformats/qsvg.dll" ]] || \
+    die "the extracted portable ZIP carries the SVG image plugin qsvg.dll"
 
 # Runtime closure over the extracted tree. The plugin set, QML imports and
 # system-DLL allowlist are read from stage-windows-runtime.py rather than

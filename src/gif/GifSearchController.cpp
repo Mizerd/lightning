@@ -16,6 +16,7 @@ GifSearchController::GifSearchController(QObject *parent)
     // GifSavedModel).
     , m_saved(std::make_unique<GifSavedModel>(m_starred->model(),
                                               m_favorites.get(), this))
+    , m_previews(std::make_unique<GifPreviewCache>(this))
     , m_provider(gif::makeGifProvider(m_activeProviderId))
 {
     // Resolve provider keys (environment > local env file > build key >
@@ -48,6 +49,7 @@ void GifSearchController::setTransport(GifTransport *transport)
     if (m_transport)
         m_transport->disconnect(this);
     m_transport = transport;
+    m_previews->setTransport(transport);
     if (m_transport) {
         connect(m_transport, &GifTransport::finished, this,
                 &GifSearchController::onFinished);
@@ -334,6 +336,8 @@ void GifSearchController::onFinished(quint64 opId, bool ok, int /*httpStatus*/,
 void GifSearchController::reset()
 {
     m_debounce.stop();
+    // The picker closed; fetched previews stay cached for the next open.
+    m_previews->setActive(false);
     m_activeOp = 0;
     m_page = 0;
     m_hasMore = false;
@@ -374,6 +378,8 @@ void GifSearchController::notifyPickerOpening(const QString &target)
     // any sibling picker has already closed and reset before the caller
     // continues.
     Q_EMIT pickerOpenRequested(target);
+    // After the fan-out: a sibling's reset() deactivates the cache.
+    m_previews->setActive(true);
 }
 
 bool GifSearchController::toggleFavorite(const QVariantMap &resultMap)

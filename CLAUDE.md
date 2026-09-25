@@ -291,9 +291,9 @@ thirty minutes into a release pipeline. Bundling makes it a build-time
 constant (libsqlite3-sys sets `-DSQLITE_ENABLE_FTS5` explicitly) and raises
 the feature floor to 3.50.2. Consequence to remember: the C++ side must NOT
 also link `SQLite::SQLite3`, or two SQLite implementations end up in one
-process. `rusqlite` and `unicode-normalization` became DIRECT dependencies in
-the same round; both were already in the lock file, so the build stays
-`--offline --locked`.
+process. `rusqlite` became a DIRECT dependency in the same round (already in
+the lock file, so the build stays `--offline --locked`); `unicode-normalization`
+did too and was dropped again on 2026-09-25, unused since `aa870d7f`.
 
 ### Release inventory and operational traps
 

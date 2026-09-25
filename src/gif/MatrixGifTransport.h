@@ -19,6 +19,7 @@ public:
 
     bool available() const override;
     quint64 get(const QString &url) override;
+    quint64 download(const QString &url) override;
 
 private:
     MatrixClient *m_client = nullptr;

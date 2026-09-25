@@ -1324,6 +1324,25 @@ for excluded in ("kimg_avif", "kimg_heif", "libqsvg"):
     check(excluded not in _appimage_code,
           f"the AppImage deliberately does not stage {excluded}")
 
+# Windows ships no SVG image plugin either; the SVG icon engine stays.
+_win_plugins = None
+for _node in ast.walk(ast.parse(win_stage_src)):
+    if isinstance(_node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "PLUGIN_FILES"
+            for t in _node.targets):
+        _win_plugins = ast.literal_eval(_node.value)
+check(_win_plugins is not None,
+      "PLUGIN_FILES is a parseable literal in stage-windows-runtime.py")
+check("qsvg.dll" not in (_win_plugins or {}).get("imageformats", ()),
+      "the Windows stage does not ship the SVG image plugin qsvg.dll")
+check("qsvgicon.dll" in (_win_plugins or {}).get("iconengines", ()),
+      "the Windows stage keeps the SVG icon engine")
+for needle in ('"$STAGE/plugins/imageformats/qsvg.dll"',
+               "grep -Fxq 'qsvg.dll' \"$msi_payload\" \"$zip_payload\"",
+               '"$EXTRACTED/plugins/imageformats/qsvg.dll"'):
+    check(needle in win_validate_src,
+          f"Windows validation refuses qsvg.dll: {needle}")
+
 # 4. deb and rpm DECLARE instead of bundling.
 _deb_image = re.search(r'IMAGE_DEPENDS="([^"]*)"', deb_src)
 check(_deb_image is not None, "build-deb declares IMAGE_DEPENDS")

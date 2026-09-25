@@ -33,9 +33,11 @@ SYSTEM_DLLS = {
 
 PLUGIN_FILES = {
     "iconengines": ("qsvgicon.dll",),
+    # No qsvg.dll: nothing in the UI loads an SVG through Image, and without
+    # the plugin a received SVG cannot reach a decoder. Send thumbnails render
+    # through Qt6Svg.dll directly. validate-windows-artifacts.sh asserts it.
     "imageformats": (
-        "qgif.dll", "qico.dll", "qjpeg.dll", "qsvg.dll", "qtiff.dll",
-        "qwebp.dll",
+        "qgif.dll", "qico.dll", "qjpeg.dll", "qtiff.dll", "qwebp.dll",
     ),
     # FFmpeg is the multimedia backend Lightning pins on Windows; WMF is the
     # fallback. The import walk pulls in the FFmpeg runtime DLLs.

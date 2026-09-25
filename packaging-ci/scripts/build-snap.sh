@@ -224,6 +224,17 @@ mkdir -p "$TREE/gpu-2404"
 
 # Launcher: point Qt and GStreamer at the bundled runtime under $SNAP. The
 # AppImage's AppRun hooks are not carried over, so this is the only place.
+# Its comments ship in the snap and stay short; the background, all measured
+# under a real snapd (2026-09-12/13):
+#   * scanner: without it every launch logged "External plugin loader failed"
+#     and scanned in-process.
+#   * sockets: without the bridge the app aborted on Wayland, `micsrc` got
+#     "Connection refused", and Qt Multimedia listed no audio devices.
+#   * fontconfig/xkb: without them the confined app segfaulted (exit 139).
+#     Font files are not staged: fontconfig paths are absolute and snapd's
+#     desktop interface mounts the host's fonts.
+#   * gpu-2404: without the wrapper there is no EGL vendor driver and Qt falls
+#     back to a software renderer that cannot draw video.
 mkdir -p "$TREE/bin"
 cat > "$TREE/bin/lightning-launch" <<'EOF'
 #!/bin/sh
@@ -236,59 +247,22 @@ export QML_IMPORT_PATH="$SNAP/usr/qml"
 export XDG_DATA_DIRS="$SNAP/usr/share:${XDG_DATA_DIRS:-/usr/share}"
 export GST_PLUGIN_SYSTEM_PATH_1_0="$SNAP/usr/lib/gstreamer-1.0"
 export GST_PLUGIN_PATH_1_0="$SNAP/usr/lib/gstreamer-1.0"
-# THE SCANNER, which this launcher did not point at for as long as the snap
-# has existed. The binary IS in the payload -- it rides along in the AppDir
-# the AppImage job stages -- but libgstreamer looks for it at the path
-# compiled into the BUILD IMAGE, which does not exist inside the snap. The
-# result is "External plugin loader failed" at every launch and an in-process
-# scan, losing the crash isolation a separate process buys. Found 2026-09-12
-# by installing the snap under a REAL snapd for the first time; the
-# structural validation the snap.yaml comment describes cannot see it,
-# because the file it would look for is present and only the pointer is
-# missing. Both spellings, for the reason build-appimage.sh gives: GStreamer
-# reads the versioned one first and falls back to the plain one, so a host
-# value left in the unversioned variable would otherwise win the fallback.
-# These name ONE EXECUTABLE, never a colon-joined list.
+# The bundled plugin scanner; the compiled-in path is the build image's.
+# Both spellings, so a host value cannot win the fallback. One path, not a
+# list.
 export GST_PLUGIN_SCANNER_1_0="$SNAP/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
 export GST_PLUGIN_SCANNER="$SNAP/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
-# $SNAP is read-only and its revision changes on every refresh, so the plugin
-# registry cache has to live in the user's own (snap-confined) cache dir.
+# $SNAP is read-only and changes on refresh: keep the registry in the cache.
 export GST_REGISTRY_1_0="${XDG_CACHE_HOME:-$HOME/.cache}/lightning/gst-registry.bin"
 mkdir -p "$(dirname "$GST_REGISTRY_1_0")" 2>/dev/null || true
-# SOCKETS THE SESSION PUTS IN THE RUNTIME DIR, BRIDGED INTO snapd'S.
-#
-# snapd remaps XDG_RUNTIME_DIR to $XDG_RUNTIME_DIR/snap.<name>. Everything a
-# desktop session leaves in the REAL runtime dir -- the compositor socket,
-# PipeWire, PulseAudio -- therefore sits one level up and is invisible to a
-# client that resolves a relative name. snapcraft's desktop-launch bridges
-# them; this launcher is hand-written and bridged none, and each absence is a
-# different broken feature:
-#
-#   * wayland-0   -> Qt finds no platform plugin and the app ABORTS. The snap
-#                    could not start on any Wayland session.
-#   * pipewire-0  -> `micsrc` fails "Connection refused", the publish branch
-#                    errors, and the pipeline cascades into
-#                    "srtpenc0: Could not initialize SRTP encoder".
-#   * pulse/native-> Qt Multimedia enumerates no audio devices at all, so the
-#                    Sound & video picker reads "No microphone was found".
-#
-# All three measured under a real snapd on Ubuntu 24.04 (2026-09-13) with the
-# mutation both ways -- the audio pair by counting `pa_context_connect()
-# failed`: 1 without the bridge, 0 with it.
-#
-# Each is best-effort: a session that does not run PipeWire has nothing to
-# bridge, and refusing to launch over that would be worse than launching
-# without audio.
+# snapd moves XDG_RUNTIME_DIR one level down, so link the session's Wayland,
+# PipeWire and PulseAudio sockets into it. Best effort: a missing socket only
+# loses that feature.
 bridge_runtime_entry() {
-    # $1 = path relative to the REAL runtime dir, e.g. "pipewire-0" or
-    #      "pulse/native". Creates $XDG_RUNTIME_DIR/$1 -> ../<depth>/$1 .
+    # $1: a path in the real runtime dir, e.g. "pulse/native".
     [ -n "${XDG_RUNTIME_DIR:-}" ] || return 0
     case "$1" in
-        # ONE level of nesting only. The depth of `..` is computed from the
-        # shape below, so a caller passing "a/b/c" would get a link that
-        # resolves to the wrong place -- and because the next run finds it
-        # existing, it would stay broken forever while the feature silently
-        # did nothing. Refuse instead of guessing. Raised in review.
+        # One level of nesting at most; deeper would link to the wrong place.
         */*/*) return 0 ;;
         */*) _bre_dir="${1%/*}"; _bre_up="../../" ;;
         *)   _bre_dir=""; _bre_up="../" ;;
@@ -301,8 +275,7 @@ bridge_runtime_entry() {
     fi
     ln -sf "$_bre_up$1" "$XDG_RUNTIME_DIR/$1" 2>/dev/null || true
 }
-# An ABSOLUTE or path-bearing WAYLAND_DISPLAY is left alone: libwayland takes
-# the first as a path, and the second is not a display name at all.
+# A WAYLAND_DISPLAY holding a path is not bridged.
 case "${WAYLAND_DISPLAY:-}" in
     "") : ;;
     */*) : ;;
@@ -310,34 +283,13 @@ case "${WAYLAND_DISPLAY:-}" in
 esac
 bridge_runtime_entry "pipewire-0"
 bridge_runtime_entry "pulse/native"
-# DATA FILES STRICT CONFINEMENT LEAVES THE APP WITHOUT, and the absence of
-# these SEGFAULTED the snap immediately after it placed its window (exit 139).
-# Under strict confinement /usr is the base snap's, and core24 carries no
-# fontconfig configuration and no xkb keymaps at all, so the host's copies are
-# unreachable by construction. The control that attributed the crash to these
-# rather than to the renderer: the identical payload run UNCONFINED with
-# QT_QUICK_BACKEND=software ran fine for 35 s.
-#
-# FONTS THEMSELVES ARE NOT STAGED, and that is deliberate. fontconfig's
-# <dir> entries are ABSOLUTE, so a font tree under $SNAP is on no search path
-# and would be inert; snapd's `desktop` interface bind-mounts the HOST's
-# /usr/share/fonts and /var/cache/fontconfig into the sandbox, which is where
-# the glyphs actually come from. What snapd does NOT provide is /etc/fonts --
-# hence staging the configuration and only the configuration. Raised in
-# review, where the first version staged fonts that nothing could find.
+# core24 has no fontconfig configuration or xkb keymaps, and the app crashes
+# without them. Fonts come from the host through the desktop interface.
 export FONTCONFIG_PATH="$SNAP/etc/fonts"
 export FONTCONFIG_FILE="$SNAP/etc/fonts/fonts.conf"
 export XKB_CONFIG_ROOT="$SNAP/usr/share/X11/xkb"
-# GRAPHICS, THROUGH THE gpu-2404 CONTENT SNAP (see snap.yaml.in).
-#
-# The provider's wrapper sets LD_LIBRARY_PATH, __EGL_VENDOR_LIBRARY_DIRS, the
-# dri driver path and the rest, then execs what it is handed. Without it the
-# app gets no EGL -- the payload has only glvnd's DISPATCH stubs, because the
-# vendor driver is dlopened and `ldd` never sees it -- and Qt falls back to a
-# software renderer that cannot draw video at all.
-#
-# NOT a hard requirement: an unconnected snap still starts, on the software
-# renderer, and the app says so in the UI. Refusing to launch would be worse.
+# GPU drivers come from the gpu-2404 content snap's wrapper. Without it the
+# app still starts, on the software renderer.
 GPU_WRAPPER="$SNAP/gpu-2404/bin/gpu-2404-provider-wrapper"
 if [ -x "$GPU_WRAPPER" ]; then
     exec "$GPU_WRAPPER" "$SNAP/usr/bin/lightning-matrix" --backend=rust "$@"

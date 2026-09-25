@@ -664,6 +664,14 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   and the Classic card were the only `#FFFFFF` on a tinted canvas.
 - **The GIF picker re-runs the typed search when the provider changes**;
   it used to fall back to trending until a keystroke.
+- **GIF picker previews never load a provider URL in Qt** (2026-09-25).
+  `GifPreviewCache` fetches each tile through the same Rust path as a send
+  (`gif_download`: https only, the provider host allowlist, redirect and
+  DNS/IP checks, GIF magic, size and edge caps), re-checks the bytes in C++
+  and hands QML a local file. The cache is a 0700 temporary directory, at most
+  256 files / 64 MB, six fetches at a time, active only while a picker is open
+  and cleared on sign-out. It holds public provider content only. KLIPY's JPG
+  stills are no longer shown.
 - **The Home "no key backup" banner** says "Set up backup" and opens the
   Sessions section, which is where backup is set up; it opened Privacy.
 - Eleven complete semantic themes (ids 1–11): Lightning Light, Lightning
@@ -1623,6 +1631,6 @@ Live validation: **NOT TESTED**.
   before. Element sends and shows SVGs the same way.
 - Needs the Qt SVG LIBRARY (`LIGHTNING_HAVE_QT_SVG`; packaging passes
   `LIGHTNING_REQUIRE_QT_SVG=ON`). Linking it makes linuxdeploy and macdeployqt
-  add the qsvg image-format PLUGIN, which the AppImage and macOS builds prune
-  and then assert absent. The screen also refuses a document whose entity
+  add the qsvg image-format PLUGIN, which the AppImage, macOS and Windows
+  builds leave out and then assert absent. The screen also refuses a document whose entity
   references could expand past 2M characters, checked before any expansion.

@@ -78,9 +78,9 @@ bool isProviderHttpsUrl(const QString &url, const QStringList &allowedHostSuffix
 }
 
 // Pick the first rendition in `keys` whose `field` is an https URL on one of
-// `hosts`. The picker loads these preview URLs directly through Qt, outside
-// MediaBridge's policy, so the host allowlist is what stops a hostile provider
-// response from pointing the picker at an arbitrary server.
+// `hosts`. Qt never loads these: the picker's GifPreviewCache fetches them
+// through the Rust safe-get, and this host allowlist decides which servers a
+// provider response can have it reach.
 QString firstHttpsUrl(const QJsonObject &images, const QStringList &keys,
                       const QString &field, const QStringList &hosts,
                       int &width, int &height)

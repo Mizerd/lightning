@@ -421,15 +421,21 @@ printf 'All %d staged Qt image-format plugins resolve against the AppDir\n' \
 
 # linuxdeploy's AppRun sources every apprun-hooks/*.sh. Without this hook
 # GStreamer scans its compiled-in path, which names the build image.
+# The hook ships in the AppImage, so its comments stay short. Background:
+#   * The plugins and the libraries they need are staged here, not by
+#     linuxdeploy, so they keep RUNPATH $ORIGIN and cannot reach usr/lib; its
+#     AppRun sets no LD_LIBRARY_PATH (pipeline 141, measured on the artifact:
+#     10 dependencies "not found", 0 with usr/lib on the path). The cost is
+#     that children inherit the bundle's libraries, hence the
+#     APPIMAGE_ORIGINAL_* copies UrlLauncher restores.
+#   * Without the scanner GStreamer logs "External plugin loader failed" and
+#     scans in-process.
+#   * Without the PipeWire variables screen sharing dies at pw_loop_new or
+#     pw_context_new while receive keeps working (the 142 report).
 mkdir -p "$APPDIR/apprun-hooks"
 cat >"$APPDIR/apprun-hooks/gstreamer.sh" <<'HOOK'
-# EVERY variable this hook sets is preserved first under the AppImage
-# convention (APPIMAGE_ORIGINAL_<NAME>), so a process Lightning spawns -- the
-# browser for OAuth or a link, a media player -- can be given back the
-# session's own values instead of this bundle's. GST_PLUGIN_SYSTEM_PATH_1_0
-# in particular REPLACES the host's plugin path: a player inheriting it would
-# see only the 28 plugins bundled here and lose every system codec. The
-# client's UrlLauncher restores or removes each one from these.
+# Keep the session's own values (APPIMAGE_ORIGINAL_<NAME>) so the app can
+# restore them for processes it launches.
 for _lightning_var in GST_PLUGIN_SYSTEM_PATH_1_0 GST_PLUGIN_PATH_1_0 GST_REGISTRY_1_0 \
                       GST_PLUGIN_SCANNER_1_0 GST_PLUGIN_SCANNER \
                       SPA_PLUGIN_DIR PIPEWIRE_MODULE_DIR PIPEWIRE_CONFIG_DIR; do
@@ -439,71 +445,19 @@ unset _lightning_var
 # Point GStreamer at the plugins bundled beside the binary.
 export GST_PLUGIN_SYSTEM_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
 export GST_PLUGIN_PATH_1_0="$APPDIR/usr/lib/gstreamer-1.0"
-# AND AT THE REGISTRY HELPER THAT SCANS THEM. Without this GStreamer looks for
-# it at the path compiled into libgstreamer -- the build image's -- prints
-# "External plugin loader failed" and scans in-process, losing the crash
-# isolation that a separate process buys. BOTH spellings, because GStreamer
-# reads the versioned one first and falls back to the plain one, and a host
-# value left in the unversioned variable would otherwise win the fallback.
-# These name ONE EXECUTABLE, never a colon-joined list.
+# The bundled plugin scanner. Both spellings, so a host value cannot win the
+# fallback. One path, not a list.
 export GST_PLUGIN_SCANNER_1_0="$APPDIR/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
 export GST_PLUGIN_SCANNER="$APPDIR/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
-# AND MAKE THE PLUGINS' OWN DEPENDENCIES RESOLVABLE. linuxdeploy's AppRun sets
-# no LD_LIBRARY_PATH at all -- it relies entirely on rewriting RUNPATH to
-# $ORIGIN on the files it deploys itself. The plugins here, and the libraries
-# they need, are staged by this script and never pass through that rewrite, so
-# they keep whatever RUNPATH the distro shipped. A plugin in
-# usr/lib/gstreamer-1.0/ resolving $ORIGIN looks in gstreamer-1.0/, NOT in
-# usr/lib/ where its dependencies actually are. That is pipeline 141, whose
-# build log shows linuxdeploy itself placing libgstsctp-1.0.so.0 and three
-# others INTO usr/lib -- present, rpath $ORIGIN, and unreachable from
-# gstreamer-1.0/: "libgstsctp-1.0.so.0: cannot open shared object file".
-# (139 and 140 are a different failure: those libraries were not bundled at
-# all, and no search path would have helped.)
-#
-# MEASURED ON PIPELINE 141'S OWN ARTIFACT, not inferred. Extracted, its 28
-# plugins and all six libraries the launch reported missing are PRESENT; the
-# plugins carry RUNPATH $ORIGIN, the packed AppRun contains no LD_LIBRARY_PATH
-# at all, and resolving one plugin the way that AppRun arranges it reports
-# 10 dependencies "not found" -- which drops to 0 with usr/lib on the path.
-# Bundled and unreachable, and this line is what reaches them.
-#
-# WHY NOT patchelf --set-rpath '$ORIGIN/..' ON THE PLUGINS, which would leak
-# into no child process: linuxdeploy REWRITES their RUNPATH to $ORIGIN itself
-# (verified on that artifact), so patching before it runs is overwritten, and
-# patching after it runs cannot be packed by it -- `--output appimage`
-# re-runs "Deploying dependencies for existing files" and would reset them.
-# It needs the pack step replaced with a direct appimagetool call. That is a
-# real improvement and an untested restructuring; it is not being made blind
-# in the same round that fixes the defect.
-#
-# THE COST, stated rather than glossed: LD_LIBRARY_PATH is inherited by every
-# child process, so a browser launched for OAuth or a permalink starts with
-# this bundle's glib/gio/dbus ahead of the host's. Bounded by the copy loop's
-# excludelist -- glibc, libstdc++, libgcc, GL/EGL, drm/gbm and X are never
-# bundled -- and build-snap.sh:57 already makes the same trade. The original
-# value is preserved below under the AppImage convention so the client can
-# restore a clean environment for processes it spawns; nothing reads it yet,
-# and that is the follow-up rather than a claim.
+# The bundled plugins' own dependencies live in usr/lib.
 export APPIMAGE_ORIGINAL_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 export LD_LIBRARY_PATH="$APPDIR/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-# THE PIPEWIRE CLIENT STACK, staged beside the plugins by this script and
-# invisible to linuxdeploy, which only ever rewrote RUNPATH on what it deployed.
-# Without these three, screen sharing dies at `pw_loop_new` or `pw_context_new`
-# while audio and video RECEIVE keep working -- the exact shape of the 142
-# report. The module dir goes on LD_LIBRARY_PATH too: module-client-node has
-# module-protocol-native as a NEEDED with an absolute Debian DT_RUNPATH, and
-# although config ordering means it is already loaded under its SONAME by then,
-# LD_LIBRARY_PATH is searched before DT_RUNPATH and this costs nothing.
+# The bundled PipeWire client stack, for screen sharing.
 export SPA_PLUGIN_DIR="$APPDIR/usr/lib/spa-0.2"
 export PIPEWIRE_MODULE_DIR="$APPDIR/usr/lib/pipewire-0.3"
 export PIPEWIRE_CONFIG_DIR="$APPDIR/usr/share/pipewire"
 export LD_LIBRARY_PATH="$APPDIR/usr/lib/pipewire-0.3${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-# The plugin registry is a CACHE and GStreamer rewrites it whenever the
-# plugin set changes. An AppImage mount is read-only and its path changes
-# every run, so leaving the registry at its default makes every launch
-# re-scan and print warnings it cannot act on. Keep it in the user's cache,
-# namespaced so it cannot collide with a system GStreamer's registry.
+# The mount is read-only and moves every run: keep the registry in the cache.
 export GST_REGISTRY_1_0="${XDG_CACHE_HOME:-$HOME/.cache}/lightning/gst-registry.bin"
 mkdir -p "$(dirname "$GST_REGISTRY_1_0")" 2>/dev/null || true
 HOOK

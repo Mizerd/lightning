@@ -11,9 +11,14 @@
 
 #include <QBuffer>
 #include <QImage>
+#include <QScopeGuard>
+#include <QSemaphore>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QThreadPool>
 #include <QtTest/QtTest>
+
+#include <memory>
 
 namespace {
 
@@ -979,6 +984,144 @@ private Q_SLOTS:
         QVERIFY(client.lastThumbnail.isEmpty());
         QCOMPARE(client.lastThumbWidth, 0);
         QCOMPARE(client.fileSends, 0);
+    }
+
+    // A render counts as stuck only once its caller's timeout has fired while
+    // it runs, and stops counting when it returns.
+    void aRenderTicketCountsOnlyRendersPastTheirTimeout()
+    {
+        using lightning::svgthumb::RenderTicket;
+        using lightning::svgthumb::stuckRenders;
+        const int before = stuckRenders().load();
+
+        RenderTicket queued;
+        queued.expire();
+        QVERIFY(!queued.begin()); // cancelled before it ran
+        QCOMPARE(stuckRenders().load(), before);
+
+        RenderTicket quick;
+        QVERIFY(quick.begin());
+        quick.finish();
+        quick.expire();
+        QCOMPARE(stuckRenders().load(), before);
+
+        RenderTicket slow;
+        QVERIFY(slow.begin());
+        slow.expire();
+        QCOMPARE(stuckRenders().load(), before + 1);
+        slow.finish();
+        QCOMPARE(stuckRenders().load(), before);
+    }
+
+    // Ordinary SVGs dropped together all get thumbnails: renders beyond the
+    // pool's threads queue instead of being refused.
+    void severalSvgsAtOnceAllGetThumbnails()
+    {
+        if (!lightning::svgthumb::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        QVERIFY(lightning::svgthumb::renderPool()->waitForDone(5000));
+        QCOMPARE(lightning::svgthumb::stuckRenders().load(), 0);
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        AttachmentQueueModel *model = composer.attachments();
+
+        QTemporaryDir dir;
+        const int count = lightning::svgthumb::kMaxConcurrentRenders + 2;
+        for (int i = 0; i < count; ++i) {
+            composer.addAttachment(QUrl::fromLocalFile(writeFile(
+                dir, QStringLiteral("logo%1.svg").arg(i), redSquareSvg())));
+        }
+        QCOMPARE(model->rowCount(), count);
+        const auto allResolved = [model] {
+            for (const auto &entry : model->entries()) {
+                if (entry.posterPending)
+                    return false;
+            }
+            return true;
+        };
+        QTRY_VERIFY_WITH_TIMEOUT(allResolved(),
+                                 AttachmentQueueModel::kSvgThumbnailTimeoutMs);
+        for (int i = 0; i < count; ++i)
+            QVERIFY2(!model->entries().at(i).poster.isEmpty(), qPrintable(
+                QStringLiteral("SVG %1 got no thumbnail").arg(i)));
+    }
+
+    // QtSvg cannot be interrupted, so renders stuck on hostile files keep
+    // their threads. They hold the SVG pool only, never the global one. A
+    // render is queued while the pool is merely busy, and refused (sent at
+    // once without a thumbnail) only while every thread is held by a render
+    // past its timeout.
+    void stuckSvgRendersHoldOnlyTheirOwnPoolAndRefuseMore()
+    {
+        if (!lightning::svgthumb::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        using lightning::svgthumb::RenderTicket;
+        using lightning::svgthumb::stuckRenders;
+        constexpr int threads = lightning::svgthumb::kMaxConcurrentRenders;
+        QThreadPool *pool = lightning::svgthumb::renderPool();
+        QVERIFY(pool != QThreadPool::globalInstance());
+        QCOMPARE(pool->maxThreadCount(), threads);
+        // Earlier cases' renders may still be returning.
+        QVERIFY(pool->waitForDone(5000));
+        QCOMPARE(stuckRenders().load(), 0);
+
+        // Stand-ins for renders hung in QtSvg.
+        QSemaphore running;
+        QSemaphore unblock;
+        QList<std::shared_ptr<RenderTicket>> tickets;
+        const auto cleanup = qScopeGuard([&] {
+            unblock.release(threads);
+            pool->waitForDone(5000);
+        });
+        for (int i = 0; i < threads; ++i) {
+            auto ticket = std::make_shared<RenderTicket>();
+            tickets.append(ticket);
+            pool->start([ticket, &running, &unblock] {
+                ticket->begin();
+                running.release();
+                unblock.acquire();
+                ticket->finish();
+            });
+        }
+        QVERIFY(running.tryAcquire(threads, 5000));
+        const int globalBusy = QThreadPool::globalInstance()->activeThreadCount();
+
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        AttachmentQueueModel *model = composer.attachments();
+        QSignalSpy prepared(model, &AttachmentQueueModel::entryPrepared);
+        QTemporaryDir dir;
+
+        // Busy, not stuck: the render queues.
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("queued.svg"), redSquareSvg())));
+        QCOMPARE(prepared.count(), 0);
+        QVERIFY(model->entries().at(0).posterPending);
+
+        // Their timeouts fire while they run: every thread is now stuck, so
+        // the next SVG is resolved at once without a thumbnail.
+        for (const auto &ticket : std::as_const(tickets))
+            ticket->expire();
+        QCOMPARE(stuckRenders().load(), threads);
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("refused.svg"), redSquareSvg())));
+        QCOMPARE(prepared.count(), 1);
+        QCOMPARE(prepared.at(0).at(0).toInt(), 1);
+        QVERIFY(!model->entries().at(1).posterPending);
+        QVERIFY(model->entries().at(1).poster.isEmpty());
+        QCOMPARE(QThreadPool::globalInstance()->activeThreadCount(), globalBusy);
+
+        // The hung renders return: nothing counts as stuck any more and the
+        // queued SVG renders.
+        unblock.release(threads);
+        QTRY_COMPARE_WITH_TIMEOUT(stuckRenders().load(), 0, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(!model->entries().at(0).posterPending,
+                                 AttachmentQueueModel::kSvgThumbnailTimeoutMs);
+        QVERIFY(!model->entries().at(0).poster.isEmpty());
     }
 
     // End to end with the real renderer: the event carries a PNG inside the
