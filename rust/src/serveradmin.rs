@@ -19,6 +19,8 @@
 use std::sync::Arc;
 
 use matrix_sdk::ruma::RoomId;
+use matrix_sdk::RoomState;
+use matrix_sdk_base::RoomInfoNotableUpdateReasons;
 use serde_json::json;
 
 use crate::rooms::require_client;
@@ -33,6 +35,30 @@ const ADMIN_DELETE_POLL: std::time::Duration = std::time::Duration::from_secs(2)
 const ADMIN_DELETE_FOLLOW: std::time::Duration = std::time::Duration::from_secs(600);
 /// Admin API bodies are small; anything larger is cut.
 const ADMIN_BODY_CAP: usize = 65_536;
+
+/// Marks a room this server has deleted as left in the local store, as
+/// matrix-sdk's own leave handling does for the room info (it also clears a
+/// pending key bundle in the crypto store, deliberately not done here: §6, and
+/// that record only matters for a joined room), so it goes from the room list
+/// now and stays gone after a restart. The server purged the room, so no leave can be
+/// sent for it, and its forced leave reaches this client only when sync wins
+/// the race with the purge. Not forgotten: that would also clear the event
+/// cache under a timeline that may still be open, and /forget targets a room
+/// the server no longer has. A left room is never listed.
+pub(crate) async fn mark_deleted_room_left(
+    room: &matrix_sdk::BaseRoom,
+) -> Result<(), matrix_sdk::StoreError> {
+    if matches!(room.state(), RoomState::Left | RoomState::Banned) {
+        return Ok(());
+    }
+    room.update_and_save_room_info(|mut info| {
+        info.mark_as_left();
+        info.mark_state_partially_synced();
+        info.mark_members_missing();
+        (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+    })
+    .await
+}
 
 /// `base` plus `segments`, each percent-encoded as one path segment, so an id
 /// cannot add or escape a segment. The url crate drops a "." or ".." segment
@@ -300,6 +326,16 @@ pub(crate) fn admin_delete_room(
                 }
                 if status == "complete" || status == "failed" {
                     if timelines.lifecycle_current(lifecycle) {
+                        if status == "complete" {
+                            if let Some(room) = RoomId::parse(&room_id)
+                                .ok()
+                                .and_then(|id| client.get_room(&id))
+                            {
+                                // A store error leaves the room listed until
+                                // sync catches up: the old behaviour.
+                                let _ = mark_deleted_room_left(&room).await;
+                            }
+                        }
                         let category = if status == "failed" { "server" } else { "" };
                         enqueue(
                             &events,
@@ -402,6 +438,65 @@ mod tests {
         assert_eq!(delete_started(403, Some("")), Err("forbidden"));
         assert_eq!(delete_started(404, Some("")), Err("unrecognized"));
         assert_eq!(delete_started(429, Some("")), Err("rate_limited"));
+    }
+
+    // A deleted room is marked left in the local store, in memory and on
+    // disk, so it leaves the room list now and after a restart.
+    #[tokio::test]
+    async fn a_deleted_room_is_left_in_the_local_store() {
+        use matrix_sdk::cross_process_lock::CrossProcessLockConfig;
+        use matrix_sdk::ruma::UserId;
+        use matrix_sdk_base::store::{RoomLoadSettings, StoreConfig};
+        use matrix_sdk_base::{
+            BaseClient, DmRoomDefinition, RoomStateFilter, SessionMeta, StateStore,
+            ThreadingSupport,
+        };
+
+        let client = BaseClient::new(
+            StoreConfig::new(CrossProcessLockConfig::multi_process("lightning-test")),
+            ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
+        );
+        client
+            .activate(
+                SessionMeta {
+                    user_id: UserId::parse("@admin:example.org").unwrap(),
+                    device_id: "DEVICE".into(),
+                },
+                RoomLoadSettings::default(),
+                None,
+            )
+            .await
+            .expect("activate");
+        let gone = RoomId::parse("!gone:example.org").unwrap();
+        let kept = RoomId::parse("!kept:example.org").unwrap();
+        let room = client.get_or_create_room(&gone, RoomState::Joined);
+        client.get_or_create_room(&kept, RoomState::Joined);
+        assert_eq!(client.rooms_filtered(RoomStateFilter::JOINED).len(), 2);
+
+        mark_deleted_room_left(&room).await.expect("marked left");
+
+        assert_eq!(room.state(), RoomState::Left);
+        let joined: Vec<_> = client
+            .rooms_filtered(RoomStateFilter::JOINED)
+            .iter()
+            .map(|r| r.room_id().to_owned())
+            .collect();
+        assert_eq!(joined, vec![kept.clone()]);
+        // Saved, so a restart reads it as left too.
+        let stored = client
+            .state_store()
+            .get_room_infos(&RoomLoadSettings::default())
+            .await
+            .expect("room infos");
+        let info = stored
+            .iter()
+            .find(|i| i.room_id() == &*gone)
+            .expect("stored");
+        assert_eq!(info.state(), RoomState::Left);
+        // Idempotent.
+        mark_deleted_room_left(&room).await.expect("again");
+        assert_eq!(room.state(), RoomState::Left);
     }
 
     #[test]

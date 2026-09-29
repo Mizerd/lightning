@@ -1737,7 +1737,18 @@ server name before deleting a server. Lightning offers the two honest pieces.
   deleting it rather than guessing. The dialog states the limit: this removes
   the room from THIS homeserver; members on other servers keep it and its
   history. Every path segment is percent-encoded, `.`/`..` are refused, and a
-  delete id other than letters, digits, `-` and `_` is not used.
+  delete id other than letters, digits, `-` and `_` is not used. A COMPLETED
+  delete marks the room left in the deleting admin's own store
+  (`serveradmin::mark_deleted_room_left`, what matrix-sdk does to the room
+  info after a leave; the crypto store is not touched):
+  the purge removes the room before sync can deliver the forced leave, so
+  without it the room stayed listed as joined, even after a restart (seen
+  live 2026-09-29). It is not forgotten: that would clear the event cache
+  under a timeline that may be open, for a room the server no longer has.
+- The "also in another space" note on a row means a Space OTHER than the one
+  being closed lists that room; a single room's own Spaces never count. It is
+  added to the row's summary (whom closing removes, who stays), never shown
+  instead of it.
 - `RoomClosureController` (app.roomClosure) is the one flow; `RoomCloseDialog`
   renders it for both. The dialog can always be HIDDEN (a close can take
   many minutes); the controller keeps going and the next open shows where it

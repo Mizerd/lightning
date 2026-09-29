@@ -800,6 +800,43 @@ private slots:
         QVERIFY(!message.contains(QStringLiteral("Nothing was changed")));
     }
 
+    // A single room's own Spaces are not "another space": its row says whom
+    // closing removes and who stays. Nor is a closed subspace's own parent.
+    void aSingleRoomCloseShowsWhomItRemoves()
+    {
+        const QString lone = QStringLiteral("!lone:example.org"); // in two Spaces
+        m_ctl->begin(lone, QStringLiteral("General"), false, QStringLiteral("close"));
+        Q_EMIT m_client->roomClosurePlanReceived(
+            m_client->lastPlanOpId, false,
+            QVariantList{ planRow(lone, QString(), 3, 1, { QStringLiteral("Alice") }) });
+        QCOMPARE(m_ctl->targetRow().value(QStringLiteral("alsoElsewhere")).toInt(), 0);
+        QCOMPARE(m_ctl->targetRow().value(QStringLiteral("summary")).toString(),
+                 QStringLiteral("Removes 3 · 1 stay: Alice"));
+
+        cleanup();
+        init();
+        m_ctl->begin(kSub, QStringLiteral("Sub"), true, QStringLiteral("close"));
+        Q_EMIT m_client->roomClosurePlanReceived(
+            m_client->lastPlanOpId, false, QVariantList{ planRow(kSub, QString()) });
+        QCOMPARE(m_ctl->targetRow().value(QStringLiteral("alsoElsewhere")).toInt(), 0);
+    }
+
+    // One room is "1 room", through a plural form, never "1 rooms".
+    void aSpaceDeleteCountsItsRoomsWithAPlural()
+    {
+        becomeAdmin(true);
+        QVERIFY(m_ctl->begin(kSpace, QStringLiteral("Lounge"), true,
+                             QStringLiteral("delete")));
+        m_ctl->setAllRoomsSelected(false);
+        m_ctl->setRoomSelected(kRoomB, true);
+        QCOMPARE(m_ctl->selectedRoomCount(), 1);
+        // No translator in this test, so the plural source text shows.
+        QCOMPARE(m_ctl->title(),
+                 QStringLiteral("Delete Lounge and 1 room(s) from example.org?"));
+        QVERIFY(m_ctl->consequenceText().contains(
+            QStringLiteral("the space and the 1 room(s) selected below")));
+    }
+
     // A room the viewer cannot make invite-only is not offered at all.
     void aRoomThatCannotBeRestrictedIsNotOffered()
     {
@@ -878,10 +915,10 @@ private slots:
         QCOMPARE(m_client->planCalls, 0);
         // The cascade is named with its size, not as "it".
         QCOMPARE(m_ctl->title(),
-                 QStringLiteral("Delete Lounge and 4 rooms from example.org?"));
+                 QStringLiteral("Delete Lounge and 4 room(s) from example.org?"));
         QVERIFY(m_ctl->consequenceText().contains(QStringLiteral("cannot be undone")));
         QVERIFY(m_ctl->consequenceText().contains(
-            QStringLiteral("the space and the 4 rooms selected below")));
+            QStringLiteral("the space and the 4 room(s) selected below")));
         QVERIFY(m_ctl->consequenceText().contains(
             QStringLiteral("Members on other servers keep the rooms")));
         m_ctl->setCascade(false);

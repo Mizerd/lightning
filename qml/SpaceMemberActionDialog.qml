@@ -167,7 +167,10 @@ AppDialog {
             id: roomList
             objectName: "spaceMemberActionRooms"
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(contentHeight, 240)
+            // From the row height, not contentHeight: that is not known
+            // when this binds.
+            readonly property int rowHeight: 34
+            Layout.preferredHeight: Math.min(count * rowHeight, 240)
             visible: count > 0 && root.phase !== "planning"
             clip: true
             model: root.ctl ? root.ctl.rooms : []
@@ -177,7 +180,7 @@ AppDialog {
                 id: roomRow
                 required property var modelData
                 width: ListView.view.width
-                height: 34
+                height: roomList.rowHeight
                 readonly property bool eligible: modelData.eligible === true
                 readonly property bool choosable: eligible
                                                   && root.phase === "ready"

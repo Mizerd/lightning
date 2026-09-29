@@ -195,7 +195,10 @@ AppDialog {
             id: roomList
             objectName: "roomCloseRooms"
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(contentHeight, 240)
+            // From the row height, not contentHeight: that is not known
+            // when this binds and cut the list to half a row.
+            readonly property int rowHeight: 34
+            Layout.preferredHeight: Math.min(count * rowHeight, 240)
             visible: count > 0 && root.phase !== "planning"
             clip: true
             model: root.ctl ? root.ctl.rooms : []
@@ -205,7 +208,7 @@ AppDialog {
                 id: roomRow
                 required property var modelData
                 width: ListView.view.width
-                height: 34
+                height: roomList.rowHeight
                 readonly property bool eligible: modelData.eligible === true
                 readonly property bool choosable: eligible
                                                   && root.phase === "ready"
@@ -413,8 +416,12 @@ AppDialog {
                     return r.reasonText || ""
                 if (outcome.status === "skipped")
                     return qsTr("Skipped")
+                // What closing does here is never hidden; another Space
+                // listing the room is added to it.
                 if (r.alsoElsewhere > 0)
-                    return qsTr("Also in another space")
+                    return r.summary
+                           ? qsTr("%1 · also in another space").arg(r.summary)
+                           : qsTr("Also in another space")
                 return r.summary || ""
             }
             color: outcome.status === "failed" || outcome.status === "partial"

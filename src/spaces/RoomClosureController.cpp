@@ -215,7 +215,10 @@ QString RoomClosureController::serverName() const
 
 int RoomClosureController::alsoElsewhere(const QString &roomId) const
 {
-    if (!m_parentResolver)
+    // Another Space than the one being closed: only a room inside a Space
+    // close can be that. A single room's own parents, and the target's, are
+    // not "elsewhere".
+    if (!m_parentResolver || !m_targetIsSpace || roomId == m_targetId)
         return 0;
     const QSet<QString> scope(m_scope.constBegin(), m_scope.constEnd());
     int count = 0;
@@ -1047,8 +1050,9 @@ QString RoomClosureController::title() const
                            && selectedRoomCount() > 0;
     if (m_mode == kDelete) {
         if (withRooms)
-            return tr("Delete %1 and %2 rooms from %3?")
-                .arg(what, QString::number(selectedRoomCount()), serverName());
+            return tr("Delete %1 and %n room(s) from %2?", nullptr,
+                      selectedRoomCount())
+                .arg(what, serverName());
         return tr("Delete %1 from %2?").arg(what, serverName());
     }
     if (m_mode != kClose)
@@ -1064,8 +1068,8 @@ QString RoomClosureController::consequenceText() const
         const QString server = serverName();
         const QString what =
             m_targetIsSpace && m_cascade && selectedRoomCount() > 0
-                ? tr("the space and the %1 rooms selected below")
-                      .arg(selectedRoomCount())
+                ? tr("the space and the %n room(s) selected below", nullptr,
+                     selectedRoomCount())
                 : tr("it");
         return tr("This deletes %2 from %1, your homeserver: everyone on %1 is "
                   "removed and %1's copy of the history is purged. It cannot "
@@ -1125,8 +1129,9 @@ QString RoomClosureController::statusText() const
         return tr("Lightning could not check these rooms. Nothing was "
                   "changed.");
     if (m_phase == QLatin1String("ready")) {
+        // The prompt above the field already says what to type.
         if (m_mode == kDelete && !typedConfirmationMatches())
-            return tr("Type %1 to confirm.").arg(confirmationPhrase());
+            return QString();
         if (!canConfirm())
             return tr("There is nothing here you can close: see the reasons "
                       "below.");

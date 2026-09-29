@@ -968,6 +968,29 @@ private Q_SLOTS:
         QVERIFY(body.contains(QStringLiteral("open()")));
     }
 
+    // Both dialogs size their room list from the row height; contentHeight is
+    // not known when the binding first runs and cut the list to half a row.
+    // And what closing does in a row is never replaced by "also in another
+    // space".
+    void theRoomListsShowWholeRowsAndTheSummary()
+    {
+        for (const QString &name : { QStringLiteral("RoomCloseDialog.qml"),
+                                     QStringLiteral("SpaceMemberActionDialog.qml") }) {
+            const QString dialog = readQml(name);
+            QVERIFY2(!dialog.isEmpty(), qPrintable(name));
+            QVERIFY2(!dialog.contains(QStringLiteral("Math.min(contentHeight")),
+                     qPrintable(name));
+            QVERIFY2(dialog.contains(
+                         QStringLiteral("Layout.preferredHeight: Math.min(count * rowHeight, 240)")),
+                     qPrintable(name));
+            QVERIFY2(dialog.contains(QStringLiteral("height: roomList.rowHeight")),
+                     qPrintable(name));
+        }
+        const QString close = readQml(QStringLiteral("RoomCloseDialog.qml"));
+        QVERIFY(close.contains(
+            QStringLiteral("qsTr(\"%1 · also in another space\").arg(r.summary)")));
+    }
+
     // Sign-out and a Space switch clear the matrix; an empty map is the
     // unknown state.
     void switchingSpaceClearsTheMatrix()
