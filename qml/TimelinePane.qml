@@ -571,6 +571,7 @@ Rectangle {
     }
     MemberProfilePopover {
         id: senderProfilePopover
+        objectName: "senderProfilePopover"
         parent: Overlay.overlay
         anchors.centerIn: parent
         onOpened: timeline.claimTransientInteraction("profile")
@@ -809,6 +810,27 @@ Rectangle {
                         0, Math.floor((budget + AppTheme.spacing6) / step))
                 }
 
+                // The peer of an unambiguous 1:1 DM (the room list's rule:
+                // identityColorKey is the partner's MXID exactly then), else
+                // "". Drives the presence dot and the profile taps.
+                readonly property string dmPeerId:
+                    root.currentRoom.isDirect === true
+                    && (root.currentRoom.identityColorKey || "").charAt(0) === "@"
+                    ? root.currentRoom.identityColorKey : ""
+                // The timeline's profile card; it fills name and avatar from
+                // the roster or the global profile.
+                function openPeerProfile() {
+                    if (dmPeerId === "")
+                        return
+                    senderProfilePopover.openFor({
+                        userId: dmPeerId,
+                        displayName: "",
+                        avatarUrl: "",
+                        isOwn: app.accounts
+                               && dmPeerId === app.accounts.activeUserId
+                    })
+                }
+
                 Avatar {
                     id: roomHeaderAvatar
                     objectName: "roomHeaderAvatar"
@@ -823,22 +845,36 @@ Rectangle {
                     // squares.
                     circle: root.currentRoom.isDirect === true
 
-                    // The peer's presence, on unambiguous 1:1 DMs only (the
-                    // room list's rule: identityColorKey is the partner's MXID
-                    // exactly then). A group DM or room watches nobody and
-                    // renders nothing. Kept inside the avatar's bounds so it
-                    // never reaches the title beside it or the band's clip.
+                    // A DM's avatar opens the peer's profile. WithinBounds
+                    // takes the exclusive grab.
+                    TapHandler {
+                        objectName: "roomHeaderAvatarTap"
+                        enabled: header.dmPeerId !== ""
+                        gesturePolicy: TapHandler.WithinBounds
+                        acceptedButtons: Qt.LeftButton
+                        onTapped: header.openPeerProfile()
+                    }
+                    HoverHandler {
+                        enabled: header.dmPeerId !== ""
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("View profile")
+                    Accessible.ignored: header.dmPeerId === ""
+                    Accessible.onPressAction: header.openPeerProfile()
+
+                    // The peer's presence on 1:1 DMs only; a group DM or room
+                    // watches nobody and renders nothing. Bottom-right, the
+                    // usual corner, and inside the avatar's bounds so it never
+                    // reaches the title beside it or the band's clip.
                     PresenceDot {
                         objectName: "roomHeaderPresenceDot"
-                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
                         anchors.right: parent.right
                         dotSize: 12
                         ring: roomHeaderBand.color
                         hoverStatus: true
-                        userId: root.currentRoom.isDirect === true
-                                && (root.currentRoom.identityColorKey || "")
-                                       .charAt(0) === "@"
-                                ? root.currentRoom.identityColorKey : ""
+                        userId: header.dmPeerId
                     }
                 }
                 ColumnLayout {
@@ -852,6 +888,7 @@ Rectangle {
                     RowLayout {
                         spacing: AppTheme.spacingS
                         Label {
+                            id: roomHeaderTitle
                             objectName: "roomHeaderTitle"
                             // Untrusted text: never markup.
                             textFormat: Text.PlainText
@@ -883,6 +920,28 @@ Rectangle {
                             // fractional implicitWidth would elide by a
                             // fraction of a pixel.
                             Layout.maximumWidth: Math.ceil(implicitWidth)
+
+                            // A DM's name opens the peer's profile, not Room
+                            // Information. WithinBounds takes the exclusive
+                            // grab from the column's handler below.
+                            TapHandler {
+                                objectName: "roomHeaderTitleTap"
+                                enabled: header.dmPeerId !== ""
+                                gesturePolicy: TapHandler.WithinBounds
+                                acceptedButtons: Qt.LeftButton
+                                onTapped: header.openPeerProfile()
+                            }
+                            HoverHandler {
+                                enabled: header.dmPeerId !== ""
+                                cursorShape: Qt.PointingHandCursor
+                            }
+                            Accessible.role: header.dmPeerId !== ""
+                                             ? Accessible.Button
+                                             : Accessible.StaticText
+                            Accessible.name: text
+                            Accessible.description: header.dmPeerId !== ""
+                                                    ? qsTr("View profile") : ""
+                            Accessible.onPressAction: header.openPeerProfile()
                         }
                         Icon {
                             id: encryptionLock
@@ -919,8 +978,18 @@ Rectangle {
                         maximumLineCount: 1
                     }
                     TapHandler {
+                        objectName: "roomHeaderIdentityTap"
                         enabled: app.currentRoomId !== "" && app.roomInfo.supported
-                        onTapped: root.toggleRoomInfo()
+                        // A DM's name is the profile's; excluded here too so
+                        // one tap never does both.
+                        onTapped: (eventPoint) => {
+                            if (header.dmPeerId !== ""
+                                    && roomHeaderTitle.contains(
+                                        roomHeaderTitle.mapFromItem(
+                                            parent, eventPoint.position)))
+                                return
+                            root.toggleRoomInfo()
+                        }
                     }
                 }
                 // Named for a geometric test.

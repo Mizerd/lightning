@@ -598,8 +598,9 @@ QtObject {
         return expr.evaluate().value<QColor>();
     }
 
-    // "" when the dot sits at the avatar's top-right corner, wholly inside
-    // the avatar and inside `container`; otherwise what is wrong.
+    // "" when the dot sits at the avatar's bottom-right corner (its centre in
+    // the bottom-right quadrant, flush with both edges), wholly inside the
+    // avatar and inside `container`; otherwise what is wrong.
     static QString presenceDotPlacement(QQuickItem *dot, QQuickItem *avatar,
                                         QQuickItem *container)
     {
@@ -611,9 +612,16 @@ QtObject {
             return QStringLiteral("dot %1,%2 %3x%4 is not inside its %5x%6 avatar")
                 .arg(inAvatar.x()).arg(inAvatar.y()).arg(inAvatar.width())
                 .arg(inAvatar.height()).arg(avatar->width()).arg(avatar->height());
-        if (qAbs(inAvatar.top()) > 0.5
+        const QPointF centre = inAvatar.center();
+        if (centre.x() <= avatar->width() / 2.0
+                || centre.y() <= avatar->height() / 2.0)
+            return QStringLiteral("dot centre %1,%2 is not in the bottom-right "
+                                  "quadrant of its %3x%4 avatar")
+                .arg(centre.x()).arg(centre.y())
+                .arg(avatar->width()).arg(avatar->height());
+        if (qAbs(inAvatar.bottom() - avatar->height()) > 0.5
                 || qAbs(inAvatar.right() - avatar->width()) > 0.5)
-            return QStringLiteral("dot %1,%2 %3x%4 is not at the top-right of "
+            return QStringLiteral("dot %1,%2 %3x%4 is not at the bottom-right of "
                                   "its %5x%6 avatar")
                 .arg(inAvatar.x()).arg(inAvatar.y()).arg(inAvatar.width())
                 .arg(inAvatar.height()).arg(avatar->width()).arg(avatar->height());
@@ -630,6 +638,18 @@ QtObject {
     static QVariant attached(QQuickItem *item, const QString &name)
     {
         return QQmlProperty::read(item, name, qmlContext(item));
+    }
+
+    // A QML-side signal by name (pointer handlers have no public header).
+    static QMetaMethod signalNamed(QObject *object, const char *name)
+    {
+        const QMetaObject *mo = object->metaObject();
+        for (int i = 0; i < mo->methodCount(); ++i) {
+            const QMetaMethod method = mo->method(i);
+            if (method.methodType() == QMetaMethod::Signal && method.name() == name)
+                return method;
+        }
+        return {};
     }
 
 private Q_SLOTS:
@@ -4026,7 +4046,7 @@ private Q_SLOTS:
     }
 
     // A 1:1 DM's header avatar, and Room Information's, carry the peer's
-    // presence dot at the top-right, coloured and worded from presence and
+    // presence dot at the bottom-right, coloured and worded from presence and
     // following it live.
     void aDmHeaderAvatarCarriesThePeersPresenceDot()
     {
@@ -4202,6 +4222,109 @@ private Q_SLOTS:
         QCOMPARE(infoDot->property("userId").toString(), QString());
         QVERIFY2(!infoDot->isVisible(), "Room Information shows a group room's dot");
         QCOMPARE(watchedBy(fake), QStringList{});
+    }
+
+    // A 1:1 DM's header avatar and name each open the peer's profile card,
+    // and a tap on the name does not also reach the identity column's Room
+    // Information handler. In a group room neither opens a profile and the
+    // name still belongs to that handler.
+    void aDmHeaderAvatarAndNameOpenThePeersProfile()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString dmId = QStringLiteral("!dm-bob:mock.local");
+        const QString bob = QStringLiteral("@bob:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, dmId,
+                                          {}, 0, 700, &timeline);
+        QVERIFY(root);
+        window.resize(1000, 700);
+        root->setSize(QSizeF(1000, 700));
+        QCoreApplication::processEvents();
+
+        auto *avatar = root->findChild<QQuickItem *>(QStringLiteral("roomHeaderAvatar"));
+        auto *title = root->findChild<QQuickItem *>(QStringLiteral("roomHeaderTitle"));
+        auto *identity = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderIdentity"));
+        auto *columnTap = root->findChild<QObject *>(
+            QStringLiteral("roomHeaderIdentityTap"));
+        auto *profile = root->findChild<QObject *>(
+            QStringLiteral("senderProfilePopover"));
+        QVERIFY(avatar && title && identity && columnTap);
+        QVERIFY2(profile, "the pane has no profile card");
+        QTRY_VERIFY_WITH_TIMEOUT(avatar->isVisible() && avatar->width() > 0
+                                 && title->isVisible() && title->width() > 0,
+                                 2000);
+        QVERIFY(!profile->property("opened").toBool());
+
+        const auto centreOf = [](QQuickItem *item) {
+            return item->mapToScene(QPointF(item->width() / 2.0,
+                                            item->height() / 2.0)).toPoint();
+        };
+        const auto closeProfile = [&] {
+            QMetaObject::invokeMethod(profile, "close");
+            QTRY_VERIFY_WITH_TIMEOUT(!profile->property("visible").toBool(), 2000);
+        };
+
+        // Announced as a button in a DM.
+        QCOMPARE(attached(avatar, QStringLiteral("Accessible.name")).toString(),
+                 QStringLiteral("View profile"));
+        QVERIFY(!attached(avatar, QStringLiteral("Accessible.ignored")).toBool());
+
+        // The avatar opens Bob's card.
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(avatar));
+        QTRY_VERIFY2_WITH_TIMEOUT(profile->property("opened").toBool(),
+                                  "a tap on a DM's header avatar opened no profile",
+                                  2000);
+        QCOMPARE(profile->property("userId").toString(), bob);
+        QVERIFY(!root->property("infoOpen").toBool());
+        closeProfile();
+
+        // The column's Room Information handler is off on the mock (no room
+        // management); turned on here so a tap leaking through is counted.
+        QVERIFY(QQmlProperty::write(columnTap, QStringLiteral("enabled"), true));
+        const QMetaMethod tapped = signalNamed(columnTap, "tapped");
+        QVERIFY(tapped.isValid());
+        QSignalSpy columnTaps(columnTap, tapped);
+
+        // The name opens the same card, and only the card.
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(title));
+        QTRY_VERIFY2_WITH_TIMEOUT(profile->property("opened").toBool(),
+                                  "a tap on a DM's header name opened no profile",
+                                  2000);
+        QCOMPARE(profile->property("userId").toString(), bob);
+        QCOMPARE(columnTaps.count(), 0);
+        closeProfile();
+
+        // Control: below the name (the topic line) the column's handler is
+        // reached, so its silence above means something.
+        const QPoint belowName = identity->mapToScene(
+            QPointF(2, identity->height() - 2)).toPoint();
+        QVERIFY2(!title->contains(title->mapFromScene(belowName)),
+                 "the control point lands on the name");
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, belowName);
+        QTRY_COMPARE_WITH_TIMEOUT(columnTaps.count(), 1, 2000);
+        QVERIFY(!profile->property("opened").toBool());
+
+        // A group DM: no single peer, so no profile from either, and the name
+        // is Room Information's again.
+        QVariantMap trio;
+        trio.insert(QStringLiteral("name"), QStringLiteral("Trio"));
+        trio.insert(QStringLiteral("isDirect"), true);
+        trio.insert(QStringLiteral("identityColorKey"),
+                    QStringLiteral("!trio:mock.local"));
+        root->setProperty("currentRoom", trio);
+        QCoreApplication::processEvents();
+        QVERIFY(attached(avatar, QStringLiteral("Accessible.ignored")).toBool());
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(avatar));
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, centreOf(title));
+        QTRY_COMPARE_WITH_TIMEOUT(columnTaps.count(), 2, 2000);
+        QTest::qWait(300);
+        QVERIFY2(!profile->property("opened").toBool()
+                     && !profile->property("visible").toBool(),
+                 "a group room's header opened a profile");
     }
 
     // The room title outranks the header icon row: the row yields (folding

@@ -541,13 +541,13 @@ Rectangle {
                             circle: root.roomData.isDirect === true
 
                             // As in the room header: unambiguous 1:1 DMs only,
-                            // inside the avatar's bounds. Gated on the panel
-                            // showing Overview, since the panel is not behind a
-                            // Loader and would otherwise keep a watch while
-                            // closed.
+                            // bottom-right inside the avatar's bounds. Gated on
+                            // the panel showing Overview, since the panel is not
+                            // behind a Loader and would otherwise keep a watch
+                            // while closed.
                             PresenceDot {
                                 objectName: "roomInfoPresenceDot"
-                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
                                 anchors.right: parent.right
                                 dotSize: 16
                                 ring: root.color
