@@ -403,7 +403,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+729"/>
+        <location filename="../src/app/AppController.cpp" line="+760"/>
         <source>Room invitation</source>
         <translation>Convite para a sala</translation>
     </message>
@@ -418,7 +418,7 @@
         <translation>Foi convidado para %1</translation>
     </message>
     <message>
-        <location line="+132"/>
+        <location line="+203"/>
         <source>Incoming voice call</source>
         <translation>Chamada de voz recebida</translation>
     </message>
@@ -434,11 +434,12 @@
     </message>
     <message>
         <location line="+26"/>
+        <location line="+34"/>
         <source>Incoming call</source>
         <translation>Chamada recebida</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+40"/>
         <source>Missed call</source>
         <translation>Chamada perdida</translation>
     </message>
@@ -453,7 +454,7 @@
         <translation>Perdeu uma chamada de voz em %1</translation>
     </message>
     <message>
-        <location line="+340"/>
+        <location line="+341"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>A sala foi criada, mas não foi possível adicioná-la ao espaço.</translation>
     </message>
@@ -463,7 +464,7 @@
         <translation>A sala foi criada, mas não foi possível definir a sua imagem.</translation>
     </message>
     <message>
-        <location line="+95"/>
+        <location line="+88"/>
         <source>Could not switch accounts — returning to the previous account.</source>
         <translation>Não foi possível mudar de conta — a regressar à conta anterior.</translation>
     </message>
@@ -550,24 +551,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1743"/>
+        <location line="+1767"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>O Lightning não conseguiu ler o ficheiro selecionado.</translation>
     </message>
     <message>
-        <location line="-1749"/>
+        <location line="-1773"/>
         <source>A room-key import is already in progress.</source>
         <translation>Já está em curso uma importação de chaves de sala.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2355"/>
+        <location line="+2385"/>
         <source>Not signed in.</source>
         <translation>Sessão não iniciada.</translation>
     </message>
     <message>
-        <location line="-2353"/>
+        <location line="-2383"/>
         <source>Room-key import failed.</source>
         <translation>A importação de chaves de sala falhou.</translation>
     </message>
@@ -582,12 +583,12 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+427"/>
+        <location line="+438"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>As videochamadas precisam de um serviço MatrixRTC, que ainda não está disponível aqui.</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+18"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Esta sala está criptografada e as chamadas criptografadas ainda não estão disponíveis nesta versão.</translation>
     </message>
@@ -607,7 +608,7 @@
         <translation>Chamadas não estão disponíveis aqui.</translation>
     </message>
     <message>
-        <location line="+167"/>
+        <location line="+170"/>
         <source>Modern room list</source>
         <translation>Lista de salas moderna</translation>
     </message>
@@ -638,7 +639,7 @@
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1047"/>
+        <location line="+1054"/>
         <location line="+44"/>
         <location line="+59"/>
         <source>This build has no Rust SDK backend.</source>
@@ -777,7 +778,7 @@
         <translation>Limpar os dados locais deste dispositivo não resolveria isto e destruiria chaves de encriptação de que ainda precisa.</translation>
     </message>
     <message>
-        <location line="+369"/>
+        <location line="+375"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -920,7 +921,7 @@
 <context>
     <name>AttachmentQueueModel</name>
     <message>
-        <location filename="../src/models/AttachmentQueueModel.cpp" line="+50"/>
+        <location filename="../src/models/AttachmentQueueModel.cpp" line="+52"/>
         <source>The file is larger than the server&apos;s upload limit (%1).</source>
         <translation>O ficheiro excede o limite de envio do servidor (%1).</translation>
     </message>
@@ -950,7 +951,7 @@
         <translation>Esse ficheiro já está anexado.</translation>
     </message>
     <message>
-        <location line="+173"/>
+        <location line="+190"/>
         <source>The clipboard image is empty.</source>
         <translation>A imagem da área de transferência está vazia.</translation>
     </message>
@@ -1096,7 +1097,7 @@
         <translation>Predefinição do sistema</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+26"/>
         <source>(default)</source>
         <translation>(padrão)</translation>
     </message>
@@ -1104,6 +1105,11 @@
         <location line="+13"/>
         <source>Your chosen microphone isn&apos;t connected</source>
         <translation>O microfone escolhido não está conectado</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Your chosen camera isn&apos;t connected</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+47"/>
@@ -1130,7 +1136,12 @@
 <context>
     <name>CallDeviceSettings</name>
     <message>
-        <location filename="../qml/CallDeviceSettings.qml" line="+60"/>
+        <location filename="../qml/CallDeviceSettings.qml" line="+62"/>
+        <source>Chosen camera not connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>System default</source>
         <translation>Predefinição do sistema</translation>
     </message>
@@ -1140,7 +1151,7 @@
         <translation>(padrão)</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+42"/>
         <source>Microphone</source>
         <translation>Microfone</translation>
     </message>
@@ -1181,7 +1192,7 @@
         <translation>Câmera</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+17"/>
         <source>Your desktop chooses the camera when you turn it on in a call.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1191,7 +1202,12 @@
         <translation>Nenhuma câmera foi encontrada.</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+14"/>
+        <source>Your chosen camera isn&apos;t connected, so calls turn on no camera until it&apos;s back or you choose another.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Float the call when Lightning is minimised</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3681,7 +3697,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>GifPicker</name>
     <message>
-        <location filename="../qml/GifPicker.qml" line="+73"/>
+        <location filename="../qml/GifPicker.qml" line="+74"/>
         <source>Local</source>
         <translation>Local</translation>
     </message>
@@ -3717,13 +3733,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+31"/>
-        <location line="+316"/>
+        <location line="+336"/>
         <location line="+22"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
     <message>
-        <location line="-325"/>
+        <location line="-345"/>
         <source>Close GIF picker</source>
         <translation>Fechar o seletor de GIF</translation>
     </message>
@@ -3758,7 +3774,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Categoria %1</translation>
     </message>
     <message>
-        <location line="+190"/>
+        <location line="+210"/>
         <source>%1: %2</source>
         <translation>%1: %2</translation>
     </message>
@@ -3769,7 +3785,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>GIF: %1</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+126"/>
         <source>Remove from saved GIFs</source>
         <translation>Remover dos GIF guardados</translation>
     </message>
@@ -4051,7 +4067,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>ImageCropDialog</name>
     <message>
-        <location filename="../qml/ImageCropDialog.qml" line="+94"/>
+        <location filename="../qml/ImageCropDialog.qml" line="+116"/>
         <source>Adjust picture</source>
         <translation>Ajustar imagem</translation>
     </message>
@@ -4076,17 +4092,43 @@ Signing out and signing in again is the only fix.</source>
         <translation>Esse arquivo não pôde ser lido.</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
+        <source>That animation can&apos;t be kept. Turn off &quot;Keep animation&quot; to use a still frame.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>That picture couldn&apos;t be used.</source>
         <translation>Essa foto não pôde ser usada.</translation>
     </message>
     <message>
-        <location line="+362"/>
+        <location line="+388"/>
+        <location line="+8"/>
+        <source>Keep animation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-7"/>
+        <source>This animation can&apos;t be kept (it is too large or unreadable), so a still frame will be used.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+40"/>
         <source>Zoom</source>
         <translation>Zoom</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+58"/>
+        <source>An animation is uploaded whole and can&apos;t be cropped. Everyone sees it centred, as outlined.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>An animation is uploaded whole and can&apos;t be cropped. It is shown roughly as outlined; some views crop it differently.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Drag to move the picture, drag the frame to move the crop, and drag a corner to resize it. Only the circle is shown, and a square picture is uploaded.</source>
         <translation>Arraste para mover a imagem, arraste a moldura para mover o recorte e arraste um canto para redimensioná-la. Apenas o círculo é mostrado e uma imagem quadrada é carregada.</translation>
     </message>
@@ -4299,7 +4341,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+28"/>
         <source>%1 started a call.</source>
         <translation>%1 iniciou uma chamada.</translation>
     </message>
@@ -5021,18 +5063,18 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1109"/>
-        <location line="+526"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1281"/>
+        <location line="+540"/>
         <source>The file could not be downloaded.</source>
         <translation>Não foi possível transferir o ficheiro.</translation>
     </message>
     <message>
-        <location line="-445"/>
+        <location line="-459"/>
         <source>The download timed out.</source>
         <translation>A transferência expirou.</translation>
     </message>
     <message>
-        <location line="+527"/>
+        <location line="+550"/>
         <source>No destination selected.</source>
         <translation>Nenhum destino selecionado.</translation>
     </message>
@@ -5307,14 +5349,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>Perfil de %1</translation>
     </message>
     <message>
-        <location line="+246"/>
+        <location line="+261"/>
         <location line="+318"/>
         <location line="+12"/>
         <source>Presence unavailable</source>
         <translation>Presença indisponível</translation>
     </message>
     <message>
-        <location line="-727"/>
+        <location line="-742"/>
         <source>Invited</source>
         <translation>Convidado</translation>
     </message>
@@ -5334,7 +5376,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Link do perfil copiado</translation>
     </message>
     <message>
-        <location line="+585"/>
+        <location line="+600"/>
         <source>Bio</source>
         <translation>Biografia</translation>
     </message>
@@ -5439,12 +5481,17 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished">Ignorar</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+22"/>
+        <source>Lower your own role?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Change role?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+46"/>
         <source>Set %1 to %2 in this room?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5454,7 +5501,22 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+11"/>
+        <source>You are lowering your own role. You will not be able to raise it back yourself: only someone whose role is above your new one can, and if nobody else holds a role as high as yours, nobody can.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>You will also no longer be able to change roles or permissions in this room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Lower my role</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Change role</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5528,14 +5590,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>Convidar novamente após levantar o banimento</translation>
     </message>
     <message>
-        <location line="-260"/>
-        <location line="+74"/>
-        <location line="+228"/>
+        <location line="-307"/>
+        <location line="+119"/>
+        <location line="+230"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-1237"/>
+        <location line="-1299"/>
         <source>Matrix ID copied</source>
         <translation>ID Matrix copiado</translation>
     </message>
@@ -8351,6 +8413,487 @@ Signing out and signing in again is the only fix.</source>
     </message>
 </context>
 <context>
+    <name>RoomCloseDialog</name>
+    <message>
+        <location filename="../qml/RoomCloseDialog.qml" line="+89"/>
+        <source>Leave once it is closed. If anything is left undone you stay, so you can run it again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Also remove it from %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>It stays listed in %1: you can&apos;t change that space&apos;s rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Reason shown to the people removed (optional)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Stop anyone on this server joining it again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>The space itself</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>The room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>%1 (%2 of %3 selected)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+76"/>
+        <source>This space has more rooms than Lightning checks at once. Rooms past the limit are not listed and are left unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Type %1 to confirm. Its id, below, works too.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Its name has characters that cannot be typed. Type its id, below, to confirm.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+62"/>
+        <source>Hide</source>
+        <translation type="unfinished">Ocultar</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Close</source>
+        <translation type="unfinished">Fechar</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Cancelar</translation>
+    </message>
+    <message>
+        <location line="+69"/>
+        <source>Working…</source>
+        <translation type="unfinished">A trabalhar…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Waiting</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Skipped</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Also in another space</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>RoomClosureController</name>
+    <message>
+        <location filename="../src/spaces/RoomClosureController.cpp" line="+213"/>
+        <source>your homeserver</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>An earlier close or delete is still running and is shown here. Start the new one when it has finished.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>This is how the earlier close or delete ended. Close this to start the new one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+463"/>
+        <source>The request could not be sent.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+46"/>
+        <source>Removing members: %1 of %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Working…</source>
+        <translation type="unfinished">A trabalhar…</translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>No answer yet. It may still finish on the server: check the room before running this again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+96"/>
+        <source> · you stayed: rooms inside it are not fully closed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Queued on the server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The server is deleting it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>The server refused to make it invite-only. Nothing was changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>No answer came back when making it invite-only, so it may or may not have changed. Nothing else was done.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>It could not be made invite-only. Nothing was changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Invite-only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 removed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 could not be removed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 not reached; run it again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>its members could not be read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>%1 stay (role not below yours)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>%1 stay (you can&apos;t remove members here)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>may still be in the room directory</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>still listed in %1 space(s)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>you left</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>you stayed so you can run it again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>leaving failed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Deleted from the server · %1 removed · %2 could not be removed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Deleted from the server · %1 removed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The server is still deleting it. Check again later.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Whether the server deleted it is not known: no clear answer came back. Check the room before trying again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The server refused the request. A delete of this room may already be running.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The server did not accept this session. Sign in again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The server refused. This account may no longer be an administrator.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This server does not offer the delete it was asked for.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The server reported that the delete failed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The server is rate limiting. Try again shortly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Failed. Check your connection and retry.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>You are not in this room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>You can&apos;t change who may join</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Its members could not be checked</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Not checked in time; left unchanged</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Not available here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source> · its history stays readable by anyone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Only you are here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>You can&apos;t remove members here: all %1 stay</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Removes %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Removes nobody</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>%1 and %2 more</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source> · %1 stay</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source> · %1 stay: %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>this room</source>
+        <translation type="unfinished">esta sala</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Delete %1 and %2 rooms from %3?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Delete %1 from %2?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Close %1 and its rooms?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Close %1?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>the space and the %1 rooms selected below</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>This deletes %2 from %1, your homeserver: everyone on %1 is removed and %1&apos;s copy of the history is purged. It cannot be undone. Members on other servers keep the rooms and their history; for them they carry on without %1&apos;s users.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>the space and each room you select</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>the room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Closing makes %1 invite-only, takes it out of the public room directory, removes the members you are allowed to remove (where you may remove people, everyone whose role is below yours), and then you leave.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Closing makes %1 invite-only, takes it out of the public room directory and removes the members you are allowed to remove (where you may remove people, everyone whose role is below yours). You stay.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>This does not delete anything: the history stays on every server that took part, people keep whatever their apps already downloaded, and a room whose history anyone can read stays readable. Everyone you cannot remove stays, and anyone whose role is not below yours can open it again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Also delete rooms in this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Also close rooms in this space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Delete from server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Close space</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Close room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Checking what closing would do… This takes at most half a minute.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Lightning could not check these rooms. Nothing was changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Type %1 to confirm.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>There is nothing here you can close: see the reasons below.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>%1 of the rooms could not be checked in time. They are not offered and will be left unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Working: %1 of %2. You can hide this; it keeps going.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Done: %1 deleted, %2 still being deleted by the server, %3 failed, %4 not known yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Done: %1 closed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Done: %1 closed, %2 partly closed, %3 failed, %4 not known yet. The rows below say what is left.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>RoomDelegate</name>
     <message>
         <location filename="../qml/RoomDelegate.qml" line="+12"/>
@@ -8479,7 +9022,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoController</name>
     <message>
-        <location filename="../src/app/RoomInfoController.cpp" line="+40"/>
+        <location filename="../src/app/RoomInfoController.cpp" line="+50"/>
         <source>The server did not accept the change.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8522,12 +9065,17 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+432"/>
+        <location line="+435"/>
         <source>The invite could not be sent.</source>
         <translation>Não foi possível enviar o convite.</translation>
     </message>
     <message>
-        <location line="-398"/>
+        <location line="-401"/>
+        <source>Creator</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <location line="+6"/>
         <source>Member</source>
         <translation>Membro</translation>
@@ -8548,7 +9096,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Personalizado (%1)</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+47"/>
         <location line="+293"/>
         <source>The change could not be sent. Check your connection and retry.</source>
         <translation>Não foi possível enviar a alteração. Verifique a sua ligação e tente novamente.</translation>
@@ -8595,7 +9143,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+237"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+241"/>
         <source>Choose room avatar</source>
         <translation>Escolher o avatar da sala</translation>
     </message>
@@ -8631,7 +9179,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Fechar as informações da sala</translation>
     </message>
     <message>
-        <location line="-289"/>
+        <location line="-293"/>
         <source>Overview</source>
         <translation>Visão geral</translation>
     </message>
@@ -8651,7 +9199,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Multimédia</translation>
     </message>
     <message>
-        <location line="+380"/>
+        <location line="+384"/>
         <source>Notifications</source>
         <translation>Notificações</translation>
     </message>
@@ -8724,17 +9272,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 membros (%2 convidados)</translation>
     </message>
     <message>
-        <location line="-571"/>
+        <location line="-575"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2007"/>
+        <location line="+2038"/>
         <source>Open</source>
         <translation type="unfinished">Abrir</translation>
     </message>
     <message>
-        <location line="-1383"/>
+        <location line="-1410"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8888,13 +9436,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+703"/>
+        <location line="+730"/>
         <location line="+85"/>
         <source>Remove</source>
         <translation type="unfinished">Remover</translation>
     </message>
     <message>
-        <location line="-768"/>
+        <location line="-795"/>
         <source>#another-name</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8910,12 +9458,22 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+775"/>
+        <location line="+802"/>
         <source>Leave room</source>
         <translation>Sair da sala</translation>
     </message>
     <message>
-        <location line="-740"/>
+        <location line="-791"/>
+        <source>Close room…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Delete from server…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+38"/>
         <source>No pinned messages</source>
         <translation>Nenhuma mensagem fixada</translation>
     </message>
@@ -9078,7 +9636,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Convidar pessoas para esta sala</translation>
     </message>
     <message>
-        <location line="-754"/>
+        <location line="-781"/>
         <source>Members of selected spaces can join</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9158,7 +9716,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+504"/>
+        <location line="+531"/>
         <source>Invite people</source>
         <translation>Convidar pessoas</translation>
     </message>
@@ -10537,23 +11095,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5700"/>
+        <location line="+5708"/>
         <source>Homeserver</source>
         <translation>Servidor</translation>
     </message>
     <message>
-        <location line="-5700"/>
+        <location line="-5708"/>
         <source>homeserver server url</source>
         <translation>servidor url</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5735"/>
+        <location line="+5743"/>
         <source>Start minimized</source>
         <translation>Iniciar minimizado</translation>
     </message>
     <message>
-        <location line="-5735"/>
+        <location line="-5743"/>
         <source>startup minimized</source>
         <translation>arranque minimizado</translation>
     </message>
@@ -11107,13 +11665,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+5"/>
         <location line="+412"/>
         <location line="+654"/>
-        <location line="+4774"/>
+        <location line="+4782"/>
         <location line="+496"/>
         <source>Sessions</source>
         <translation>Sessões</translation>
     </message>
     <message>
-        <location line="-6393"/>
+        <location line="-6401"/>
         <location line="+952"/>
         <location line="+2822"/>
         <source>Automatically load previews in unencrypted rooms</source>
@@ -11202,12 +11760,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5540"/>
+        <location line="+5548"/>
         <source>Security status</source>
         <translation>Estado da segurança</translation>
     </message>
     <message>
-        <location line="-5539"/>
+        <location line="-5547"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee encriptação estado assinatura cruzada cópia de segurança</translation>
     </message>
@@ -11221,13 +11779,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-3352"/>
-        <location line="+6869"/>
+        <location line="+6877"/>
         <location line="+19"/>
         <source>Recovery key or passphrase</source>
         <translation>Chave de recuperação ou frase-passe</translation>
     </message>
     <message>
-        <location line="-6887"/>
+        <location line="-6895"/>
         <source>recovery key passphrase backup restore</source>
         <translation>chave recuperação frase-passe cópia de segurança restaurar</translation>
     </message>
@@ -11240,23 +11798,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-6"/>
-        <location line="+6951"/>
+        <location line="+6959"/>
         <source>Import room keys</source>
         <translation>Importar chaves de sala</translation>
     </message>
     <message>
-        <location line="-6950"/>
+        <location line="-6958"/>
         <source>import room keys export</source>
         <translation>importar chaves sala exportação</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+7172"/>
+        <location line="+7180"/>
         <source>Danger Zone</source>
         <translation>Zona de perigo</translation>
     </message>
     <message>
-        <location line="-7171"/>
+        <location line="-7179"/>
         <source>reset danger local session</source>
         <translation>repor perigo sessão local</translation>
     </message>
@@ -11267,34 +11825,34 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6664"/>
+        <location line="+6672"/>
         <source>Current session</source>
         <translation>Sessão atual</translation>
     </message>
     <message>
-        <location line="-6663"/>
+        <location line="-6671"/>
         <source>device id session status</source>
         <translation>id dispositivo estado sessão</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5874"/>
+        <location line="+5882"/>
         <source>Sign in another device</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5873"/>
+        <location line="-5881"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+6712"/>
+        <location line="+6720"/>
         <source>Verify this session</source>
         <translation>Verificar esta sessão</translation>
     </message>
     <message>
-        <location line="-6711"/>
+        <location line="-6719"/>
         <source>verify verification sas cross-signing</source>
         <translation>verificar verificação sas assinatura cruzada</translation>
     </message>
@@ -11315,12 +11873,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+399"/>
         <location line="+661"/>
-        <location line="+6172"/>
+        <location line="+6180"/>
         <source>Labs</source>
         <translation>Labs</translation>
     </message>
     <message>
-        <location line="-7240"/>
+        <location line="-7248"/>
         <source>Sync mode</source>
         <translation>Modo de sincronização</translation>
     </message>
@@ -11341,12 +11899,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+7284"/>
+        <location line="+7292"/>
         <source>Refresh current room</source>
         <translation>Atualizar a sala atual</translation>
     </message>
     <message>
-        <location line="-7283"/>
+        <location line="-7291"/>
         <source>refresh reload timeline</source>
         <translation>atualizar recarregar conversa</translation>
     </message>
@@ -11355,12 +11913,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <location line="+397"/>
         <location line="+704"/>
-        <location line="+6211"/>
+        <location line="+6219"/>
         <source>About</source>
         <translation>Sobre</translation>
     </message>
     <message>
-        <location line="-7313"/>
+        <location line="-7321"/>
         <source>about version license</source>
         <translation>sobre versão licença</translation>
     </message>
@@ -11401,12 +11959,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+39"/>
         <location line="+4509"/>
         <location line="+205"/>
-        <location line="+1230"/>
+        <location line="+1238"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
     </message>
     <message>
-        <location line="-5804"/>
+        <location line="-5812"/>
         <source>Needs attention</source>
         <translation>Precisa de atenção</translation>
     </message>
@@ -11440,12 +11998,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <location line="+4192"/>
         <location line="+402"/>
-        <location line="+1847"/>
+        <location line="+1855"/>
         <source>Clear</source>
         <translation>Limpar</translation>
     </message>
     <message>
-        <location line="-6431"/>
+        <location line="-6439"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>Remover deste dispositivo todos os GIF de fornecedores que guardou? Os GIF guardados a partir de conversas não são afetados. Esta ação não pode ser anulada.</translation>
     </message>
@@ -11789,7 +12347,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+695"/>
+        <location line="+703"/>
         <source>Key backup: checking…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11819,7 +12377,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5925"/>
+        <location line="-5933"/>
         <source>Moss Light</source>
         <translation>Moss Light</translation>
     </message>
@@ -12317,12 +12875,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+2600"/>
+        <location line="+2608"/>
         <source>Choose image…</source>
         <translation>Escolher uma imagem…</translation>
     </message>
     <message>
-        <location line="-2593"/>
+        <location line="-2601"/>
         <source>Reset to Lightning default</source>
         <translation>Repor o ícone predefinido do Lightning</translation>
     </message>
@@ -12889,12 +13447,12 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     </message>
     <message>
         <location line="+1"/>
-        <location line="+319"/>
+        <location line="+327"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)</source>
         <translation>Imagens (*.png *.jpg *.jpeg *.webp *.gif *.bmp)</translation>
     </message>
     <message>
-        <location line="-295"/>
+        <location line="-303"/>
         <source>About you</source>
         <translation>Sobre você</translation>
     </message>
@@ -12934,14 +13492,14 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
         <translation>Banner do perfil</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+59"/>
         <source>No banner</source>
         <translation>Sem banner</translation>
     </message>
     <message>
-        <location line="-2998"/>
+        <location line="-3006"/>
         <location line="+2732"/>
-        <location line="+285"/>
+        <location line="+293"/>
         <source>Remove</source>
         <translation>Remover</translation>
     </message>
@@ -13689,7 +14247,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+419"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+432"/>
         <location line="+147"/>
         <location line="+99"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -13697,12 +14255,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="-244"/>
-        <location line="+685"/>
+        <location line="+689"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Não foi possível iniciar o compartilhamento de tela.</translation>
     </message>
     <message>
-        <location line="-574"/>
+        <location line="-578"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>O compartilhamento de tela no Wayland precisa do xdg-desktop-portal e não está respondendo. Instale ou inicie o portal para sua área de trabalho — por exemplo xdg-desktop-portal-kde ou xdg-desktop-portal-gnome — e tente novamente.</translation>
     </message>
@@ -13738,27 +14296,27 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Não foi possível começar a compartilhar essa exibição.</translation>
     </message>
     <message>
-        <location line="+168"/>
+        <location line="+172"/>
         <source>The calling service refused to connect you to this call.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+453"/>
+        <location line="+503"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>A chamada não está disponível neste servidor doméstico.</translation>
     </message>
     <message>
-        <location line="-438"/>
+        <location line="-488"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Muitas tentativas. Tente novamente em alguns instantes.</translation>
     </message>
     <message>
-        <location line="-477"/>
+        <location line="-481"/>
         <source>Screen sharing isn&apos;t available in this sandboxed (Flatpak or Snap) build on an X11 session: it can only share through the desktop&apos;s screen-sharing portal, and none is available, and GStreamer plugins installed on your system cannot be used from the sandbox. To share your screen, use the AppImage or a distribution package of Lightning, which capture an X11 screen directly, or log into a Wayland session, where your desktop&apos;s portal provides screen sharing. If your desktop&apos;s xdg-desktop-portal supports screen casting on X11, make sure it is installed and running.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+455"/>
+        <location line="+459"/>
         <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13829,12 +14387,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+376"/>
+        <location line="+426"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>Não foi possível conectar-se à chamada.</translation>
     </message>
     <message>
-        <location line="-374"/>
+        <location line="-424"/>
         <source>The calling service is having trouble.</source>
         <translation>O serviço de chamada está com problemas.</translation>
     </message>
@@ -13859,7 +14417,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Sua câmera não está disponível.</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
+        <source>The camera you chose isn&apos;t available, so no camera was turned on. Choose a camera in Settings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Lightning couldn&apos;t read the list of cameras, so no camera was turned on. Restart Lightning, or choose the system default camera in Settings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Your microphone isn&apos;t available.</source>
         <translation>Seu microfone não está disponível.</translation>
     </message>
@@ -13870,12 +14438,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+41"/>
+        <location line="+71"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>Esta compilação não pode ingressar em chamadas Matrix.</translation>
     </message>
     <message>
-        <location line="-39"/>
+        <location line="-69"/>
         <source>Still checking whether calling is available here. Try again in a moment.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13896,13 +14464,13 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+33"/>
+        <location line="+63"/>
         <location line="+5"/>
         <source>This build has no calling media support.</source>
         <translation>Esta compilação não tem suporte de mídia de chamada.</translation>
     </message>
     <message>
-        <location line="-31"/>
+        <location line="-61"/>
         <source>You don&apos;t have permission to start or join calls in this room. A room admin can raise your power level in it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13912,22 +14480,27 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+64"/>
         <source>Calling isn&apos;t ready yet.</source>
         <translation>A chamada ainda não está pronta.</translation>
     </message>
     <message>
-        <location line="-41"/>
+        <location line="+747"/>
+        <source>Call audio stopped: this computer&apos;s sound output disconnected and could not be reopened. Leave and rejoin the call to hear it again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-818"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Esta sala está criptografada e as chamadas criptografadas ainda não estão disponíveis nesta versão.</translation>
     </message>
     <message>
-        <location line="+170"/>
+        <location line="+199"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>Não foi possível anunciar você na chamada.</translation>
     </message>
     <message>
-        <location line="+208"/>
+        <location line="+216"/>
         <source>The call ended because the connection was lost.</source>
         <translation>A chamada foi encerrada porque a conexão foi perdida.</translation>
     </message>
@@ -14526,7 +15099,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>SpaceMemberActionDialog</name>
     <message>
-        <location filename="../qml/SpaceMemberActionDialog.qml" line="+76"/>
+        <location filename="../qml/SpaceMemberActionDialog.qml" line="+94"/>
         <source>Reason (optional)</source>
         <translation type="unfinished">Motivo (opcional)</translation>
     </message>
@@ -14561,7 +15134,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation type="unfinished">Cancelar</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+44"/>
         <source>Done</source>
         <translation type="unfinished">Concluído</translation>
     </message>
@@ -14584,12 +15157,22 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>SpaceModerationController</name>
     <message>
-        <location filename="../src/spaces/SpaceModerationController.cpp" line="+326"/>
+        <location filename="../src/spaces/SpaceModerationController.cpp" line="+53"/>
+        <source>No answer. It may still have happened: check before retrying.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+73"/>
+        <source>An earlier action is still running and is shown here. Start the new one when it has finished.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+282"/>
         <source>The request could not be sent.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+47"/>
         <source>Not a member here</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14621,6 +15204,11 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+2"/>
         <source>Their membership here could not be checked</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Not checked in time; left unchanged</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -14730,11 +15318,11 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+7"/>
-        <source>Checking where you can do this…</source>
+        <source>Checking where you can do this… This takes at most half a minute.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>Lightning could not check this space&apos;s rooms. Nothing was changed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14745,11 +15333,21 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+3"/>
+        <source>%1 of the rooms could not be checked in time. They are not offered and will be left unchanged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Working: %1 of %2</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
+        <source>Done: %1 succeeded, %2 failed, %3 not known. The rooms are marked below.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>Done: %1 succeeded.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14762,7 +15360,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>SpaceSettingsDialog</name>
     <message>
-        <location filename="../qml/SpaceSettingsDialog.qml" line="+93"/>
+        <location filename="../qml/SpaceSettingsDialog.qml" line="+97"/>
         <source>General</source>
         <translation>Geral</translation>
     </message>
@@ -14818,12 +15416,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+871"/>
+        <location line="+937"/>
         <source>Invite</source>
         <translation>Convidar</translation>
     </message>
     <message>
-        <location line="-870"/>
+        <location line="-936"/>
         <source>Kick</source>
         <translation>Chute</translation>
     </message>
@@ -14961,17 +15559,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+31"/>
-        <location line="+309"/>
+        <location line="+317"/>
         <source>Save</source>
         <translation>Guardar</translation>
     </message>
     <message>
-        <location line="-286"/>
+        <location line="-294"/>
         <source>Banner</source>
         <translation>Bandeira</translation>
     </message>
     <message>
-        <location line="+94"/>
+        <location line="+102"/>
         <source>No banner</source>
         <translation>Sem banner</translation>
     </message>
@@ -15032,12 +15630,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+820"/>
+        <location line="+885"/>
         <source>Published address</source>
         <translation>Endereço publicado</translation>
     </message>
     <message>
-        <location line="-811"/>
+        <location line="-876"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>Um endereço publicado permite que as pessoas encontrem e ingressem neste espaço pelo nome. Deixe-o vazio para removê-lo.</translation>
     </message>
@@ -15072,7 +15670,27 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+30"/>
+        <source>Close or delete</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Closing makes the space and the rooms you choose invite-only and removes the members you are allowed to remove. Nothing is deleted: history stays on every server that took part.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Close space…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Delete from server…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+35"/>
         <source>%1 members</source>
         <translation>%1 membros</translation>
     </message>
@@ -15204,22 +15822,22 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Funções dos membros</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+52"/>
         <source>Admin</source>
         <translation>Admin</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Moderator</source>
         <translation>Moderador</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
         <source>Member</source>
         <translation>Membro</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+27"/>
         <source>Read-only. Everything here is what this device currently knows about the space.</source>
         <translation>Somente leitura. Tudo aqui é o que este dispositivo sabe atualmente sobre o espaço.</translation>
     </message>
@@ -15244,12 +15862,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Regra de adesão</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+5"/>
         <source>Your power level</source>
         <translation>Seu nível de poder</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+6"/>
         <source>Default power level</source>
         <translation>Nível de potência padrão</translation>
     </message>
@@ -15274,12 +15892,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Um inspetor completo do estado da sala e dos dados da conta ainda não foi criado.</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+80"/>
         <source>Role in this space</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+28"/>
         <source>Kick from space…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15300,17 +15918,32 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message>
         <location line="+9"/>
+        <source>Lower your own role?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Change role?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+43"/>
         <source>Set %1 to %2 in this space? Roles in the space&apos;s rooms are set in each room.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This gives them your own level or higher. You will not be able to change it back.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>You are lowering your own role. You will not be able to raise it back yourself: only someone whose role is above your new one can, and if nobody else holds a role as high as yours, nobody can.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>You will also no longer be able to change roles or permissions in this space.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -16867,12 +17500,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-474"/>
         <location filename="../qml/TimelinePane.qml" line="+165"/>
-        <location line="+4698"/>
+        <location line="+4714"/>
         <source>Space</source>
         <translation>Espaço</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-4697"/>
+        <location filename="../qml/TimelinePane.qml" line="-4713"/>
         <source>Home</source>
         <translation>Início</translation>
     </message>
@@ -17231,7 +17864,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>Não foi possível alterar a marca de sugerida — pode não ter permissão.</translation>
     </message>
     <message>
-        <location line="+146"/>
+        <location line="+159"/>
         <source>Choose a banner image</source>
         <translation>Escolher uma imagem de banner</translation>
     </message>
@@ -17277,7 +17910,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     </message>
     <message numerus="yes">
         <location filename="../qml/SpaceLobby.qml" line="+95"/>
-        <location filename="../qml/TimelinePane.qml" line="+65"/>
+        <location filename="../qml/TimelinePane.qml" line="+68"/>
         <source>%n room(s)</source>
         <comment>rooms inside a Space</comment>
         <translation>
@@ -17547,8 +18180,8 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <translation>As salas continuam a existir e você continua nelas — apenas saem da lista deste espaço.</translation>
     </message>
     <message>
-        <location line="-1196"/>
-        <location line="+1210"/>
+        <location line="-1212"/>
+        <location line="+1226"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>Cancelar</translation>
@@ -18634,7 +19267,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2006"/>
+        <location filename="../src/main.cpp" line="+2008"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Cliente Matrix nativo Qt/QML. Backend: --backend={mock,http,rust}. Predefinição: rust (http em compilações sem o Rust SDK).</translation>
     </message>
