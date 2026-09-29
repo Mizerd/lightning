@@ -88,14 +88,33 @@ version_output=$(cd /tmp && env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
 [ "$version_output" = "Lightning $BASE_VERSION" ] \
     || die "--version mismatch: $version_output"
 
+# Through the launcher, as snapd runs it. The bare binary has no library path
+# or scanner, so GStreamer scans the payload in-process and every plugin whose
+# libraries sit in usr/lib fails to load: pipeline 268's log of a path that
+# never ships.
+#
+# Its own empty cache, so this run is one that scans: plugin-load and scanner
+# failures are printed only while a registry is built, and a run over an
+# existing registry prints neither.
+launch_cache="$audit/launch-cache"
 set +e
-( cd /tmp && timeout 20s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
-    "$audit/prime/usr/bin/lightning-matrix" --backend=rust \
+( cd /tmp && timeout 45s env SNAP="$audit/prime" QT_QPA_PLATFORM=offscreen \
+    XDG_CACHE_HOME="$launch_cache" "$audit/prime/bin/lightning-launch" \
     ) > dist/snap-launch.log 2>&1
 status=$?
 set -e
 [ "$status" = 0 ] || [ "$status" = 124 ] \
     || { cat dist/snap-launch.log; die "offscreen launch failed ($status)"; }
+test -s "$launch_cache/lightning/gst-registry.bin" \
+    || die "the offscreen launch built no GStreamer registry in $launch_cache, so its log says nothing about plugin loading"
+if grep -q 'Failed to load plugin' dist/snap-launch.log; then
+    grep 'Failed to load plugin' dist/snap-launch.log
+    die "GStreamer plugins in the snap fail to load through the launcher"
+fi
+# `if` rather than `grep && die`, which is easy to misread under `set -e`.
+if grep -qi 'External plugin loader failed' dist/snap-launch.log; then
+    die "the snap prints 'External plugin loader failed' when run through its own launcher — the scanner pointer is wrong, not merely absent"
+fi
 
 # Run through the launcher: the snap takes only usr/ from the AppDir, so the
 # launcher alone points GStreamer at the bundled plugins.
@@ -149,10 +168,9 @@ for nss_module in libsoftokn3 libfreebl3 libfreeblpriv3 libnssdbm3 libnssckbi; d
 done
 grep -q 'GST_PLUGIN_SCANNER_1_0' "$audit/prime/bin/lightning-launch" \
     || die "the snap launcher does not point GStreamer at the bundled gst-plugin-scanner: every launch prints 'External plugin loader failed' and scans in-process"
-# `if` rather than `grep && die`, which is easy to misread under `set -e`.
-if grep -qi 'External plugin loader failed' dist/snap-call-media-status.txt; then
-    die "the snap still prints 'External plugin loader failed' when run through its own launcher — the scanner pointer is wrong, not merely absent"
-fi
+# Whether that pointer WORKS is asked of the offscreen launch above, the one
+# run guaranteed to scan: a run over an existing registry never starts the
+# scanner, so its log cannot show a broken one.
 # What core24 does not provide: the socket bridges into snapd's remapped
 # XDG_RUNTIME_DIR, xkb keymaps and fontconfig. These are text/file checks only;
 # proving the snap starts needs a real snapd.
@@ -188,6 +206,8 @@ for rule in 45-generic.conf 60-latin.conf 70-no-bitmaps-except-emoji.conf; do
 done
 test -d "$audit/prime/gpu-2404" \
     || die "the gpu-2404 content mount point is missing from the payload"
+test -d "$audit/prime/gpu-2404-2" \
+    || die "the gpu-2404-2 mount point is missing: mesa-2404's second content directory lands there, and without it snapd lays a writable mimic over all of \$SNAP"
 # Match the exec, not the GPU_WRAPPER= assignment.
 grep -q 'exec "\$GPU_WRAPPER"' "$audit/prime/bin/lightning-launch" \
     || die "the snap declares the gpu-2404 plug but the launcher never execs through the provider wrapper, so the driver paths are never set"
@@ -217,6 +237,97 @@ for ximage_need in $ximage_needs; do
 done
 [ -z "$ximage_missing" ] \
     || die "the snap's ximagesrc cannot load: unresolved$ximage_missing"
+
+# Ask the payload's own GStreamer, through the shipped launcher, which plugins
+# fail to load and whether the elements a call needs register. The engine's
+# probe (--call-media-status) checks a list, and a list misses what nobody
+# named: before srtpenc joined it, a snap without libsrtp2 said "calls can be
+# placed and answered" under a real snapd and could carry no media
+# (2026-09-29). This reads every plugin the payload ships.
+#
+# gst-inspect comes from the distro package, extracted and NOT installed: an
+# installed libgstreamer would satisfy a library the payload lacks.
+gst_tools="$audit/gst-tools"
+mkdir -p "$gst_tools"
+if ! ( cd "$gst_tools" && apt-get download gstreamer1.0-tools ) \
+        > dist/snap-gst-tools.log 2>&1; then
+    cat dist/snap-gst-tools.log
+    die "could not download gstreamer1.0-tools for the plugin probe"
+fi
+dpkg-deb -x "$gst_tools"/gstreamer1.0-tools_*.deb "$gst_tools/root"
+gst_inspect="$gst_tools/root/usr/bin/gst-inspect-1.0"
+test -x "$gst_inspect" || die "gstreamer1.0-tools carried no gst-inspect-1.0"
+# The shipped launcher with its exec pointed at "$@": the app's environment,
+# including the gpu-2404 wrapper when mounted, without the app.
+probe_launch="$audit/probe-launch"
+sed -e 's|"\$SNAP/usr/bin/lightning-matrix" --backend=rust "\$@"|"$@"|' \
+    "$audit/prime/bin/lightning-launch" > "$probe_launch"
+chmod 0755 "$probe_launch"
+if grep -q 'lightning-matrix' "$probe_launch"; then
+    die "the plugin probe could not redirect the launcher's exec; it would start the app instead"
+fi
+# A fresh registry: a cached one would hide a plugin that fails to load.
+# LC_ALL=C pins the gst-inspect wording matched below.
+gst_cache="$audit/gst-cache"
+gst_probe() {   # seconds, command...
+    local secs="$1"
+    shift
+    ( cd /tmp && timeout "$secs" env LC_ALL=C SNAP="$audit/prime" \
+        XDG_CACHE_HOME="$gst_cache" "$probe_launch" "$@" )
+}
+# The tool is the distro's and the library the payload's; name both.
+set +e
+# The scan happens here, on the first call over a fresh registry.
+gst_probe 180 "$gst_inspect" --version > dist/snap-gst-plugins.txt 2>&1
+gst_probe_status=$?
+if [ "$gst_probe_status" = 0 ]; then
+    gst_probe 60 "$gst_inspect" -b >> dist/snap-gst-plugins.txt 2>&1
+    gst_probe_status=$?
+fi
+set -e
+[ "$gst_probe_status" = 0 ] || { cat dist/snap-gst-plugins.txt; \
+    die "gst-inspect could not run on the payload's GStreamer through the launcher (exit $gst_probe_status)"; }
+test -s "$gst_cache/lightning/gst-registry.bin" \
+    || die "the plugin probe built no registry in $gst_cache; it did not scan the payload"
+# A probe that answers "present" for everything is broken.
+if gst_probe 60 "$gst_inspect" --exists lightning-no-such-element >/dev/null 2>&1; then
+    die "the plugin probe reports a nonexistent element as present; it cannot be trusted"
+fi
+# The engine's own list plus what webrtcbin and dtlssrtpenc load themselves
+# (srtp*, sctp*, rtpbin) and the microphone meter.
+gst_missing=""
+for gst_element in webrtcbin nicesrc nicesink dtlssrtpenc dtlssrtpdec \
+                   srtpenc srtpdec sctpenc sctpdec rtpbin \
+                   vp8enc vp8dec opusenc opusdec level; do
+    set +e
+    gst_probe 60 "$gst_inspect" --exists "$gst_element" >/dev/null 2>&1
+    gst_exists_status=$?
+    set -e
+    case "$gst_exists_status" in
+        0)   echo "element $gst_element: registered" ;;
+        124) echo "element $gst_element: TIMED OUT"
+             gst_missing="$gst_missing $gst_element" ;;
+        *)   echo "element $gst_element: MISSING"
+             gst_missing="$gst_missing $gst_element" ;;
+    esac >> dist/snap-gst-plugins.txt
+done
+cat dist/snap-gst-plugins.txt
+if grep -qi 'External plugin loader failed' dist/snap-gst-plugins.txt; then
+    die "the plugin probe printed 'External plugin loader failed' through the snap launcher — the scanner pointer is wrong"
+fi
+grep -qx 'Total count: 0 blacklisted files' dist/snap-gst-plugins.txt \
+    || die "GStreamer plugins in the snap payload fail to load through the launcher; see the blacklist above"
+[ -z "$gst_missing" ] \
+    || die "the snap's GStreamer does not register:$gst_missing -- a call would negotiate and carry no media"
+# An empty element in LD_LIBRARY_PATH is the current directory, searched
+# before the gpu-2404 driver directories the wrapper appends.
+snap_ld_path=$(cd /tmp && timeout 60 env -u LD_LIBRARY_PATH LC_ALL=C \
+    SNAP="$audit/prime" XDG_CACHE_HOME="$gst_cache" \
+    "$probe_launch" printenv LD_LIBRARY_PATH) \
+    || die "the snap launcher exports no LD_LIBRARY_PATH, so no bundled library or plugin dependency resolves"
+case ":$snap_ld_path:" in
+    *::*) die "the snap launcher leaves an empty LD_LIBRARY_PATH element ($snap_ld_path), which the loader reads as the current directory" ;;
+esac
 
 gif_env() {
     env -u GIPHY_API_KEY -u KLIPY_API_KEY \

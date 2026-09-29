@@ -219,8 +219,12 @@ stage_confined_data() {
     echo "snap: staged xkb + fontconfig for strict confinement"
 }
 stage_confined_data
-# Mount point for the gpu-2404 content interface (avoids snapd's mimic).
-mkdir -p "$TREE/gpu-2404"
+# Mount points for the gpu-2404 content interface. mesa-2404's slot has two
+# read paths and snapd mounts the second at "<target>-2" (its install log
+# says "renaming mount entry ... to avoid a clash"; the provider wrapper looks
+# there). Without both directories snapd lays a writable tmpfs mimic over the
+# whole of $SNAP to create the missing one, measured on 2026-09-29.
+mkdir -p "$TREE/gpu-2404" "$TREE/gpu-2404-2"
 
 # Launcher: point Qt and GStreamer at the bundled runtime under $SNAP. The
 # AppImage's AppRun hooks are not carried over, so this is the only place.
@@ -240,7 +244,8 @@ cat > "$TREE/bin/lightning-launch" <<'EOF'
 #!/bin/sh
 set -e
 : "${SNAP:?lightning-launch must run inside a snap environment}"
-export LD_LIBRARY_PATH="$SNAP/usr/lib:${LD_LIBRARY_PATH:-}"
+# No empty element: the loader reads one as the current directory.
+export LD_LIBRARY_PATH="$SNAP/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export QT_PLUGIN_PATH="$SNAP/usr/plugins"
 export QML2_IMPORT_PATH="$SNAP/usr/qml"
 export QML_IMPORT_PATH="$SNAP/usr/qml"

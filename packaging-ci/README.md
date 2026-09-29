@@ -545,8 +545,14 @@ ${CI_API_V4_URL}/projects/6/packages/generic/lightning-update/<version>/update-m
   release files but appear in a `channels` block as `available: false` — a
   Flatpak or Snap install is updated by its own ecosystem, and offering those
   users a download would be telling them an action is available that they must
-  not take. There is no Flathub publication, no Snap Store publication, and no
-  APT or DNF repository, and the manifest says so in plain text.
+  not take. Lightning is on Flathub (`org.lightning_matrix.Lightning`,
+  built by Flathub from the manifest in its own
+  `flathub/org.lightning_matrix.Lightning` repository, not by this
+  pipeline); there is no Snap Store publication and no APT or DNF
+  repository. The manifest's `linux-flatpak` note still says no Flathub
+  publication exists: it predates the listing, and flipping
+  `UPDATE_CHANNEL_FLATPAK_AVAILABLE` is an open decision (the repository's
+  `docs/open-items.md`).
 - The signing key is an Ed25519 private key held only as a protected+masked CI
   variable; the matching public key is compiled into Lightning — from the
   `UPDATE_SIGNING_PUBKEY_<id>` variable, by every build job — so **the server
@@ -669,8 +675,8 @@ Flathub); the AppImage is self-contained and unsandboxed (`chmod +x`, run);
 the snap installs with `sudo snap install --dangerous ./lightning_<v>_amd64.snap`
 (built with a snap-pack-equivalent squashfs; strict confinement is declared
 but not exercised against a live snapd in CI — the fleet cannot run snapd).
-Flathub and the Snap Store remain future decisions, not targets of this
-pipeline.
+The Flathub listing is built by Flathub from the manifest in its own
+repository, not by this pipeline; the Snap Store remains a future decision.
 
 Both install `/usr/bin/matrix-client`, `/usr/bin/lightning-updater` (the small
 Qt6::Core-only update helper — see

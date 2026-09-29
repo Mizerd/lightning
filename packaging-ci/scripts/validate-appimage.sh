@@ -105,6 +105,61 @@ trap cleanup EXIT
 ( cd "$audit" && "$ROOT/$app" --appimage-extract >/dev/null )
 tree="$audit/squashfs-root"
 test -x "$tree/usr/bin/lightning-matrix" || die "binary missing in payload"
+
+# The C/C++ runtime floor the host must meet: nothing here bundles libc or
+# libstdc++. This job runs on the build distro, so nothing else can see the
+# floor rise. README.md's Linux table promises these ceilings; raise both
+# together. Measured 2026-09-29 on pipeline 268: GLIBC_2.39 (libsystemd),
+# GLIBCXX_3.4.32, CXXABI_1.3.15; Debian 12 (2.36) stops on GLIBC_2.38.
+abi_max_glibc=2.39      # README: glibc >= 2.39
+abi_max_glibcxx=3.4.33  # README: libstdc++ from GCC 14 or newer
+abi_max_cxxabi=1.3.15   # likewise
+find "$tree" -type f -print0 | xargs -0 file -N -F '|' > "$audit/file-types.txt"
+awk -F'|' '$2 ~ /ELF 64-bit/ { print $1 }' "$audit/file-types.txt" \
+    > "$audit/elf-objects.txt"
+# One tab-separated "<SYMBOL-VERSION> <object>" line per version an object
+# requires.
+while IFS= read -r elf_object; do
+    elf_rel="${elf_object#"$tree"/}"
+    { objdump -T "$elf_object" 2>/dev/null | grep -F '*UND*' \
+        | grep -oE '(GLIBC|GLIBCXX|CXXABI)_[0-9][0-9.]*' || true; } \
+        | sort -u | while IFS= read -r abi_version; do
+            printf '%s\t%s\n' "$abi_version" "$elf_rel"
+        done
+done < "$audit/elf-objects.txt" > "$audit/abi-needs.txt"
+# Count what objdump actually read, not what `file` classified: around 400
+# today, and a probe that reads nothing must not pass.
+elf_objects=$(cut -f2 "$audit/abi-needs.txt" | sort -u | wc -l)
+[ "$elf_objects" -ge 100 ] \
+    || die "the ABI floor probe read only $elf_objects ELF objects in the payload; it is not reading the payload"
+abi_floor() {   # family -> the highest version any payload object requires
+    awk -F'\t' -v family="$1" '{ split($1, p, "_"); if (p[1] == family) print p[2] }' \
+        "$audit/abi-needs.txt" | sort -uV | tail -1
+}
+abi_check() {   # family floor ceiling
+    local family="$1" floor="$2" ceiling="$3" needed_by
+    [ -n "$floor" ] \
+        || die "the ABI floor probe found no $family requirement at all; the probe is broken"
+    needed_by=$(awk -F'\t' -v v="${family}_$floor" '$1 == v && n++ < 5 { print $2 }' \
+        "$audit/abi-needs.txt" | tr '\n' ' ')
+    echo "$family $floor (highest; required by: $needed_by)" \
+        | tee -a dist/appimage-abi-floor.txt
+    [ "$(printf '%s\n%s\n' "$floor" "$ceiling" | sort -V | tail -1)" = "$ceiling" ] \
+        || die "the AppImage now needs ${family}_$floor, above the ${family}_$ceiling that README.md promises (required by: $needed_by). Hosts between the two will not start it; raise README.md and this ceiling together, or find what raised it."
+}
+echo "ELF objects read: $elf_objects" > dist/appimage-abi-floor.txt
+# Not checked above; an x86_64 payload should carry none.
+elf32=$(awk -F'|' -v t="$tree/" '$2 ~ /ELF 32-bit/ {
+    if (index($1, t) == 1) $1 = substr($1, length(t) + 1); print $1 }' \
+    "$audit/file-types.txt")
+if [ -n "$elf32" ]; then
+    printf 'WARNING: 32-bit ELF objects in the payload, not checked for an ABI floor:\n%s\n' \
+        "$elf32" | tee -a dist/appimage-abi-floor.txt >&2
+fi
+abi_check GLIBC "$(abi_floor GLIBC)" "$abi_max_glibc"
+abi_check GLIBCXX "$(abi_floor GLIBCXX)" "$abi_max_glibcxx"
+abi_check CXXABI "$(abi_floor CXXABI)" "$abi_max_cxxabi"
+
 # Without the update helper the in-app updater is inert.
 test -x "$tree/usr/bin/lightning-updater" || die "update helper missing in payload"
 # Self-containment: Qt must be bundled, not expected from the host.
