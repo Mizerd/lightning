@@ -486,9 +486,47 @@ public:
     void setLocalMediaStateForTest(bool cameraOn, bool screenSharing);
     /// The newest outbound key index a peer is known to hold, or -1.
     int deliveredKeyIndexForTest() const { return m_deliveredKeyIndex; }
-    /// Record a key send as this call's, as rotateAndDistributeKey() does
-    /// with the op the client returns.
-    void noteMediaKeySendForTest(quint64 op) { m_keySendOps.insert(op); }
+    /// Record a key send as this call's, as sendNewestKeyTo() does with the
+    /// op the client returns.
+    void noteMediaKeySendForTest(quint64 op) { m_keySendOps.insert(op, {}); }
+    /// Mint this call's first media key, as publishTracks() does; the rest of
+    /// publishTracks() needs a media engine.
+    void startKeyLaneForTest() { startKeyLane(); }
+    /// The key index our frames use (what the engine was told to adopt), or
+    /// -1. Kept outside the media guard so the policy is testable without an
+    /// engine.
+    int adoptedKeyIndexForTest() const { return m_adoptedKeyIndex; }
+    /// The newest key index we minted this call, or -1.
+    int newestKeyIndexForTest() const { return m_newestKey.index; }
+    /// Milliseconds until the pending switch to the newest key (the sooner of
+    /// the use-key delay and the fallback), or -1.
+    int pendingKeySwitchMsForTest() const
+    {
+        int ms = m_useKeyTimer.isActive() ? m_useKeyTimer.remainingTime() : -1;
+        if (m_keySwitchFallbackTimer.isActive()) {
+            const int fallback = m_keySwitchFallbackTimer.remainingTime();
+            if (ms < 0 || fallback < ms)
+                ms = fallback;
+        }
+        return ms;
+    }
+    /// Shorten the switch delay, the join grace and (when not negative) the
+    /// switch fallback so tests run quickly.
+    void setKeyTimingForTest(int useKeyDelayMs, int joinKeyGraceMs,
+                             int switchFallbackMs = -1)
+    {
+        m_useKeyTimer.setInterval(useKeyDelayMs);
+        m_joinKeyGraceMs = joinKeyGraceMs;
+        if (switchFallbackMs >= 0)
+            m_keySwitchFallbackTimer.setInterval(switchFallbackMs);
+    }
+    /// Arm the camera cid a running camera holds, as publishCameraTrack()
+    /// does, so its notice can be tested without an engine or SFU.
+    void setCameraCidForTest(const QString &cid)
+    {
+        m_cameraCid = cid;
+        m_cameraOn = !cid.isEmpty();
+    }
 
 Q_SIGNALS:
     void stateChanged();
@@ -594,10 +632,22 @@ private:
     void applyAudioState();
     /// The LiveKit stream id (participant sid) for one SFU identity.
     QString streamIdForIdentity(const QString &identity) const;
+    /// One device a media key goes to. `session` is its SFU participant sid,
+    /// which changes when the device rejoins: a rejoined device has lost our
+    /// key and must be sent it again.
+    struct KeyTarget {
+        QString userId;
+        QString deviceId;
+        QString session;
+    };
     /// Devices a media key should go to: the SFU's live participants resolved
     /// to Matrix devices through the membership. The intersection, because
     /// memberships alone include ghost devices.
-    QString mediaKeyTargets() const;
+    QList<KeyTarget> mediaKeyTargets() const;
+    /// The bridge's target list: `[{user_id, device_id}]`.
+    static QString mediaKeyTargetsJson(const QList<KeyTarget> &targets);
+    /// The name a target is tracked under: user and device.
+    static QString keyTargetDevice(const KeyTarget &target);
     /// The name a sending device's key ring is stored under, derived from the
     /// to-device sender so it is known as soon as a key arrives.
     static QString mediaKeyRingName(const QString &userId,
@@ -623,8 +673,8 @@ private:
                               const QString &source) const;
 
     /// Merge one LiveKit ParticipantUpdate delta and rebuild the models.
-    /// Returns true when the identity set changed (which rotates the key). No
-    /// `active()` gate; the slot owns that.
+    /// Returns true when the identity set changed (which prunes the blocked
+    /// media badges). No `active()` gate; the slot owns that.
     bool mergeParticipants(const QVariantList &updates);
     /// Log remote tracks' mute transitions, so SFU-injected frame bursts can
     /// be matched to a mute. Sids and a boolean only.
@@ -635,13 +685,40 @@ private:
     /// Share rows from the current participants plus our own live share.
     void rebuildShareModel();
 
-    /// Redistribute the media key if the addressable device set changed since
-    /// the last distribution (membership and SFU list arrive independently).
-    /// Idempotent via `m_lastKeyTargets`.
+    /// Mint and use this call's first key; see the definition.
+    void startKeyLane();
+    /// Bring the key lane up to date with who is in the call: rotate when a
+    /// holder left, share the newest key with a joiner (or rotate when that
+    /// key is older than the join grace). Idempotent; runs on every
+    /// participant update, membership read and refresh tick.
     void distributeKeyIfNeeded();
-    /// Rotate and redistribute the media key: on join and whenever the
-    /// participant set changes, so a leaver cannot keep decrypting.
-    void rotateAndDistributeKey();
+    /// Mint a new key and send it to `targets`. Our frames switch to it after
+    /// the use-key delay, or at once when nobody present holds the key in
+    /// use.
+    void rotateMediaKey(const QList<KeyTarget> &targets, const char *reason);
+    /// Send the newest key to `targets` and record them as holding it. For a
+    /// key not in use yet, arms the switch fallback.
+    void sendNewestKeyTo(const QList<KeyTarget> &targets);
+    /// A send of key `serial` was answered ok: when it is the newest key and
+    /// the send went to a holder of the key in use (or no holder we can name
+    /// is present), switch after the use-key delay.
+    void startUseKeyDelay(quint64 serial, bool reachesKeyInUse);
+    /// A switch to the newest key is armed (the use-key delay or the
+    /// fallback).
+    bool keySwitchPending() const;
+    /// The use-key delay or the fallback ran out: switch our frames to the
+    /// newest key, unless it reached nobody while somebody present holds the
+    /// key in use.
+    void adoptNewestKey();
+    /// Tell the engine to encrypt under the newest key.
+    void installNewestKey();
+    /// Whether a device still in the call (`targets`), or an SFU peer we
+    /// cannot name, may hold the key our frames use now.
+    bool someonePresentHoldsAdoptedKey(const QList<KeyTarget> &targets) const;
+    /// SFU participants other than us.
+    int sfuPeerCount() const;
+    /// In an encrypted call with a client (and, with WebRTC, an engine).
+    bool keyLaneReady() const;
     /// Unpublish `cid` and clear it (by reference, so it cannot go stale).
     void unpublishTrack(QString &cid);
     /// Our own row in the SFU participant list, or an empty map.
@@ -884,29 +961,86 @@ private:
     /// The share's audio track, empty when there is none. Retires with the
     /// share but is a separate track.
     QString m_shareAudioCid;
-    int m_keyIndex = 0;
+    /// Our sending key. The raw bytes are kept (memory only, never logged) so
+    /// the key can be shared with a joiner; scrubbed per call.
+    struct OutboundKey {
+        int index = -1;
+        QByteArray raw;
+        /// m_keyClock time it was minted, for the join grace.
+        qint64 mintedMs = 0;
+        /// Distinguishes keys that share an index after the wrap at 16.
+        quint64 serial = 0;
+    };
+    /// The newest key we minted this call: what we send. Our frames may still
+    /// use an older one during the use-key delay.
+    OutboundKey m_newestKey;
+    /// The serial and index of the key our frames use; 0 / -1 before the
+    /// first key of a call.
+    quint64 m_adoptedKeySerial = 0;
+    int m_adoptedKeyIndex = -1;
+    /// Device -> session, for every target the newest key was dispatched to.
+    /// Never shrinks until the next rotation, so a leaver among them is seen
+    /// even if its send was reported failed.
+    QHash<QString, QString> m_keyRecipients;
+    /// The recipients whose send was not reported failed: who still needs
+    /// the newest key is anyone present who is not in here.
+    QHash<QString, QString> m_keyHolders;
+    /// Devices that were sent the key our frames use now.
+    QSet<QString> m_adoptedKeyRecipients;
+    /// Index allocator, kept across calls: a rejoin keeps its LiveKit
+    /// identity, and receivers keep the previous session's keys under it, so
+    /// restarting at 1 would reuse those indices with new keys. Wraps at 16,
+    /// which every LiveKit ring accepts.
+    int m_keyCursor = 0;
+    quint64 m_keySerialCounter = 0;
+    QElapsedTimer m_keyClock;
+    /// Switches our frames to a rotated key once the send to the holders of
+    /// the key in use was answered; see startUseKeyDelay().
+    QTimer m_useKeyTimer;
+    /// Armed when a rotated key is dispatched and kept until the switch: the
+    /// switch is never later than this, answered or not, so a lost answer
+    /// cannot keep the old key for ever. The same guard applies
+    /// (adoptNewestKey()).
+    QTimer m_keySwitchFallbackTimer;
+    int m_joinKeyGraceMs = 0;
     /// The newest outbound key index known to have reached a device, or -1.
-    /// Decides whether an undelivered key may be adopted; see
-    /// rotateAndDistributeKey().
+    /// Diagnostic: with nobody addressable, a newer key than this one means
+    /// ours is withheld, which asks the server for the membership again.
     int m_deliveredKeyIndex = -1;
-    /// The device set the last media key reached; see distributeKeyIfNeeded().
-    /// An empty set is never recorded.
-    QString m_lastKeyTargets;
+    /// What the last "nobody addressable" line said (SFU peers and whether
+    /// the key is withheld), so it is logged when that changes, not on every
+    /// update. -1 when there were targets; per call.
+    int m_unaddressableLogged = -1;
     /// onRemotePlaybackFailed(true) told the user; per call.
     bool m_playbackLostAnnounced = false;
     /// The notice showing (the last callFailed text; empty when withdrawn),
     /// and the failure setState() announced.
     QString m_shownNotice;
     QString m_announcedFailure;
+    /// The camera's last failure notice, and the camera track that failed
+    /// (empty for a portal refusal). A camera track the SFU accepts later
+    /// withdraws it, if it is still the notice showing.
+    QString m_cameraNotice;
+    QString m_cameraNoticeCid;
+    /// Show a camera failure notice and remember it as the camera's.
+    void announceCameraNotice(const QString &category, const QString &cid);
     /// Withdraw `notice` (an empty callFailed) only if it is still the one
     /// showing. Returns whether it did.
     bool withdrawNotice(const QString &notice);
     /// The notice onRemotePlaybackFailed(true) shows.
     static QString playbackLostNotice();
+    /// One key send awaiting its answer: which key and which devices.
+    struct KeySend {
+        quint64 serial = 0;
+        QStringList devices;
+        /// It went to a device that was sent the key our frames used at
+        /// dispatch, so its answer can start the switch.
+        bool reachesKeyInUse = false;
+    };
     /// This call's key sends still awaiting an answer. An answer to any other
-    /// op (a previous call's) changes nothing. Grows by one per rotation and
+    /// op (a previous call's) changes nothing. Grows by one per send and
     /// shrinks per answer; cleared once per call (resetKeyLane()).
-    QSet<quint64> m_keySendOps;
+    QHash<quint64, KeySend> m_keySendOps;
     /// Reset the outbound key state above; per call.
     void resetKeyLane();
     /// Refuse a join. A call already running is left alone and the refusal

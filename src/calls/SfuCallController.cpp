@@ -128,6 +128,29 @@ constexpr qint64 kMembershipRepublishIntervalMs = 60 * 1000;
 /// Bounded so leaving cannot become an endless background sender.
 constexpr int kMaxRetractAttempts = 4;
 constexpr int kRetractRetryDelayMs = 2000;
+/// How long a rotated key is sent ahead of our frames switching to it, so
+/// peers hold it before the first frame they must decrypt with it. Measured:
+/// our to-device keys reached a Lightning peer 0.1-1.6 s after sending
+/// typically, and up to 4.7 s (sliding sync). Counted from the send's answer,
+/// as matrix-js-sdk waits `useKeyDelay` after `await sendKey`
+/// (RTCEncryptionManager.rolloutOutboundKey; 1 s by default there, too short
+/// for us): our send runs a /keys/query per due user and claims one-time keys
+/// before its PUT, which with federated peers can take seconds.
+constexpr int kUseKeyDelayMs = 5000;
+/// The switch happens at the latest this long after a rotated key was
+/// dispatched, answered or not, so a lost answer cannot keep the old key in
+/// use for ever, and a leaver's window has a bound. Longer than the delay, or
+/// it would cut the delay short; only a send slower than the difference gets
+/// less than the full delay.
+constexpr int kKeySwitchFallbackMs = 15000;
+/// A joiner is sent our newest key when it is younger than this, and gets a
+/// fresh key (a rotation) otherwise. matrix-js-sdk's
+/// `keyRotationGracePeriodMs`, the same value.
+constexpr int kJoinKeyGraceMs = 10000;
+/// Our key indices wrap here. LiveKit rings hold 16 by default
+/// (livekit-client KEY_PROVIDER_DEFAULTS) and index frames by the raw byte;
+/// the bridge refuses anything above 15.
+constexpr int kSendKeyIndices = 16;
 /// Presentation bound on the participant list.
 constexpr int kMaxParticipants = 64;
 /// Annotations (raises, reactions) waiting for the membership they address.
@@ -169,6 +192,28 @@ SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
     m_retractRetryTimer.setSingleShot(true);
     connect(&m_retractRetryTimer, &QTimer::timeout, this,
             &SfuCallController::retryRetraction);
+    m_useKeyTimer.setSingleShot(true);
+    // Precise: a coarse timer may fire up to 5% early, which comes out of the
+    // time a peer has to receive the key.
+    m_useKeyTimer.setTimerType(Qt::PreciseTimer);
+    m_useKeyTimer.setInterval(kUseKeyDelayMs);
+    connect(&m_useKeyTimer, &QTimer::timeout, this,
+            &SfuCallController::adoptNewestKey);
+    m_keySwitchFallbackTimer.setSingleShot(true);
+    m_keySwitchFallbackTimer.setTimerType(Qt::PreciseTimer);
+    m_keySwitchFallbackTimer.setInterval(kKeySwitchFallbackMs);
+    connect(&m_keySwitchFallbackTimer, &QTimer::timeout, this, [this] {
+        // answered=false: no answer from a send to the holders of the key in
+        // use; true: one came so late the delay is cut short.
+        qCWarning(lcSfuCall)
+            << "media key switch at the fallback,"
+            << m_keySwitchFallbackTimer.interval()
+            << "ms after the send index=" << m_newestKey.index
+            << "answered=" << m_useKeyTimer.isActive();
+        adoptNewestKey();
+    });
+    m_joinKeyGraceMs = kJoinKeyGraceMs;
+    m_keyClock.start();
 }
 
 SfuCallController::~SfuCallController()
@@ -228,10 +273,25 @@ void SfuCallController::setClient(MatrixClient *client)
     connect(m_client, &MatrixClient::sfuTrackPublished, this,
             [this](const QString &cid, const QString &sid) {
                 m_publishedTrackSids.insert(cid, sid);
+                const bool camera = !cid.isEmpty() && cid == m_cameraCid;
                 qCInfo(lcSfuCall)
                     << "sfu published our track kind="
-                    << (cid == m_audioCid ? "microphone" : "other")
+                    << (cid == m_audioCid ? "microphone"
+                                          : camera ? "camera" : "other")
                     << "sid=" << sid;
+                // A camera accepted after the camera's notice: the notice no
+                // longer applies. Never the failed track's own late answer.
+                // The SFU accepting a track is not a first frame; a camera
+                // that fails after it shows its own notice.
+                if (camera && cid != m_cameraNoticeCid
+                    && !m_cameraNotice.isEmpty()) {
+                    if (withdrawNotice(m_cameraNotice)) {
+                        qCInfo(lcSfuCall)
+                            << "a camera works again; its notice withdrawn";
+                    }
+                    m_cameraNotice.clear();
+                    m_cameraNoticeCid.clear();
+                }
             });
     connect(m_client, &MatrixClient::sfuSpeakersChanged, this,
             &SfuCallController::onSfuSpeakers);
@@ -267,24 +327,34 @@ void SfuCallController::setClient(MatrixClient *client)
                    int keyIndex) {
                 // Only this call's sends may change its key state: an answer
                 // to the previous call's send can land after a rejoin.
-                const bool thisCall = m_keySendOps.remove(op);
+                const auto it = m_keySendOps.constFind(op);
+                const bool thisCall = it != m_keySendOps.cend();
+                const KeySend send = thisCall ? it.value() : KeySend{};
+                if (thisCall)
+                    m_keySendOps.remove(op);
                 if (ok) {
                     qCInfo(lcSfuCall) << "media key sent index=" << keyIndex
                                       << "delivered=" << delivered
                                       << "thisCall=" << thisCall;
-                    // Somebody holds this key; see rotateAndDistributeKey().
+                    // Somebody holds this key; see adoptNewestKey().
                     if (thisCall && delivered > 0)
                         m_deliveredKeyIndex = keyIndex;
+                    // The switch counts from here, not from the dispatch.
+                    if (thisCall && delivered > 0)
+                        startUseKeyDelay(send.serial, send.reachesKeyInUse);
                     return;
                 }
                 qCWarning(lcSfuCall)
                     << "media key NOT sent index=" << keyIndex
                     << "category=" << category << "delivered=" << delivered
                     << "thisCall=" << thisCall;
-                // The recorded set means "who holds this key"; after a failed
-                // send nobody does, so clear it or the retry sees "unchanged".
-                if (thisCall)
-                    m_lastKeyTargets.clear();
+                // Those devices do not hold the newest key after all, so the
+                // next reconciliation sends it to them again. They stay
+                // recipients: if one leaves, we still rotate.
+                if (thisCall && send.serial == m_newestKey.serial) {
+                    for (const QString &device : send.devices)
+                        m_keyHolders.remove(device);
+                }
             });
     connect(m_client, &MatrixClient::loggedOut, this,
             [this] { teardown(State::Ended); });
@@ -479,9 +549,9 @@ void SfuCallController::setCameraPortal(CameraPortal *portal)
                                      << category;
                 abandonPendingCamera();
                 // Same wording as a device that will not open; to the user it
-                // is the same fact.
-                Q_EMIT callFailed(
-                    userFacingError(QStringLiteral("camera_failed")));
+                // is the same fact. No track was declared.
+                announceCameraNotice(QStringLiteral("camera_failed"),
+                                     QString());
             });
 }
 
@@ -979,7 +1049,8 @@ void SfuCallController::setState(State state, const QString &error)
     // that refused it (Authorizing or later: the membership was accepted).
     // An empty callFailed() is the codebase's idiom for clearing an error.
     // Not on Preparing, where the same gate may refuse again. Track-level
-    // publish failures are not covered.
+    // publish failures are not covered (the camera's has its own withdrawal;
+    // see announceCameraNotice()).
     const bool pastTheJoinGate = state == State::Authorizing
         || state == State::Connecting || state == State::Connected
         || state == State::Reconnecting;
@@ -1207,11 +1278,21 @@ void SfuCallController::refuseJoin(const QString &message, bool announce)
 
 void SfuCallController::resetKeyLane()
 {
-    // Per call. A delivered index left over from the last call would stop
-    // this call's first key being adopted; see rotateAndDistributeKey().
-    m_keyIndex = 0;
+    // Per call: keys, who holds them and sends awaiting answers belong to the
+    // call that made them. m_keyCursor is deliberately kept: see its
+    // declaration.
+    m_useKeyTimer.stop();
+    m_keySwitchFallbackTimer.stop();
+    m_unaddressableLogged = -1;
+    // Best-effort scrub; the copies handed to the bridge are not zeroed.
+    m_newestKey.raw.fill('\0');
+    m_newestKey = OutboundKey{};
+    m_adoptedKeySerial = 0;
+    m_adoptedKeyIndex = -1;
+    m_keyRecipients.clear();
+    m_keyHolders.clear();
+    m_adoptedKeyRecipients.clear();
     m_deliveredKeyIndex = -1;
-    m_lastKeyTargets.clear();
     m_keySendOps.clear();
 }
 
@@ -1640,7 +1721,7 @@ void SfuCallController::publishTracks()
     // Key before the first frame: in an encrypted room a probe without a key
     // drops our own audio.
     if (m_roomEncrypted)
-        rotateAndDistributeKey();
+        startKeyLane();
     // The track id is client-chosen and declared before negotiation;
     // declaring and publishing must use the same id.
     const QString audioCid =
@@ -1696,10 +1777,10 @@ void SfuCallController::onSfuParticipants(const QVariantList &updates)
             Q_EMIT participantsChanged();
         }
     }
-    // Any change in the set rotates the key, so a leaver cannot decrypt what
-    // follows. Rotating on joins too avoids tracking who is new.
-    if (setChanged)
-        rotateAndDistributeKey();
+    // A leaver makes us rotate, a joiner is sent our key; see
+    // distributeKeyIfNeeded(). Every update, not only a changed identity set:
+    // a rejoin can replace a row under the same identity with a new sid.
+    distributeKeyIfNeeded();
     // Track sids arrive with this update, so re-apply mute and video state
     // for all three sources: a mute or stop made before the SFU named the
     // track converges here.
@@ -1758,7 +1839,7 @@ void SfuCallController::noteRemoteTrackMutes(const QVariantList &updates)
 bool SfuCallController::mergeParticipants(const QVariantList &updates)
 {
     // Compare the identity set, not the count: one update can carry a join
-    // and a leave, and a leaver must trigger a key rotation.
+    // and a leave.
     QSet<QString> before;
     for (const QVariant &row : std::as_const(m_participants)) {
         before.insert(
@@ -2007,26 +2088,41 @@ bool SfuCallController::withdrawNotice(const QString &notice)
     return true;
 }
 
+void SfuCallController::announceCameraNotice(const QString &category,
+                                             const QString &cid)
+{
+    const QString notice = userFacingError(category);
+    Q_EMIT callFailed(notice);
+    m_cameraNotice = notice;
+    m_cameraNoticeCid = cid;
+}
+
 void SfuCallController::onEnginePublishFailed(const QString &cid,
                                               const QString &category)
 {
-#ifdef HAVE_LIGHTNING_WEBRTC
+    // Only connected when there is an engine. Outside the media guard, except
+    // the engine's own calls, so tests without an engine reach the notices.
     qCWarning(lcSfuCall) << "publish failed category=" << category
                          << "camera=" << (cid == m_cameraCid)
                          << "screen=" << (cid == m_screenCid);
     if (!active() || cid.isEmpty())
         return;
     // Turn the control back off and withdraw the track; the call stays up.
-    if (cid == m_cameraCid) {
+    const bool camera = cid == m_cameraCid;
+    if (camera) {
         m_cameraOn = false;
         unpublishTrack(m_cameraCid);
+#ifdef HAVE_LIGHTNING_WEBRTC
         clearLocalVideoSurface(SfuMediaEngine::localCameraStreamId());
+#endif
     } else if (cid == m_screenCid) {
         m_screenSharing = false;
         unpublishTrack(m_screenCid);
         if (m_portal)
             m_portal->cancel();
+#ifdef HAVE_LIGHTNING_WEBRTC
         clearLocalVideoSurface(SfuMediaEngine::localScreenStreamId());
+#endif
     } else if (cid == m_audioCid) {
         // The engine gave up restarting the microphone. The track stays: the
         // user can still hear everyone, and is told nobody hears them.
@@ -2039,12 +2135,12 @@ void SfuCallController::onEnginePublishFailed(const QString &cid,
     applyVideoState();
     Q_EMIT mediaStateChanged();
     // A plain-wording notice; the state is unchanged and the call stays
-    // active.
+    // active. The camera's is withdrawn by a later camera that works.
+    if (camera) {
+        announceCameraNotice(category, cid);
+        return;
+    }
     Q_EMIT callFailed(userFacingError(category));
-#else
-    Q_UNUSED(cid);
-    Q_UNUSED(category);
-#endif
 }
 
 void SfuCallController::expireParkedKeys()
@@ -2356,15 +2452,15 @@ QString SfuCallController::streamIdForIdentity(const QString &identity) const
     return {};
 }
 
-QString SfuCallController::mediaKeyTargets() const
+QList<SfuCallController::KeyTarget> SfuCallController::mediaKeyTargets() const
 {
     // Targets are the devices actually in the call: the SFU participant list
     // (presence) intersected with the membership (identity -> Matrix device).
     // Membership alone includes ghosts left by clients that died without
     // retracting, which receive the key while the live peer gets nothing.
+    QList<KeyTarget> out;
     if (!m_rtc || m_roomId.isEmpty())
-        return QStringLiteral("[]");
-    QJsonArray out;
+        return out;
     QSet<QString> seen;
     for (const QVariant &row : std::as_const(m_participants)) {
         const QVariantMap participant = row.toMap();
@@ -2378,22 +2474,37 @@ QString SfuCallController::mediaKeyTargets() const
         // update or membership read retries.
         if (person.value(QStringLiteral("ownDevice")).toBool())
             continue;
-        const QString userId =
-            person.value(QStringLiteral("userId")).toString();
-        const QString deviceId =
-            person.value(QStringLiteral("deviceId")).toString();
-        if (userId.isEmpty() || deviceId.isEmpty())
+        KeyTarget target;
+        target.userId = person.value(QStringLiteral("userId")).toString();
+        target.deviceId = person.value(QStringLiteral("deviceId")).toString();
+        target.session = participant.value(QStringLiteral("sid")).toString();
+        if (target.userId.isEmpty() || target.deviceId.isEmpty())
             continue;
-        const QString key = userId + QChar(0x1f) + deviceId;
-        if (seen.contains(key))
+        const QString device = keyTargetDevice(target);
+        if (seen.contains(device))
             continue;
-        seen.insert(key);
+        seen.insert(device);
+        out.append(target);
+    }
+    return out;
+}
+
+QString SfuCallController::mediaKeyTargetsJson(const QList<KeyTarget> &targets)
+{
+    QJsonArray out;
+    for (const KeyTarget &t : targets) {
         QJsonObject target;
-        target.insert(QStringLiteral("user_id"), userId);
-        target.insert(QStringLiteral("device_id"), deviceId);
+        target.insert(QStringLiteral("user_id"), t.userId);
+        target.insert(QStringLiteral("device_id"), t.deviceId);
         out.append(target);
     }
     return QString::fromUtf8(QJsonDocument(out).toJson(QJsonDocument::Compact));
+}
+
+QString SfuCallController::keyTargetDevice(const KeyTarget &target)
+{
+    // The unit separator cannot occur in either half.
+    return target.userId + QChar(0x1f) + target.deviceId;
 }
 
 QString SfuCallController::mediaKeyRingName(const QString &userId,
@@ -2458,137 +2569,356 @@ void SfuCallController::reconcileKeyLane()
     distributeKeyIfNeeded();
 }
 
-void SfuCallController::distributeKeyIfNeeded()
+int SfuCallController::sfuPeerCount() const
 {
+    int peers = 0;
+    for (const QVariant &row : std::as_const(m_participants)) {
+        const QString identity =
+            row.toMap().value(QStringLiteral("identity")).toString();
+        if (!identity.isEmpty() && identity != m_ownIdentity)
+            ++peers;
+    }
+    return peers;
+}
+
+bool SfuCallController::keyLaneReady() const
+{
+    if (!active() || !m_client || !m_rtc || !m_roomEncrypted)
+        return false;
 #ifdef HAVE_LIGHTNING_WEBRTC
-    if (!active() || !m_rtc || !m_roomEncrypted)
+    // Nothing to encrypt with. Without WebRTC join() refuses, so this is only
+    // reached by tests, which run the policy without an engine.
+    if (m_engine.isNull())
+        return false;
+#endif
+    return true;
+}
+
+void SfuCallController::startKeyLane()
+{
+    if (!keyLaneReady())
         return;
-    // Compared with what the last distribution reached, so this is idempotent
-    // and safe to call on every sessionChanged.
-    const QString targets = mediaKeyTargets();
-    // Log which guard returned: "unchanged" and "nobody addressable" are
-    // different states.
-    if (targets == m_lastKeyTargets) {
-        qCInfo(lcSfuCall) << "media key: no redistribution, set unchanged";
+    // One first key per call; a second call here only reconciles.
+    if (m_newestKey.serial != 0) {
+        distributeKeyIfNeeded();
         return;
     }
-    if (targets == QLatin1String("[]")) {
-        const int sfuPeers =
-            m_participants.size() > 0 ? m_participants.size() - 1 : 0;
-        // A withheld key (current index differs from the newest a peer took)
-        // also triggers a server refresh: the SFU peer count can be wrong.
+    // Used at once, since nothing is in use yet (matrix-js-sdk's first key
+    // too).
+    rotateMediaKey(mediaKeyTargets(), "first key");
+}
+
+void SfuCallController::distributeKeyIfNeeded()
+{
+    if (!keyLaneReady())
+        return;
+    // The first key is minted with the tracks (startKeyLane()); until then
+    // there is nothing to send.
+    if (m_newestKey.serial == 0)
+        return;
+    const QList<KeyTarget> targets = mediaKeyTargets();
+    QSet<QString> present;
+    for (const KeyTarget &t : targets)
+        present.insert(keyTargetDevice(t));
+
+    if (targets.isEmpty()) {
+        const int sfuPeers = sfuPeerCount();
+        // A withheld key (a newer key than the one a peer took) also triggers
+        // a server refresh: the SFU peer count can be wrong.
         const bool keyWithheld = m_deliveredKeyIndex >= 0
-            && m_keyIndex != m_deliveredKeyIndex;
-        qCInfo(lcSfuCall) << "media key: no redistribution, nobody addressable"
-                          << "sfuPeers=" << sfuPeers
-                          << "keyWithheld=" << keyWithheld;
+            && m_newestKey.index != m_deliveredKeyIndex;
+        // Runs on every update and tick: logged when what it says changes.
+        const int logged = sfuPeers * 2 + (keyWithheld ? 1 : 0);
+        if (logged != m_unaddressableLogged) {
+            m_unaddressableLogged = logged;
+            qCInfo(lcSfuCall) << "media key: nobody addressable"
+                              << "sfuPeers=" << sfuPeers
+                              << "keyWithheld=" << keyWithheld;
+        }
         // Peers exist but none can be named: refresh from the server.
         if (sfuPeers > 0 || keyWithheld)
             m_rtc->refreshFromServer(m_roomId);
+    } else {
+        m_unaddressableLogged = -1;
+    }
+
+    // A leaver: a device the newest key went to that is no longer here.
+    int left = 0;
+    for (auto it = m_keyRecipients.cbegin(); it != m_keyRecipients.cend();
+         ++it) {
+        if (!present.contains(it.key()))
+            ++left;
+    }
+    // A joiner: new to the newest key, or back with a new SFU session (it
+    // rejoined and lost our key). Anyone present without the key (a joiner,
+    // or a send reported failed) is sent it.
+    int joined = 0;
+    QList<KeyTarget> needKey;
+    for (const KeyTarget &t : targets) {
+        const QString device = keyTargetDevice(t);
+        const auto r = m_keyRecipients.constFind(device);
+        const bool isNew = r == m_keyRecipients.cend() || r.value() != t.session;
+        if (isNew)
+            ++joined;
+        if (isNew || !m_keyHolders.contains(device))
+            needKey.append(t);
+    }
+
+    const bool switchPending = keySwitchPending();
+    if (left > 0 && !switchPending) {
+        rotateMediaKey(targets, "a holder left");
         return;
     }
-    qCInfo(lcSfuCall) << "media key: addressable set changed, redistributing";
-    rotateAndDistributeKey();
-#endif
+    if (left > 0) {
+        // One switch at a time, as matrix-js-sdk runs one rollout at a time:
+        // adoptNewestKey() reconciles again once it has switched.
+        qCInfo(lcSfuCall) << "media key: a holder left during a pending"
+                          << "switch; rotating after it left=" << left;
+    }
+    // A joiner gets a fresh key when ours is old, so it cannot decrypt more
+    // than the grace period of what we sent before it arrived (if it can get
+    // that ciphertext at all: only the SFU has it).
+    const qint64 keyAgeMs = m_keyClock.elapsed() - m_newestKey.mintedMs;
+    if (joined > 0 && !switchPending && keyAgeMs >= m_joinKeyGraceMs) {
+        rotateMediaKey(targets, "a joiner; the key is older than the grace");
+        return;
+    }
+    if (!needKey.isEmpty()) {
+        qCInfo(lcSfuCall) << "media key shared index=" << m_newestKey.index
+                          << "targets=" << needKey.size()
+                          << "joined=" << joined << "(no rotation)";
+        sendNewestKeyTo(needKey);
+        return;
+    }
+    // Every update and tick; debug only.
+    if (!targets.isEmpty())
+        qCDebug(lcSfuCall) << "media key: no redistribution, set unchanged";
 }
 
-void SfuCallController::rotateAndDistributeKey()
+void SfuCallController::rotateMediaKey(const QList<KeyTarget> &targets,
+                                       const char *reason)
 {
-#ifdef HAVE_LIGHTNING_WEBRTC
-    if (!active() || !m_client || !m_engine)
-        return;
-    if (!m_roomEncrypted)
-        return;
+    // Decided against the key in use and who holds it, before either moves.
+    const bool first = (m_adoptedKeySerial == 0);
+    const bool switchNow = first || !someonePresentHoldsAdoptedKey(targets);
 
     // 32 bytes from the system CSPRNG; never the generic PRNG for keys.
     QByteArray key(32, Qt::Uninitialized);
     QRandomGenerator::system()->generate(
         reinterpret_cast<quint32 *>(key.data()),
         reinterpret_cast<quint32 *>(key.data() + key.size()));
+    // The cursor advances for every key minted, sent or not, and skips the
+    // index our frames use: a key sent there would replace, at every
+    // receiver, the one our frames still need. Reachable after 16 keys
+    // minted without a switch (a withheld key retried).
+    m_keyCursor = (m_keyCursor + 1) % kSendKeyIndices;
+    if (m_adoptedKeySerial != 0 && m_keyCursor == m_adoptedKeyIndex)
+        m_keyCursor = (m_keyCursor + 1) % kSendKeyIndices;
 
-    const int index = (m_keyIndex + 1) % 16;
+    m_useKeyTimer.stop();
+    m_keySwitchFallbackTimer.stop();
+    // Best-effort scrub of the key being replaced; the engine keeps its own
+    // derived copy of a key in use.
+    m_newestKey.raw.fill('\0');
+    m_newestKey.index = m_keyCursor;
+    m_newestKey.raw = std::move(key);
+    m_newestKey.mintedMs = m_keyClock.elapsed();
+    m_newestKey.serial = ++m_keySerialCounter;
+    m_keyRecipients.clear();
+    m_keyHolders.clear();
 
-    // Distribute first, install second, so our frames are never encrypted
-    // under a key nobody has yet. An empty target list is fine: a call we are
-    // alone in still encrypts.
-    const QString targets = mediaKeyTargets();
-    // Remembered so distributeKeyIfNeeded() can spot a newly addressable peer.
-    // An empty set is not remembered, or the retry would never fire.
-    const int targetCount = targets == QLatin1String("[]")
-                                ? 0
-                                : static_cast<int>(targets.count(QLatin1Char('{')));
-    const int sfuPeers =
-        m_participants.size() > 0 ? static_cast<int>(m_participants.size()) - 1 : 0;
-    // m_lastKeyTargets means "who holds this key"; clear it on an empty round
-    // so it stays retryable.
-    if (targets != QLatin1String("[]"))
-        m_lastKeyTargets = targets;
-    else
-        m_lastKeyTargets.clear();
+    const int sfuPeers = sfuPeerCount();
     // Both counts: targets=0 with and without SFU peers are different
     // defects. Counts only.
-    qCInfo(lcSfuCall) << "media key distributed index=" << index
-                      << "targets=" << targetCount
+    qCInfo(lcSfuCall) << "media key distributed index=" << m_newestKey.index
+                      << "targets=" << targets.size()
                       << "sfuPeers=" << sfuPeers
-                      << "unresolved=" << (sfuPeers - targetCount);
+                      << "unresolved=" << (sfuPeers - targets.size())
+                      << "reason=" << reason;
     // Which devices, as user/device pairs (the same class of identifier as the
     // receive side's `ring=` line), so both ends' logs can be compared.
     {
-        const QJsonArray rows =
-            QJsonDocument::fromJson(targets.toUtf8()).array();
         QStringList named;
-        named.reserve(rows.size());
-        for (const QJsonValue &row : rows) {
-            const QJsonObject o = row.toObject();
-            named << (o.value(QStringLiteral("user_id")).toString()
-                      + QLatin1Char('/')
-                      + o.value(QStringLiteral("device_id")).toString());
-        }
+        named.reserve(targets.size());
+        for (const KeyTarget &t : targets)
+            named << (t.userId + QLatin1Char('/') + t.deviceId);
         qCInfo(lcSfuCall) << "media key targeted devices="
                           << (named.isEmpty() ? QStringLiteral("<none>")
                                               : named.join(QLatin1String(", ")));
     }
-    const quint64 op =
-        m_client->rtcSendMediaKey(m_roomId, QString::fromUtf8(key.toBase64()),
-                                  index, targets);
-    if (op != 0)
-        m_keySendOps.insert(op);
-    // op 0: the Rust side refused to dispatch and no result callback will
-    // come. Forget the set so the next membership read retries.
+
+    // Sent first, installed second: our frames are never encrypted under a
+    // key a present peer cannot have yet.
+    sendNewestKeyTo(targets);
+    if (switchNow) {
+        // Nobody present decrypts with the key in use, so switching now cuts
+        // nobody off: the first key of a call, the last holder gone, or a
+        // key that never reached anyone.
+        installNewestKey();
+        return;
+    }
+    // Keep encrypting under the key in use until the peers hold this one.
+    // Switching at once drops our media at every peer for the to-device
+    // delivery time (measured up to 4.7 s). The switch comes kUseKeyDelayMs
+    // after the send to the holders of the key in use is answered
+    // (startUseKeyDelay()), and never later than kKeySwitchFallbackMs after
+    // the dispatch, answered or not.
+    //
+    // Security: a holder that just left can decrypt our frames until that
+    // switch, at most kKeySwitchFallbackMs after we saw it leave (twice that
+    // when another holder leaves meanwhile; see distributeKeyIfNeeded()), but
+    // only while the new key reaches someone. When its send is refused, every
+    // send of it is reported failed, or the only peers left are SFU
+    // participants we cannot name, a key that reached nobody is never
+    // switched to while a peer may hold the one in use (adoptNewestKey()),
+    // so our frames stay on the key the leaver holds until a later send
+    // succeeds. matrix-js-sdk accepts the same window (`useKeyDelay` after
+    // `await sendKey`) and keeps the old key when sendKey throws.
+    const int fallbackMs = m_keySwitchFallbackTimer.isActive()
+        ? m_keySwitchFallbackTimer.interval()
+        : -1;
+    qCInfo(lcSfuCall) << "media key switch pending index=" << m_newestKey.index
+                      << "afterAnswerMs=" << m_useKeyTimer.interval()
+                      << "fallbackMs=" << fallbackMs
+                      << "stillUsing=" << m_adoptedKeyIndex;
+}
+
+void SfuCallController::sendNewestKeyTo(const QList<KeyTarget> &targets)
+{
+    if (targets.isEmpty() || m_newestKey.serial == 0 || !m_client)
+        return;
+    const quint64 op = m_client->rtcSendMediaKey(
+        m_roomId, QString::fromLatin1(m_newestKey.raw.toBase64()),
+        m_newestKey.index, mediaKeyTargetsJson(targets));
+    // op 0: the Rust side refused to dispatch and no answer will come.
+    // Nobody is recorded as holding it, so the next reconciliation retries.
     if (op == 0) {
-        qCWarning(lcSfuCall) << "media key send was not dispatched index=" << index;
-        m_lastKeyTargets.clear();
+        qCWarning(lcSfuCall) << "media key send was not dispatched index="
+                             << m_newestKey.index;
+        return;
     }
+    const bool inUse = m_newestKey.serial == m_adoptedKeySerial;
+    KeySend send;
+    send.serial = m_newestKey.serial;
+    for (const KeyTarget &t : targets) {
+        const QString device = keyTargetDevice(t);
+        send.devices.append(device);
+        // Checked before the insert below: whether this device held the key
+        // in use before this send.
+        if (m_adoptedKeyRecipients.contains(device))
+            send.reachesKeyInUse = true;
+        m_keyRecipients.insert(device, t.session);
+        m_keyHolders.insert(device, t.session);
+        if (inUse)
+            m_adoptedKeyRecipients.insert(device);
+    }
+    m_keySendOps.insert(op, send);
+    // A key not in use yet: the switch follows this send's answer (see
+    // startUseKeyDelay()), and the fallback armed here bounds it when the
+    // answer is late or never comes. A switch already pending keeps its time,
+    // so churn cannot postpone it.
+    if (!inUse && !keySwitchPending())
+        m_keySwitchFallbackTimer.start();
+}
 
-    // Do not adopt a key that reached nobody while a peer still holds the
-    // previous one: every later frame would be unreadable while looking
-    // healthy here. The very first key (nobody has taken one yet) is always
-    // adopted. The key is still installed in the ring for later adoption.
-    const bool reachedNobody = (op == 0);
-    const bool someoneHoldsOurKey = (m_deliveredKeyIndex >= 0);
-    const bool adopt = !(reachedNobody && someoneHoldsOurKey);
-    if (!adopt) {
+void SfuCallController::startUseKeyDelay(quint64 serial, bool reachesKeyInUse)
+{
+    // Only for the newest key, not in use yet, and once: an answer about an
+    // older key says nothing about this one, and a later answer must not
+    // postpone the switch.
+    if (serial == 0 || serial != m_newestKey.serial
+        || m_newestKey.serial == m_adoptedKeySerial
+        || m_useKeyTimer.isActive()) {
+        return;
+    }
+    // Only a send that went to a holder of the key in use says the holders
+    // can have this one: sends run concurrently, so a joiner's quick answer
+    // must not start the switch while the send to a slower holder is still
+    // in flight. With no holder we can name present, no answer can say
+    // more, and any answer counts.
+    if (!reachesKeyInUse) {
+        for (const KeyTarget &t : mediaKeyTargets()) {
+            if (m_adoptedKeyRecipients.contains(keyTargetDevice(t)))
+                return;
+        }
+    }
+    // Counted from the answer, as matrix-js-sdk sleeps after `await sendKey`:
+    // the time our send spent before its PUT (a /keys/query per due user,
+    // one-time-key claims) must not come out of the delay. The fallback stays
+    // armed, so the switch is never later than it.
+    m_useKeyTimer.start();
+    qCInfo(lcSfuCall) << "media key send answered; switching in"
+                      << m_useKeyTimer.interval()
+                      << "ms index=" << m_newestKey.index;
+}
+
+bool SfuCallController::keySwitchPending() const
+{
+    return m_useKeyTimer.isActive() || m_keySwitchFallbackTimer.isActive();
+}
+
+void SfuCallController::adoptNewestKey()
+{
+    if (!keyLaneReady() || m_newestKey.serial == 0
+        || m_newestKey.serial == m_adoptedKeySerial) {
+        return;
+    }
+    // Never encrypt under a key that reached nobody while somebody present
+    // can still decrypt the one in use: every later frame would be
+    // unreadable while looking healthy here.
+    // Applies to the use-key delay and the fallback alike.
+    if (m_keyHolders.isEmpty()
+        && someonePresentHoldsAdoptedKey(mediaKeyTargets())) {
         qCWarning(lcSfuCall)
-            << "media key NOT adopted index=" << index
+            << "media key NOT adopted index=" << m_newestKey.index
             << "— it reached nobody; still encrypting under index="
-            << m_deliveredKeyIndex
-            << "which a peer holds. A retry will rotate when someone is"
-            << "addressable again.";
+            << m_adoptedKeyIndex
+            << "which a peer holds. It is sent again when someone is"
+            << "addressable.";
+        // Withheld, not pending: the next send re-arms the switch.
+        m_useKeyTimer.stop();
+        m_keySwitchFallbackTimer.stop();
+        return;
     }
-    // m_keyIndex is the allocator cursor: it advances even for a withheld key
-    // so an index is never reused with different material.
-    m_keyIndex = index;
-    m_engine->setOutboundKey(index, key, adopt);
-    // Best-effort scrub of our copy; the base64 string passed to the bridge is
-    // not zeroed.
-    key.fill('\0');
+    installNewestKey();
+    qCInfo(lcSfuCall) << "media key switched to index=" << m_newestKey.index;
+    // A holder that left while the switch was pending is rotated for now.
+    distributeKeyIfNeeded();
+}
 
+void SfuCallController::installNewestKey()
+{
+    m_useKeyTimer.stop();
+    m_keySwitchFallbackTimer.stop();
+    m_adoptedKeySerial = m_newestKey.serial;
+    m_adoptedKeyIndex = m_newestKey.index;
+    m_adoptedKeyRecipients.clear();
+    for (auto it = m_keyRecipients.cbegin(); it != m_keyRecipients.cend(); ++it)
+        m_adoptedKeyRecipients.insert(it.key());
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (m_engine.isNull())
+        return;
+    m_engine->setOutboundKey(m_newestKey.index, m_newestKey.raw, true);
     const bool encrypted = m_engine->encryptionActive();
     if (encrypted != m_mediaEncrypted) {
         m_mediaEncrypted = encrypted;
         Q_EMIT mediaStateChanged();
     }
 #endif
+}
+
+bool SfuCallController::someonePresentHoldsAdoptedKey(
+    const QList<KeyTarget> &targets) const
+{
+    // The key in use never reached anyone.
+    if (m_adoptedKeyRecipients.isEmpty())
+        return false;
+    for (const KeyTarget &t : targets) {
+        if (m_adoptedKeyRecipients.contains(keyTargetDevice(t)))
+            return true;
+    }
+    // An SFU peer we cannot name may be one of them.
+    return sfuPeerCount() > targets.size();
 }
 
 void SfuCallController::refreshMembership()

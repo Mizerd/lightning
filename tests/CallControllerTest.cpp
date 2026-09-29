@@ -4,6 +4,9 @@
 #include <QtTest/QtTest>
 
 #include <QDateTime>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMetaProperty>
 #include <QSignalSpy>
 
@@ -492,6 +495,122 @@ CallParticipantModel *stageOneRemoteParticipant(
     return call.participantModel();
 }
 
+/// Records media key sends (device ids only; the key is compared, never
+/// printed). Like the Rust bridge (rtc.rs send_media_key), an empty target
+/// list is refused with op 0, and so is every send while `refuseSends`.
+class KeyRecordingClient : public RecordingCallClient
+{
+public:
+    struct KeySend {
+        QString key;
+        int index = -1;
+        QStringList devices;
+        quint64 op = 0;
+    };
+    quint64 rtcSendMediaKey(const QString &roomId, const QString &keyBase64,
+                            int keyIndex, const QString &targetsJson) override
+    {
+        Q_UNUSED(roomId);
+        const QJsonArray rows =
+            QJsonDocument::fromJson(targetsJson.toUtf8()).array();
+        if (rows.isEmpty() || refuseSends)
+            return 0;
+        KeySend send;
+        send.key = keyBase64;
+        send.index = keyIndex;
+        for (const QJsonValue &row : rows) {
+            send.devices << row.toObject()
+                                .value(QStringLiteral("device_id"))
+                                .toString();
+        }
+        send.devices.sort();
+        send.op = ++opCounter;
+        keySends.append(send);
+        return send.op;
+    }
+    /// The bridge's answer to one send, as rtc_key_sent reports it.
+    void answerKeySend(const KeySend &send, bool ok)
+    {
+        Q_EMIT rtcMediaKeySent(send.op, ok,
+                               ok ? QString() : QStringLiteral("network"),
+                               ok ? int(send.devices.size()) : 0, send.index);
+    }
+    QList<KeySend> keySends;
+    bool refuseSends = false;
+};
+
+/// An encrypted call whose membership names every device up front, driven
+/// through the real SFU participant slot, so the key lane sees exactly what
+/// it sees in a call: who the SFU says is here, resolved through the
+/// membership.
+struct KeyLaneCall {
+    KeyRecordingClient client;
+    RtcController rtc;
+    SfuCallController call;
+    const QString room = QStringLiteral("!keys:example.org");
+
+    explicit KeyLaneCall(const QStringList &devices)
+    {
+        rtc.setClient(&client);
+        rtc.setPokeCoalesceMsForTest(0);
+        call.setClient(&client);
+        call.setRtcController(&rtc);
+        RtcSessionData session;
+        session.roomId = room;
+        for (const QString &device : devices) {
+            RtcParticipant member;
+            member.userId = userFor(device);
+            member.deviceId = device;
+            member.rtcIdentity = identityFor(device);
+            member.intent = QStringLiteral("audio");
+            member.wireFormat = QStringLiteral("session");
+            session.participants.append(member);
+        }
+        rtc.refresh(room);
+        client.answerSession(client.lastSessionOp, session);
+        enterCall();
+    }
+    /// What join() and onSfuJoined() leave behind, minus the engine.
+    void enterCall()
+    {
+        call.setMembershipForTest(room, QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
+    }
+    static QString userFor(const QString &device)
+    {
+        return QLatin1Char('@') + device.toLower()
+            + QStringLiteral(":example.org");
+    }
+    static QString identityFor(const QString &device)
+    {
+        return userFor(device) + QLatin1Char(':') + device;
+    }
+    /// The SFU announces `device` in its LiveKit session `sid`.
+    void sfuJoin(const QString &device, const QString &sid)
+    {
+        deliver({ sfuParticipant(identityFor(device), sid, {}) });
+    }
+    void sfuLeave(const QString &device)
+    {
+        QVariantMap row = sfuParticipant(identityFor(device), QString(), {});
+        row.insert(QStringLiteral("state"), QStringLiteral("disconnected"));
+        deliver({ row });
+    }
+    void deliver(const QVariantList &updates)
+    {
+        QVERIFY(QMetaObject::invokeMethod(&call, "onSfuParticipants",
+                                          Qt::DirectConnection,
+                                          Q_ARG(QVariantList, updates)));
+    }
+    const KeyRecordingClient::KeySend &lastSend() const
+    {
+        return client.keySends.constLast();
+    }
+    int newest() const { return call.newestKeyIndexForTest(); }
+    int adopted() const { return call.adoptedKeyIndexForTest(); }
+};
+
 } // namespace
 
 class CallControllerTest : public QObject
@@ -810,6 +929,611 @@ private Q_SLOTS:
                                 .arg(call.parkedKeyCountForTest())));
         // The victim's key is still there.
         QVERIFY(call.hasParkedKeyForTest(QStringLiteral("@victim:x")));
+    }
+
+    // --- The outbound key lane (matrix-js-sdk RTCEncryptionManager's policy)
+
+    // DEFECT 9: a join rotated our key and switched our frames to it at once,
+    // so every other peer lost us until the new key reached them over
+    // to-device (measured 4.5 s). A joiner inside the grace period is sent
+    // the key we already use, and nothing else changes. Default timing.
+    void aJoinerIsSentTheKeyInUseAndNothingRotates()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        QVERIFY(c.client.keySends.isEmpty());
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        QVERIFY(first >= 0 && first < 16);
+        // The first key of a call is used at once.
+        QCOMPARE(c.adopted(), first);
+        QCOMPARE(c.client.keySends.size(), 1);
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("ADEV") });
+
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        QVERIFY2(c.newest() == first,
+                 "a join minted a new key: every peer loses our media until "
+                 "it arrives (DEFECT 9)");
+        QCOMPARE(c.adopted(), first);
+        QCOMPARE(c.call.pendingKeySwitchMsForTest(), -1);
+        QCOMPARE(c.client.keySends.size(), 2);
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("BDEV") });
+        QCOMPARE(c.lastSend().index, first);
+        QVERIFY(c.lastSend().key == c.client.keySends.at(0).key);
+
+        // Idempotent: the same update and the refresh tick send nothing.
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QCOMPARE(c.client.keySends.size(), 2);
+    }
+
+    // DEFECT 9: a leaver still rotates (it must not decrypt what follows),
+    // but our frames stay on the old key until the peers can hold the new
+    // one; receivers keep both (CallFrameCryptorTest's
+    // rotationKeepsInFlightFramesDecryptable).
+    void aLeaverRotatesButOurFramesSwitchOnlyAfterTheUseKeyDelay()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
+                        QStringLiteral("CDEV") });
+        c.call.setKeyTimingForTest(300, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.sfuJoin(QStringLiteral("CDEV"), QStringLiteral("PA_C1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        QCOMPARE(c.client.keySends.size(), 1);
+        QCOMPARE(c.lastSend().devices.size(), 3);
+
+        c.sfuLeave(QStringLiteral("CDEV"));
+        const int second = c.newest();
+        QVERIFY2(second != first, "a leaver did not rotate the key");
+        QCOMPARE(c.client.keySends.size(), 2);
+        QCOMPARE(c.lastSend().index, second);
+        QCOMPARE(c.lastSend().devices,
+                 (QStringList{ QStringLiteral("ADEV"), QStringLiteral("BDEV") }));
+        QVERIFY(c.lastSend().key != c.client.keySends.at(0).key);
+        QVERIFY2(c.adopted() == first,
+                 "our frames switched to the rotated key at once, before any "
+                 "peer could hold it (DEFECT 9)");
+        QVERIFY(c.call.pendingKeySwitchMsForTest() > 0);
+        c.client.answerKeySend(c.lastSend(), true);
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
+        QCOMPARE(c.call.pendingKeySwitchMsForTest(), -1);
+        QCOMPARE(c.client.keySends.size(), 2);
+    }
+
+    // The delay is 5 s, not matrix-js-sdk's 1 s default: our own to-device
+    // keys took up to 4.7 s to reach a Lightning peer. Until the send is
+    // answered only the fallback is armed, and it is longer than the delay,
+    // or it would cut the delay short.
+    void theDefaultUseKeyDelayCoversTheMeasuredDeliveryTime()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.call.startKeyLaneForTest();
+        c.sfuLeave(QStringLiteral("BDEV"));
+        const int fallback = c.call.pendingKeySwitchMsForTest();
+        QVERIFY2(fallback > 5000 && fallback <= 15000,
+                 qPrintable(QStringLiteral("unanswered: switch in %1 ms")
+                                .arg(fallback)));
+        c.client.answerKeySend(c.lastSend(), true);
+        // Above 2 s rather than near 5 s, so a loaded machine cannot flake
+        // it; js-sdk's 1 s still fails.
+        const int ms = c.call.pendingKeySwitchMsForTest();
+        QVERIFY2(ms > 2000 && ms <= 5000,
+                 qPrintable(QStringLiteral("switch in %1 ms").arg(ms)));
+    }
+
+    // F2 (§18 review): the delay counts from the send's answer, as
+    // matrix-js-sdk sleeps after `await sendKey`. Our send runs a /keys/query
+    // per due user and claims one-time keys before its PUT; counted from the
+    // dispatch, a slow (federated) send ate the delay, and DEFECT 9's own
+    // measurement left 0.3 s of it.
+    void aSwitchWaitsForTheSendToThePeersToBeAnswered()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
+                        QStringLiteral("CDEV") });
+        c.call.setKeyTimingForTest(100, 60000, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.sfuJoin(QStringLiteral("CDEV"), QStringLiteral("PA_C1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        c.sfuLeave(QStringLiteral("CDEV"));
+        const int second = c.newest();
+        QVERIFY(second != first);
+        const KeyRecordingClient::KeySend rollout = c.lastSend();
+        QTest::qWait(400);
+        QVERIFY2(c.adopted() == first,
+                 "switched before the send was answered: the time the send "
+                 "spends before its PUT comes out of the delay");
+        c.client.answerKeySend(rollout, true);
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
+    }
+
+    // Sends run concurrently, so a joiner's send on our own server can be
+    // answered while the rotation's send to a federated holder is still in
+    // /keys/query. Only a send that reached the holders of the key in use
+    // starts the switch.
+    void aJoinersQuickAnswerDoesNotStartTheSwitch()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
+                        QStringLiteral("CDEV"), QStringLiteral("DDEV") });
+        c.call.setKeyTimingForTest(100, 60000, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.sfuJoin(QStringLiteral("CDEV"), QStringLiteral("PA_C1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        c.sfuLeave(QStringLiteral("CDEV"));
+        const int second = c.newest();
+        const KeyRecordingClient::KeySend rollout = c.lastSend();
+
+        c.sfuJoin(QStringLiteral("DDEV"), QStringLiteral("PA_D1"));
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("DDEV") });
+        QCOMPARE(c.lastSend().index, second);
+        c.client.answerKeySend(c.lastSend(), true);
+        QTest::qWait(400);
+        QVERIFY2(c.adopted() == first,
+                 "a joiner's answer started the switch while the send to A "
+                 "and B, who hold the key in use, was still in flight");
+        c.client.answerKeySend(rollout, true);
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
+    }
+
+    // ...but with no holder we can name left (only an SFU peer we cannot
+    // name might hold our key), no answer can say more than the joiner's, so
+    // the joiner is not kept waiting for the fallback to hear us.
+    void aJoinerIsNotKeptWaitingWhenNoHolderWeCanNameIsLeft()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.call.setKeyTimingForTest(100, 60000, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        // In the SFU, not in the membership.
+        c.sfuJoin(QStringLiteral("XDEV"), QStringLiteral("PA_X1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("ADEV") });
+
+        // A leaves: rotated, but the key reaches nobody, so it waits.
+        c.sfuLeave(QStringLiteral("ADEV"));
+        const int second = c.newest();
+        QVERIFY(second != first);
+        QCOMPARE(c.adopted(), first);
+
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("BDEV") });
+        QCOMPARE(c.lastSend().index, second);
+        c.client.answerKeySend(c.lastSend(), true);
+        QTRY_VERIFY2_WITH_TIMEOUT(c.adopted() == second,
+                                  "a joiner waited out the fallback although "
+                                  "no holder we can name was left to wait "
+                                  "for",
+                                  3000);
+    }
+
+    // A late answer about an older key says nothing about the newest one.
+    void anAnswerForAnOlderKeyDoesNotStartTheSwitch()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
+                        QStringLiteral("CDEV"), QStringLiteral("DDEV") });
+        c.call.setKeyTimingForTest(100, 60000, 300);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.sfuJoin(QStringLiteral("CDEV"), QStringLiteral("PA_C1"));
+        c.sfuJoin(QStringLiteral("DDEV"), QStringLiteral("PA_D1"));
+        c.call.startKeyLaneForTest();
+        c.sfuLeave(QStringLiteral("DDEV"));
+        const int second = c.newest();
+        const KeyRecordingClient::KeySend secondSend = c.lastSend();
+        // Switched by the fallback while that send's answer is still out.
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
+
+        c.call.setKeyTimingForTest(100, 60000, 60000);
+        c.sfuLeave(QStringLiteral("CDEV"));
+        const int third = c.newest();
+        QVERIFY(third != second);
+        const KeyRecordingClient::KeySend thirdSend = c.lastSend();
+        QCOMPARE(thirdSend.index, third);
+        c.client.answerKeySend(secondSend, true);
+        QTest::qWait(400);
+        QVERIFY2(c.adopted() == second,
+                 "the answer for the key in use started the switch to the "
+                 "next one, whose own send was never answered");
+        c.client.answerKeySend(thirdSend, true);
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), third, 3000);
+    }
+
+    // F2's other half: an answer that never comes (lost, or a send that
+    // hangs) cannot keep the old key in use for ever.
+    void aLostAnswerCannotHoldTheOldKeyForEver()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
+                        QStringLiteral("CDEV") });
+        c.call.setKeyTimingForTest(60000, 60000, 300);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.sfuJoin(QStringLiteral("CDEV"), QStringLiteral("PA_C1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        c.sfuLeave(QStringLiteral("CDEV"));
+        const int second = c.newest();
+        QVERIFY(second != first);
+        QCOMPARE(c.adopted(), first);
+        QVERIFY2(c.call.pendingKeySwitchMsForTest() > 0,
+                 "nothing is armed to switch when no answer comes");
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
+        QCOMPARE(c.call.pendingKeySwitchMsForTest(), -1);
+    }
+
+    // matrix-js-sdk's grace rule: a joiner arriving once our key is older
+    // than the grace gets a fresh key, and the peers who hold the old one
+    // keep hearing us until the switch.
+    void aJoinerAfterTheGraceGetsAFreshKeyAndNobodyIsCutOff()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.call.setKeyTimingForTest(300, 0);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        const int second = c.newest();
+        QVERIFY2(second != first,
+                 "a joiner after the grace was handed a key that encrypted "
+                 "what we sent before it arrived");
+        QCOMPARE(c.lastSend().index, second);
+        QCOMPARE(c.lastSend().devices,
+                 (QStringList{ QStringLiteral("ADEV"), QStringLiteral("BDEV") }));
+        QCOMPARE(c.adopted(), first);
+        c.client.answerKeySend(c.lastSend(), true);
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
+    }
+
+    // Nobody holds the key we use while we are alone, so the second person
+    // into the call is not kept waiting out the delay.
+    void theSecondPersonInHearsUsWithoutWaitingOutTheDelay()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV") });
+        c.call.setKeyTimingForTest(5000, 0);
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        QCOMPARE(c.adopted(), first);
+        QVERIFY(c.client.keySends.isEmpty());
+
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        QVERIFY(c.newest() != first);
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("ADEV") });
+        QVERIFY2(c.adopted() == c.newest(),
+                 "the switch waited although nobody could have been cut off");
+        QCOMPARE(c.call.pendingKeySwitchMsForTest(), -1);
+    }
+
+    // One switch at a time, as matrix-js-sdk runs one rollout at a time: a
+    // leave while a switch is pending rotates right after it. A joiner in
+    // between is sent the newest key at once.
+    void aLeaveDuringAPendingSwitchRotatesRightAfterIt()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
+                        QStringLiteral("CDEV"), QStringLiteral("DDEV") });
+        c.call.setKeyTimingForTest(300, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.sfuJoin(QStringLiteral("CDEV"), QStringLiteral("PA_C1"));
+        c.call.startKeyLaneForTest();
+        c.sfuLeave(QStringLiteral("CDEV"));
+        const int second = c.newest();
+        const KeyRecordingClient::KeySend rollout = c.lastSend();
+        const qsizetype sends = c.client.keySends.size();
+
+        c.sfuLeave(QStringLiteral("BDEV"));
+        QVERIFY2(c.newest() == second,
+                 "a second rotation during the pending switch: the switch "
+                 "can be postponed for as long as people keep leaving");
+        QCOMPARE(c.client.keySends.size(), sends);
+        c.sfuJoin(QStringLiteral("DDEV"), QStringLiteral("PA_D1"));
+        QCOMPARE(c.client.keySends.size(), sends + 1);
+        QCOMPARE(c.lastSend().index, second);
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("DDEV") });
+
+        // The switch, then the rotation that excludes B.
+        c.client.answerKeySend(rollout, true);
+        QTRY_VERIFY_WITH_TIMEOUT(c.newest() != second, 3000);
+        QCOMPARE(c.lastSend().index, c.newest());
+        QCOMPARE(c.lastSend().devices,
+                 (QStringList{ QStringLiteral("ADEV"), QStringLiteral("DDEV") }));
+        c.client.answerKeySend(c.lastSend(), true);
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), c.newest(), 3000);
+    }
+
+    // A device that rejoins keeps its identity, and the SFU can replace its
+    // row with a new sid in one update: the identity set is unchanged, but
+    // the device has lost our key and must be sent it again.
+    void aRejoinedDeviceIsSentOurKeyAgain()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.call.setKeyTimingForTest(300, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        QCOMPARE(c.client.keySends.size(), 1);
+
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B2"));
+        QVERIFY2(c.client.keySends.size() == 2,
+                 "a device back in a new SFU session was never sent our key");
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("BDEV") });
+        QCOMPARE(c.lastSend().index, first);
+        QCOMPARE(c.newest(), first);
+    }
+
+    // 4e404672 kept: a key that reached nobody is never switched to while a
+    // peer present can decrypt the one in use (every later frame would be
+    // unreadable while looking healthy here), whether the bridge refused the
+    // send or reported it failed, and when the switch fallback runs out too.
+    // It is sent again, and then switched to.
+    void aKeyThatReachedNobodyIsNeverSwitchedToWhileAPeerHoldsOurs()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV"),
+                        QStringLiteral("CDEV") });
+        c.call.setKeyTimingForTest(100, 60000, 150);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.sfuJoin(QStringLiteral("CDEV"), QStringLiteral("PA_C1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        c.client.answerKeySend(c.lastSend(), true);
+
+        // Refused outright: nothing is dispatched.
+        c.client.refuseSends = true;
+        c.sfuLeave(QStringLiteral("CDEV"));
+        const int second = c.newest();
+        QVERIFY(second != first);
+        QTest::qWait(300);
+        QVERIFY2(c.adopted() == first,
+                 "switched to a key the bridge never sent while A and B hold "
+                 "the one in use");
+
+        // Dispatched, then reported failed; the fallback (150 ms) runs out
+        // during the wait.
+        c.client.refuseSends = false;
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QCOMPARE(c.lastSend().index, second);
+        c.client.answerKeySend(c.lastSend(), false);
+        QTest::qWait(400);
+        QVERIFY2(c.adopted() == first,
+                 "switched to a key whose only send was reported failed");
+        QCOMPARE(c.call.pendingKeySwitchMsForTest(), -1);
+
+        // The retry reaches them, and the switch follows.
+        QVERIFY(QMetaObject::invokeMethod(&c.call, "reconcileKeyLane"));
+        QCOMPARE(c.lastSend().index, second);
+        QCOMPARE(c.lastSend().devices,
+                 (QStringList{ QStringLiteral("ADEV"), QStringLiteral("BDEV") }));
+        c.client.answerKeySend(c.lastSend(), true);
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
+    }
+
+    // The SFU still lists a peer whose membership we can no longer resolve
+    // (the sliding-sync store can lose it for a while). It may hold the key
+    // in use, so a rotated key that reached nobody is never switched to. Only
+    // then: once a NAMED peer holds the rotated key, the switch goes ahead
+    // and cuts the unnamed peer off until it is named and sent the key, as
+    // matrix-js-sdk would (it can only send to the members it knows).
+    void aRotatedKeyNoNamedPeerHoldsNeverCutsOffAPeerWeCannotName()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV") });
+        c.call.setKeyTimingForTest(100, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("ADEV") });
+
+        // The membership read in flight answers without A; A is still in
+        // the SFU.
+        RtcSessionData session;
+        session.roomId = c.room;
+        c.client.answerSession(c.client.lastSessionOp, session);
+        QVERIFY(c.newest() != first);
+        QTest::qWait(300);
+        QVERIFY2(c.adopted() == first,
+                 "our frames switched to a key nobody holds while a peer the "
+                 "SFU still lists may hold the one in use");
+    }
+
+    // A failed report does not prove the key did not arrive: a device we
+    // dispatched it to still counts as a leaver.
+    void aDeviceWhoseSendWasReportedFailedStillCountsAsALeaver()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.call.setKeyTimingForTest(300, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        c.client.answerKeySend(c.lastSend(), false);
+
+        c.sfuLeave(QStringLiteral("BDEV"));
+        QVERIFY2(c.newest() != first,
+                 "B may hold our key despite the failed report, left, and we "
+                 "kept using it");
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("ADEV") });
+    }
+
+    // DEFECT 8 candidate: after a rejoin Element never decrypted us again.
+    // Our LiveKit identity is the same across calls (`{user}:{device}` for a
+    // session membership, matrix-js-sdk CallMembership.parseFromEvent), and
+    // livekit-client never drops a participant's key handler
+    // (ParticipantKeyHandler.ts), so a restarted index lands on a slot still
+    // holding our previous call's key. The index now continues instead.
+    void aRejoinContinuesTheKeyIndexInsteadOfReusingThePreviousCalls()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.call.setKeyTimingForTest(50, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.call.startKeyLaneForTest();
+        c.sfuLeave(QStringLiteral("BDEV"));
+        c.client.answerKeySend(c.lastSend(), true);
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), c.newest(), 3000);
+        QSet<int> firstCall;
+        for (const KeyRecordingClient::KeySend &send : c.client.keySends)
+            firstCall.insert(send.index);
+        QCOMPARE(firstCall.size(), 2);
+        const int lastOfFirstCall = c.newest();
+
+        c.call.leave();
+        QCOMPARE(c.newest(), -1);
+        QCOMPARE(c.adopted(), -1);
+        QCOMPARE(c.call.deliveredKeyIndexForTest(), -1);
+        c.enterCall();
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A2"));
+        c.call.startKeyLaneForTest();
+        QVERIFY2(!firstCall.contains(c.newest()),
+                 qPrintable(QStringLiteral("the rejoin's first key reused "
+                                           "index %1 of the previous call")
+                                .arg(c.newest())));
+        QCOMPARE(c.newest(), (lastOfFirstCall + 1) % 16);
+        QCOMPARE(c.adopted(), c.newest());
+    }
+
+    // Our indices stay 0..15 (the bridge refuses more, and livekit-client
+    // rings default to 16) and advance by one per key, across the wrap.
+    void ourKeyIndexWrapsAtSixteenAndAdvancesByOne()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV") });
+        c.call.setKeyTimingForTest(5000, 60000);
+        c.call.startKeyLaneForTest();
+        QList<int> indices{ c.newest() };
+        for (int i = 0; i < 20; ++i) {
+            // Alone after each leave, so each rotation switches at once.
+            c.sfuJoin(QStringLiteral("ADEV"),
+                      QStringLiteral("PA_A%1").arg(i));
+            c.sfuLeave(QStringLiteral("ADEV"));
+            indices.append(c.newest());
+            QCOMPARE(c.adopted(), c.newest());
+        }
+        for (int i = 0; i < indices.size(); ++i) {
+            QVERIFY(indices.at(i) >= 0 && indices.at(i) < 16);
+            if (i > 0)
+                QCOMPARE(indices.at(i), (indices.at(i - 1) + 1) % 16);
+        }
+    }
+
+    // F5 (§18 review): with a key withheld, every retry mints a key and none
+    // is switched to, so after 16 the cursor came back to the index our
+    // frames use, and receivers replaced the key those frames need.
+    void anUnswitchedKeyNeverTakesTheIndexOurFramesUse()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        c.call.setKeyTimingForTest(5000, 0, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        c.call.startKeyLaneForTest();
+        const int inUse = c.adopted();
+        QVERIFY(inUse >= 0);
+        c.client.refuseSends = true;
+        QSet<int> minted;
+        for (int i = 0; i < 20; ++i) {
+            // A join past the grace (0 here) rotates; every send is refused,
+            // so nothing is ever switched to.
+            const int before = c.newest();
+            c.sfuJoin(QStringLiteral("BDEV"),
+                      QStringLiteral("PA_B%1").arg(i + 2));
+            QVERIFY2(c.newest() != before, "the join did not rotate");
+            QCOMPARE(c.adopted(), inUse);
+            QVERIFY2(c.newest() != inUse,
+                     qPrintable(QStringLiteral("key %1 took index %2, which "
+                                               "our frames still use")
+                                    .arg(i + 1)
+                                    .arg(inUse)));
+            minted.insert(c.newest());
+        }
+        // Only the index in use is skipped.
+        QCOMPARE(minted.size(), 15);
+    }
+
+    // DEFECT 11: a camera notice ("The camera you chose isn't available")
+    // stayed on screen after a later camera worked. The SFU accepting a later
+    // camera track withdraws it; the failed track's own late confirmation
+    // does not.
+    void aCameraNoticeIsWithdrawnWhenALaterCameraIsAccepted()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        call.setCameraCidForTest(QStringLiteral("cam-1"));
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("cam-1")),
+            Q_ARG(QString, QStringLiteral("camera_unavailable"))));
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(!failed.at(0).at(0).toString().isEmpty());
+        QVERIFY(!call.cameraOn());
+
+        Q_EMIT client.sfuTrackPublished(QStringLiteral("cam-1"),
+                                        QStringLiteral("TR_cam1"));
+        QVERIFY2(failed.count() == 1,
+                 "the failed camera's own late confirmation withdrew its "
+                 "notice");
+
+        call.setCameraCidForTest(QStringLiteral("cam-2"));
+        Q_EMIT client.sfuTrackPublished(QStringLiteral("cam-2"),
+                                        QStringLiteral("TR_cam2"));
+        QVERIFY2(failed.count() == 2,
+                 "a camera that works did not withdraw the camera's notice");
+        QVERIFY(failed.at(1).at(0).toString().isEmpty());
+
+        // Once.
+        Q_EMIT client.sfuTrackPublished(QStringLiteral("cam-2"),
+                                        QStringLiteral("TR_cam2"));
+        QCOMPARE(failed.count(), 2);
+    }
+
+    // Only a camera notice, and only by a camera: another notice showing (it
+    // replaced the camera's) stays, and another track's confirmation
+    // withdraws nothing.
+    void aCameraThatWorksWithdrawsOnlyTheCamerasNotice()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+        const auto cameraFails = [&call](const QString &cid) {
+            call.setCameraCidForTest(cid);
+            QVERIFY(QMetaObject::invokeMethod(
+                &call, "onEnginePublishFailed", Qt::DirectConnection,
+                Q_ARG(QString, cid),
+                Q_ARG(QString, QStringLiteral("camera_failed"))));
+        };
+
+        // Another track's confirmation is not the camera working.
+        cameraFails(QStringLiteral("cam-1"));
+        QCOMPARE(failed.count(), 1);
+        call.setCameraCidForTest(QStringLiteral("cam-2"));
+        Q_EMIT client.sfuTrackPublished(QStringLiteral("mic-1"),
+                                        QStringLiteral("TR_mic1"));
+        QVERIFY2(failed.count() == 1,
+                 "a microphone track withdrew the camera's notice");
+
+        // Another notice replaced the camera's: the camera working leaves
+        // it alone.
+        QVERIFY(QMetaObject::invokeMethod(&call, "onRemotePlaybackFailed",
+                                          Qt::DirectConnection,
+                                          Q_ARG(bool, true)));
+        QCOMPARE(failed.count(), 2);
+        QVERIFY(!failed.at(1).at(0).toString().isEmpty());
+        Q_EMIT client.sfuTrackPublished(QStringLiteral("cam-2"),
+                                        QStringLiteral("TR_cam2"));
+        QVERIFY2(failed.count() == 2,
+                 "a camera that works withdrew somebody else's notice");
     }
 
     // Isolate QSettings so this suite never writes the user's config, and so

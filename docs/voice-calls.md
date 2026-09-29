@@ -365,9 +365,56 @@ that would otherwise be deafened.
 Distribution happens **before** installation. The other order encrypts our
 frames under a key nobody has yet, and every receiver drops them until the
 to-device message lands. The first key is minted inside `publishTracks()`,
-before the first frame can exist. Any change in the participant set rotates,
-so a leaver stops being able to decrypt. Keys are cleared on teardown: they
-must not outlive the call that used them.
+before the first frame can exist, and used at once.
+
+After that the policy is matrix-js-sdk's (`RTCEncryptionManager`,
+`rolloutOutboundKey`), verified against its source on 2026-09-29:
+
+* A device that **leaves** makes us rotate: the new key goes to everyone
+  still here, and our frames keep the old key until `kUseKeyDelayMs` (5 s)
+  after that send is answered. Sending ahead is not enough on its own:
+  "distribute first" orders the HTTP request, not the delivery, and
+  switching at once dropped our media at every peer for the to-device
+  delivery time (measured up to 4.7 s to a Lightning peer; js-sdk's own
+  default of 1 s would not cover it). A leave while a switch is pending
+  rotates right after it.
+* The delay counts from the **answer**, as js-sdk sleeps after
+  `await sendKey`: our send runs a `/keys/query` per due user and claims
+  one-time keys before its PUT, which with federated peers can take seconds,
+  and counted from the dispatch that time came out of the delay (the 4.7 s
+  delivery above, measured from the dispatch, left 0.3 s of it). Only the
+  answer of a send that went to the holders of the key in use counts: sends
+  run concurrently, and a joiner's quick answer must not start the switch
+  while the send to a slower holder is still in flight (with no holder we can
+  name left, any answer counts). The switch is never later than
+  `kKeySwitchFallbackMs` (15 s) after the dispatch, answered or not, so a lost
+  answer cannot keep the old key for ever; a send slower than 10 s gets less
+  than the full delay. The fallback obeys the rule in the last point.
+* A device that **joins** (or comes back in a new SFU session) is sent our
+  newest key (the one in use, or the one a pending switch is about to use)
+  when it is younger than `kJoinKeyGraceMs` (10 s, js-sdk's
+  `keyRotationGracePeriodMs`), and otherwise gets a rotation like a leave.
+* The switch is immediate when nobody present can hold the key in use (we
+  were alone), so the second person into a call is not kept waiting.
+* A key that reached nobody is never switched to while a present peer, or an
+  SFU peer we cannot name, may hold the one in use.
+
+Trade-offs, of the kind js-sdk accepts: a leaver can decrypt our media until
+the switch, at most 15 s after we see it leave (typically the send's time
+plus 5 s; up to 30 s when another holder leaves meanwhile), **but only while
+the new key reaches someone**. When its send is refused outright, every send
+of it is reported failed, or the only peers left are SFU participants we
+cannot name, the rule above keeps our frames on the key the leaver holds
+until a later send succeeds; js-sdk likewise keeps the old key when
+`sendKey` throws. Once a named peer holds the new key, an SFU peer we cannot
+name is cut off at the switch until it is named and sent the key, as with
+js-sdk. A joiner inside the grace receives the key that encrypted up to 10 s
+of media from before it arrived (useful only to someone who also has that
+ciphertext, which only the SFU does). The key index continues across calls in
+one process, wraps at 16, and skips the index our frames use, so a run of
+keys that are never switched to cannot replace, at the receivers, the key our
+frames still need. Keys are cleared on teardown: they must not outlive the
+call that used them.
 
 ### Two IV mistakes that were in my own first wiring
 
