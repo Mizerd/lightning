@@ -17,6 +17,8 @@ Popup {
     property var cardOutput: null
     // The card's AudioOutput, for the control bar's mute/volume.
     property var cardAudio: null
+    // The event's declared length, for the bar until the player knows its own.
+    property real declaredDurationMs: 0
 
     function openFor(mediaPlayer, inlineOutput) {
         player = mediaPlayer
@@ -141,6 +143,7 @@ Popup {
             anchors.bottomMargin: AppTheme.spacing8
             player: root.player
             audio: root.cardAudio
+            declaredDurationMs: root.declaredDurationMs
             showExpand: true
             showClose: false
             expandIcon: "close_fullscreen"

@@ -18,6 +18,9 @@ Item {
     property string mediaKey: ""
     property string ownerKey: ""
     property string filename: ""
+    // The event's declared length (info.duration), 0 when absent; the bar
+    // shows it until the player knows its own.
+    property real declaredDurationMs: 0
     property bool rowOnScreen: true
     // Starts audible: the card exists only because the user pressed Play.
     property bool startMuted: false
@@ -50,6 +53,13 @@ Item {
             pinFile()
             app.playback.acquire(root.ownerKey)
             player.play()
+        } else if (app.mediaBridge.failureCategory(root.fetchCacheKey)
+                   .length > 0) {
+            // A failure mark means no fetch was dispatched (an earlier
+            // failure is still in its retry interval) or it failed at once;
+            // no signal will follow, so show the failure and its Retry.
+            fetchState = "failed"
+            fetchingKey = ""
         } else {
             fetchState = "fetching"
             fetchingKey = root.mediaKey
@@ -235,6 +245,7 @@ Item {
         // Basic's BusyIndicator uses a text colour barely visible on black.
         Item {
             id: cardSpinner
+            objectName: "videoCardSpinner"
             anchors.centerIn: output
             implicitWidth: 28
             implicitHeight: 28
@@ -267,6 +278,7 @@ Item {
             }
         }
         ColumnLayout {
+            objectName: "videoFailedPanel"
             anchors.centerIn: output
             visible: root.fetchState === "failed"
             spacing: AppTheme.spacing8
@@ -278,6 +290,7 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
             }
             AppButton {
+                objectName: "videoRetryButton"
                 text: qsTr("Retry")
                 Layout.alignment: Qt.AlignHCenter
                 onClicked: root.retryFetch()
@@ -295,6 +308,7 @@ Item {
             player: player
             audio: audioOut
             ownerKey: root.ownerKey
+            declaredDurationMs: root.declaredDurationMs
             expandIcon: "open_in_full"
             onExpandRequested: videoOverlay.openFor(player, output)
             onCloseRequested: {
@@ -315,5 +329,6 @@ Item {
 
     VideoViewerOverlay {
         id: videoOverlay
+        declaredDurationMs: root.declaredDurationMs
     }
 }

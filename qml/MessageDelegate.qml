@@ -5710,6 +5710,7 @@ Item {
                     ownerKey: root.actionKey + "\u001f"
                               + (model.mediaKey || "")
                     filename: model.mediaFilename || ""
+                    declaredDurationMs: model.mediaDurationMs || 0
                     rowOnScreen: root.rowOnScreen
                     onCloseRequested: videoBox.playerActive = false
                 }

@@ -19,6 +19,13 @@ FocusScope {
     property string ownerKey: ""
     property bool showExpand: true
     property bool showClose: true
+    // The length the event declares (info.duration), shown until the player
+    // reports its own. 0 when the sender declared none.
+    property real declaredDurationMs: 0
+    // The player's length once known, else the declared one, else 0.
+    readonly property real knownDurationMs:
+        player && player.duration > 0 ? player.duration
+                                      : Math.max(0, declaredDurationMs || 0)
     // "open_in_full" on the card, "close_fullscreen" in the overlay.
     property string expandIcon: "open_in_full"
     signal expandRequested()
@@ -41,6 +48,10 @@ FocusScope {
     function formatDuration(ms) {
         if (!ms || ms < 0) ms = 0
         return bar.clockText(Math.round(ms / 1000))
+    }
+    // An unknown length reads "–:–": "0:00" would claim the clip is empty.
+    function formatTotal(ms) {
+        return ms > 0 ? bar.formatDuration(ms) : "\u2013:\u2013"
     }
     function clockText(totalSeconds) {
         var m = Math.floor(totalSeconds / 60)
@@ -134,7 +145,7 @@ FocusScope {
             objectName: "videoTimeLabel"
             text: bar.formatPosition(bar.player ? bar.player.position : 0)
                   + " / "
-                  + bar.formatDuration(bar.player ? bar.player.duration : 0)
+                  + bar.formatTotal(bar.knownDurationMs)
             color: AppTheme.scrimInkStrong
             font.pixelSize: AppTheme.textMicro
             font.weight: AppTheme.weightStrong

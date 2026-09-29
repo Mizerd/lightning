@@ -602,6 +602,138 @@ private Q_SLOTS:
                  "so volume can still only be toggled on or off");
     }
 
+    // The player's bar shows the event's declared length until the player
+    // reports its own, and "–:–" when neither is known; "0:00 / 0:00" read as
+    // an empty clip. The mock bridge cannot fetch, so the player never loads
+    // and the declared length is all the bar has.
+    void theVideoBarShowsTheDeclaredLengthOrAnUnknownOne()
+    {
+        const QList<QPair<int, QString>> cases = {
+            { 83000, QStringLiteral("0:00 / 1:23") },
+            { 0, QStringLiteral("0:00 / \u2013:\u2013") },
+        };
+        for (const auto &c : cases) {
+            AppController controller(AppController::MockBackend);
+            QVariantMap fixture = baseFixture(controller);
+            fixture.insert(QStringLiteral("isVideo"), true);
+            fixture.insert(QStringLiteral("mediaWidth"), 1280);
+            fixture.insert(QStringLiteral("mediaHeight"), 720);
+            fixture.insert(QStringLiteral("mediaDurationMs"), c.first);
+            fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+            fixture.insert(QStringLiteral("mediaKey"),
+                           QStringLiteral("fixture-video"));
+            fixture.insert(QStringLiteral("mediaFilename"),
+                           QStringLiteral("clip.mp4"));
+            fixture.insert(QStringLiteral("body"), QStringLiteral("clip.mp4"));
+
+            Delegate d;
+            QVERIFY(createDelegate(controller, fixture, d));
+            auto *video = d.root->findChild<QQuickItem *>(
+                QStringLiteral("videoMedia"));
+            QVERIFY(video != nullptr);
+            QVERIFY(video->setProperty("playerActive", true));
+            QTRY_VERIFY(video->findChild<QQuickItem *>(
+                            QStringLiteral("videoTimeLabel")) != nullptr);
+            auto *label = video->findChild<QQuickItem *>(
+                QStringLiteral("videoTimeLabel"));
+            QTRY_COMPARE(label->property("text").toString(), c.second);
+            QCOMPARE(d.warnings, QStringList{});
+        }
+    }
+
+    // Play whose fetch cannot start ends in the failure panel with Retry, not
+    // a spinner that never stops: neither a dispatch the backend refuses at
+    // once nor a fetch blocked by an earlier failure is followed by a signal.
+    // Retry clears the mark and dispatches again.
+    void aVideoWhoseFetchCannotStartOffersRetry()
+    {
+        AppController controller(AppController::MockBackend);
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        // Outside demo mode the mock answers every fetch with op id 0.
+        mock->setSupportsMediaBridgeForTest(true);
+        MediaBridge *bridge = controller.mediaBridge();
+        QVERIFY(bridge->supported());
+        const QString key = QStringLiteral("fixture-video");
+        const QString fullKey = QStringLiteral("full:") + key;
+        const auto dispatchFailures = [bridge] {
+            return bridge->healthSnapshot()
+                .value(QStringLiteral("failed")).toLongLong();
+        };
+
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isVideo"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 1280);
+        fixture.insert(QStringLiteral("mediaHeight"), 720);
+        fixture.insert(QStringLiteral("mediaDurationMs"), 11000);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        // No declared size: the cover prefetches nothing.
+        fixture.insert(QStringLiteral("mediaSize"), 0);
+        fixture.insert(QStringLiteral("mediaKey"), key);
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("clip.mp4"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("clip.mp4"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *video = d.root->findChild<QQuickItem *>(
+            QStringLiteral("videoMedia"));
+        QVERIFY(video != nullptr);
+        QCoreApplication::processEvents();
+        QVERIFY2(bridge->failureCategory(fullKey).isEmpty(),
+                 "the cover fetched the payload before Play");
+
+        const auto card = [video] {
+            return video->findChild<QQuickItem *>(
+                QStringLiteral("videoPlayerCard"));
+        };
+        const auto checkFailedPanel = [&card]() -> bool {
+            QQuickItem *c = card();
+            if (!c)
+                return false;
+            auto *panel = c->findChild<QQuickItem *>(
+                QStringLiteral("videoFailedPanel"));
+            auto *retry = c->findChild<QQuickItem *>(
+                QStringLiteral("videoRetryButton"));
+            auto *spinner = c->findChild<QQuickItem *>(
+                QStringLiteral("videoCardSpinner"));
+            return panel && panel->isVisible() && retry && retry->isVisible()
+                && spinner && !spinner->isVisible();
+        };
+
+        // 1. The backend refuses the dispatch before the card starts waiting.
+        const qint64 before = dispatchFailures();
+        QVERIFY(video->setProperty("playerActive", true));
+        QTRY_VERIFY(card() != nullptr);
+        QCOMPARE(dispatchFailures() - before, qint64(1));
+        QTRY_COMPARE(card()->property("fetchState").toString(),
+                     QStringLiteral("failed"));
+        QVERIFY(checkFailedPanel());
+
+        // 2. Reopened inside the retry interval: the mark blocks the fetch and
+        // nothing is dispatched.
+        QVERIFY(video->setProperty("playerActive", false));
+        QTRY_VERIFY(card() == nullptr);
+        QVERIFY(!bridge->failureCategory(fullKey).isEmpty());
+        const qint64 blocked = dispatchFailures();
+        QVERIFY(video->setProperty("playerActive", true));
+        QTRY_VERIFY(card() != nullptr);
+        QTRY_COMPARE(card()->property("fetchState").toString(),
+                     QStringLiteral("failed"));
+        QCOMPARE(dispatchFailures() - blocked, qint64(0));
+        QVERIFY(checkFailedPanel());
+
+        // 3. Retry dispatches again (and fails again on the mock).
+        auto *retry = card()->findChild<QQuickItem *>(
+            QStringLiteral("videoRetryButton"));
+        QVERIFY(retry != nullptr);
+        QVERIFY(QMetaObject::invokeMethod(retry, "clicked"));
+        QCOMPARE(dispatchFailures() - blocked, qint64(1));
+        QTRY_COMPARE(card()->property("fetchState").toString(),
+                     QStringLiteral("failed"));
+        QCOMPARE(d.warnings, QStringList{});
+    }
+
     // Audio and voice rows are compact and fixed, and the voice marker
     // switches the presentation.
     void audioAndVoiceRowsStayCompact()
