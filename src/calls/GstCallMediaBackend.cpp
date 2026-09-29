@@ -263,6 +263,11 @@ bool GstCallMediaBackend::runtimeAvailable(QString *whyNot)
         // resolve for mute support.
         "valve",        "volume",
         "capsfilter",
+        // Created by webrtcbin and dtlssrtpenc themselves, so nothing above
+        // names them: the RTP session and bundling (rtpmanager) and SRTP
+        // (needs libsrtp2). A snap without libsrtp2 passed every other entry
+        // and carried no media (2026-09-29).
+        "rtpbin",       "rtpfunnel",    "srtpenc",      "srtpdec",
     };
     for (const char *name : kRequired) {
         GstElementFactory *factory = gst_element_factory_find(name);

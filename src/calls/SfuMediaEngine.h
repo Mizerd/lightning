@@ -143,6 +143,14 @@ public:
     static bool gpuShareChainUsable();
     /// Whether this build can decode MJPG. Probed once with real image/jpeg.
     static bool jpegCameraChainAvailable();
+    /// Whether caps a camera reported admit MJPG. Unknown (null, ANY or
+    /// empty) counts as yes, which keeps the MJPG attempt.
+    static bool capsOfferJpeg(const GstCaps *caps);
+    /// Opens `capsrc` in `bin` (READY) and asks whether the device can
+    /// produce MJPG, then puts it back to NULL. Needed because v4l2src's
+    /// template lists image/jpeg for every camera, so a raw-only camera
+    /// parses behind the MJPG filter and only fails to negotiate.
+    static bool captureOffersJpeg(GstElement *bin);
     static QString shareEncoderStage(int maxHeight, int fps);
     int shareMaxHeight() const { return m_shareMaxHeight; }
     int shareFps() const { return m_shareFps; }

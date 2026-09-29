@@ -237,6 +237,61 @@ private:
 constexpr int kRetiredWithinMs =
     lightning::webrtc::Retirer::kGatheringBoundMs + 3000;
 
+/// A camera shaped like v4l2src on a raw-only (YUYV) device: before it is
+/// opened it offers its template, which lists image/jpeg as v4l2src's does
+/// for every camera, and once opened (READY) it offers only what the device
+/// has. A videotestsrc cannot stand in: its template has no jpeg, so the MJPG
+/// description already fails to parse and the old fallback catches it.
+struct RawOnlyCam {
+    GstBin parent;
+};
+struct RawOnlyCamClass {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(RawOnlyCam, raw_only_cam, GST_TYPE_BIN)
+
+gboolean rawOnlyCamQuery(GstPad *pad, GstObject *parent, GstQuery *query)
+{
+    if (GST_QUERY_TYPE(query) == GST_QUERY_CAPS
+        && GST_STATE(GST_ELEMENT(parent)) < GST_STATE_READY) {
+        GstCaps *filter = nullptr;
+        gst_query_parse_caps(query, &filter);
+        GstCaps *templ = gst_caps_from_string(
+            "image/jpeg; video/x-raw, format=(string)YUY2");
+        if (filter) {
+            GstCaps *both = gst_caps_intersect(templ, filter);
+            gst_caps_unref(templ);
+            templ = both;
+        }
+        gst_query_set_caps_result(query, templ);
+        gst_caps_unref(templ);
+        return TRUE;
+    }
+    return gst_pad_query_default(pad, parent, query);
+}
+
+void raw_only_cam_init(RawOnlyCam *self)
+{
+    GstElement *device = gst_parse_bin_from_description(
+        "videotestsrc is-live=true "
+        "! capsfilter caps=\"video/x-raw,format=YUY2,width=640,height=480,"
+        "framerate=30/1,pixel-aspect-ratio=1/1\"",
+        TRUE, nullptr);
+    gst_bin_add(GST_BIN(self), device);
+    GstPad *inner = gst_element_get_static_pad(device, "src");
+    GstPad *ghost = gst_ghost_pad_new("src", inner);
+    gst_object_unref(inner);
+    gst_pad_set_query_function(ghost, rawOnlyCamQuery);
+    gst_element_add_pad(GST_ELEMENT(self), ghost);
+}
+
+void raw_only_cam_class_init(RawOnlyCamClass *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Raw-only camera (test)", "Source/Video",
+        "A v4l2src-shaped YUYV-only camera", "Lightning");
+}
+
 /// Wires a sender's publisher to a receiver's subscriber, the way the SFU
 /// relays them, and records the first failure either reports.
 void wireLoopback(SfuMediaEngine &sender, SfuMediaEngine &receiver,
@@ -5637,6 +5692,80 @@ private slots:
 
         sender.stop();
         receiver.stop();
+    }
+
+    /// DEFECT 10: a camera is put behind the MJPG decode whenever jpegdec
+    /// exists, and only a description that fails to PARSE fell back to raw.
+    /// v4l2src's template lists image/jpeg for every camera, so a raw-only
+    /// one parsed, failed to negotiate and captured nothing.
+    void capsOfferJpegAnswersFromWhatTheDeviceReported()
+    {
+        const auto offers = [](const char *text) {
+            GstCaps *caps = gst_caps_from_string(text);
+            const bool answer = SfuMediaEngine::capsOfferJpeg(caps);
+            gst_caps_unref(caps);
+            return answer;
+        };
+        QVERIFY(!offers("video/x-raw, format=(string)YUY2, width=(int)1280"));
+        QVERIFY(offers("image/jpeg; video/x-raw, format=(string)YUY2"));
+        QVERIFY(offers("image/jpeg, width=(int)1280"));
+        // Unknown keeps today's MJPG attempt.
+        QVERIFY(offers("ANY"));
+        QVERIFY(offers("EMPTY"));
+        QVERIFY(SfuMediaEngine::capsOfferJpeg(nullptr));
+    }
+
+    /// The same end to end, with a source that shares the property: it
+    /// parses behind image/jpeg and is raw-only once opened. The camera must
+    /// be built on the raw entry and capture.
+    void aRawOnlyCameraIsBuiltOnTheRawEntryAndCaptures()
+    {
+        if (!SfuMediaEngine::jpegCameraChainAvailable())
+            QSKIP("no jpegdec here, so the MJPG chain is never tried");
+        static const bool registered = gst_element_register(
+            nullptr, "lightningrawonlycam", GST_RANK_NONE,
+            raw_only_cam_get_type());
+        QVERIFY(registered);
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setVideoSourceForTest(QStringLiteral("lightningrawonlycam"));
+        engine.start();
+        const QString cid = QStringLiteral("cid-raw-only-camera");
+        engine.publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1);
+        GstElement *bin = engine.publishedBinForTest(cid);
+        QVERIFY2(bin, "the camera publish was refused");
+        bool jpegDecoder = false;
+        GstIterator *it = gst_bin_iterate_recurse(GST_BIN(bin));
+        GValue item = G_VALUE_INIT;
+        while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+            GstElementFactory *factory = gst_element_get_factory(
+                GST_ELEMENT(g_value_get_object(&item)));
+            if (factory
+                && g_strcmp0(GST_OBJECT_NAME(factory), "jpegdec") == 0) {
+                jpegDecoder = true;
+            }
+            g_value_reset(&item);
+        }
+        g_value_unset(&item);
+        gst_iterator_free(it);
+        QVERIFY2(!jpegDecoder, "a raw-only camera was put behind jpegdec");
+        // And it captures: frames leave `capsrc`.
+        std::atomic<int> frames{0};
+        GstElement *capture = gst_bin_get_by_name(GST_BIN(bin), "capsrc");
+        QVERIFY(capture);
+        GstPad *out = gst_element_get_static_pad(capture, "src");
+        const gulong probe = gst_pad_add_probe(
+            out, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                return GST_PAD_PROBE_OK;
+            },
+            &frames, nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(frames.load() > 5, 10000);
+        gst_pad_remove_probe(out, probe);
+        gst_object_unref(out);
+        gst_object_unref(capture);
+        engine.stop();
     }
 
     /// webrtcbin's `stun-server` is parsed as a URI and gstwebrtcnice drops

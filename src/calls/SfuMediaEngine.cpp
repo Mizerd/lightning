@@ -959,6 +959,12 @@ bool SfuMediaEngine::runtimeAvailable(QString *whyNot)
         "vp8enc",        "vp8dec",        "rtpvp8pay",    "rtpvp8depay",
         "videoconvert",  "videoscale",    "videotestsrc", "videorate",
         // Not `compositor`: nothing builds a pipeline from it.
+        // Created by webrtcbin and dtlssrtpenc themselves, so nothing here
+        // names them: SRTP, the data channel LiveKit's subscriber offer
+        // bundles every section onto, and the RTP session. A snap without
+        // libsrtp2 passed every other entry and carried no media (2026-09-29).
+        "srtpenc",       "srtpdec",       "sctpenc",      "sctpdec",
+        "rtpbin",        "rtpfunnel",
         // Ours; without it encrypted video cannot be sent.
         lightning::rtp::vp8PayloaderName(),
     };
@@ -2876,6 +2882,39 @@ QString SfuMediaEngine::captureEntryFilter(bool gpu)
                          "pixel-aspect-ratio=(fraction)1/1\"");
 }
 
+bool SfuMediaEngine::capsOfferJpeg(const GstCaps *caps)
+{
+    if (!caps || gst_caps_is_any(caps) || gst_caps_is_empty(caps))
+        return true;
+    GstCaps *jpeg = gst_caps_new_empty_simple("image/jpeg");
+    const bool offers = gst_caps_can_intersect(caps, jpeg);
+    gst_caps_unref(jpeg);
+    return offers;
+}
+
+bool SfuMediaEngine::captureOffersJpeg(GstElement *bin)
+{
+    GstElement *source = gst_bin_get_by_name(GST_BIN(bin), "capsrc");
+    if (!source)
+        return true;
+    // READY opens the device (v4l2src enumerates its formats there); nothing
+    // streams, so no frame is captured.
+    bool offers = true;
+    if (gst_element_set_state(source, GST_STATE_READY)
+        != GST_STATE_CHANGE_FAILURE) {
+        if (GstPad *pad = gst_element_get_static_pad(source, "src")) {
+            GstCaps *caps = gst_pad_query_caps(pad, nullptr);
+            offers = capsOfferJpeg(caps);
+            if (caps)
+                gst_caps_unref(caps);
+            gst_object_unref(pad);
+        }
+    }
+    gst_element_set_state(source, GST_STATE_NULL);
+    gst_object_unref(source);
+    return offers;
+}
+
 QString SfuMediaEngine::cameraJpegEntry()
 {
     // Decode MJPG, then apply the same PAR pin as the raw entry (an
@@ -3790,6 +3829,50 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
             },
             Qt::QueuedConnection);
         return;
+    }
+    // The MJPG description parses for every v4l2 camera (the template lists
+    // image/jpeg), so a raw-only one would only fail to negotiate. Ask the
+    // opened device, after the binding so it is the chosen one. Linux only:
+    // on Windows the probe would open ksvideosrc once more before every
+    // publish, and nothing has run that on a Windows camera yet.
+#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+    constexpr bool kProbeCameraFormats = false;
+#else
+    constexpr bool kProbeCameraFormats = true;
+#endif
+    if (kProbeCameraFormats && tryJpeg && entryInUse == cameraJpegEntry()
+        && !captureOffersJpeg(bin)) {
+        qCInfo(lcSfuMedia)
+            << "camera chain= raw (the device offers no MJPG)";
+        gst_object_unref(bin);
+        entryInUse = captureEntryFilter(useGpu);
+        description = videoPipelineDescription(
+            source, cameraRateStage(portalCamera), limits, encoder, selfView,
+            nextPublishSsrc(), scaleStageInUse, entryInUse);
+        error = nullptr;
+        bin = gst_parse_bin_from_description(description.toUtf8().constData(),
+                                             TRUE, &error);
+        if (error) {
+            qCWarning(lcSfuMedia) << "video pipeline parse failed:"
+                                  << (error->message ? error->message : "?");
+            g_error_free(error);
+            if (bin)
+                gst_object_unref(bin);
+            Q_EMIT failed(QStringLiteral("camera_failed"));
+            return;
+        }
+        if (!cameraBinding.isEmpty()
+            && !applyBindingTo(bin, "capsrc", cameraBinding)) {
+            gst_object_unref(bin);
+            QMetaObject::invokeMethod(
+                this,
+                [this, cid] {
+                    Q_EMIT publishFailed(cid,
+                                         QStringLiteral("camera_unavailable"));
+                },
+                Qt::QueuedConnection);
+            return;
+        }
     }
     gst_element_set_name(bin, cid.toUtf8().constData());
     if (!gst_bin_add(GST_BIN(m_publisher.pipeline), bin)) {

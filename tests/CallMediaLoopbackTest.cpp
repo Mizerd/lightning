@@ -479,6 +479,35 @@ private Q_SLOTS:
         QVERIFY(GstCallMediaBackend::runtimeAvailable());
     }
 
+    /// webrtcbin and dtlssrtpenc create rtpbin, rtpfunnel and srtpenc/dec
+    /// themselves, so nothing we build names them, and a package missing one
+    /// (a snap without libsrtp2) passed the probe and carried no media. Each
+    /// is taken out of the registry in turn: the probe must name it.
+    void theProbeNamesElementsWebrtcbinCreatesItself()
+    {
+        GstRegistry *registry = gst_registry_get();
+        for (const char *name : { "srtpenc", "srtpdec", "rtpbin", "rtpfunnel" }) {
+            GstPluginFeature *feature =
+                gst_registry_lookup_feature(registry, name);
+            if (!feature)
+                QSKIP(qPrintable(QStringLiteral("%1 is not installed here")
+                                     .arg(QString::fromLatin1(name))));
+            gst_registry_remove_feature(registry, feature);
+            QString why;
+            const bool available = GstCallMediaBackend::runtimeAvailable(&why);
+            // Back before asserting, so a failure cannot strip the registry
+            // for the cases after this one.
+            gst_registry_add_feature(registry, feature); // refs it again
+            gst_object_unref(feature);
+            QVERIFY2(!available,
+                     qPrintable(QStringLiteral("the probe passed without %1")
+                                    .arg(QString::fromLatin1(name))));
+            QCOMPARE(why, QStringLiteral("missing_element_")
+                              + QString::fromLatin1(name));
+        }
+        QVERIFY(GstCallMediaBackend::runtimeAvailable());
+    }
+
     /// A promise change function must not touch its context after the
     /// `gst_promise_unref()` that can finalize the promise (whose destroy
     /// notify, `promiseCtxFree`, deletes the context), as when webrtcbin
