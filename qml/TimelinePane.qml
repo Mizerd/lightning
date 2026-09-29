@@ -1851,15 +1851,24 @@ Rectangle {
                 // Media band: the row index range allowed to fetch pictures now
                 // (MessageDelegate.mediaInBand). Not bound to contentY, which
                 // would re-run a comparison in every row on every scroll frame;
-                // it moves only on load, reset, resize and gesture settle. An
-                // index range because a delegate's own y inside its Loader is
-                // 0. Permissive until the first refresh.
+                // it moves only on load, reset, resize, gesture settle and
+                // content growth under an open band. An index range because a
+                // delegate's own y inside its Loader is 0. Permissive until the
+                // first refresh.
                 property int mediaBandFirstRow: 0
                 property int mediaBandLastRow: 2147483647
+                // The band's far edge lies past the loaded rows, so rows still
+                // landing (the history fill, the paced reveal) belong inside
+                // it. At the live edge nothing moves contentY while they land,
+                // so no settle re-derives it: an open band was frozen at the
+                // rows present when it was computed and pictures on screen
+                // waited for the first gesture (2026-09-29).
+                property bool mediaBandOpen: true
                 function refreshMediaBand() {
                     if (count <= 0) {
                         mediaBandFirstRow = 0
                         mediaBandLastRow = 2147483647
+                        mediaBandOpen = true
                         return
                     }
                     var h = Math.max(height, 400)
@@ -1870,6 +1879,20 @@ Rectangle {
                     var last = viewRowAtContentY(contentY + h * 2.5)
                     mediaBandFirstRow = 0
                     mediaBandLastRow = last < 0 ? count - 1 : last
+                    mediaBandOpen = mediaBandLastRow >= count - 1
+                }
+                // Content grew under an open band: re-derive it at most every
+                // 100 ms, and never mid-gesture (the settle does that). Once the
+                // content reaches past the far edge the band closes and growth
+                // stops asking.
+                Timer {
+                    id: mediaBandGrowth
+                    interval: 100
+                    repeat: false
+                    onTriggered: {
+                        if (!timeline.userScrollActive)
+                            timeline.refreshMediaBand()
+                    }
                 }
                 // Programmatic landings (jump to event, first unread, glides)
                 // do not touch the wheel/drag settle timer, so every contentY
@@ -4070,6 +4093,8 @@ Rectangle {
                     // Any Column relayout after the reset reflects the new
                     // model's delegates.
                     presentationGeometryStale = false
+                    if (mediaBandOpen && !userScrollActive)
+                        mediaBandGrowth.start()
                     scheduleVisibleRowRange()
                     maybeFillViewport()
                     recomputePresentationReady()
@@ -4236,6 +4261,9 @@ Rectangle {
                         // room.
                         timeline.cancelWheelMotion()
                         timeline.refreshMediaBand()
+                        // The rows just measured belong to the outgoing room or
+                        // are not laid out yet: re-derive on the new layout.
+                        timeline.mediaBandOpen = true
                         root.stopAutoscroll()
                         // Any reset discards the rows these surfaces came from,
                         // including a same-room jump-to-live trim that fires no

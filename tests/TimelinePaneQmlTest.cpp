@@ -355,6 +355,82 @@ private:
         return out.value<QQuickItem *>();
     }
 
+    // The delegate at a VIEW row (0 = newest), or nullptr.
+    static QQuickItem *itemAtViewRow(QQuickItem *timeline, int viewRow)
+    {
+        QVariant out;
+        if (!QMetaObject::invokeMethod(timeline, "itemAtViewRow",
+                                       Q_RETURN_ARG(QVariant, out),
+                                       Q_ARG(QVariant, QVariant(viewRow))))
+            return nullptr;
+        return out.value<QQuickItem *>();
+    }
+
+    // Rows on screen (drawn, and overlapping the viewport) whose delegate is
+    // outside the media band, so their pictures would not be fetched; empty
+    // when there are none. View rows ascend in content y.
+    static QString onScreenRowsOutsideTheMediaBand(QQuickItem *timeline)
+    {
+        const double top = timeline->property("contentY").toDouble();
+        const double bottom = top + timeline->property("height").toDouble();
+        const int count = timeline->property("count").toInt();
+        QStringList outside;
+        int onScreen = 0;
+        for (int row = 0; row < count; ++row) {
+            QQuickItem *item = itemAtViewRow(timeline, row);
+            if (!item || item->height() <= 0)
+                continue;
+            if (item->y() >= bottom)
+                break;
+            if (item->y() + item->height() <= top)
+                continue;
+            ++onScreen;
+            if (!item->property("mediaInBand").toBool())
+                outside << QStringLiteral("%1@y%2").arg(row).arg(item->y());
+        }
+        if (onScreen == 0)
+            return QStringLiteral("no row is on screen (count %1)").arg(count);
+        if (outside.isEmpty())
+            return {};
+        return QStringLiteral("%1 of %2 rows on screen are outside the media "
+                              "band [%3..%4] (count %5, contentY %6): %7")
+            .arg(outside.size()).arg(onScreen)
+            .arg(timeline->property("mediaBandFirstRow").toInt())
+            .arg(timeline->property("mediaBandLastRow").toInt())
+            .arg(count).arg(top).arg(outside.join(QStringLiteral(", ")));
+    }
+
+    // The highest view row with drawn height overlapping the viewport, or -1.
+    static int lastViewRowOnScreen(QQuickItem *timeline)
+    {
+        const double top = timeline->property("contentY").toDouble();
+        const double bottom = top + timeline->property("height").toDouble();
+        const int count = timeline->property("count").toInt();
+        int last = -1;
+        for (int row = 0; row < count; ++row) {
+            QQuickItem *item = itemAtViewRow(timeline, row);
+            if (!item || item->height() <= 0)
+                continue;
+            if (item->y() >= bottom)
+                break;
+            if (item->y() + item->height() > top)
+                last = row;
+        }
+        return last;
+    }
+
+    // The first drawn view row whose top lies beyond content y `y`, or -1.
+    static int firstViewRowBeyond(QQuickItem *timeline, double y)
+    {
+        const int count = timeline->property("count").toInt();
+        for (int row = 0; row < count; ++row) {
+            QQuickItem *item = itemAtViewRow(timeline, row);
+            if (item && item->height() > 0 && item->y() > y)
+                return row;
+        }
+        return -1;
+    }
+
     // Park a source row at the viewport's physical top.
     static bool positionAtSourceRow(QQuickItem *timeline, int sourceRow)
     {
@@ -8651,6 +8727,83 @@ private Q_SLOTS:
                 double hi = 0.0;
                 return wheelBounds(timeline, &lo, &hi) && hi > lo;
             }(), 8000);
+    }
+
+    // Reported 2026-09-29: opening a room left the pictures on screen as grey
+    // placeholders until the first scroll. The media band was derived while
+    // the content was shorter than its far edge, so it ended at the last row
+    // loaded then; the history fill's rows landed after it, at the live edge
+    // nothing moved contentY, and no settle ever re-derived the band.
+    void rowsTheFillLandsAfterOpenAreInsideTheMediaBandWithoutAGesture()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+
+        // One history page that lands well after the open has settled (the
+        // pane's presentation guard is 2.5 s) and reaches far past the band.
+        mock->setPaginationDelayForTest(5000);
+        mock->setPaginationChunkForTest(textFixture(
+            roomId, 150, QStringLiteral("older"),
+            QStringLiteral("older history"), /*baseSecondsAgo=*/20000));
+
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 2, QStringLiteral("seed"),
+                        QStringLiteral("seed"), /*baseSecondsAgo=*/7200),
+            /*paginationPages=*/1, /*viewportHeight=*/420, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+
+        // Premise, the reported state: the band was derived on the short
+        // content and ends at its last row while the page is in flight.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [&] {
+                const int count = timeline->property("count").toInt();
+                return count > 0
+                    && timeline->property("mediaBandLastRow").toInt()
+                           == count - 1;
+            }(), kSignalTimeoutMs);
+        QVERIFY2(controller.pagination()->busy(),
+                 "premise: the history page landed before the band settled");
+        QVERIFY2(timeline->property("contentHeight").toReal()
+                     < timeline->property("height").toReal(),
+                 "premise: the seed rows must not fill the viewport");
+        const int seededRows = timeline->property("count").toInt();
+
+        // The page lands and is revealed. Nothing is scrolled, clicked or
+        // resized from here on.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("count").toInt() > seededRows + 50, 15000);
+        QVERIFY(waitForRowsToStopArriving(controller));
+        QVERIFY2(timeline->property("stickToBottom").toBool(),
+                 "premise: the reader never left the live edge");
+        QVERIFY2(lastViewRowOnScreen(timeline) >= seededRows,
+                 "premise: rows from the page must be on screen");
+
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            onScreenRowsOutsideTheMediaBand(timeline).isEmpty(),
+            qPrintable(onScreenRowsOutsideTheMediaBand(timeline)),
+            kSignalTimeoutMs);
+
+        // And the band still closes: history far past it waits, or every
+        // picture in the loaded history would fetch on open.
+        const double far = timeline->property("contentY").toDouble()
+            + 4.0 * qMax(timeline->property("height").toDouble(), 400.0);
+        const int beyond = firstViewRowBeyond(timeline, far);
+        QVERIFY2(beyond >= 0, "premise: the page must reach past four viewports");
+        QVERIFY2(!itemAtViewRow(timeline, beyond)
+                      ->property("mediaInBand").toBool(),
+                 qPrintable(QStringLiteral(
+                     "row %1, four viewports out, is inside the band [0..%2]: "
+                     "the band no longer closes")
+                     .arg(beyond)
+                     .arg(timeline->property("mediaBandLastRow").toInt())));
     }
 
     // A quick middle click starts no autoscroll and leaves no marker;

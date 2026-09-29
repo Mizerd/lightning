@@ -336,6 +336,21 @@ was deep in history (no picture ever loaded there). The pane computes
 the Loader sets `mediaInBand` on the delegate; the delegate's own default is
 permissive for hosts without a band.
 
+**AND "AT DISCRETE MOMENTS" MISSED THE ONE THAT MATTERS: THE HISTORY FILL AT
+ROOM OPEN (2026-09-29).** The band was computed at load, when two rows
+existed, so it ended at row 1; the fill then grew the room to 61 rows while
+the reader stayed at the live edge, contentY never moved, and nothing
+recomputed it until the first gesture settled. Every picture on screen stayed
+a grey placeholder until then (measured: 45 s with `bandLast=1`, one wheel
+notch, five fetches). `mediaBandOpen` now marks a band whose far edge lies
+past the loaded rows, and while it is open a content-height change schedules
+a recompute (100 ms, throttled with `start()`, never during a gesture); a
+reset marks it open so the new room's rows get one. Nothing is bound to
+contentY. Measured on Xvfb over 36 gestures: frame times, anchor counters,
+pagination and in-gesture recomputes (0) identical before and after.
+Follow-up: `viewRowAtContentY()` overshoots because rows the Column never
+positions keep y = 0; in the band it only widens it.
+
 **A LOG LINE THAT CANNOT TELL "NOTHING HAPPENED" FROM "WE THREW EVERYTHING
 AWAY" IS NOT A LOG LINE.** A room open made fourteen back-paginations that each
 reported `added= 0`, and nothing anywhere could say whether the server returned
