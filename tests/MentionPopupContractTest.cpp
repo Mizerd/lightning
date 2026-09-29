@@ -155,6 +155,8 @@ Q_SIGNALS:
     void mediaCached(const QString &cacheKey);
     void mediaFetchFailed(const QString &cacheKey, const QString &category);
     void mediaRetryable(const QString &cacheKey);
+    void animatedMediaReady(const QString &cacheKey);
+    void motionSlotFreed();
 };
 
 class FakeAppContext : public QObject

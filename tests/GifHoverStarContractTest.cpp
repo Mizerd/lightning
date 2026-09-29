@@ -302,8 +302,9 @@ private Q_SLOTS:
         const int connStart = delegate.indexOf(
             QStringLiteral("Connections {\n                target: app.gif.starredStore"));
         QVERIFY(connStart >= 0);
-        const int connEnd = delegate.indexOf(QStringLiteral("\n            }\n\n            "
-                                                             "readonly property string resolvedSource:"),
+        // The block ends at the first sibling after it; comments may sit
+        // between the block and resolvedSource.
+        const int connEnd = delegate.indexOf(QStringLiteral("\n            }\n"),
                                              connStart);
         QVERIFY(connEnd > connStart);
         const QString connBlock = delegate.mid(connStart, connEnd - connStart);
