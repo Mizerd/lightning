@@ -249,6 +249,14 @@ that have the engine.
   the focus already relays every byte of media, so a TURN server it names is
   no wider a trust than the connection itself. Recorded here because the
   sentence above used to read as if it covered both lanes.
+  **The same goes for a STUN server the SFU names, and since 2026-09-29 it is
+  actually contacted.** Before that, the lane handed webrtcbin
+  `stun:host:port`, which gstwebrtcnice rejects ("has no host"), so the
+  MatrixRTC lane never sent a Binding Request at all (measured). It now
+  passes `stun://host:port` (`SfuMediaEngine::stunServerUri`), so a STUN
+  server in the `JoinResponse`, possibly a third party chosen by whoever runs
+  the SFU, sees the user's IP, exactly as it does for every other LiveKit
+  client in that call. NOT TESTED against a real LiveKit deployment.
 - **UI**: the corner card is now the whole call surface — Calling…/
   Incoming/Connecting…/In-call forms with Accept (ONLY when the engine is
   registered), Decline, Hang up, Dismiss; states are compared

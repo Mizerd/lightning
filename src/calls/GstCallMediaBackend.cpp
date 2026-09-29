@@ -342,6 +342,8 @@ GstCallMediaBackend::~GstCallMediaBackend()
     }
     if (m_sessionActive)
         destroySessionLocked();
+    // Bounded: at quit a webrtcbin still gathering is stopped anyway.
+    m_retirer.drain(lightning::webrtc::Retirer::kQuitBudgetMs);
 }
 
 bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
@@ -408,6 +410,8 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
         gst_object_unref(valve);
     }
     m_sessionActive = true;
+    // Before any callback can run; see destroySessionLocked().
+    lightning::webrtc::installGate(webrtc);
 
     applyIceConfigLocked();
 
@@ -447,19 +451,18 @@ void GstCallMediaBackend::destroySessionLocked()
 {
     if (!m_sessionActive)
         return;
-    if (m_session.webrtc) {
+    if (m_session.webrtc)
         g_signal_handlers_disconnect_by_data(m_session.webrtc, this);
-        gst_object_unref(m_session.webrtc);
-    }
     if (m_session.pipeline) {
         GstBus *bus = gst_element_get_bus(m_session.pipeline);
         if (bus) {
             gst_bus_set_sync_handler(bus, nullptr, nullptr, nullptr);
             gst_object_unref(bus);
         }
-        gst_element_set_state(m_session.pipeline, GST_STATE_NULL);
-        gst_object_unref(m_session.pipeline);
     }
+    // Never a plain set_state(NULL) (GitHub #3): the pipeline stops here, its
+    // webrtcbin once ICE gathering has ended. Takes both references.
+    m_retirer.retire(m_session.pipeline, m_session.webrtc);
     m_session = Session();
     m_sessionActive = false;
     // Engine state is per session. The controller owns the deafen intent and
@@ -798,6 +801,10 @@ void GstCallMediaBackend::handleFailure(quintptr token,
 void GstCallMediaBackend::onNegotiationNeeded(GstElement *webrtc,
                                               void *userData)
 {
+    // A closed call queues nothing more on its webrtcbin.
+    const lightning::webrtc::CallbackScope scope(webrtc);
+    if (!scope.live())
+        return;
     auto *backend = static_cast<GstCallMediaBackend *>(userData);
     // Session identity travels as the emitting element's pointer (kept alive
     // by the promise ctx), so a stale offer cannot be attributed to a newer
@@ -815,6 +822,13 @@ void GstCallMediaBackend::onNegotiationNeeded(GstElement *webrtc,
 void GstCallMediaBackend::onOfferCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
+    // Held to the end: set-local-description must not start gathering on a
+    // webrtcbin that is being retired.
+    const lightning::webrtc::CallbackScope scope(ctx->webrtc);
+    if (!scope.live()) {
+        gst_promise_unref(promise); // frees ctx
+        return;
+    }
     GstCallMediaBackend *backend = ctx->backend;
     const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
     const QString sdp =
@@ -829,6 +843,11 @@ void GstCallMediaBackend::onRemoteOfferSet(GstPromise *promise,
                                            void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
+    const lightning::webrtc::CallbackScope scope(ctx->webrtc);
+    if (!scope.live()) {
+        gst_promise_unref(promise); // frees ctx
+        return;
+    }
     GstCallMediaBackend *backend = ctx->backend;
     // Our own reference: the ctx's is released by promiseCtxFree.
     GstElement *webrtc = GST_ELEMENT(gst_object_ref(ctx->webrtc));
@@ -863,6 +882,11 @@ void GstCallMediaBackend::onAnswerCreated(GstPromise *promise,
                                           void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
+    const lightning::webrtc::CallbackScope scope(ctx->webrtc);
+    if (!scope.live()) {
+        gst_promise_unref(promise); // frees ctx
+        return;
+    }
     GstCallMediaBackend *backend = ctx->backend;
     const quintptr token = reinterpret_cast<quintptr>(ctx->webrtc);
     const QString sdp =
@@ -934,6 +958,11 @@ void GstCallMediaBackend::onConnectionNotify(GstElement *webrtc, void *pspec,
 void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
                                      void *userData)
 {
+    // Closing waits for this handler, so it never adds to a pipeline that is
+    // already stopping; a later pad of a closed call stays unlinked.
+    const lightning::webrtc::CallbackScope scope(webrtc);
+    if (!scope.live())
+        return;
     auto *backend = static_cast<GstCallMediaBackend *>(userData);
     GstPad *srcPad = GST_PAD(pad);
     if (GST_PAD_DIRECTION(srcPad) != GST_PAD_SRC)

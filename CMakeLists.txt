@@ -714,6 +714,10 @@ if(HAVE_LIGHTNING_WEBRTC)
         src/calls/GstCallMediaBackend.cpp
         src/calls/SfuMediaEngine.h
         src/calls/SfuMediaEngine.cpp
+        # Stops a closed call's webrtcbin only once ICE gathering has ended
+        # (GitHub #3); both engines above use it.
+        src/calls/WebrtcRetirer.h
+        src/calls/WebrtcRetirer.cpp
         src/calls/CaptureDeviceSelection.h
         src/calls/CaptureDeviceSelection.cpp
         src/calls/RtpVp8Payloader.h
@@ -3265,6 +3269,8 @@ if(BUILD_TESTING)
             src/calls/GstBootstrap.cpp
             src/calls/GstCallMediaBackend.h
             src/calls/GstCallMediaBackend.cpp
+            src/calls/WebrtcRetirer.h
+            src/calls/WebrtcRetirer.cpp
         )
         target_include_directories(call-media-loopback-test PRIVATE src)
         target_link_libraries(call-media-loopback-test PRIVATE
@@ -3291,6 +3297,8 @@ if(BUILD_TESTING)
             src/calls/GstBootstrap.cpp
             src/calls/SfuMediaEngine.h
             src/calls/SfuMediaEngine.cpp
+            src/calls/WebrtcRetirer.h
+            src/calls/WebrtcRetirer.cpp
             src/calls/CaptureDeviceSelection.h
             src/calls/CaptureDeviceSelection.cpp
             src/calls/RtpVp8Payloader.h

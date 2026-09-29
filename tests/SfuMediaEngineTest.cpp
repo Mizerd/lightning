@@ -16,6 +16,7 @@
 #include <QtTest/QtTest>
 
 #include <QFile>
+#include <QUrl>
 
 #include <gst/app/gstappsrc.h>
 #include <gst/base/gstbasesink.h>
@@ -28,6 +29,12 @@
 #include <fcntl.h>
 #include <memory>
 #include <unistd.h>
+
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 namespace {
 
@@ -120,6 +127,115 @@ QByteArray engineSource()
     return file.readAll();
 }
 #define SOURCE_UNDER_TEST engineSource()
+
+/// The first IPv4 address of an interface that is up, running and neither
+/// loopback nor link-local, or empty.
+QString hostIpv4Address()
+{
+    ifaddrs *list = nullptr;
+    if (::getifaddrs(&list) != 0)
+        return {};
+    QString found;
+    for (ifaddrs *it = list; it && found.isEmpty(); it = it->ifa_next) {
+        if (!it->ifa_addr || it->ifa_addr->sa_family != AF_INET
+            || !(it->ifa_flags & IFF_UP) || !(it->ifa_flags & IFF_RUNNING)
+            || (it->ifa_flags & IFF_LOOPBACK)) {
+            continue;
+        }
+        const auto *in = reinterpret_cast<const sockaddr_in *>(it->ifa_addr);
+        if ((ntohl(in->sin_addr.s_addr) >> 16) == 0xA9FE) // 169.254/16
+            continue;
+        char text[INET_ADDRSTRLEN] = {};
+        if (::inet_ntop(AF_INET, &in->sin_addr, text, sizeof text))
+            found = QString::fromLatin1(text);
+    }
+    ::freeifaddrs(list);
+    return found;
+}
+
+/// A UDP port that takes packets and never answers. Named as an ICE server it
+/// keeps gathering running until libnice gives up on it (about 2 s, measured
+/// with libnice 0.1.23), which is the window GitHub #3 needs. On 127.0.0.1
+/// it only holds gathering open: libnice pins each host candidate's socket to
+/// its interface (IP_UNICAST_IF), so nothing it sends can reach loopback. To
+/// SEE what libnice sends, bind it to hostIpv4Address().
+class SilentUdpPort
+{
+public:
+    explicit SilentUdpPort(const QString &address = QStringLiteral("127.0.0.1"))
+        : m_address(address)
+    {
+        m_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (m_fd < 0)
+            return;
+        sockaddr_in address4{};
+        address4.sin_family = AF_INET;
+        if (::inet_pton(AF_INET, m_address.toLatin1().constData(),
+                        &address4.sin_addr)
+            != 1) {
+            return;
+        }
+        socklen_t length = sizeof address4;
+        if (::bind(m_fd, reinterpret_cast<sockaddr *>(&address4), length) == 0
+            && ::getsockname(m_fd, reinterpret_cast<sockaddr *>(&address4),
+                             &length)
+                == 0) {
+            m_port = ntohs(address4.sin_port);
+        }
+    }
+    ~SilentUdpPort()
+    {
+        if (m_fd >= 0)
+            ::close(m_fd);
+    }
+    int port() const { return m_port; }
+    /// UDP only: with no `transport` libnice also tries TCP, whose give-up
+    /// time is longer.
+    QVariantList asTurnServer() const
+    {
+        return { QVariantMap{
+            { QStringLiteral("urls"),
+              QStringLiteral("turn:%1:%2?transport=udp").arg(m_address).arg(m_port) },
+            { QStringLiteral("username"), QStringLiteral("u") },
+            { QStringLiteral("credential"), QStringLiteral("p") },
+        } };
+    }
+    QVariantList asStunServer() const
+    {
+        return { QVariantMap{
+            { QStringLiteral("urls"),
+              QStringLiteral("stun:%1:%2").arg(m_address).arg(m_port) },
+        } };
+    }
+    /// Whether a STUN Binding Request (type 0x0001 with the RFC 5389 magic
+    /// cookie) has arrived. Reads whatever is queued, never blocks.
+    bool sawStunBindingRequest()
+    {
+        unsigned char datagram[1500];
+        for (;;) {
+            const ssize_t size =
+                ::recv(m_fd, datagram, sizeof datagram, MSG_DONTWAIT);
+            if (size < 0)
+                break;
+            if (size >= 20 && datagram[0] == 0x00 && datagram[1] == 0x01
+                && datagram[4] == 0x21 && datagram[5] == 0x12
+                && datagram[6] == 0xA4 && datagram[7] == 0x42) {
+                m_sawBinding = true;
+            }
+        }
+        return m_sawBinding;
+    }
+
+private:
+    QString m_address;
+    int m_fd = -1;
+    int m_port = 0;
+    bool m_sawBinding = false;
+};
+
+// Long enough for any retirement: the bound plus a stopping webrtcbin.
+constexpr int kRetiredWithinMs =
+    lightning::webrtc::Retirer::kGatheringBoundMs + 3000;
 
 /// Wires a sender's publisher to a receiver's subscriber, the way the SFU
 /// relays them, and records the first failure either reports.
@@ -1389,6 +1505,13 @@ private slots:
         // Stopping leaves no outstanding teardown.
         QCOMPARE(receiver.pendingTeardownsForTest(), 0);
         QCOMPARE(sender.pendingTeardownsForTest(), 0);
+        // And every webrtcbin reaches NULL, none while it was gathering.
+        QTRY_COMPARE_WITH_TIMEOUT(sender.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QTRY_COMPARE_WITH_TIMEOUT(receiver.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QCOMPARE(sender.teardownsWhileGatheringForTest(), 0);
+        QCOMPARE(receiver.teardownsWhileGatheringForTest(), 0);
     }
 
     // An unkeyed sender is reported as unkeyed, not as a decryption failure:
@@ -5514,6 +5637,215 @@ private slots:
 
         sender.stop();
         receiver.stop();
+    }
+
+    /// webrtcbin's `stun-server` is parsed as a URI and gstwebrtcnice drops
+    /// one with no host ("has no host"), which the ICE form `stun:host:port`
+    /// is: every STUN server the SFU named was silently ignored. The TURN
+    /// form must keep its credentials percent-encoded and its transport.
+    /// Checked the way gstwebrtcnice reads them, with GstUri.
+    void iceServerUrisTakeTheFormGstwebrtcniceParses()
+    {
+        // The defect itself: the ICE form has no host as a URI.
+        {
+            GstUri *raw =
+                gst_uri_from_string_escaped("stun:stun.example.org:3478");
+            QVERIFY(!raw || !gst_uri_get_host(raw));
+            if (raw)
+                gst_uri_unref(raw);
+        }
+        struct StunCase {
+            const char *in;
+            const char *out;
+            const char *host;
+            guint port;
+        };
+        const StunCase stunCases[] = {
+            { "stun:stun.example.org:3478", "stun://stun.example.org:3478",
+              "stun.example.org", 3478 },
+            { "stun:stun.example.org", "stun://stun.example.org",
+              "stun.example.org", GST_URI_NO_PORT },
+            { "stun:192.0.2.7:19302", "stun://192.0.2.7:19302", "192.0.2.7",
+              19302 },
+        };
+        for (const StunCase &c : stunCases) {
+            const QString out =
+                SfuMediaEngine::stunServerUri(QString::fromLatin1(c.in));
+            QCOMPARE(out, QString::fromLatin1(c.out));
+            GstUri *uri = gst_uri_from_string_escaped(out.toUtf8().constData());
+            QVERIFY2(uri, c.out);
+            QCOMPARE(QString::fromUtf8(gst_uri_get_scheme(uri)),
+                     QStringLiteral("stun"));
+            QCOMPARE(QString::fromUtf8(gst_uri_get_host(uri)),
+                     QString::fromLatin1(c.host));
+            QCOMPARE(gst_uri_get_port(uri), c.port);
+            gst_uri_unref(uri);
+        }
+        QVERIFY(SfuMediaEngine::stunServerUri(QStringLiteral("stun:")).isEmpty());
+        QVERIFY(SfuMediaEngine::stunServerUri(
+                    QStringLiteral("turn:turn.example.org:3478"))
+                    .isEmpty());
+
+        const QString turn = SfuMediaEngine::turnServerUri(
+            QStringLiteral("turn:turn.example.org:3478?transport=udp"),
+            QStringLiteral("1695:id"), QStringLiteral("p@ss w"));
+        QCOMPARE(turn, QStringLiteral("turn://1695%3Aid:p%40ss%20w@"
+                                      "turn.example.org:3478?transport=udp"));
+        GstUri *uri = gst_uri_from_string_escaped(turn.toUtf8().constData());
+        QVERIFY(uri);
+        QCOMPARE(QString::fromUtf8(gst_uri_get_scheme(uri)),
+                 QStringLiteral("turn"));
+        QCOMPARE(QString::fromUtf8(gst_uri_get_host(uri)),
+                 QStringLiteral("turn.example.org"));
+        QCOMPARE(gst_uri_get_port(uri), 3478u);
+        QCOMPARE(QString::fromUtf8(gst_uri_get_query_value(uri, "transport")),
+                 QStringLiteral("udp"));
+        // gstwebrtcnice splits the userinfo at its first ':' and unescapes.
+        const QString userinfo = QString::fromUtf8(gst_uri_get_userinfo(uri));
+        const qsizetype colon = userinfo.indexOf(QLatin1Char(':'));
+        QVERIFY(colon > 0);
+        QCOMPARE(QUrl::fromPercentEncoding(userinfo.left(colon).toUtf8()),
+                 QStringLiteral("1695:id"));
+        QCOMPARE(QUrl::fromPercentEncoding(userinfo.mid(colon + 1).toUtf8()),
+                 QStringLiteral("p@ss w"));
+        gst_uri_unref(uri);
+
+        const QString turns = SfuMediaEngine::turnServerUri(
+            QStringLiteral("turns:turn.example.org:443?transport=tcp"),
+            QStringLiteral("u"), QStringLiteral("p"));
+        QCOMPARE(turns, QStringLiteral(
+                            "turns://u:p@turn.example.org:443?transport=tcp"));
+        QVERIFY(SfuMediaEngine::turnServerUri(QStringLiteral("stun:x:1"),
+                                              QStringLiteral("u"),
+                                              QStringLiteral("p"))
+                    .isEmpty());
+    }
+
+    /// The same, end to end: a STUN server the SFU names must actually be
+    /// asked. The server is a silent socket on this machine's own address,
+    /// which sees the Binding Request only if the URI reached libnice.
+    void aStunServerFromTheSfuReachesLibnice()
+    {
+        const QString host = hostIpv4Address();
+        if (host.isEmpty())
+            QSKIP("no IPv4 interface for libnice to send a Binding Request from");
+        SilentUdpPort stun(host);
+        if (stun.port() == 0)
+            QSKIP("no UDP socket on this machine's address for the STUN server");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        // Not under test here: the silent server would hold the stop 2 s.
+        engine.setRetireBoundForTest(500);
+        engine.setIceServers(stun.asStunServer());
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-stun"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            stun.sawStunBindingRequest(),
+            "no STUN Binding Request reached the server the SFU named: the "
+            "URI never reached libnice",
+            10000);
+        engine.stop();
+        QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0, 3000);
+    }
+
+    /// GitHub #3 on the MatrixRTC engine: a webrtcbin set to NULL while its
+    /// ICE gathering can still emit a candidate aborts the process on every
+    /// GStreamer we ship (gstreamer#5138). A TURN server that never answers
+    /// holds gathering open; the call stops on the publisher's first
+    /// candidate, when gathering has certainly started. The webrtcbin must
+    /// reach NULL only after the gathering has ended, and within the bound.
+    void stoppingWhileThePublisherGathersStopsWebrtcbinOnlyAfterGathering()
+    {
+        SilentUdpPort turn;
+        if (turn.port() == 0)
+            QSKIP("no loopback UDP socket for the silent TURN server");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setIceServers(turn.asTurnServer());
+        bool stopped = false;
+        connect(&engine, &SfuMediaEngine::localCandidate, this,
+                [&](int target, const QString &) {
+                    if (target != int(SfuMediaEngine::Target::Publisher)
+                        || stopped) {
+                        return;
+                    }
+                    stopped = true;
+                    engine.stop();
+                });
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-gathering"));
+        QTRY_VERIFY_WITH_TIMEOUT(stopped, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
+        QVERIFY2(engine.retiresThatWaitedOnGatheringForTest() == 1,
+                 "gathering had already ended when the call stopped, so this "
+                 "run proved nothing: the silent TURN server did not hold it "
+                 "open (no IPv4 host candidate to allocate from?)");
+        QCOMPARE(engine.retireBoundExpiriesForTest(), 0);
+    }
+
+    /// Only webrtcbin waits. The receive bins, their decrypt probes (which
+    /// point into the engine) and every sink stop inside stop(), so nothing
+    /// is heard or counted after leaving while the webrtcbin finishes
+    /// gathering.
+    void aStoppedPeersMediaStopsAtOnceWhileWebrtcbinWaits()
+    {
+        SilentUdpPort turn;
+        if (turn.port() == 0)
+            QSKIP("no loopback UDP socket for the silent TURN server");
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        // Only the receiver gathers against the silent server, so its
+        // subscriber is still gathering when it leaves.
+        receiver.setIceServers(turn.asTurnServer());
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QString arrivedStream;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &, const QString &) {
+                    arrivedStream = streamId;
+                });
+        sender.start();
+        receiver.start();
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("sender-device"), 3, key);
+        sender.publishAudio(QStringLiteral("cid-stops-at-once"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !arrivedStream.isEmpty(),
+            qPrintable(QStringLiteral("no media pad; failure=%1").arg(failure)),
+            45000);
+        receiver.noteParticipantIdentity(arrivedStream,
+                                         QStringLiteral("sender-device"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.framesDecrypted() > 5,
+            qPrintable(QStringLiteral("nothing decrypted; failure=%1")
+                           .arg(failure)),
+            30000);
+
+        receiver.stop();
+        const quint64 atStop = receiver.framesDecrypted();
+        QTest::qWait(400);
+        const bool webrtcbinStillWaiting =
+            receiver.retiringWebrtcForTest() >= 1;
+        QCOMPARE(receiver.framesDecrypted(), atStop);
+        if (!webrtcbinStillWaiting) {
+            qWarning("the receiver's gathering had ended before the check, so "
+                     "the stop was not observed alongside a waiting webrtcbin "
+                     "in this run");
+        }
+        sender.stop();
+        QTRY_COMPARE_WITH_TIMEOUT(receiver.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QTRY_COMPARE_WITH_TIMEOUT(sender.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QCOMPARE(receiver.teardownsWhileGatheringForTest(), 0);
+        QCOMPARE(sender.teardownsWhileGatheringForTest(), 0);
     }
 
 };

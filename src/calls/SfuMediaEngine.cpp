@@ -1000,6 +1000,8 @@ SfuMediaEngine::~SfuMediaEngine()
     // session is already stopped; otherwise an unparented bin could push
     // buffers through probes pointing into members being destroyed.
     stop();
+    // Bounded: at quit a webrtcbin still gathering is stopped anyway.
+    m_retirer.drain(lightning::webrtc::Retirer::kQuitBudgetMs);
 }
 
 void SfuMediaEngine::start()
@@ -1310,19 +1312,19 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
 
 void SfuMediaEngine::destroyPeer(Peer &peer)
 {
-    if (peer.webrtc) {
+    if (peer.webrtc)
         g_signal_handlers_disconnect_by_data(peer.webrtc, this);
-        gst_object_unref(peer.webrtc);
-    }
     if (peer.pipeline) {
         GstBus *bus = gst_element_get_bus(peer.pipeline);
         if (bus) {
             gst_bus_set_sync_handler(bus, nullptr, nullptr, nullptr);
             gst_object_unref(bus);
         }
-        gst_element_set_state(peer.pipeline, GST_STATE_NULL);
-        gst_object_unref(peer.pipeline);
     }
+    // Never a plain set_state(NULL) (GitHub #3): the pipeline, with every bin
+    // and probe of ours, stops here; its webrtcbin once ICE gathering has
+    // ended. Takes both references.
+    m_retirer.retire(peer.pipeline, peer.webrtc);
     peer = Peer();
 }
 
@@ -1386,6 +1388,8 @@ bool SfuMediaEngine::ensurePeer(Target target)
     // The pipeline owns the element; we hold a ref for the session.
     peer.pipeline = pipeline;
     peer.webrtc = GST_ELEMENT(gst_object_ref(webrtc));
+    // Before any callback can run; see destroyPeer().
+    lightning::webrtc::installGate(webrtc);
 
     if (target == Target::Publisher) {
         // Only the publisher offers; the subscriber answers the server's
@@ -1416,35 +1420,64 @@ bool SfuMediaEngine::ensurePeer(Target target)
     return true;
 }
 
+QString SfuMediaEngine::stunServerUri(const QString &iceUri)
+{
+    if (!iceUri.startsWith(QLatin1String("stun:")) || iceUri.size() <= 5)
+        return {};
+    // `stun:host:port` has no host as a URI, and gstwebrtcnice then logs
+    // "has no host" and gathers no server-reflexive candidate at all.
+    return QStringLiteral("stun://") + iceUri.mid(5);
+}
+
+QString SfuMediaEngine::turnServerUri(const QString &iceUri,
+                                      const QString &username,
+                                      const QString &password)
+{
+    const bool secure = iceUri.startsWith(QLatin1String("turns:"));
+    if (!secure && !iceUri.startsWith(QLatin1String("turn:")))
+        return {};
+    // Host, port and `?transport=` as the SFU gave them.
+    const QString rest = iceUri.mid(secure ? 6 : 5);
+    if (rest.isEmpty())
+        return {};
+    return QStringLiteral("%1://%2:%3@%4")
+        .arg(secure ? QStringLiteral("turns") : QStringLiteral("turn"),
+             QString::fromUtf8(QUrl::toPercentEncoding(username)),
+             QString::fromUtf8(QUrl::toPercentEncoding(password)), rest);
+}
+
 void SfuMediaEngine::applyIceTo(Peer &peer)
 {
     if (!peer.webrtc || m_iceUris.isEmpty())
         return;
+    bool stunApplied = false;
+    int turnServers = 0;
     for (const QString &uri : m_iceUris) {
-        if (uri.startsWith(QLatin1String("stun:"))) {
-            g_object_set(peer.webrtc, "stun-server", uri.toUtf8().constData(),
-                         nullptr);
+        const QString stun = stunServerUri(uri);
+        if (!stun.isEmpty()) {
+            // webrtcbin holds one STUN server: the first named, as in the
+            // 1:1 lane.
+            if (!stunApplied) {
+                g_object_set(peer.webrtc, "stun-server",
+                             stun.toUtf8().constData(), nullptr);
+                stunApplied = true;
+            }
             continue;
         }
-        if (!uri.startsWith(QLatin1String("turn:"))
-            && !uri.startsWith(QLatin1String("turns:")))
+        // Carries the credentials: never logged.
+        const QString turn = turnServerUri(uri, m_iceUsername, m_icePassword);
+        if (turn.isEmpty())
             continue;
-        // Credentials are percent-encoded into the URI form webrtcbin wants.
-        // Never logged.
-        const QString scheme =
-            uri.startsWith(QLatin1String("turns:")) ? QStringLiteral("turns")
-                                                    : QStringLiteral("turn");
-        const QString host = uri.section(QLatin1Char(':'), 1);
-        const QString full =
-            QStringLiteral("%1://%2:%3@%4")
-                .arg(scheme,
-                     QString::fromUtf8(QUrl::toPercentEncoding(m_iceUsername)),
-                     QString::fromUtf8(QUrl::toPercentEncoding(m_icePassword)),
-                     host);
         gboolean added = FALSE;
         g_signal_emit_by_name(peer.webrtc, "add-turn-server",
-                              full.toUtf8().constData(), &added);
+                              turn.toUtf8().constData(), &added);
+        if (added)
+            ++turnServers;
     }
+    // Counts only: which servers were taken is enough to tell "no STUN" from
+    // "no relay" in a report.
+    qCInfo(lcSfuMedia) << "ice servers applied stun=" << stunApplied
+                       << "turn=" << turnServers;
 }
 
 void SfuMediaEngine::setIceServers(const QVariantList &servers)
@@ -5848,6 +5881,10 @@ void SfuMediaEngine::onPeerStateNotify(GstElement *webrtc, void *paramSpec,
 
 void SfuMediaEngine::onNegotiationNeeded(GstElement *webrtc, void *userData)
 {
+    // A stopped peer queues nothing more on its webrtcbin.
+    const lightning::webrtc::CallbackScope scope(webrtc);
+    if (!scope.live())
+        return;
     // Starts the offer chain; if it never fires, nothing is published.
     auto *engine = static_cast<SfuMediaEngine *>(userData);
     // webrtcbin raises this at PLAYING before any track exists, and an offer
@@ -5870,6 +5907,13 @@ void SfuMediaEngine::onNegotiationNeeded(GstElement *webrtc, void *userData)
 void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
+    // Held to the end: set-local-description must not start gathering on a
+    // webrtcbin that is being retired.
+    const lightning::webrtc::CallbackScope scope(ctx->webrtc);
+    if (!scope.live()) {
+        gst_promise_unref(promise); // frees ctx
+        return;
+    }
     auto *engine = ctx->engine;
     GstElement *webrtc = GST_ELEMENT(gst_object_ref(ctx->webrtc));
     const GstStructure *reply = gst_promise_get_reply(promise);
@@ -5905,6 +5949,11 @@ void SfuMediaEngine::onOfferCreated(GstPromise *promise, void *userData)
 void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
 {
     auto *ctx = static_cast<PromiseCtx *>(userData);
+    const lightning::webrtc::CallbackScope scope(ctx->webrtc);
+    if (!scope.live()) {
+        gst_promise_unref(promise); // frees ctx
+        return;
+    }
     // Read ctx above the unref; see onOfferCreated.
     auto *engine = ctx->engine;
     const bool publisher = ctx->publisher;
@@ -5979,6 +6028,9 @@ void SfuMediaEngine::onAnswerCreated(GstPromise *promise, void *userData)
 void SfuMediaEngine::onIceCandidate(GstElement *webrtc, unsigned mlineIndex,
                                     char *candidate, void *userData)
 {
+    const lightning::webrtc::CallbackScope scope(webrtc);
+    if (!scope.live())
+        return;
     auto *engine = static_cast<SfuMediaEngine *>(userData);
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
     const quint64 generation = engine->m_generation.load();
@@ -5992,7 +6044,9 @@ void SfuMediaEngine::onIceCandidate(GstElement *webrtc, unsigned mlineIndex,
 void SfuMediaEngine::onPadRemoved(GstElement *webrtc, void *pad,
                                   void *userData)
 {
-    Q_UNUSED(webrtc);
+    const lightning::webrtc::CallbackScope scope(webrtc);
+    if (!scope.live())
+        return;
     auto *engine = static_cast<SfuMediaEngine *>(userData);
     if (!engine || !pad)
         return;
@@ -6764,6 +6818,11 @@ bool SfuMediaEngine::startReceiveChain(GstPad *srcPad, GstElement *bin,
 
 void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
 {
+    // Stopping a peer waits for this handler, so a bin is never registered
+    // after teardown has cleared m_receiveBins; a later pad stays unlinked.
+    const lightning::webrtc::CallbackScope scope(webrtc);
+    if (!scope.live())
+        return;
     auto *engine = static_cast<SfuMediaEngine *>(userData);
     GstPad *srcPad = GST_PAD(pad);
     if (GST_PAD_DIRECTION(srcPad) != GST_PAD_SRC)

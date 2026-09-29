@@ -22,9 +22,65 @@
 
 #include <atomic>
 
+#if defined(Q_OS_UNIX)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
 #include "calls/GstCallMediaBackend.h"
 
 namespace {
+
+// A UDP port on 127.0.0.1 that never answers. Named as the STUN server it
+// keeps ICE gathering running until libnice gives up on it (about 2 s,
+// measured with libnice 0.1.23), which is the window GitHub #3 needs.
+// Nothing reaches it: libnice pins each host candidate's socket to its
+// interface (IP_UNICAST_IF), so loopback is unreachable, which only makes
+// the silence certain.
+class SilentUdpPort
+{
+public:
+    SilentUdpPort()
+    {
+#if defined(Q_OS_UNIX)
+        m_fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (m_fd < 0)
+            return;
+        sockaddr_in address{};
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        socklen_t length = sizeof address;
+        if (::bind(m_fd, reinterpret_cast<sockaddr *>(&address), length) == 0
+            && ::getsockname(m_fd, reinterpret_cast<sockaddr *>(&address),
+                             &length)
+                == 0) {
+            m_port = ntohs(address.sin_port);
+        }
+#endif
+    }
+    ~SilentUdpPort()
+    {
+#if defined(Q_OS_UNIX)
+        if (m_fd >= 0)
+            ::close(m_fd);
+#endif
+    }
+    int port() const { return m_port; }
+    QStringList asStunServer() const
+    {
+        return { QStringLiteral("stun:127.0.0.1:%1").arg(m_port) };
+    }
+
+private:
+    int m_fd = -1;
+    int m_port = 0;
+};
+
+// Long enough for any retirement: the bound plus a stopping webrtcbin.
+constexpr int kRetiredWithinMs =
+    lightning::webrtc::Retirer::kGatheringBoundMs + 3000;
 
 // Element Desktop 1.12.29's legacy video offer, captured 2026-09-25 from an
 // m.call.invite (candidates removed, ice-pwd replaced).
@@ -526,7 +582,15 @@ private Q_SLOTS:
                 });
         caller.createOffer(second);
         QTRY_VERIFY_WITH_TIMEOUT(secondOffered, 15000);
+        // The other close GitHub #3 aborted in: the second session is still
+        // gathering.
         caller.close(second);
+        QTRY_COMPARE_WITH_TIMEOUT(caller.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QTRY_COMPARE_WITH_TIMEOUT(callee.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QCOMPARE(caller.teardownsWhileGatheringForTest(), 0);
+        QCOMPARE(callee.teardownsWhileGatheringForTest(), 0);
     }
 
     /// Element's video call reaches the legacy lane as an audio+video offer.
@@ -660,7 +724,208 @@ private Q_SLOTS:
                 [&](const QString &, const QString &) { offered = true; });
         engine.createOffer(QStringLiteral("good-after-bad"));
         QTRY_VERIFY_WITH_TIMEOUT(offered, 15000);
+        // GitHub #3's abort came from this close: it lands while the fresh
+        // session is still gathering.
         engine.close(QStringLiteral("good-after-bad"));
+        QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
+    }
+
+    /// GitHub #3: a webrtcbin set to NULL while its ICE gathering can still
+    /// emit a candidate aborts the process on every GStreamer we ship
+    /// (gstreamer#5138). A STUN server that never answers holds gathering
+    /// open; the call closes on its first candidate, when gathering has
+    /// certainly started. The webrtcbin must reach NULL only after the
+    /// gathering has ended, and within the bound.
+    void closingWhileIceGathersStopsWebrtcbinOnlyAfterGathering()
+    {
+        SilentUdpPort stun;
+        if (stun.port() == 0)
+            QSKIP("no loopback UDP socket for the silent STUN server");
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        engine.setIceServers(stun.asStunServer(), QString(), QString());
+        const QString callId = QStringLiteral("close-on-first-candidate");
+        bool closed = false;
+        connect(&engine, &CallMediaBackend::localCandidate, this,
+                [&](const QString &id, const QString &, const QString &, int) {
+                    if (id != callId || closed)
+                        return;
+                    closed = true;
+                    engine.close(callId);
+                });
+        engine.createOffer(callId);
+        QTRY_VERIFY_WITH_TIMEOUT(closed, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
+        QVERIFY2(engine.retiresThatWaitedOnGatheringForTest() == 1,
+                 "gathering had already ended when the call closed, so this "
+                 "run proved nothing: the silent STUN server did not hold it "
+                 "open (no IPv4 host candidate to discover from?)");
+        QCOMPARE(engine.retireBoundExpiriesForTest(), 0);
+    }
+
+    /// The same, closed the moment the offer is ready, which is the shape of
+    /// the reporter's crash: set-local-description may not have run yet, so
+    /// the close has to wait it out before it can see that gathering began.
+    void closingTheMomentTheOfferIsReadyWaitsForGatheringToo()
+    {
+        SilentUdpPort stun;
+        if (stun.port() == 0)
+            QSKIP("no loopback UDP socket for the silent STUN server");
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        engine.setIceServers(stun.asStunServer(), QString(), QString());
+        const QString callId = QStringLiteral("close-on-offer");
+        bool closed = false;
+        connect(&engine, &CallMediaBackend::offerReady, this,
+                [&](const QString &id, const QString &) {
+                    if (id != callId || closed)
+                        return;
+                    closed = true;
+                    engine.close(callId);
+                });
+        engine.createOffer(callId);
+        QTRY_VERIFY_WITH_TIMEOUT(closed, 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QCOMPARE(engine.teardownsWhileGatheringForTest(), 0);
+        QVERIFY2(engine.retiresThatWaitedOnGatheringForTest() == 1,
+                 "the close did not see the gathering the offer started");
+        QCOMPARE(engine.retireBoundExpiriesForTest(), 0);
+    }
+
+    /// A call closed before its answer exists must not go on to create one:
+    /// a set-local-description queued after the close would start gathering
+    /// behind the teardown's back. Nothing is gathered, so the webrtcbin
+    /// stops at once, well before the silent server would let it.
+    void closingBeforeTheAnswerExistsStartsNoGathering()
+    {
+        SilentUdpPort stun;
+        if (stun.port() == 0)
+            QSKIP("no loopback UDP socket for the silent STUN server");
+        // close() races webrtcbin's own thread creating the answer; under
+        // heavy load the answer can win, which is correct code taking the
+        // other path. One clean attempt of three proves the gate; without it
+        // every attempt gathers.
+        int clean = 0;
+        for (int attempt = 0; attempt < 3 && clean == 0; ++attempt) {
+            GstCallMediaBackend engine;
+            engine.setTestToneMode(true);
+            engine.setIceServers(stun.asStunServer(), QString(), QString());
+            const QString callId =
+                QStringLiteral("close-before-answer-%1").arg(attempt);
+            engine.createAnswer(callId, crlf(kElementVideoOffer));
+            engine.close(callId);
+            // Well inside the ~2 s the silent server would hold a gathering.
+            const bool settled = QTest::qWaitFor(
+                [&engine] { return engine.retiringWebrtcForTest() == 0; },
+                1500);
+            if (settled && engine.retiresThatWaitedOnGatheringForTest() == 0
+                && engine.teardownsWhileGatheringForTest() == 0)
+                ++clean;
+        }
+        QVERIFY2(clean > 0,
+                 "every close before the answer still started a gathering");
+    }
+
+    /// The bound is real: a webrtcbin whose gathering outlasts it is stopped
+    /// anyway, and counted. Safe here because the silent server can never
+    /// produce the late candidate the crash needs.
+    void aWebrtcbinStillGatheringAtTheBoundIsStoppedAnyway()
+    {
+        SilentUdpPort stun;
+        if (stun.port() == 0)
+            QSKIP("no loopback UDP socket for the silent STUN server");
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        engine.setRetireBoundForTest(300);
+        engine.setIceServers(stun.asStunServer(), QString(), QString());
+        const QString callId = QStringLiteral("close-past-the-bound");
+        bool closed = false;
+        connect(&engine, &CallMediaBackend::localCandidate, this,
+                [&](const QString &id, const QString &, const QString &, int) {
+                    if (id != callId || closed)
+                        return;
+                    closed = true;
+                    engine.close(callId);
+                });
+        engine.createOffer(callId);
+        QTRY_VERIFY_WITH_TIMEOUT(closed, 15000);
+        // libnice gives up on the silent server only after about 2 s.
+        QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0, 1500);
+        QCOMPARE(engine.retireBoundExpiriesForTest(), 1);
+        QCOMPARE(engine.teardownsWhileGatheringForTest(), 1);
+    }
+
+    /// Only webrtcbin waits. Everything else of the call stops inside
+    /// close(), so nothing is heard (or sent) after hanging up while the
+    /// webrtcbin finishes gathering.
+    void aClosedCallsMediaStopsAtOnceWhileWebrtcbinWaits()
+    {
+        SilentUdpPort stun;
+        if (stun.port() == 0)
+            QSKIP("no loopback UDP socket for the silent STUN server");
+        const QString callId = QStringLiteral("media-stops-at-once");
+        GstCallMediaBackend caller;
+        GstCallMediaBackend callee;
+        caller.setTestToneMode(true);
+        callee.setTestToneMode(true);
+        // Only the callee gathers against the silent server, so it is still
+        // gathering when it hangs up.
+        callee.setIceServers(stun.asStunServer(), QString(), QString());
+        QString failure;
+        connect(&caller, &CallMediaBackend::offerReady, &callee,
+                [&](const QString &id, const QString &sdp) {
+                    callee.createAnswer(id, sdp);
+                });
+        connect(&callee, &CallMediaBackend::answerReady, &caller,
+                [&](const QString &id, const QString &sdp) {
+                    caller.setRemoteAnswer(id, sdp);
+                });
+        connect(&caller, &CallMediaBackend::localCandidate, &callee,
+                [&](const QString &id, const QString &candidate,
+                    const QString &mid, int mline) {
+                    callee.addRemoteCandidate(id, candidate, mid, mline);
+                });
+        connect(&callee, &CallMediaBackend::localCandidate, &caller,
+                [&](const QString &id, const QString &candidate,
+                    const QString &mid, int mline) {
+                    caller.addRemoteCandidate(id, candidate, mid, mline);
+                });
+        const auto noteFailure = [&](const QString &, const QString &why) {
+            failure = why;
+        };
+        connect(&caller, &CallMediaBackend::failed, this, noteFailure);
+        connect(&callee, &CallMediaBackend::failed, this, noteFailure);
+
+        caller.createOffer(callId);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            callee.receivedAudioPacketsForTest() > 10 || !failure.isEmpty(),
+            qPrintable(QStringLiteral("no audio reached the callee; "
+                                      "failure=%1").arg(failure)),
+            30000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        callee.close(callId);
+        const int atClose = callee.receivedAudioPacketsForTest();
+        QTest::qWait(400);
+        const bool webrtcbinStillWaiting = callee.retiringWebrtcForTest() == 1;
+        QCOMPARE(callee.receivedAudioPacketsForTest(), atClose);
+        if (!webrtcbinStillWaiting) {
+            qWarning("the callee's gathering had ended before the check, so "
+                     "the stop was not observed alongside a waiting webrtcbin "
+                     "in this run");
+        }
+        caller.close(callId);
+        QTRY_COMPARE_WITH_TIMEOUT(callee.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QTRY_COMPARE_WITH_TIMEOUT(caller.retiringWebrtcForTest(), 0,
+                                  kRetiredWithinMs);
+        QCOMPARE(callee.teardownsWhileGatheringForTest(), 0);
+        QCOMPARE(caller.teardownsWhileGatheringForTest(), 0);
     }
 };
 

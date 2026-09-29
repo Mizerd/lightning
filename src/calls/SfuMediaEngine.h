@@ -16,6 +16,9 @@
 // to the GUI thread through a process-global alive registry and re-checks the
 // session generation, so a stale callback never touches the next session.
 //
+// Teardown: a stopped peer's pipeline stops at once, but its webrtcbin only
+// once ICE gathering has ended (WebrtcRetirer.h, GitHub #3).
+//
 // Privacy: SDP and ICE carry host IPs and are never logged. ICE servers come
 // only from the SFU's JoinResponse; there is no third-party STUN fallback.
 #pragma once
@@ -36,11 +39,13 @@
 #include <QVariantList>
 
 #include "calls/ShareAudioSources.h"
+#include "calls/WebrtcRetirer.h"
 
 typedef struct _GstElement GstElement;
 typedef struct _GstPromise GstPromise;
 typedef struct _GstPad GstPad;
 typedef struct _GstBuffer GstBuffer;
+typedef struct _GstCaps GstCaps;
 
 class CallFrameCryptor;
 class SfuVideoRouter;
@@ -177,6 +182,16 @@ public:
     /// ICE servers from the SFU's JoinResponse. Applied to both peer
     /// connections; credentials are engine-only and never logged.
     void setIceServers(const QVariantList &servers);
+    /// A STUN entry in the form webrtcbin's `stun-server` takes
+    /// (`stun://host[:port]`), or empty when `iceUri` is not `stun:`.
+    /// gstwebrtcnice parses the value as a URI and drops one with no host,
+    /// which the ICE form `stun:host:port` is.
+    static QString stunServerUri(const QString &iceUri);
+    /// A TURN entry in the form `add-turn-server` takes, credentials
+    /// percent-encoded and `?transport=` kept, or empty when `iceUri` is not
+    /// `turn:`/`turns:`. Contains the credentials: never log it.
+    static QString turnServerUri(const QString &iceUri, const QString &username,
+                                 const QString &password);
 
     /// Publish the microphone. `cid` must match the track id declared to the
     /// SFU with AddTrack.
@@ -466,6 +481,27 @@ public:
         return m_pendingTeardowns;
     }
 
+    /// Test-only: stopped peers' webrtcbins not yet at NULL
+    /// (WebrtcRetirer.h).
+    int retiringWebrtcForTest() const { return m_retirer.retiringForTest(); }
+    /// Test-only: webrtcbins set to NULL while ICE gathering was still
+    /// running, which is the window GitHub #3's abort needs.
+    int teardownsWhileGatheringForTest() const
+    {
+        return m_retirer.whileGatheringForTest();
+    }
+    /// Test-only: webrtcbins stopped because the bound ran out.
+    int retireBoundExpiriesForTest() const
+    {
+        return m_retirer.boundExpiredForTest();
+    }
+    /// Test-only: teardowns that found gathering running and waited for it.
+    int retiresThatWaitedOnGatheringForTest() const
+    {
+        return m_retirer.waitedOnGatheringForTest();
+    }
+    void setRetireBoundForTest(int ms) { m_retirer.setBoundForTest(ms); }
+
     /// Tail of unpublish(), run on the GUI thread once the deferred teardown
     /// has put the bin at NULL. Public only for the GStreamer callbacks; not
     /// a control surface. A `generation` mismatch is dropped so a completion
@@ -604,6 +640,7 @@ private:
     }
 
     bool ensurePeer(Target target);
+    /// Stops the pipeline now and hands the webrtcbin to m_retirer.
     void destroyPeer(Peer &peer);
     void applyIceTo(Peer &peer);
     void renegotiatePublisher();
@@ -1033,4 +1070,7 @@ private:
     QStringList m_iceUris;
     QString m_iceUsername;
     QString m_icePassword;
+
+    /// Stopped peers' webrtcbins, stopped once their ICE gathering has ended.
+    lightning::webrtc::Retirer m_retirer;
 };

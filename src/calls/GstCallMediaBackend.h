@@ -15,6 +15,9 @@
 // object's thread through a process-global alive registry; Qt-side handlers
 // re-check the session, so a late callback for a closed call does nothing.
 //
+// Teardown: a closed call's pipeline stops at once, but its webrtcbin only
+// once ICE gathering has ended (WebrtcRetirer.h, GitHub #3).
+//
 // Privacy: SDP and candidates carry host IPs and are never logged. ICE
 // servers come only from the homeserver's /voip/turnServer; no third-party
 // STUN fallback.
@@ -23,6 +26,7 @@
 #include <atomic>
 
 #include "CallMediaBackend.h"
+#include "calls/WebrtcRetirer.h"
 
 #include <QString>
 #include <QStringList>
@@ -60,6 +64,19 @@ public:
     { return m_receivedAudioPackets.load(); }
     /// Test-only: receive pads drained because they were not Opus audio.
     int drainedReceivePadsForTest() const { return m_drainedPads.load(); }
+    /// Test-only: closed calls' webrtcbins not yet at NULL (WebrtcRetirer.h).
+    int retiringWebrtcForTest() const { return m_retirer.retiringForTest(); }
+    /// Test-only: webrtcbins set to NULL while ICE gathering was still
+    /// running, which is the window GitHub #3's abort needs.
+    int teardownsWhileGatheringForTest() const
+    { return m_retirer.whileGatheringForTest(); }
+    /// Test-only: webrtcbins stopped because the bound ran out.
+    int retireBoundExpiriesForTest() const
+    { return m_retirer.boundExpiredForTest(); }
+    /// Test-only: closes that found gathering running and waited for it.
+    int retiresThatWaitedOnGatheringForTest() const
+    { return m_retirer.waitedOnGatheringForTest(); }
+    void setRetireBoundForTest(int ms) { m_retirer.setBoundForTest(ms); }
 
     /// "audio:sendrecv video:inactive", one entry per media section, with
     /// ":port0" for a rejected one. No addresses, ids or codecs: loggable.
@@ -158,4 +175,6 @@ private:
     QStringList m_iceUris;
     QString m_iceUsername;
     QString m_icePassword;
+    /// Closed calls' webrtcbins, stopped once their ICE gathering has ended.
+    lightning::webrtc::Retirer m_retirer;
 };
