@@ -1359,17 +1359,21 @@ bool SfuMediaEngine::ensurePeer(Target target)
     g_object_set(webrtc, "bundle-policy", 3 /* max-bundle */, "latency", 100,
                  nullptr);
     if (target == Target::Subscriber) {
-        // Every new SSRC gets a jitterbuffer and its threads (two per
-        // stream, measured), and rtpbin keeps a timed-out one for good unless
-        // told otherwise: each remote rejoin or re-share grew the process by
-        // two threads that never went. autoremove drops a source once it
-        // times out. A source that comes back after that (a long mute) gets a
-        // new pad, which onPadAdded handles like any new stream.
+        // Pinned OFF: a source must never be removed on timeout. A muted
+        // LiveKit track sends nothing, so rtpbin times it out ~40 s into the
+        // mute; with autoremove the source goes, webrtcbin keeps its src pad
+        // (it removes pads only on release), and on unmute the returning
+        // SSRC's new payload pad is linked to nothing. Its not-linked flow
+        // return stops the bundled nicesrc, and every received track in the
+        // call goes silent for good (measured live against Element, 1.26).
+        // The cost is two threads per remote rejoin that are never reclaimed;
+        // reclaiming them needs a removal tied to a signalled leave, not to a
+        // timeout.
         if (GstElement *rtpbin =
                 gst_bin_get_by_name(GST_BIN(webrtc), "rtpbin")) {
             if (g_object_class_find_property(G_OBJECT_GET_CLASS(rtpbin),
                                              "autoremove"))
-                g_object_set(rtpbin, "autoremove", TRUE, nullptr);
+                g_object_set(rtpbin, "autoremove", FALSE, nullptr);
             gst_object_unref(rtpbin);
         }
     }

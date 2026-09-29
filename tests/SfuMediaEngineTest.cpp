@@ -4933,7 +4933,10 @@ private slots:
     // 85 -> 128 over 20 rejoins; threadgrow.c: +2 per new SSRC, reclaimed
     // only with autoremove). The wait for a source timeout (20-40 s) does
     // not fit this suite's budget, so the setting itself is asserted.
-    void theSubscriberDropsRemoteSourcesThatTimeOut()
+    // A muted track times out after ~40 s. With autoremove its source went,
+    // and the unmuted SSRC's new pad was linked to nothing: the flow error
+    // stopped the shared transport and every received track went silent.
+    void theSubscriberNeverDropsARemoteSourceOnTimeout()
     {
         SfuMediaEngine engine;
         engine.setTestSourceMode(true);
@@ -4947,7 +4950,7 @@ private slots:
                            "a=ice-ufrag:abcd\r\na=ice-pwd:abcdefghijklmnopqrstuvwx\r\n"
                            "a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\n"
                            "a=setup:actpass\r\na=sctp-port:5000\r\n"));
-        QCOMPARE(engine.subscriberAutoremoveForTest(), 1);
+        QCOMPARE(engine.subscriberAutoremoveForTest(), 0);
         engine.stop();
     }
 
