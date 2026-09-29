@@ -416,6 +416,32 @@ is that fixture now. GENERALISE: before concluding a defect is untestable,
 check whether the harness can even REPRESENT the input. Detail in
 `docs/round-history.md`, 2026-09-16.
 
+## A landing sets follow-latest from where it lands (2026-09-29)
+
+**Reported (Flathub 0.9.9):** after alt-tabbing back in, a message on screen
+was not marked read until the reader scrolled up and down.
+
+**Plain refocus was not the cause.** Measured on Xvfb/openbox and on a nested
+kwin_wayland 6.6.6, with the receipt read back through the sender's `/sync`:
+active, unfocused, minimised and covered all acked 0.5-0.9 s after focus
+returned. `applicationStateChanged` reaches `ReadReceiptCoordinator::
+setWindowActive()`, which re-evaluates.
+
+**The cause was the notification click.** `Main.qml` answers it with
+`jumpToEvent(newest)`, and `tryLandNavigationTarget()` forced `stickToBottom =
+false` for every landing, including one that `positionViewAtNavigationTarget()`
+clamps to the live edge. `nearBottom` (the receipt gate) is bound to
+`stickToBottom`, so the pending receipt was cancelled and no later event
+re-latched it without a gesture. The "New messages" divider, suppressed only
+while pinned, then grew 30 px and the anchor pushed the new message under the
+bottom edge. On Wayland a notification click without an activation token does
+not raise the window, so the user alt-tabs back, which is the report's wording.
+The landing now sets `stickToBottom = atBottomEdge()` after it positions.
+Landings into history and the first-unread landing (never clamped to the edge)
+are unchanged. Test: `aJumpToTheNewestMessageKeepsFollowingSoTheRoomIsRead`.
+Follow-up, not fixed: `scrollToSearchMatch()` also forces `false` before a
+centred, clamped position.
+
 ## Touchpad input: a zero-pixel frame is not a notch (2026-09-23)
 
 **Reported:** scrolling "feels quite bad" on the laptop (Flathub 0.9.9, KDE

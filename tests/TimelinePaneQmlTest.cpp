@@ -9207,6 +9207,100 @@ private Q_SLOTS:
         QCOMPARE(timeline->property("diagNavigationUnresolved").toInt(), 1);
         QCOMPARE(timeline->property("diagNavigationLandings").toInt(), 0);
     }
+
+    // A notification click jumps to the newest message, and that landing
+    // clamps to the live edge: the reader is still following it, so returning
+    // to the window reads the room. The landing used to force follow-latest
+    // off, which kept read receipts off until the reader scrolled, and the
+    // unread divider it revealed pushed the new message under the bottom edge
+    // (reported 2026-09-29 as "not shown as read until they scroll up and
+    // down").
+    void aJumpToTheNewestMessageKeepsFollowingSoTheRoomIsRead()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        ReadReceiptCoordinator *receipts = controller.readReceipts();
+        QVERIFY(receipts != nullptr);
+        // The window is away while the message arrives, and activation is
+        // driven by hand: the offscreen platform may activate the test window.
+        QObject::disconnect(qGuiApp,
+                            SIGNAL(applicationStateChanged(Qt::ApplicationState)),
+                            &controller, nullptr);
+        receipts->setWindowActive(false);
+        receipts->setDebounceMs(10);
+        QSignalSpy sent(receipts, &ReadReceiptCoordinator::receiptSent);
+
+        // A room taller than the viewport, the SDK's read marker, then one
+        // new message from someone else.
+        QList<TimelineEvent> events =
+            textFixture(roomId, 30, QStringLiteral("n"), QStringLiteral("body"));
+        TimelineEvent marker;
+        marker.itemId = QStringLiteral("uid-n-marker");
+        marker.roomId = roomId;
+        marker.type = TimelineEvent::ReadMarker;
+        events.append(marker);
+        TimelineEvent latest;
+        latest.eventId = QStringLiteral("$n-latest");
+        latest.itemId = QStringLiteral("uid-n-latest");
+        latest.roomId = roomId;
+        latest.sender = QStringLiteral("@bob:mock.local");
+        latest.senderDisplayName = QStringLiteral("Bob");
+        latest.body = QStringLiteral("the new one");
+        latest.timestamp = events.at(29).timestamp.addSecs(30);
+        latest.type = TimelineEvent::TextMessage;
+        latest.status = TimelineEvent::Sent;
+        events.append(latest);
+
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                          events, /*paginationPages=*/0,
+                                          /*viewportHeight=*/600, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        QVERIFY(timeline->property("stickToBottom").toBool());
+        QVERIFY2(!receipts->windowActive() && sent.isEmpty(),
+                 "a receipt went out before the jump, so this case cannot "
+                 "tell a landing that keeps following from one that does not");
+
+        // What Main.qml does for a notification click.
+        controller.pagination()->jumpToEvent(QStringLiteral("$n-latest"));
+        QTRY_COMPARE_WITH_TIMEOUT(
+            timeline->property("diagNavigationLandings").toInt(), 1, 5000);
+        // Let the divider's visibility and the Column settle.
+        QTest::qWait(300);
+
+        double minY = 0.0;
+        double maxY = 0.0;
+        QVERIFY(wheelBounds(timeline, &minY, &maxY));
+        const double contentY = timeline->property("contentY").toDouble();
+        QVERIFY2(timeline->property("stickToBottom").toBool(),
+                 qPrintable(QStringLiteral(
+                     "the landing at the live edge left follow-latest off "
+                     "(contentY %1, live edge %2)").arg(contentY).arg(minY)));
+        QVERIFY(receipts->nearBottom());
+        // The new message is on screen, not under the bottom edge.
+        QQmlExpression below(
+            qmlContext(timeline), timeline,
+            QStringLiteral("(function(id){ var r = viewRowForStableId(id);"
+                           " var it = r >= 0 ? itemAtViewRow(r) : null;"
+                           " return it ? contentY - it.y : 1e9; })"
+                           "('$n-latest')"));
+        const double hidden = below.evaluate().toDouble();
+        QVERIFY2(!below.hasError(),
+                 below.error().toString().toUtf8().constData());
+        QVERIFY2(hidden <= 0.5,
+                 qPrintable(QStringLiteral(
+                     "the new message is %1 px under the bottom edge")
+                     .arg(hidden)));
+
+        // The reader comes back to the window: the room is read.
+        receipts->setWindowActive(true);
+        QTRY_VERIFY_WITH_TIMEOUT(!sent.isEmpty(), 3000);
+        QCOMPARE(sent.last().at(1).toString(), QStringLiteral("$n-latest"));
+    }
 };
 
 int main(int argc, char *argv[])

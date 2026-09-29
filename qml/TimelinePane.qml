@@ -2694,13 +2694,18 @@ Rectangle {
                     navigationPendingRow = -1
                     navigationPendingId = ""
                     cancelWheelMotion()
-                    stickToBottom = false
                     if (highlight) {
                         positionViewAtNavigationTarget(viewRow)
                     } else {
                         positionViewAtViewRow(viewRow, false)
                         contentY = anchorPositionForItem(item) + pixelOffset
                     }
+                    // Follow-latest comes from where the landing put the
+                    // reader. A target in the newest screenful (a notification
+                    // for the latest message) clamps to the live edge; forcing
+                    // false there left read receipts off and let the unread
+                    // divider push that message under the bottom edge.
+                    stickToBottom = atBottomEdge()
                     ++diagNavigationLandings
                     saveRoomPosition()
                     captureViewAnchor()
