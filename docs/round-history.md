@@ -1,5 +1,102 @@
 # Round history
 
+## 2026-09-29 — a live call matrix on the desktop rig, #15, #3, browser sign-in, link media, and a log file that could silence a call
+
+The laptop was offline, so the test rig moved to the external SSD on the
+desktop: every GUI run on a private Xvfb, every audio path on a private
+PipeWire stack, the test suites with no session bus, display or sound server of
+the maintainer's reachable. Findings are in the order they were settled.
+
+**Calls, measured with tones and a per-second detector (Lightning x2 + Element
+Web, encrypted rooms):**
+
+- **LiveKit's `SpeakersChanged` is a DELTA** (speakers that started, moved or
+  stopped), and we replaced the speaking set with each update, so only the
+  last changed speaker kept a ring. Merged now (`08602af0`).
+- **A long remote mute killed ALL receive audio.** rtpbin's `autoremove`
+  (turned on in an earlier round) dropped the timed-out source; webrtcbin kept
+  its target-less src pad, the returning SSRC linked to nothing, and the
+  not-linked flow error stopped `nicesrc` for every participant. Pinned off
+  (`c1d2be54`).
+- **1-4 s mutual gaps after every join or leave** (DEFECT 9): we switched our
+  frames to a new key right after dispatching it, while peers received it
+  about 4.5 s later over sync. Now the switch waits 5 s from the send's
+  ANSWER (matrix-js-sdk sleeps after `await sendKey`; our Rust send runs a
+  `/keys/query` per due user first), with a 15 s fallback; a joiner gets the
+  newest key unless it is over 10 s old; the key index continues across calls.
+  Live: 0 missing seconds across 19 Element rejoins, Element hearing Lightning
+  after every one of 10 in-process rejoins (DEFECT 8). The use-key timers are
+  `Qt::PreciseTimer`: a coarse timer may fire 5% early, out of the delivery
+  margin, and the test that caught it read 5250 ms.
+- **A blocked log write silenced the call both ways** (DEFECT 12). With
+  `--log-file`, the handler wrote and flushed under one global mutex on the
+  CALLING thread, and GStreamer pad probes log; a FIFO whose reader was
+  stopped took both directions to digital silence within 4 s, and the natural
+  9-19 s freezes under build I/O were the same thing. The sink is now a
+  bounded queue with one writer thread that drops and counts rather than
+  waits. **GENERALISE: a streaming thread must never wait on I/O it does not
+  own, and a log call is I/O.**
+- **GitHub #3, a double free in libnice during teardown**, is upstream
+  (gstreamer#5138, fixed on main only): setting webrtcbin to NULL while ICE
+  gathering runs frees credentials libnice never wrote. A closed call's
+  webrtcbin is now retired until gathering ends (bounded), the rest of the
+  pipeline stopped at once. Measured: 96/100 -> 200/200 locally, 30/40 ->
+  40/40 on the reporter's stack (Ubuntu 26.04, GStreamer 1.28.2). The first
+  version HUNG two suites: webrtcbin blocks every unnegotiated sink pad with
+  a probe, and a locked webrtcbin never deactivates them, so our send thread
+  parked holding upstream stream locks (the unpublish-deadlock family);
+  `FLUSH_START` on its sink pads first.
+- **The SFU lane never sent a STUN request**: `stun:host:port` is rejected
+  by gstwebrtcnice ("has no host"); it takes `stun://host:port`.
+- **A YUYV-only camera never started** on the direct v4l2 route: the MJPG
+  chain was chosen whenever the jpeg elements existed, and v4l2src's template
+  caps list image/jpeg for every device. The device's caps are asked at READY.
+- **`--call-media-status` was blind to srtp, sctp and rtpbin**: a snap with
+  libsrtp2 removed still said "calls can be placed" and carried nothing.
+  Both engines now require what webrtcbin and dtlssrtpenc create themselves.
+
+**Notifications, GitHub #15**: the manager read only a device-local mode
+cache, so a room set to Mentions & keywords elsewhere (or never cached here)
+notified for everything, and a keyword the SDK flagged without a highlight was
+dropped. Each event now carries matrix-sdk's own push verdict. Live 10/10.
+
+**Browser sign-in**: the loopback callback server served only the FIRST TCP
+connection; Chromium-family browsers open a spare one and send the GET on
+another, so sign-in hung to its timeout. Also: SSO providers were requested
+from inside the discovery signal, whose handle the emitter then released.
+
+**Images that did not load until the first scroll** (reported by the
+maintainer): the media band, the rows allowed to fetch pictures, was computed
+at room open from the few rows loaded then, and the history fill added the
+rest while the reader stayed at the live edge, so nothing recomputed it until
+a scroll settled. It is now recomputed, throttled, while it still ends short
+of the loaded rows and no gesture is under way. Measured on Xvfb: every
+visible image fetched within 1.6 s of a cold open, and the scroll numbers
+(frame times, anchor counters, pagination) identical before and after.
+Physical wheel feel is the maintainer's to judge.
+
+**Also this round**: a link to an image or video shows as that media, with a
+per-row consent where another room loaded it; animated avatars no longer
+freeze when their file is evicted mid-play; a server-admin delete leaves the
+admin's own room list; the presence dot sits bottom-right and a DM header's
+avatar and name open the peer's profile; the snap validator asks the shipped
+snap whether calls can work instead of trusting a harness that bypassed its
+launcher.
+
+**The test harness, three lessons.** A QML test helper matching
+`className() == "QQuickImage"` exactly misses every Image that declares a
+property of its own (a generated `QQuickImage_QML_<n>`), which let a mutant
+survive. A fixture that created an avatar already out of view could never see
+the binding loop it was written for, because the flip it guards happens only
+when an item moves out AFTER creation, as a list lays out its delegates. And
+two contract suites had been failing on `main` since earlier commits (an
+anchor a comment moved, a fake bridge missing two signals) because no FULL
+suite run happened between those commits and this round.
+
+Full per-item record: the vault's `Lightning/Tasks/2026-09-29 agent round.md`
+and the per-agent notes beside it. Open items: `docs/open-items.md`,
+2026-09-29.
+
 ## 2026-09-25 (night) — "voice cuts out in long calls": two key defects, measured with three tones
 
 Report (Flatpak user, Lightning + Lightning + Element Desktop): in a long

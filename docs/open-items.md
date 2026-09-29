@@ -1,5 +1,139 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-29 — OPEN and accepted follow-ups from the 2026-09-29 round
+
+Everything below was found or left open by that round's live testing and its
+§18 reviews. Fixed items are in `docs/round-history.md`, 2026-09-29.
+
+### Calls
+
+- **A participant already speaking when we join is not ringed** until their
+  level next changes: LiveKit's `SpeakersChanged` is a DELTA, so nothing
+  re-announces a steady speaker. Low.
+- **Two receive threads stay behind per rejoin** (measured +2 per in-process
+  rejoin, flat across Element rejoins). Reclaim them on a signalled leave.
+- **To-device receive latency over sliding sync is 0.1 to 4.7 s** (measured
+  live). It is what the 5 s use-key delay has to cover; a federated peer can
+  exceed it.
+- **The key lane's F6**: a PARTIAL to-device delivery is reported `ok=true`, so
+  every device in that send counts as a holder; devices whose delivery failed
+  are cut off at the next switch and re-sent only at the next rotation. The
+  bridge does not say which devices failed.
+- **Holder-by-device, not by session**: a holder that rejoined with a new SFU
+  session gets its own quick send, which can start the use-key delay while the
+  rotation's send to a slower holder is still in flight. Narrow, bounded, no
+  worse than before.
+- `m_cameraNotice` / `m_cameraNoticeCid` are not reset on join or teardown
+  (harmless: the withdrawal matches the camera-only text), and owning a notice
+  by its TEXT is fragile if a future camera category falls through to the
+  generic "The call ended unexpectedly.".
+- **DEFECT 10 is fixed and NOT TESTED live**: a YUYV-only camera on the
+  direct v4l2 route is now probed at READY and rebuilt on the raw entry. The
+  call tester's YUY2 loopback camera is the live check still owed. The probe
+  is Linux-only (v4l2src): on Windows it would open ksvideosrc once more
+  before every camera publish, and nothing has run that on a Windows camera.
+- The Windows element list lacks srtpdec and the macOS probe lacks
+  srtpenc/srtpdec/rtpbin. Before the next release, run one non-publishing
+  `BUILD_FORMATS=all` + `BUILD_MACOS_PACKAGES=true` pipeline: rpm, the
+  Flatpak runtime, the Ubuntu 26.04 deb and macOS registration are not
+  proven to carry the elements both engines now require.
+- **The ICE teardown (#3) still stops a webrtcbin mid-gathering at two
+  bounds**: the 10 s retirement bound and the 2 s drain at quit. That is
+  harmful only if a candidate arrives during the stop (a server answering
+  after slow DNS, or TURN over TCP/TLS). Delete `WebrtcRetirer` once every
+  shipped GStreamer carries upstream fix !11758 (gstreamer#5138).
+- **Logging (DEFECT 12, fixed)**: the `--log-file` sink no longer blocks a
+  caller, but the PREVIOUS handler (stderr / journald) is still called
+  synchronously, so a throttled journald stream or a Windows console in
+  QuickEdit selection can still block the logging thread; `std::_Exit` in
+  CallSoundPlayer used to skip the at-exit drain (it now drains first);
+  `QT_FATAL_WARNINGS` aborts are not drained. A native crash (SIGSEGV,
+  `std::terminate`, a GLib abort) loses whatever is still queued: normally
+  microseconds of lines, with a stalled disk up to the whole bound. stderr
+  still receives every line synchronously.
+- While the sound server does not answer, the GUI thread waits (~8.7 s
+  measured) because the capture state change runs on it (issue #12 family).
+- The incoming-call card names a DM caller by localpart while the DM's
+  members are not loaded, though the room list already knows the name.
+
+### Notifications (#15)
+
+- A user-defined rule reported BEFORE the first sync is recorded as "what the
+  server held" and can become a failed write's base; record user rules only
+  once the account's rules are known.
+- Two quick choices within one round trip can retry-adopt the intermediate
+  choice (older than this round).
+- "Mute space" skips rooms whose effective mode already matches, so a legacy
+  device-only muted room gets no server rule (older idempotence).
+- Still NOT TESTED live: encrypted rooms, Element X interop, the failed-write
+  retry paths, legacy keys with several accounts.
+
+### Browser sign-in
+
+- An abandoned add-account browser sign-in stays live for up to 15 minutes
+  after the user leaves the login screen; cancelling it needs care against the
+  add-account restore that `showMain()` also starts.
+- `drainAuthEvents` releases the auth handle AFTER emitting; correct today
+  only by convention (release before emitting, break on null).
+- Named SSO providers are lost if a browser sign-in starts within the
+  providers round trip (cosmetic; the generic button still works).
+- The per-connection deadline timer is not stopped on the oversized and
+  `stop()` paths (a counter can be off by one).
+- `adoptBrowserSession` saves the account record before the restore; a failed
+  restore then blocks the next browser sign-in as ExistingStoreNeedsRestore
+  (D6). Persistence; needs evidence before a fix.
+- darkcoffee's Firefox + matrix.org failure is UNEXPLAINED; the Chromium-family
+  failure it resembled is fixed.
+
+### Link media
+
+- Server-route edge cases: a Content-Disposition filename with a space becomes
+  a metadata card; a text-less page with only `og:image` shows as a bare image
+  (neither contacts the site).
+- `animatedSource` base64-decodes and hashes every direct WebP link on the GUI
+  thread when a row is created, and a still result is not cached.
+- NOT TESTED live: "Open in browser", over-cap media, the homeserver preview
+  route, Windows and macOS.
+- Decision for Rokas: "Show images and videos from links inline" defaults ON
+  (it sits under the link-preview switches, which default OFF).
+
+### Spaces
+
+- An admin delete marks the room left only in the DELETING session: the
+  admin's other devices, members offline during the delete, and a delete that
+  outlives the 600 s follow window keep a Joined room that no sync will ever
+  mention again.
+- `let _ =` swallows the store error of that write; the "complete" call site
+  has no unit test (a pure predicate would pin it); a 240 px list cap shows a
+  2 px sliver of an eighth row.
+
+### Packaging
+
+- **OPEN DECISION (Rokas): how Flathub updates are automated.** Flathub's
+  requirements (2026-09-21) bar AI tools from writing manifests or opening,
+  automating or describing Flathub pull requests, and the repo
+  `github.com/flathub/org.lightning_matrix.Lightning` falls under them.
+  Already automatic: `flathubbot` opens the version-bump PR about 24 h after a
+  tag reaches the GitHub mirror. Not automatic: `cargo-sources.json`, which
+  breaks the bot's test build whenever `Cargo.lock` changed. The recommended
+  shape (vault `Lightning/Tasks/2026-09-25-research-gif-keys-and-flathub-automation.md`):
+  a small `on: pull_request` workflow in the Flathub repo, written by the
+  maintainer, that regenerates `cargo-sources.json` with a pinned
+  `flatpak-cargo-generator` on the bot's branch, and a human merge. Undecided
+  whether to do that, use AI for the Flathub repo with disclosure, or keep
+  updating it by hand.
+
+- The signed update manifest still says "No Flathub publication exists"
+  (`generate-update-manifest.sh`); flipping the Flatpak channel changes what
+  clients are told and is a decision for Rokas.
+
+### Test harness
+
+- A QML test helper that matches `metaObject()->className()` EXACTLY misses
+  every item that declares its own property (Qt makes it a generated
+  `QQuickImage_QML_<n>` subclass). One such blind spot let a link-media mutant
+  survive; match with `inherits()`.
+
 ## 2026-09-25 — OPEN: one undecryptable stream silences every participant
 
 Measured twice on 2026-09-25 (0.9.9 and pre-fix `main`): when one remote

@@ -1213,9 +1213,9 @@ must include what the elements LOAD, not only what we call. Full account in
 `docs/round-history.md`.
 
 **GStreamer version differences, same trap, different library.** The dev
-shell is **1.26.11** again (MEASURED 2026-09-08 via `--call-media-status`; it
-read 1.28.6 on 2026-08-31, so the flake has moved BACK — the lesson is the
-one this sentence has always carried: measure it, never quote it); packaged Windows is **1.28.5** (upstream
+shell MOVES: 1.28.6 on 2026-08-31, 1.26.11 on 2026-09-08, **1.28.6** again on
+2026-09-29 (`nix develop -c gst-inspect-1.0 --version`) — measure it, never
+quote it; packaged Windows is **1.28.5** (upstream
 MinGW SDK) and the macOS bundle **1.28.6**. So the dev shell no longer
 differs from the packaged fleet the way it did, and a defect that needs
 1.28 will now reproduce locally — but do not read that as "the versions
