@@ -2,6 +2,8 @@
 
 #include "matrix/MatrixClient.h"
 
+#include <utility>
+
 AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     : QObject(parent)
     , m_client(client)
@@ -11,6 +13,9 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     connect(m_client, &MatrixClient::loginSucceeded, this, [this](const QString &) {
         setLoggingIn(false);
         setBrowserLoginInProgress(false);
+        // Signed in: a probe asked for during the attempt is moot.
+        m_discoveryDeferred = false;
+        m_deferredDiscovery.clear();
         setLastError({});
         setLoginStage(QStringLiteral("starting_sync"));
         Q_EMIT isLoggedInChanged();
@@ -24,6 +29,7 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         setLastError(reason);
         setLoginStage(QStringLiteral("idle"));
         Q_EMIT loginFailed(reason);
+        runDeferredDiscovery();
     });
 
     connect(m_client, &MatrixClient::authMethodsDiscovered, this,
@@ -37,7 +43,18 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         m_ssoProviders.clear();
         if (m_serverSso) {
             // Until providers arrive the UI shows the generic single action.
-            m_client->requestSsoProviders(homeserver);
+            // Asked on the next turn of the event loop, never from inside this
+            // signal: the backend releases the handle that answered discovery
+            // right after emitting it, and a request started here went with it
+            // (the new handle can even reuse the freed address), so providers
+            // never arrived. Measured on matrix.debian.social ("Salsa").
+            QMetaObject::invokeMethod(this, [this, homeserver] {
+                // Still the server on screen, and no browser sign-in started
+                // since: asking would replace the handle that sign-in uses.
+                if (m_client && m_serverSso && !m_browserLoginInProgress
+                    && homeserver == m_discoveredHomeserver)
+                    m_client->requestSsoProviders(homeserver);
+            }, Qt::QueuedConnection);
         }
         // A server offering nothing is indistinguishable from an unreachable
         // one here, so report "failed" and let the user retry.
@@ -147,6 +164,15 @@ void AuthManager::discoverAuthMethods(const QString &homeserver)
     if (!m_client)
         return;
     const QString hs = homeserver.trimmed();
+    // The backend does not probe while a browser sign-in holds its handle and
+    // never answers, so resetting now would leave the page without its
+    // browser buttons once the attempt ends. The homeserver field asks for a
+    // probe whenever the browser takes focus. Probe when the attempt ends.
+    if (m_browserLoginInProgress) {
+        m_deferredDiscovery = hs;
+        m_discoveryDeferred = true;
+        return;
+    }
     // Reset first so a previous server's results never show against this one.
     m_discoveredHomeserver = hs;
     m_serverPassword = false;
@@ -208,6 +234,18 @@ void AuthManager::beginOidcLogin(const QString &homeserver)
 {
     // Retained name for the existing QML surface; OAuth/OIDC is the same flow.
     beginBrowserLogin(homeserver);
+}
+
+void AuthManager::runDeferredDiscovery()
+{
+    if (!m_discoveryDeferred || m_browserLoginInProgress)
+        return;
+    m_discoveryDeferred = false;
+    const QString hs = std::exchange(m_deferredDiscovery, QString());
+    // The server on screen already has its answer.
+    if (hs == m_discoveredHomeserver && m_discoveryState == QLatin1String("done"))
+        return;
+    discoverAuthMethods(hs);
 }
 
 void AuthManager::setBrowserLoginInProgress(bool v)

@@ -31,8 +31,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use matrix_sdk::authentication::oauth::error::{
-    ClientRegistrationErrorResponseType, OAuthClientRegistrationError, OAuthError,
-    RequestTokenError,
+    BasicErrorResponseType, ClientRegistrationErrorResponseType, HttpClientError,
+    OAuthClientRegistrationError, OAuthDiscoveryError, OAuthError,
+    OAuthRequestError, RequestTokenError,
 };
 use matrix_sdk::authentication::oauth::registration::{
     ApplicationType, ClientMetadata, Localized, OAuthGrantType,
@@ -145,6 +146,112 @@ fn portless_registration_retry(
     let portless = portless_loopback_redirect(redirect)?;
     let metadata = client_metadata(portless).ok()?;
     Some((metadata, redirect.clone(), reason))
+}
+
+/// A server-chosen code, reduced to what a log may carry: ASCII letters,
+/// digits and `_ . -`, at most 48 characters, or `unrecognised`.
+pub(crate) fn wire_token(code: &str) -> String {
+    let loggable = !code.is_empty()
+        && code.len() <= 48
+        && code.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+    if loggable { code.to_owned() } else { "unrecognised".to_owned() }
+}
+
+fn transport_reason(timeout: bool, connect: bool) -> String {
+    if timeout {
+        "timeout".to_owned()
+    } else if connect {
+        "connect".to_owned()
+    } else {
+        "network".to_owned()
+    }
+}
+
+fn registration_request_reason(
+    err: &OAuthRequestError<ClientRegistrationErrorResponseType>,
+) -> String {
+    match err {
+        RequestTokenError::ServerResponse(response) => wire_token(response.error().as_str()),
+        RequestTokenError::Request(HttpClientError::Reqwest(inner)) => {
+            transport_reason(inner.is_timeout(), inner.is_connect())
+        }
+        RequestTokenError::Request(_) => "network".to_owned(),
+        RequestTokenError::Parse(..) => "bad_response".to_owned(),
+        RequestTokenError::Other(_) => "other".to_owned(),
+    }
+}
+
+fn token_request_reason(err: &OAuthRequestError<BasicErrorResponseType>) -> String {
+    match err {
+        RequestTokenError::ServerResponse(response) => {
+            let code: &str = response.error().as_ref();
+            wire_token(code)
+        }
+        RequestTokenError::Request(HttpClientError::Reqwest(inner)) => {
+            transport_reason(inner.is_timeout(), inner.is_connect())
+        }
+        RequestTokenError::Request(_) => "network".to_owned(),
+        RequestTokenError::Parse(..) => "bad_response".to_owned(),
+        RequestTokenError::Other(_) => "other".to_owned(),
+    }
+}
+
+/// Why an OAuth step failed, as a fixed token for the log. Never carries a
+/// URL, code, state, token or server prose; the UI keeps its own wording.
+pub(crate) fn oauth_failure_reason(err: &OAuthError) -> String {
+    use matrix_sdk::authentication::oauth::error::OAuthAuthorizationCodeError as Code;
+    match err {
+        OAuthError::Discovery(OAuthDiscoveryError::NotSupported) => {
+            "discovery_not_supported".to_owned()
+        }
+        OAuthError::Discovery(_) => "discovery_failed".to_owned(),
+        OAuthError::ClientRegistration(OAuthClientRegistrationError::NotSupported) => {
+            "registration_not_supported".to_owned()
+        }
+        OAuthError::ClientRegistration(OAuthClientRegistrationError::OAuth(err)) => {
+            format!("registration_{}", registration_request_reason(err))
+        }
+        OAuthError::ClientRegistration(_) => "registration_bad_json".to_owned(),
+        OAuthError::NotRegistered => "not_registered".to_owned(),
+        OAuthError::AuthorizationCode(Code::InvalidState) => "state_mismatch".to_owned(),
+        OAuthError::AuthorizationCode(Code::Cancelled) => "cancelled".to_owned(),
+        OAuthError::AuthorizationCode(Code::RedirectUri(_)) => "callback_unparsable".to_owned(),
+        OAuthError::AuthorizationCode(Code::Authorization(response)) => {
+            format!("authorization_{}", wire_token(response.error().as_str()))
+        }
+        OAuthError::AuthorizationCode(Code::RequestToken(err)) => {
+            format!("token_{}", token_request_reason(err))
+        }
+        OAuthError::SessionMismatch => "session_mismatch".to_owned(),
+        _ => "other".to_owned(),
+    }
+}
+
+/// Why a Matrix request failed, as a fixed token for the log: the HTTP status
+/// and errcode for a server answer, the transport class otherwise.
+pub(crate) fn http_failure_reason(err: &matrix_sdk::HttpError) -> String {
+    if let Some(api) = err.as_client_api_error() {
+        let code = api
+            .error_kind()
+            .map(|kind| wire_token(kind.errcode().as_str()))
+            .unwrap_or_else(|| "no_errcode".to_owned());
+        return format!("http_{}_{}", api.status_code.as_u16(), code);
+    }
+    match err {
+        matrix_sdk::HttpError::Reqwest(inner) => {
+            transport_reason(inner.is_timeout(), inner.is_connect())
+        }
+        _ => "http_other".to_owned(),
+    }
+}
+
+/// `oauth_failure_reason` / `http_failure_reason` for the SDK's own error.
+pub(crate) fn sdk_failure_reason(err: &matrix_sdk::Error) -> String {
+    match err {
+        matrix_sdk::Error::OAuth(err) => oauth_failure_reason(err),
+        matrix_sdk::Error::Http(err) => http_failure_reason(err),
+        _ => "other".to_owned(),
+    }
 }
 
 /// Persist rotated session tokens for the lifetime of this client.
@@ -332,7 +439,12 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
                 let client = match build_client(&homeserver, &PathBuf::new()).await {
                     Ok(client) => client,
                     Err(err) => {
-                        enqueue(&events, json!({ "type": "oauth_failed", "message": err }));
+                        enqueue(&events, json!({
+                            "type": "oauth_failed",
+                            "stage": "begin",
+                            "reason": "client_build_failed",
+                            "message": err,
+                        }));
                         return;
                     }
                 };
@@ -385,6 +497,8 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
                             &events,
                             json!({
                                 "type": "oauth_failed",
+                                "stage": "begin",
+                                "reason": oauth_failure_reason(&err),
                                 "message": format_matrix_error(
                                     "Matrix OAuth authorization request failed", err),
                             }),
@@ -440,6 +554,8 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
                             &events,
                             json!({
                                 "type": "oauth_failed",
+                                "stage": "finish",
+                                "reason": "no_attempt",
                                 "message": "No OAuth sign-in is in progress.",
                             }),
                         );
@@ -450,8 +566,8 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
                 // The SDK checks `state` and exchanges the code with the PKCE verifier; a
                 // mismatch, denial or replayed callback fails here.
                 if let Err(err) = client.oauth().finish_login(callback_url.into()).await {
-                    // The error may quote the callback, so report a fixed message instead.
-                    let _ = err;
+                    // The error may quote the callback, so only its category travels.
+                    let reason = sdk_failure_reason(&err);
                     drop(client);
                     if let Ok(mut guard) = state_slot.lock() {
                         *guard = None;
@@ -460,6 +576,8 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
                         &events,
                         json!({
                             "type": "oauth_failed",
+                            "stage": "finish",
+                            "reason": reason,
                             "message": "The sign-in could not be completed. \
                                         The authorization may have been denied, \
                                         cancelled, or it expired. Please try again.",
@@ -476,6 +594,8 @@ pub unsafe extern "C" fn mx_rust_oauth_finish(
                             &events,
                             json!({
                                 "type": "oauth_failed",
+                                "stage": "finish",
+                                "reason": "no_session",
                                 "message": "The server completed sign-in without \
                                             returning a session.",
                             }),
@@ -939,6 +1059,91 @@ mod tests {
         assert!(
             portless_registration_retry(&url(LISTENER_PORTLESS), &continuwuity_refusal()).is_none()
         );
+    }
+
+    // ---------------------------------------------------------------------
+    // Failure reasons: what the log may say about a failed browser sign-in.
+    // Before these, a failed code exchange left no trace anywhere.
+    // ---------------------------------------------------------------------
+
+    fn token_refusal(code: BasicErrorResponseType, description: &str) -> OAuthError {
+        use matrix_sdk::authentication::oauth::error::{
+            OAuthAuthorizationCodeError, StandardErrorResponse,
+        };
+        OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::RequestToken(
+            RequestTokenError::ServerResponse(StandardErrorResponse::new(
+                code,
+                Some(description.to_owned()),
+                None,
+            )),
+        ))
+    }
+
+    #[test]
+    fn a_state_mismatch_is_named_as_one() {
+        use matrix_sdk::authentication::oauth::error::OAuthAuthorizationCodeError;
+        let err = OAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState);
+        assert_eq!(oauth_failure_reason(&err), "state_mismatch");
+    }
+
+    // The protocol code is the whole report: the server's prose can quote
+    // the code or the redirect URI.
+    #[test]
+    fn a_refused_code_exchange_names_the_protocol_code_and_nothing_else() {
+        let err = token_refusal(
+            BasicErrorResponseType::InvalidGrant,
+            "code abc123 for http://127.0.0.1:1/callback/x was already used",
+        );
+        assert_eq!(oauth_failure_reason(&err), "token_invalid_grant");
+        // The SDK's own wrapper reaches the same answer.
+        assert_eq!(
+            sdk_failure_reason(&matrix_sdk::Error::OAuth(Box::new(err))),
+            "token_invalid_grant"
+        );
+    }
+
+    #[test]
+    fn a_server_chosen_code_is_logged_only_when_token_shaped() {
+        let extension =
+            |code: &str| token_refusal(BasicErrorResponseType::Extension(code.to_owned()), "");
+        assert_eq!(
+            oauth_failure_reason(&extension("consent_required")),
+            "token_consent_required"
+        );
+        assert_eq!(
+            oauth_failure_reason(&extension("bad\ncode https://x/?code=1")),
+            "token_unrecognised"
+        );
+        assert_eq!(oauth_failure_reason(&extension(&"a".repeat(49))), "token_unrecognised");
+    }
+
+    #[test]
+    fn a_refused_or_missing_registration_is_named() {
+        assert_eq!(
+            oauth_failure_reason(&continuwuity_refusal()),
+            "registration_invalid_client_metadata"
+        );
+        assert_eq!(
+            oauth_failure_reason(&OAuthError::ClientRegistration(
+                OAuthClientRegistrationError::NotSupported
+            )),
+            "registration_not_supported"
+        );
+        assert_eq!(
+            oauth_failure_reason(&OAuthError::Discovery(OAuthDiscoveryError::NotSupported)),
+            "discovery_not_supported"
+        );
+        assert_eq!(oauth_failure_reason(&OAuthError::NotRegistered), "not_registered");
+    }
+
+    #[test]
+    fn wire_token_passes_codes_and_refuses_everything_else() {
+        assert_eq!(wire_token("M_FORBIDDEN"), "M_FORBIDDEN");
+        assert_eq!(wire_token("invalid_grant"), "invalid_grant");
+        assert_eq!(wire_token(""), "unrecognised");
+        assert_eq!(wire_token("M_FORBIDDEN token=syl_abc"), "unrecognised");
+        assert_eq!(wire_token(&"A".repeat(48)), "A".repeat(48));
+        assert_eq!(wire_token(&"A".repeat(49)), "unrecognised");
     }
 }
 

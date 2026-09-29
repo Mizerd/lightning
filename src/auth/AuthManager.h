@@ -112,6 +112,8 @@ private:
     void setLoginStage(const QString &stage);
 
     void setBrowserLoginInProgress(bool v);
+    // Runs a discovery asked for while a browser sign-in was in flight.
+    void runDeferredDiscovery();
 
     MatrixClient *m_client = nullptr;
     bool m_loggingIn = false;
@@ -124,4 +126,7 @@ private:
     bool m_serverSso = false;
     QVariantList m_ssoProviders;
     bool m_browserLoginInProgress = false;
+    // A discovery asked for during a browser sign-in, run when it ends.
+    bool m_discoveryDeferred = false;
+    QString m_deferredDiscovery;
 };

@@ -11,9 +11,14 @@
 #include "auth/OAuthCallbackServer.h"
 #include "matrix/MockMatrixClient.h"
 
+#include <QLoggingCategory>
+#include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTcpSocket>
 #include <QtTest>
+
+#include <memory>
+#include <vector>
 
 namespace {
 
@@ -36,6 +41,13 @@ public:
     }
     void cancelSsoLogin() override { ++ssoCancels; }
     void cancelOAuthLogin() override { ++oauthCancels; }
+    void discoverAuthMethods(const QString &homeserver) override
+    {
+        discoveryRequests.append(homeserver);
+    }
+    // The backend ends a browser attempt with loginFailed: cancel, timeout,
+    // a refused callback.
+    void endAttemptWithFailure() { Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled.")); }
 
     void announce(const QString &homeserver, bool password, bool oauth, bool sso)
     {
@@ -50,6 +62,7 @@ public:
     bool ssoSupported = true;
     bool oauthSupported = true;
     QStringList providerRequests;
+    QStringList discoveryRequests;
     QList<QPair<QString, QString>> ssoStarts;
     int ssoCancels = 0;
     int oauthCancels = 0;
@@ -114,6 +127,13 @@ class SsoCallbackTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    // The listener's summary line is asserted below; a local qtlogging.ini
+    // must not be able to switch it off.
+    void initTestCase()
+    {
+        QLoggingCategory::setFilterRules(QStringLiteral("matrix.oauth.info=true"));
+    }
+
     // ── The listener, in SSO mode ────────────────────────────────────────
     // Login CSRF: m.login.sso has no `state`, so nothing binds the returned
     // `loginToken` to this attempt. The redirect URI carries 128 bits of
@@ -248,6 +268,130 @@ private Q_SLOTS:
         QVERIFY(deliver(port, pathOf(server) + QStringLiteral("?loginToken=real")));
         QVERIFY(received.wait(3000));
         QCOMPARE(received.at(0).at(0).toString(), QStringLiteral("real"));
+    }
+
+    // Chromium-based browsers open a spare connection when a link to the
+    // loopback is pressed and send the request on another one (measured on
+    // 2026-09-29: Vivaldi 8.2 four runs of four, Chromium 154 two of three).
+    // Synapse's SSO confirmation page is such a link. Serving only the first
+    // connection reset the real callback, so the sign-in never arrived.
+    void anIdleConnectionDoesNotHoldBackTheRealCallback()
+    {
+        OAuthCallbackServer server;
+        server.setFlow(OAuthCallbackServer::Flow::Sso);
+        QVERIFY(server.listen());
+        const quint16 port = portOf(server);
+
+        QTcpSocket spare;
+        spare.connectToHost(QHostAddress::LocalHost, port);
+        QVERIFY(spare.waitForConnected(3000));
+        // Let the listener accept it first, as it would in the browser.
+        QTRY_COMPARE_WITH_TIMEOUT(server.pendingConnectionCount(), 1, 3000);
+
+        QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
+        QTest::ignoreMessage(QtInfoMsg,
+                             QRegularExpression(QStringLiteral(
+                                 "listener closed outcome= callback connections= 2 ")));
+        QVERIFY(deliver(port, pathOf(server) + QStringLiteral("?loginToken=real")));
+        QVERIFY(received.wait(3000));
+        QCOMPARE(received.at(0).at(0).toString(), QStringLiteral("real"));
+        // The spare connection is closed with the attempt, not left open.
+        QTRY_COMPARE_WITH_TIMEOUT(spare.state(), QAbstractSocket::UnconnectedState, 3000);
+    }
+
+    // A connection that never sends a request is closed after a bounded wait
+    // and does not consume the single shot.
+    void aConnectionThatNeverSpeaksIsClosed()
+    {
+        OAuthCallbackServer server;
+        server.setFlow(OAuthCallbackServer::Flow::Sso);
+        server.setRequestDeadline(std::chrono::milliseconds(150));
+        QVERIFY(server.listen());
+        const quint16 port = portOf(server);
+
+        QTcpSocket silent;
+        silent.connectToHost(QHostAddress::LocalHost, port);
+        QVERIFY(silent.waitForConnected(3000));
+        QTRY_COMPARE_WITH_TIMEOUT(silent.state(), QAbstractSocket::UnconnectedState, 3000);
+        QCOMPARE(server.pendingConnectionCount(), 0);
+        QVERIFY(server.isListening());
+
+        QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
+        QVERIFY(deliver(port, pathOf(server) + QStringLiteral("?loginToken=after")));
+        QVERIFY(received.wait(3000));
+    }
+
+    // Many silent connections cannot grow without bound: past the cap a new
+    // one is closed at once, and those already waiting are kept.
+    void theNumberOfWaitingConnectionsIsBounded()
+    {
+        OAuthCallbackServer server;
+        server.setFlow(OAuthCallbackServer::Flow::Sso);
+        QVERIFY(server.listen());
+        const quint16 port = portOf(server);
+
+        std::vector<std::unique_ptr<QTcpSocket>> held;
+        for (int i = 0; i < OAuthCallbackServer::kMaxPendingConnections; ++i) {
+            auto socket = std::make_unique<QTcpSocket>();
+            socket->connectToHost(QHostAddress::LocalHost, port);
+            QVERIFY(socket->waitForConnected(3000));
+            held.push_back(std::move(socket));
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(server.pendingConnectionCount(),
+                                  OAuthCallbackServer::kMaxPendingConnections, 3000);
+
+        QTcpSocket extra;
+        extra.connectToHost(QHostAddress::LocalHost, port);
+        QVERIFY(extra.waitForConnected(3000));
+        QTRY_COMPARE_WITH_TIMEOUT(extra.state(), QAbstractSocket::UnconnectedState, 3000);
+        QCOMPARE(server.pendingConnectionCount(),
+                 OAuthCallbackServer::kMaxPendingConnections);
+        for (const auto &socket : held)
+            QCOMPARE(socket->state(), QAbstractSocket::ConnectedState);
+    }
+
+    // The answer waits for the whole request head; a head that arrives in two
+    // pieces is still one callback.
+    void aRequestHeadSplitAcrossWritesIsStillReceived()
+    {
+        OAuthCallbackServer server;
+        server.setFlow(OAuthCallbackServer::Flow::Sso);
+        QVERIFY(server.listen());
+        QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
+
+        QTcpSocket socket;
+        socket.connectToHost(QHostAddress::LocalHost, portOf(server));
+        QVERIFY(socket.waitForConnected(3000));
+        socket.write("GET " + pathOf(server).toUtf8() + "?loginToken=split HTTP/1.1\r\n");
+        QVERIFY(socket.waitForBytesWritten(3000));
+        QTest::qWait(150);
+        QCOMPARE(received.count(), 0);
+        socket.write("Host: 127.0.0.1\r\n\r\n");
+        QVERIFY(socket.waitForBytesWritten(3000));
+        QVERIFY(received.wait(3000));
+        QCOMPARE(received.at(0).at(0).toString(), QStringLiteral("split"));
+    }
+
+    // The page is shown before the SDK has redeemed anything, and redeeming
+    // can still fail. It used to say "Signed in" over a failed sign-in.
+    void theBrowserIsNotToldItIsSignedInBeforeLightningKnows()
+    {
+        OAuthCallbackServer server;
+        QVERIFY(server.listen());
+        QSignalSpy received(&server, &OAuthCallbackServer::callbackReceived);
+
+        QTcpSocket socket;
+        socket.connectToHost(QHostAddress::LocalHost, portOf(server));
+        QVERIFY(socket.waitForConnected(3000));
+        socket.write("GET " + pathOf(server).toUtf8()
+                     + "?code=abc&state=xyz HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        QVERIFY(socket.waitForBytesWritten(3000));
+        QTRY_COMPARE_WITH_TIMEOUT(socket.state(), QAbstractSocket::UnconnectedState, 3000);
+        QCOMPARE(received.count(), 1);
+        const QByteArray page = socket.readAll();
+        QVERIFY2(page.startsWith("HTTP/1.1 200 OK"), page.constData());
+        QVERIFY2(!page.contains("Signed in"), page.constData());
+        QVERIFY2(page.contains("Finishing sign-in"), page.constData());
     }
 
     void aMalformedRequestIsRefusedRatherThanParsed()
@@ -444,8 +588,12 @@ private Q_SLOTS:
         client.announce(QStringLiteral("https://hs.example"), false, false, true);
         QVERIFY(auth.serverOffersSso());
         QCOMPARE(auth.discoveryState(), QStringLiteral("done"));
-        // Discovery asks for the providers itself.
-        QCOMPARE(client.providerRequests, QStringList{ QStringLiteral("https://hs.example") });
+        // Discovery asks for the providers itself, but not from inside the
+        // discovery signal: the backend releases the answering handle right
+        // after it, and a request started there died with it.
+        QVERIFY(client.providerRequests.isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(client.providerRequests,
+                                  QStringList{ QStringLiteral("https://hs.example") }, 3000);
 
         // A build that cannot do SSO must not offer it however loudly the
         // server advertises.
@@ -454,7 +602,28 @@ private Q_SLOTS:
         AuthManager auth2(&incapable);
         incapable.announce(QStringLiteral("https://hs.example"), false, false, true);
         QVERIFY(!auth2.serverOffersSso());
+        QCoreApplication::processEvents();
         QVERIFY(incapable.providerRequests.isEmpty());
+    }
+
+    // The provider question is asked a turn later, so it must still be the
+    // right question then: not for a server the user has typed away from, and
+    // never once a browser sign-in holds the backend's bootstrap handle.
+    void aLateProviderRequestIsDroppedWhenItNoLongerApplies()
+    {
+        SsoMock client;
+        AuthManager auth(&client);
+        client.announce(QStringLiteral("https://hs.example"), false, false, true);
+        auth.beginSsoLogin(QStringLiteral("https://hs.example"), QString());
+        QCoreApplication::processEvents();
+        QVERIFY(client.providerRequests.isEmpty());
+
+        SsoMock other;
+        AuthManager auth2(&other);
+        other.announce(QStringLiteral("https://first.example"), false, false, true);
+        other.announce(QStringLiteral("https://second.example"), false, false, true);
+        QTRY_COMPARE_WITH_TIMEOUT(other.providerRequests,
+                                  QStringList{ QStringLiteral("https://second.example") }, 3000);
     }
 
     void providersArriveSeparatelyAndAreScopedToTheServerOnScreen()
@@ -503,6 +672,58 @@ private Q_SLOTS:
         auth.cancelBrowserLogin();
         QCOMPARE(client.ssoCancels, 1);
         QCOMPARE(client.oauthCancels, 1);
+    }
+
+    // When the browser takes focus the homeserver field reports editing
+    // finished and asks for discovery again. The backend refuses to probe
+    // while a browser sign-in is running and never answers, so clearing the
+    // offer then left the page with no browser buttons after the attempt
+    // (measured live with a window manager on 2026-09-29).
+    void aProbeDuringABrowserSignInDoesNotWithdrawTheBrowserButtons()
+    {
+        SsoMock client;
+        AuthManager auth(&client);
+        const QString hs = QStringLiteral("https://hs.example");
+        client.announce(hs, true, true, true);
+        QVERIFY(auth.serverOffersSso());
+        QVERIFY(auth.serverOffersBrowserLogin());
+
+        auth.beginSsoLogin(hs, QString());
+        QVERIFY(auth.browserLoginInProgress());
+        auth.discoverAuthMethods(hs);
+        QVERIFY(auth.serverOffersSso());
+        QVERIFY(auth.serverOffersBrowserLogin());
+        QCOMPARE(auth.discoveryState(), QStringLiteral("done"));
+        QVERIFY(client.discoveryRequests.isEmpty());
+
+        // The attempt ends; the way to try again is still on screen, and the
+        // same server is not asked again for nothing.
+        client.endAttemptWithFailure();
+        QVERIFY(!auth.browserLoginInProgress());
+        QVERIFY(auth.serverOffersSso());
+        QVERIFY(auth.serverOffersBrowserLogin());
+        QCOMPARE(auth.discoveryState(), QStringLiteral("done"));
+        QVERIFY(client.discoveryRequests.isEmpty());
+    }
+
+    // A different server typed during the attempt is probed once it ends.
+    void aServerTypedDuringABrowserSignInIsProbedWhenItEnds()
+    {
+        SsoMock client;
+        AuthManager auth(&client);
+        const QString hs = QStringLiteral("https://hs.example");
+        client.announce(hs, true, true, true);
+        auth.beginBrowserLogin(hs);
+        QVERIFY(auth.browserLoginInProgress());
+
+        auth.discoverAuthMethods(QStringLiteral("https://other.example"));
+        QVERIFY(client.discoveryRequests.isEmpty());
+
+        client.endAttemptWithFailure();
+        QCOMPARE(client.discoveryRequests,
+                 QStringList{ QStringLiteral("https://other.example") });
+        QCOMPARE(auth.discoveryState(), QStringLiteral("probing"));
+        QCOMPARE(auth.discoveredHomeserver(), QStringLiteral("https://other.example"));
     }
 
     void aBuildWithoutSsoRefusesToStartOneAndSaysSo()

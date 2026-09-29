@@ -906,6 +906,10 @@ void RustSdkMatrixClient::cancelOAuthLogin()
 
 void RustSdkMatrixClient::requestSsoProviders(const QString &homeserver)
 {
+    // Asking would replace the handle a running browser sign-in holds (its
+    // PKCE/CSRF state or SSO client), as for discovery.
+    if (m_oauthInFlight || m_ssoInFlight)
+        return;
     const QString hs = homeserver.trimmed();
     if (hs.isEmpty() || !ensureOAuthBootstrapHandle())
         return;
@@ -1040,6 +1044,10 @@ void RustSdkMatrixClient::drainAuthEvents()
         const QString type = event.value(QStringLiteral("type")).toString();
 
         if (type == QLatin1String("auth_discovery")) {
+            // A slot must not start the next request from inside this signal:
+            // the release below would destroy the new handle, and comparing
+            // addresses cannot tell, because a new handle can reuse the freed
+            // one's. AuthManager asks for SSO providers a turn later.
             Q_EMIT authMethodsDiscovered(
                 event.value(QStringLiteral("homeserver")).toString(),
                 event.value(QStringLiteral("password")).toBool(),
@@ -1047,7 +1055,7 @@ void RustSdkMatrixClient::drainAuthEvents()
                 event.value(QStringLiteral("sso")).toBool());
             // Discovery is one-shot; drop the handle unless a sign-in is using
             // it.
-            if (!m_oauthInFlight)
+            if (!m_oauthInFlight && !m_ssoInFlight)
                 releaseAuthHandle();
             continue;
         }
@@ -1068,7 +1076,11 @@ void RustSdkMatrixClient::drainAuthEvents()
                                      "homeserver discovery";
                 Q_EMIT browserLaunchFailed();
             } else if (!lightning::urls::openExternally(launch)) {
+                qCWarning(lcRust) << "browser sign-in: the browser could not be started";
                 Q_EMIT browserLaunchFailed();
+            } else {
+                // No URL: it names the attempt's state and redirect.
+                qCInfo(lcRust) << "browser sign-in: authorization page handed to the browser";
             }
             Q_EMIT oauthBrowserUrlReady(url);
             continue;
@@ -1097,6 +1109,11 @@ void RustSdkMatrixClient::drainAuthEvents()
         }
 
         if (type == QLatin1String("oauth_failed")) {
+            // Fixed tokens from rust/src/oauth.rs (oauth_failure_reason); the
+            // message is not logged, it can quote an endpoint.
+            qCWarning(lcRust) << "browser sign-in failed flow=oauth stage="
+                              << event.value(QStringLiteral("stage")).toString()
+                              << "reason=" << event.value(QStringLiteral("reason")).toString();
             const QString message = event.value(QStringLiteral("message")).toString();
             endOAuthAttempt();
             releaseAuthHandle();
@@ -1144,7 +1161,10 @@ void RustSdkMatrixClient::drainAuthEvents()
                                      "homeserver discovery";
                 Q_EMIT browserLaunchFailed();
             } else if (!lightning::urls::openExternally(launch)) {
+                qCWarning(lcRust) << "browser sign-in: the browser could not be started";
                 Q_EMIT browserLaunchFailed();
+            } else {
+                qCInfo(lcRust) << "browser sign-in: SSO page handed to the browser";
             }
             Q_EMIT ssoBrowserUrlReady(url);
             continue;
@@ -1161,6 +1181,10 @@ void RustSdkMatrixClient::drainAuthEvents()
         }
 
         if (type == QLatin1String("sso_failed")) {
+            // Fixed tokens from rust/src/sso.rs; the message is not logged.
+            qCWarning(lcRust) << "browser sign-in failed flow=sso stage="
+                              << event.value(QStringLiteral("stage")).toString()
+                              << "reason=" << event.value(QStringLiteral("reason")).toString();
             const QString message = event.value(QStringLiteral("message")).toString();
             endSsoAttempt();
             releaseAuthHandle();

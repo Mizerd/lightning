@@ -327,6 +327,8 @@ Item {
                     visible: app.auth.lastError !== ""
                              && (!repair.active || repair.info === null)
                     text: app.auth.lastError
+                    // Can carry a server's own error text; never markup.
+                    textFormat: Text.PlainText
                     color: AppTheme.error
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta

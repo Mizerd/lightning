@@ -27,6 +27,7 @@ use matrix_sdk::ruma::api::client::session::get_login_types::v3::LoginType;
 use serde_json::json;
 use url::Url;
 
+use crate::oauth::sdk_failure_reason;
 use crate::{bridge, build_client, cstr_arg, enqueue, ffi_string, run_async_on};
 
 /// Device name shown to the homeserver, as for the other login paths.
@@ -154,7 +155,12 @@ pub unsafe extern "C" fn mx_rust_sso_begin(
                 let client = match build_client(&homeserver, &PathBuf::new()).await {
                     Ok(client) => client,
                     Err(err) => {
-                        enqueue(&events, json!({ "type": "sso_failed", "message": err }));
+                        enqueue(&events, json!({
+                            "type": "sso_failed",
+                            "stage": "begin",
+                            "reason": "client_build_failed",
+                            "message": err,
+                        }));
                         return;
                     }
                 };
@@ -167,13 +173,16 @@ pub unsafe extern "C" fn mx_rust_sso_begin(
                         }
                         enqueue(&events, json!({ "type": "sso_url", "url": url }));
                     }
-                    Err(_) => {
-                        // Not formatted: the SDK error can quote the request.
+                    Err(err) => {
+                        // Not formatted: the SDK error can quote the request. Only its
+                        // category travels, for the log.
                         drop(client);
                         enqueue(
                             &events,
                             json!({
                                 "type": "sso_failed",
+                                "stage": "begin",
+                                "reason": sdk_failure_reason(&err),
                                 "message": "This homeserver did not provide an \
                                             SSO sign-in address.",
                             }),
@@ -222,6 +231,8 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
                             &events,
                             json!({
                                 "type": "sso_failed",
+                                "stage": "finish",
+                                "reason": "no_attempt",
                                 "message": "No SSO sign-in is in progress.",
                             }),
                         );
@@ -234,14 +245,18 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
                     .login_token(&login_token)
                     .initial_device_display_name(DEVICE_DISPLAY_NAME)
                     .await;
-                if outcome.is_err() {
+                if let Err(err) = outcome {
                     // Used, expired or forged tokens land here. The SDK error is not included:
-                    // it can quote the request body, which is the token.
+                    // it can quote the request body, which is the token. Only its category
+                    // travels: an HTTP status and errcode, or the transport class.
+                    let reason = sdk_failure_reason(&err);
                     drop(client);
                     enqueue(
                         &events,
                         json!({
                             "type": "sso_failed",
+                            "stage": "finish",
+                            "reason": reason,
                             "message": "The sign-in could not be completed. \
                                         The sign-in may have been cancelled or \
                                         it expired. Please try again.",
@@ -258,6 +273,8 @@ pub unsafe extern "C" fn mx_rust_sso_finish(
                             &events,
                             json!({
                                 "type": "sso_failed",
+                                "stage": "finish",
+                                "reason": "no_session",
                                 "message": "The server completed sign-in without \
                                             returning a session.",
                             }),
