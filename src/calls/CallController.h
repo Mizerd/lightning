@@ -44,6 +44,10 @@ class CallController : public QObject
     Q_PROPERTY(bool rtcRing READ rtcRing NOTIFY stateChanged)
     Q_PROPERTY(QString activeRoomId READ activeRoomId NOTIFY stateChanged)
     Q_PROPERTY(QString callerUserId READ activeSenderId NOTIFY stateChanged)
+    /// What to call the caller: their display name in the call's room when
+    /// known, else the MXID localpart. Plain text; render as such.
+    Q_PROPERTY(QString callerDisplayName READ callerDisplayName
+                   NOTIFY callerDisplayNameChanged)
     Q_PROPERTY(QString activeCallId READ activeCallId NOTIFY stateChanged)
     Q_PROPERTY(bool mediaBackendAvailable READ mediaBackendAvailable
                    NOTIFY mediaBackendAvailableChanged)
@@ -95,6 +99,27 @@ public:
     QString activeRoomId() const;
     QString activeCallId() const;
     QString activeSenderId() const;
+    QString callerDisplayName() const;
+    /// The name shown for `userId`: `displayName` when it names somebody
+    /// (not empty, not the MXID itself) after stripping line breaks and
+    /// bidirectional controls and bounding its length; else the localpart.
+    ///
+    /// The localpart is appended ("Alice (mallory)") when the name looks like
+    /// an MXID or `ambiguous` says another member of the room uses it: the
+    /// card asks the user to pick up, so it must not wear someone else's
+    /// name.
+    static QString presentableCallerName(const QString &userId,
+                                         const QString &displayName,
+                                         bool ambiguous = false);
+    /// A display name as the card shows it: format characters (bidi
+    /// controls, zero-width characters, BOM) dropped, control characters and
+    /// line breaks flattened, at most 64 characters. Ambiguity is judged on
+    /// this form, the one the user sees.
+    static QString sanitizedCallerName(const QString &displayName);
+    /// presentableCallerName() for `userId` in `roomId`, with the ambiguity
+    /// read from the room's known members.
+    static QString callerNameIn(const MatrixClient *client,
+                                const QString &roomId, const QString &userId);
     bool sessionLive() const;
 
     // The media-engine seam (see CallMediaBackend.h). Not owned; nullptr keeps
@@ -162,6 +187,7 @@ public:
 Q_SIGNALS:
     void audioStateChanged();
     void stateChanged();
+    void callerDisplayNameChanged();
     void mediaBackendAvailableChanged();
     // remainingMs is the invite's real remaining validity.
     void incomingCallStarted(const QString &roomId, const QString &callId,

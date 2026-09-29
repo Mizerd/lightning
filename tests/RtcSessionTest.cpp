@@ -9,6 +9,9 @@
 //  * `joinBlockReason` keeps "not looked yet", "server has nothing" and "the
 //    look failed" apart, since the UI wording differs.
 //  * The same person on two devices is two participants but one face.
+//  * Whether this account may write the call membership is read from the
+//    member snapshot itself, for the room the user opens, and a server
+//    `forbidden` blocks the lane until something could have changed it.
 #include "calls/RtcController.h"
 #include "matrix/MatrixClient.h"
 
@@ -36,8 +39,10 @@ public:
     QStringList sessionReads;
     QList<bool> sessionReadPreferredServer;
     QStringList transportRooms;
+    QStringList memberRequests;
     quint64 lastSessionOp = 0;
     quint64 lastTransportsOp = 0;
+    quint64 lastMembersOp = 0;
 
     // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
@@ -83,6 +88,14 @@ public:
         lastSessionOp = nextOp++;
         return lastSessionOp;
     }
+    quint64 requestRoomMembers(const QString &roomId) override
+    {
+        if (refuseOps)
+            return 0;
+        memberRequests.append(roomId);
+        lastMembersOp = nextOp++;
+        return lastMembersOp;
+    }
     quint64 rtcTransports(const QString &roomId) override
     {
         if (!rtcSupported || refuseOps)
@@ -108,6 +121,17 @@ RtcParticipant person(const QString &user, const QString &device,
     p.ownUser = ownUser;
     p.ownDevice = ownDevice;
     return p;
+}
+
+// A member snapshot as RustSdkMatrixClient decodes it, reduced to the keys
+// the call gate reads.
+QVariantMap memberSnapshot(bool canPublish, bool partial = false)
+{
+    return QVariantMap{
+        {QStringLiteral("ok"), true},
+        {QStringLiteral("partial"), partial},
+        {QStringLiteral("canPublishCallMembership"), canPublish},
+    };
 }
 
 RtcSessionData sessionFor(const QString &roomId,
@@ -155,7 +179,30 @@ private Q_SLOTS:
     void aNewAccountMayForceAReadImmediately();
     void aForcedReadThatChangesNothingBacksOff();
     void aForcedReadThatFoundSomebodyRestoresFullSpeed();
+    void aMemberSnapshotNobodyPushedStillGatesTheLane();
+    void openingARoomReadsItsPermissionOnce();
+    void aForbiddenRefusalBlocksTheLane();
+    void aPokeClearsTheRefusalAndReReadsTheOpenRoom();
+    void openingAnotherRoomDropsTheRefusal();
+    void signOutForgetsPermissionAndRefusals();
+    void onePermissionReadPerRoomAtATime();
+
+private:
+    static void makeJoinable(RtcController &controller, FakeClient &client);
 };
+
+void RtcSessionTest::makeJoinable(RtcController &controller,
+                                  FakeClient &client)
+{
+    // Every gate open except the one under test.
+    controller.setMediaAvailable(true);
+    controller.setRoomEncrypted(kRoom, false);
+    controller.setRoomEncrypted(kOther, false);
+    controller.discover(kRoom);
+    Q_EMIT client.rtcTransportsReceived(
+        client.lastTransportsOp, true, QString(),
+        QStringList{QStringLiteral("https://sfu.example.org/")}, QString());
+}
 
 void RtcSessionTest::reportsParticipantsFromAReplyWeAskedFor()
 {
@@ -899,6 +946,227 @@ void RtcSessionTest::aForcedReadThatFoundSomebodyRestoresFullSpeed()
     QTest::qWait(80);
     controller.refreshFromServer(kRoom);
     QCOMPARE(client.sessionReads.count(), 4);
+}
+
+void RtcSessionTest::aMemberSnapshotNobodyPushedStillGatesTheLane()
+{
+    // Reported live: the gate only learned the permission when the room info
+    // panel pushed it, so a DM whose power levels need 100 for the call
+    // membership took the MatrixRTC lane on every press and the server
+    // refused each one. The client's own snapshot answer must reach the gate
+    // whoever asked for it.
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    makeJoinable(controller, client);
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+    QSignalSpy changed(&controller, &RtcController::sessionChanged);
+
+    // A failed snapshot and one without the key are unknown, not refusals.
+    Q_EMIT client.roomMembersReceived(
+        77, kRoom, QVariantMap{{QStringLiteral("ok"), false}});
+    Q_EMIT client.roomMembersReceived(
+        78, kRoom, QVariantMap{{QStringLiteral("ok"), true}});
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+
+    // An op this controller never dispatched (the hydration fetch).
+    Q_EMIT client.roomMembersReceived(79, kRoom, memberSnapshot(false));
+    QCOMPARE(controller.joinBlock(kRoom),
+             RtcController::JoinBlock::NoPermission);
+    QVERIFY(!changed.isEmpty());
+    // Another room's answer is its own.
+    QCOMPARE(controller.joinBlock(kOther), RtcController::JoinBlock::None);
+
+    Q_EMIT client.roomMembersReceived(80, kRoom, memberSnapshot(true));
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+}
+
+void RtcSessionTest::openingARoomReadsItsPermissionOnce()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+
+    // Somebody else's snapshot is on its way: no second read.
+    controller.setCurrentRoom(kRoom, true);
+    QVERIFY(client.memberRequests.isEmpty());
+
+    // Nothing on its way and nothing known: read it now.
+    controller.setCurrentRoom(kOther);
+    QCOMPARE(client.memberRequests, QStringList{kOther});
+    Q_EMIT client.roomMembersReceived(client.lastMembersOp, kOther,
+                                      memberSnapshot(false));
+
+    // Known and fresh: reopening costs nothing.
+    controller.setCurrentRoom(kRoom);
+    QCOMPARE(client.memberRequests, (QStringList{kOther, kRoom}));
+    Q_EMIT client.roomMembersReceived(client.lastMembersOp, kRoom,
+                                      memberSnapshot(true));
+    controller.setCurrentRoom(kOther);
+    controller.setCurrentRoom(kRoom);
+    QCOMPARE(client.memberRequests.count(), 2);
+
+    // A poke may have changed the answer: the next open re-reads it.
+    Q_EMIT client.roomMemberEventSeen(kOther);
+    controller.setCurrentRoom(kOther);
+    QCOMPARE(client.memberRequests.count(), 3);
+    QCOMPARE(client.memberRequests.last(), kOther);
+
+    // A backend without MatrixRTC is never asked.
+    FakeClient plain;
+    plain.rtcSupported = false;
+    RtcController other;
+    other.setClient(&plain);
+    other.setCurrentRoom(kRoom);
+    QVERIFY(plain.memberRequests.isEmpty());
+}
+
+void RtcSessionTest::aForbiddenRefusalBlocksTheLane()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    makeJoinable(controller, client);
+    controller.setCurrentRoom(kRoom, true);
+    // The snapshot claims permission; the server is the authority.
+    Q_EMIT client.roomMembersReceived(90, kRoom, memberSnapshot(true));
+    QSignalSpy refused(&controller, &RtcController::membershipRefused);
+    QSignalSpy changed(&controller, &RtcController::sessionChanged);
+
+    // Other categories say nothing about permission.
+    controller.noteMembershipRefused(kRoom, QStringLiteral("network"));
+    controller.noteMembershipRefused(kRoom, QStringLiteral("rate_limited"));
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+    QCOMPARE(refused.count(), 0);
+
+    controller.noteMembershipRefused(kRoom, QStringLiteral("forbidden"));
+    QCOMPARE(controller.joinBlock(kRoom),
+             RtcController::JoinBlock::NoPermission);
+    QCOMPARE(controller.joinBlockReason(kRoom),
+             QStringLiteral("no_permission"));
+    QCOMPARE(refused.count(), 1);
+    QCOMPARE(refused.at(0).at(0).toString(), kRoom);
+    // Announced, so the call button re-reads its lane.
+    QVERIFY(!changed.isEmpty());
+    // A later snapshot saying "permitted" does not overrule the server.
+    Q_EMIT client.roomMembersReceived(91, kRoom, memberSnapshot(true));
+    QCOMPARE(controller.joinBlock(kRoom),
+             RtcController::JoinBlock::NoPermission);
+    QCOMPARE(controller.joinBlock(kOther), RtcController::JoinBlock::None);
+}
+
+void RtcSessionTest::aPokeClearsTheRefusalAndReReadsTheOpenRoom()
+{
+    // Power-level changes arrive on the member poke. A refused open room is
+    // re-read after it, so a raised level re-enables Join.
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setPermissionRereadMsForTest(0);
+    makeJoinable(controller, client);
+    controller.setCurrentRoom(kRoom, true);
+    Q_EMIT client.roomMembersReceived(95, kRoom, memberSnapshot(false));
+    controller.noteMembershipRefused(kRoom, QStringLiteral("forbidden"));
+    QCOMPARE(controller.joinBlock(kRoom),
+             RtcController::JoinBlock::NoPermission);
+
+    Q_EMIT client.roomMemberEventSeen(kRoom);
+    QTRY_COMPARE(client.memberRequests, QStringList{kRoom});
+    // Until the answer lands the snapshot's refusal stands.
+    QCOMPARE(controller.joinBlock(kRoom),
+             RtcController::JoinBlock::NoPermission);
+    Q_EMIT client.roomMembersReceived(client.lastMembersOp, kRoom,
+                                      memberSnapshot(true));
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+
+    // Permitted rooms and rooms not open are not re-read on a poke; a busy
+    // room pokes every second.
+    Q_EMIT client.roomMemberEventSeen(kRoom);
+    Q_EMIT client.roomMembersReceived(96, kOther, memberSnapshot(false));
+    Q_EMIT client.roomMemberEventSeen(kOther);
+    QTest::qWait(20);
+    QCOMPARE(client.memberRequests.count(), 1);
+
+    // The refusal evidence alone also goes on a poke.
+    controller.noteMembershipRefused(kRoom, QStringLiteral("forbidden"));
+    QCOMPARE(controller.joinBlock(kRoom),
+             RtcController::JoinBlock::NoPermission);
+    Q_EMIT client.roomMemberEventSeen(kRoom);
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+}
+
+void RtcSessionTest::openingAnotherRoomDropsTheRefusal()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    makeJoinable(controller, client);
+    controller.setCurrentRoom(kRoom, true);
+    controller.noteMembershipRefused(kRoom, QStringLiteral("forbidden"));
+    QCOMPARE(controller.joinBlock(kRoom),
+             RtcController::JoinBlock::NoPermission);
+
+    // Reopening the same room keeps it.
+    controller.setCurrentRoom(kRoom, true);
+    QCOMPARE(controller.joinBlock(kRoom),
+             RtcController::JoinBlock::NoPermission);
+
+    QSignalSpy changed(&controller, &RtcController::sessionChanged);
+    controller.setCurrentRoom(kOther, true);
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+    QVERIFY(changed.contains(QVariantList{kRoom}));
+}
+
+void RtcSessionTest::signOutForgetsPermissionAndRefusals()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    makeJoinable(controller, client);
+    controller.setCurrentRoom(kRoom, true);
+    Q_EMIT client.roomMembersReceived(97, kOther, memberSnapshot(false));
+    controller.noteMembershipRefused(kRoom, QStringLiteral("forbidden"));
+
+    // The next account may share these rooms with other power levels.
+    client.logout();
+    makeJoinable(controller, client);
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+    QCOMPARE(controller.joinBlock(kOther), RtcController::JoinBlock::None);
+    // And the open room is asked about again.
+    controller.setCurrentRoom(kRoom);
+    QCOMPARE(client.memberRequests, QStringList{kRoom});
+}
+
+void RtcSessionTest::onePermissionReadPerRoomAtATime()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setCurrentRoom(kRoom);
+    QCOMPARE(client.memberRequests.count(), 1);
+    const quint64 op = client.lastMembersOp;
+
+    // The cache-first partial answer is used at once...
+    Q_EMIT client.roomMembersReceived(op, kRoom, memberSnapshot(false, true));
+    makeJoinable(controller, client);
+    QCOMPARE(controller.joinBlock(kRoom),
+             RtcController::JoinBlock::NoPermission);
+    // ...but the read stays open until the full one, so a stale mark does not
+    // start a second.
+    Q_EMIT client.roomMemberEventSeen(kOther);
+    Q_EMIT client.roomMemberEventSeen(kRoom);
+    controller.setCurrentRoom(kRoom);
+    QCOMPARE(client.memberRequests.count(), 1);
+
+    Q_EMIT client.roomMembersReceived(op, kRoom, memberSnapshot(true));
+    QCOMPARE(controller.joinBlock(kRoom), RtcController::JoinBlock::None);
+    // Answered and fresh.
+    controller.setCurrentRoom(kRoom);
+    QCOMPARE(client.memberRequests.count(), 1);
+    // Stale again, and nothing in flight: a new read.
+    Q_EMIT client.roomMemberEventSeen(kRoom);
+    controller.setCurrentRoom(kRoom);
+    QCOMPARE(client.memberRequests.count(), 2);
 }
 
 QTEST_MAIN(RtcSessionTest)

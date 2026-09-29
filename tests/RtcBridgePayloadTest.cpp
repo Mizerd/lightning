@@ -44,6 +44,47 @@ private:
 #endif
 
 private slots:
+    /// rooms.rs reports `own_can_publish_rtc_membership` as null when our own
+    /// member is not in the store yet. That must reach the call gate as
+    /// UNKNOWN (no key), not as false, which would read as refused.
+    void anUnknownCallPermissionIsNotReportedAsRefused()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        QSignalSpy spy(&client, &MatrixClient::roomMembersReceived);
+        QJsonObject event;
+        event.insert(QStringLiteral("type"), QStringLiteral("room_members"));
+        event.insert(QStringLiteral("op_id"), 9);
+        event.insert(QStringLiteral("room_id"),
+                     QStringLiteral("!r:example.org"));
+        event.insert(QStringLiteral("ok"), true);
+        event.insert(QStringLiteral("partial"), true);
+        event.insert(QStringLiteral("own_can_publish_rtc_membership"),
+                     QJsonValue(QJsonValue::Null));
+        client.handleRustEventForTest(event);
+        QCOMPARE(spy.count(), 1);
+        QVariantMap snapshot = spy.takeFirst().at(2).toMap();
+        QVERIFY2(!snapshot.contains(QStringLiteral("canPublishCallMembership")),
+                 "an unknown permission crossed the bridge as a refusal");
+
+        // A real answer still crosses, both ways.
+        event.insert(QStringLiteral("own_can_publish_rtc_membership"), false);
+        client.handleRustEventForTest(event);
+        QCOMPARE(spy.count(), 1);
+        snapshot = spy.takeFirst().at(2).toMap();
+        QCOMPARE(snapshot.value(QStringLiteral("canPublishCallMembership")),
+                 QVariant(false));
+        event.insert(QStringLiteral("own_can_publish_rtc_membership"), true);
+        client.handleRustEventForTest(event);
+        snapshot = spy.takeFirst().at(2).toMap();
+        QCOMPARE(snapshot.value(QStringLiteral("canPublishCallMembership")),
+                 QVariant(true));
+#endif
+    }
+
     void theDelayedRefusalReasonSurvivesTheBridge()
     {
 #ifndef ENABLE_RUST_SDK_BACKEND

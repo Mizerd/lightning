@@ -24,6 +24,8 @@ constexpr int kMaxBusyRejectsPerSession = 8;
 constexpr int kMaxPendingOps = 64;
 // Bound on offer/answer production, so a hung engine cannot wedge the session.
 constexpr qint64 kMediaProductionTimeoutMs = 15000;
+// How long "this homeserver has no TURN" is believed before asking again.
+constexpr qint64 kNoTurnRecheckMs = 10 * 60 * 1000;
 
 QString glareWinner(const QString &a, const QString &b)
 {
@@ -94,6 +96,13 @@ void CallController::setClient(MatrixClient *client)
             &CallController::onRemoteCandidates);
     connect(m_client, &MatrixClient::callTurnServersReceived, this,
             &CallController::onTurnServers);
+    // A caller's name can resolve after the ring started (the room's member
+    // list loads on demand).
+    connect(m_client, &MatrixClient::membersChanged, this,
+            [this](const QString &roomId) {
+                if (sessionLive() && roomId == m_session.roomId)
+                    Q_EMIT callerDisplayNameChanged();
+            });
     // Tell the bridge whether SDP transport is wanted; without a backend the
     // Rust side never queues SDP.
     m_client->setCallMediaCapable(m_mediaBackend != nullptr);
@@ -245,9 +254,30 @@ void CallController::onTurnServers(quint64 opId, bool ok,
     m_turnOp = 0;
     if (!ok) {
         // Degrade to host candidates; never a third-party STUN fallback. Log
-        // the category only, never credentials.
-        qCInfo(lcCalls) << "TURN fetch failed category=" << category;
+        // the category only, never credentials. A homeserver without TURN
+        // answers `{}`, which is not a failure worth the word.
+        if (category == QLatin1String("none_configured")) {
+            qCInfo(lcCalls) << "no TURN server configured on the homeserver; "
+                               "calls use direct candidates only";
+            // Remembered for a while like a real answer, so each call does
+            // not ask again.
+            m_turnUris.clear();
+            m_turnUsername.clear();
+            m_turnPassword.clear();
+            m_turnExpiryMs = QDateTime::currentMSecsSinceEpoch()
+                + kNoTurnRecheckMs;
+            // And told to the engine, or it keeps an expired answer's
+            // servers for the next call.
+            if (m_mediaBackend)
+                m_mediaBackend->setIceServers({}, QString(), QString());
+        } else {
+            qCInfo(lcCalls) << "TURN fetch failed category=" << category;
+        }
         return;
+    }
+    if (uris.isEmpty()) {
+        qCInfo(lcCalls) << "no TURN server configured on the homeserver; "
+                           "calls use direct candidates only";
     }
     // Bound the homeserver's answer so a broken server cannot stall the GUI
     // thread with huge lists or credentials.
@@ -374,6 +404,115 @@ QString CallController::activeCallId() const
 QString CallController::activeSenderId() const
 {
     return sessionLive() ? m_session.senderId : QString();
+}
+
+QString CallController::callerDisplayName() const
+{
+    const QString sender = activeSenderId();
+    if (sender.isEmpty())
+        return {};
+    return callerNameIn(m_client, m_session.roomId, sender);
+}
+
+QString CallController::callerNameIn(const MatrixClient *client,
+                                     const QString &roomId,
+                                     const QString &userId)
+{
+    if (!client || userId.isEmpty())
+        return presentableCallerName(userId, QString());
+    const QString name = client->displayNameFor(roomId, userId);
+    // Another member showing the same name is someone the card could be
+    // mistaken for. Compared as DISPLAYED: "Alice" plus an invisible mark
+    // renders as "Alice", so the raw strings must not decide.
+    // NFKC as well, so "Zoë" typed as one code point and as "e" plus a
+    // combining diaeresis, or a compatibility variant, is the same name.
+    const auto collisionKey = [](const QString &displayName) {
+        return sanitizedCallerName(displayName)
+            .normalized(QString::NormalizationForm_KC);
+    };
+    bool ambiguous = false;
+    const QString wanted = collisionKey(name);
+    if (!wanted.isEmpty() && wanted != userId) {
+        const RoomInfo room = client->roomInfo(roomId);
+        for (auto it = room.members.cbegin(); it != room.members.cend(); ++it) {
+            if (it.key() != userId
+                && collisionKey(it->displayName)
+                        .compare(wanted, Qt::CaseInsensitive)
+                    == 0) {
+                ambiguous = true;
+                break;
+            }
+        }
+    }
+    return presentableCallerName(userId, name, ambiguous);
+}
+
+QString CallController::sanitizedCallerName(const QString &displayName)
+{
+    // Sender-chosen text on a card that asks the user to pick up: one line,
+    // nothing invisible. Format characters (Unicode Cf) are dropped: the
+    // bidirectional controls that could reorder the sentence, and the
+    // zero-width space, joiners, word joiner, invisible operators and BOM
+    // that would make "Alice" and "Al<ZWSP>ice" different names that look
+    // the same. Walked by code point, so a Cf outside the BMP (tag
+    // characters) is caught too. The accepted cost: emoji joined by ZWJ fall
+    // apart, variation selectors go (emoji fall back to text presentation,
+    // CJK glyph variants and Mongolian letter forms change), and ZWNJ goes,
+    // which can change how a Persian or Indic name is shaped.
+    const QList<uint> points = displayName.left(256).toUcs4();
+    QString name;
+    name.reserve(points.size());
+    // Default-ignorable code points that are not Cf also render as nothing:
+    // the combining grapheme joiner, the Hangul fillers, the Khmer inherent
+    // vowels, the Mongolian selectors, the variation selectors, and U+2065,
+    // which is unassigned (so not Cf) yet hidden by text shaping.
+    const auto ignorable = [](uint c) {
+        return c == 0x034F || c == 0x115F || c == 0x1160 || c == 0x17B4
+            || c == 0x17B5 || (c >= 0x180B && c <= 0x180F) || c == 0x3164
+            || c == 0x2065 || (c >= 0xFE00 && c <= 0xFE0F) || c == 0xFFA0
+            || (c >= 0xFFF0 && c <= 0xFFF8) || (c >= 0xE0000 && c <= 0xE0FFF);
+    };
+    for (const uint point : points) {
+        const auto category = QChar::category(char32_t(point));
+        if (category == QChar::Other_Format || ignorable(point))
+            continue;
+        if (category == QChar::Other_Control) {
+            name.append(QChar(u' '));
+            continue;
+        }
+        const char32_t unit = char32_t(point);
+        name.append(QString::fromUcs4(&unit, 1));
+    }
+    name = name.simplified();
+    if (name.size() > 64) {
+        name.truncate(64);
+        // Never leave half of a surrogate pair at the cut.
+        if (name.back().isHighSurrogate())
+            name.chop(1);
+    }
+    return name;
+}
+
+QString CallController::presentableCallerName(const QString &userId,
+                                              const QString &displayName,
+                                              bool ambiguous)
+{
+    const QString name = sanitizedCallerName(displayName);
+    // The localpart, as the rest of the app shows an unnamed user.
+    const QString localpart =
+        userId.size() > 1 && userId.startsWith(QLatin1Char('@'))
+        ? userId.mid(1).section(QLatin1Char(':'), 0, 0)
+        : userId;
+    if (name.isEmpty() || name == userId)
+        return localpart;
+    // "@alice:example.org" as a display name impersonates an address.
+    // NFKC, so a fullwidth "＠alice：example.org" counts as an address too.
+    const QString folded = name.normalized(QString::NormalizationForm_KC);
+    const bool looksLikeMxid = folded.startsWith(QLatin1Char('@'))
+        && folded.contains(QLatin1Char(':'));
+    if ((ambiguous || looksLikeMxid) && name != localpart)
+        return QStringLiteral("%1 (%2)").arg(name, localpart);
+    return name;
 }
 
 bool CallController::sessionLive() const
@@ -1073,6 +1212,7 @@ void CallController::setState(State state)
         return;
     m_state = state;
     Q_EMIT stateChanged();
+    Q_EMIT callerDisplayNameChanged();
 }
 
 void CallController::armLifetimeTimer(qint64 remainingMs)

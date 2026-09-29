@@ -1,6 +1,12 @@
 // The 1:1 voice-call media engine: GStreamer webrtcbin (ICE via libnice,
 // DTLS-SRTP, Opus), audio only.
 //
+// Audio only means a video offer (Element's and Nheko's video calls) is
+// answered with its video section inactive, and any receive pad that is not
+// Opus audio is drained into a fakesink. Linking it into the Opus chain
+// failed caps negotiation, and the not-negotiated return stopped the shared
+// bundled transport: no audio either way.
+//
 // Compiled only with the GStreamer WebRTC dev files (HAVE_LIGHTNING_WEBRTC)
 // and registered only when runtimeAvailable() finds every required element,
 // so a build without the plugins keeps CallController's honest refusal.
@@ -48,6 +54,16 @@ public:
     // headless CI can run a real loopback handshake. Set before the first
     // call.
     void setTestToneMode(bool on) { m_testTone = on; }
+    /// Test-only, test-tone mode: RTP packets that reached the Opus receive
+    /// chain in the current session.
+    int receivedAudioPacketsForTest() const
+    { return m_receivedAudioPackets.load(); }
+    /// Test-only: receive pads drained because they were not Opus audio.
+    int drainedReceivePadsForTest() const { return m_drainedPads.load(); }
+
+    /// "audio:sendrecv video:inactive", one entry per media section, with
+    /// ":port0" for a rejected one. No addresses, ids or codecs: loggable.
+    static QString sdpSectionShape(const QString &sdp);
 
     /// Capture/playback element descriptions from CallDeviceController, e.g.
     /// `pulsesrc device="alsa_input...."`. Empty means the automatic element,
@@ -133,6 +149,9 @@ private:
     // atomic because pad-added cannot marshal without the track going audible
     // first.
     std::atomic<bool> m_outputMuted{false};
+    // Test counters, written on GStreamer threads.
+    std::atomic<int> m_receivedAudioPackets{0};
+    std::atomic<int> m_drainedPads{0};
     bool m_testTone = false;
     QString m_audioSourceElement;
     QString m_audioSinkElement;

@@ -486,12 +486,62 @@ pub(crate) fn fetch_turn_servers(
                     "op_id": op_id,
                     "lifecycle": lifecycle,
                     "ok": false,
-                    "category": classify_room_error(&err.to_string()),
+                    "category": classify_turn_failure(&err),
                 }));
             }
         }
     });
     Ok(())
+}
+
+/// Why `/voip/turnServer` gave no servers. Synapse without TURN answers 200
+/// with `{}`, which ruma reports as a deserialization failure (every field is
+/// required); that is "none configured", not a network fault.
+fn classify_turn_failure(err: &matrix_sdk::HttpError) -> &'static str {
+    use matrix_sdk::ruma::api::error::FromHttpResponseError;
+    use matrix_sdk::HttpError;
+
+    use matrix_sdk::ruma::api::error::DeserializationError;
+
+    // Valid JSON that lacks the fields (Synapse's `{}`) is an answer; a body
+    // that is not JSON at all (a captive portal's HTML page) is not.
+    let empty_answer = match err {
+        HttpError::Api(api) => match &**api {
+            FromHttpResponseError::Deserialization(DeserializationError::Json(json)) => {
+                json_error_is_empty_answer(json)
+            }
+            _ => false,
+        },
+        _ => false,
+    };
+    turn_failure_category(
+        err.as_client_api_error().is_some(),
+        empty_answer,
+        &err.to_string(),
+    )
+}
+
+/// The pure half of `classify_turn_failure`, for tests. `empty_answer`: an
+/// accepted status whose body is JSON naming no server.
+fn turn_failure_category(
+    server_error: bool,
+    empty_answer: bool,
+    message: &str,
+) -> &'static str {
+    // A Matrix error from the server (403, 429, 404 M_UNRECOGNIZED...).
+    if server_error {
+        return classify_room_error(message);
+    }
+    if empty_answer {
+        return "none_configured";
+    }
+    "network"
+}
+
+/// Whether a serde_json failure means "valid JSON, fields missing" (Synapse's
+/// `{}`) rather than "not JSON".
+fn json_error_is_empty_answer(err: &serde_json::Error) -> bool {
+    err.classify() == serde_json::error::Category::Data
 }
 
 /// Register inbound observers for call-signalling events. They ride the
@@ -868,6 +918,43 @@ pub(crate) fn register_handlers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_json_naming_no_server_counts_as_an_empty_answer() {
+        #[derive(serde::Deserialize, Debug)]
+        #[allow(dead_code)]
+        struct Turn {
+            username: String,
+            password: String,
+            uris: Vec<String>,
+            ttl: u64,
+        }
+        let empty = serde_json::from_str::<Turn>("{}").unwrap_err();
+        assert!(json_error_is_empty_answer(&empty));
+        // A captive portal's page is not an answer from the homeserver.
+        let html = serde_json::from_str::<Turn>("<html><body>Login</body></html>")
+            .unwrap_err();
+        assert!(!json_error_is_empty_answer(&html));
+    }
+
+    #[test]
+    fn an_empty_turn_answer_is_none_configured_not_network() {
+        // Synapse with no TURN answers `200 {}`.
+        assert_eq!(
+            turn_failure_category(false, true, "missing field `username`"),
+            "none_configured"
+        );
+        // A transport failure stays transient.
+        assert_eq!(
+            turn_failure_category(false, false, "error sending request"),
+            "network"
+        );
+        // A Matrix error keeps its own category.
+        assert_eq!(
+            turn_failure_category(true, false, "M_LIMIT_EXCEEDED: slow down"),
+            "rate_limited"
+        );
+    }
 
     #[test]
     fn inbound_reasons_are_a_closed_set() {

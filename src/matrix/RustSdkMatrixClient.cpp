@@ -8867,10 +8867,15 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("own_can_upgrade")).toBool());
         // Whether this account may write the call membership, so Join is not
         // offered to a user who cannot.
-        snapshot.insert(
-            QStringLiteral("canPublishCallMembership"),
-            event.value(QStringLiteral("own_can_publish_rtc_membership"))
-                .toBool());
+        // Only a real answer: null means our own member was not in the store,
+        // and an absent key reads as unknown downstream, where false would
+        // read as refused.
+        if (const QJsonValue canPublish =
+                event.value(QStringLiteral("own_can_publish_rtc_membership"));
+            canPublish.isBool()) {
+            snapshot.insert(QStringLiteral("canPublishCallMembership"),
+                            canPublish.toBool());
+        }
         snapshot.insert(QStringLiteral("joinRule"),
                         event.value(QStringLiteral("join_rule")).toString());
         snapshot.insert(

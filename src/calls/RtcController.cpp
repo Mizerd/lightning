@@ -8,6 +8,7 @@
 #include <QJsonObject>
 #include <QVariantMap>
 #include <algorithm>
+#include <utility>
 
 #include "matrix/MatrixClient.h"
 
@@ -15,12 +16,17 @@ namespace {
 Q_LOGGING_CATEGORY(lcRtc, "lightning.calls.rtc")
 /// Presentation bound; the Rust side already caps a session at 128 devices.
 constexpr int kMaxPresentedParticipants = 64;
+/// Bound on rooms holding refusal evidence; in practice one or two.
+constexpr int kMaxRefusedRooms = 32;
 } // namespace
 
 RtcController::RtcController(QObject *parent) : QObject(parent)
 {
     m_pokeTimer.setSingleShot(true);
     connect(&m_pokeTimer, &QTimer::timeout, this, &RtcController::flushPokes);
+    m_permissionRereadTimer.setSingleShot(true);
+    connect(&m_permissionRereadTimer, &QTimer::timeout, this,
+            &RtcController::rereadCurrentRoomPermission);
 }
 
 void RtcController::setClient(MatrixClient *client)
@@ -40,6 +46,14 @@ void RtcController::setClient(MatrixClient *client)
                 &RtcController::onSessionPoked);
         connect(m_client, &MatrixClient::rtcTransportsReceived, this,
                 &RtcController::onTransportsReceived);
+        // The permission comes from the member snapshot itself, whoever asked
+        // for it. Pushing it from one panel left every room that panel had
+        // not shown at "permitted", and the join failed at the server.
+        connect(m_client, &MatrixClient::roomMembersReceived, this,
+                &RtcController::onRoomMembersReceived);
+        // Power-level changes arrive on this poke too.
+        connect(m_client, &MatrixClient::roomMemberEventSeen, this,
+                &RtcController::onRoomMemberEventSeen);
     // Forget observed calls on sign-out: participant lists are other
     // people's presence in rooms this account may leave.
         connect(m_client, &MatrixClient::loggedOut, this,
@@ -72,6 +86,14 @@ void RtcController::clearForNewSession()
     // Room encryption belongs to the previous account. The resolver is kept:
     // it answers from whatever room list is current.
     m_encryptedRooms.clear();
+    // So do its power levels and the server's refusals.
+    m_canPublishMembership.clear();
+    m_permissionStale.clear();
+    m_membershipRefusedAtMs.clear();
+    m_permissionReads.clear();
+    m_permissionRoomsBeingRead.clear();
+    m_currentRoom.clear();
+    m_permissionRereadTimer.stop();
     Q_EMIT availabilityChanged();
 }
 
@@ -231,6 +253,7 @@ void RtcController::setCanPublishMembership(const QString &roomId, bool can)
 {
     if (roomId.isEmpty())
         return;
+    m_permissionStale.remove(roomId);
     const auto it = m_canPublishMembership.constFind(roomId);
     if (it != m_canPublishMembership.cend() && it.value() == can)
         return;
@@ -238,6 +261,143 @@ void RtcController::setCanPublishMembership(const QString &roomId, bool can)
     // Same signal as the encryption fact; the banner and call row re-read
     // their block reason from it.
     Q_EMIT sessionChanged(roomId);
+}
+
+bool RtcController::publishRefused(const QString &roomId) const
+{
+    return m_membershipRefusedAtMs.contains(roomId)
+        || !m_canPublishMembership.value(roomId, true);
+}
+
+void RtcController::setCurrentRoom(const QString &roomId,
+                                   bool snapshotRequested)
+{
+    if (roomId != m_currentRoom) {
+        m_currentRoom = roomId;
+        m_permissionRereadTimer.stop();
+        // Evidence is per room and short-lived: leaving the room drops it.
+        // The snapshot's answer stays, and it is re-read when stale.
+        QStringList dropped;
+        for (auto it = m_membershipRefusedAtMs.begin();
+             it != m_membershipRefusedAtMs.end();) {
+            if (it.key() != roomId) {
+                dropped.append(it.key());
+                it = m_membershipRefusedAtMs.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        for (const QString &room : std::as_const(dropped))
+            Q_EMIT sessionChanged(room);
+    }
+    if (roomId.isEmpty() || !supported() || snapshotRequested)
+        return;
+    const bool fresh = m_canPublishMembership.contains(roomId)
+        && !m_permissionStale.contains(roomId);
+    if (!fresh)
+        requestPermissionRead(roomId);
+}
+
+void RtcController::requestPermissionRead(const QString &roomId)
+{
+    if (!m_client || roomId.isEmpty())
+        return;
+    // Reap reads whose answer never came (the Rust queue can drop events).
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (auto it = m_permissionReads.begin(); it != m_permissionReads.end();) {
+        if (m_readTimeoutMs > 0 && now - it->dispatchedAtMs > m_readTimeoutMs) {
+            m_permissionRoomsBeingRead.remove(it->roomId);
+            it = m_permissionReads.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    if (m_permissionRoomsBeingRead.contains(roomId))
+        return;
+    const quint64 opId = m_client->requestRoomMembers(roomId);
+    if (opId == 0)
+        return;
+    m_permissionReads.insert(opId, PendingRead{roomId, now});
+    m_permissionRoomsBeingRead.insert(roomId);
+}
+
+void RtcController::rereadCurrentRoomPermission()
+{
+    if (m_currentRoom.isEmpty() || !supported())
+        return;
+    if (m_permissionRoomsBeingRead.contains(m_currentRoom)) {
+        // The answer in flight may predate the change; ask again after it.
+        m_permissionRereadTimer.start(m_permissionRereadMs);
+        return;
+    }
+    requestPermissionRead(m_currentRoom);
+}
+
+void RtcController::onRoomMembersReceived(quint64 opId, const QString &roomId,
+                                          const QVariantMap &snapshot)
+{
+    const bool ok = snapshot.value(QStringLiteral("ok")).toBool();
+    const bool partial = snapshot.value(QStringLiteral("partial")).toBool();
+    // A cache-first partial answer is followed by the full one under the same
+    // op, so our read ends with the full answer or a failure.
+    const auto pending = m_permissionReads.constFind(opId);
+    if (pending != m_permissionReads.cend() && (!ok || !partial)) {
+        m_permissionRoomsBeingRead.remove(pending->roomId);
+        m_permissionReads.erase(pending);
+    }
+    if (!ok || roomId.isEmpty())
+        return;
+    // An absent key is unknown, not a refusal.
+    const QString key = QStringLiteral("canPublishCallMembership");
+    if (!snapshot.contains(key))
+        return;
+    setCanPublishMembership(roomId, snapshot.value(key).toBool());
+}
+
+void RtcController::onRoomMemberEventSeen(const QString &roomId)
+{
+    if (roomId.isEmpty())
+        return;
+    // One poke carries both membership and power-level changes, so any poke
+    // may have changed the answer. Only the open room is re-read, and only
+    // when it is refused now: a newly granted level has to re-enable Join,
+    // while a newly lost one is caught by the server's refusal.
+    const bool hadEvidence = m_membershipRefusedAtMs.remove(roomId);
+    const bool known = m_canPublishMembership.contains(roomId);
+    if (known)
+        m_permissionStale.insert(roomId);
+    const bool refusedBySnapshot = known && !m_canPublishMembership.value(roomId);
+    if (roomId == m_currentRoom && (hadEvidence || refusedBySnapshot)
+        && !m_permissionRereadTimer.isActive()) {
+        // Not restarted: a busy room pokes every second, and this bounds the
+        // re-reads to one per window rather than postponing them for ever.
+        m_permissionRereadTimer.start(m_permissionRereadMs);
+    }
+    if (hadEvidence)
+        Q_EMIT sessionChanged(roomId);
+}
+
+void RtcController::noteMembershipRefused(const QString &roomId,
+                                          const QString &category)
+{
+    if (roomId.isEmpty() || category != QLatin1String("forbidden"))
+        return;
+    if (m_membershipRefusedAtMs.size() >= kMaxRefusedRooms
+        && !m_membershipRefusedAtMs.contains(roomId)) {
+        m_membershipRefusedAtMs.clear();
+    }
+    m_membershipRefusedAtMs.insert(roomId, QDateTime::currentMSecsSinceEpoch());
+    qCInfo(lcRtc) << "call membership refused as forbidden; the MatrixRTC "
+                     "lane is marked not permitted in this room until a "
+                     "membership or power-level change arrives, another room "
+                     "is opened, or the account changes";
+    Q_EMIT sessionChanged(roomId);
+    Q_EMIT membershipRefused(roomId);
+}
+
+void RtcController::setPermissionRereadMsForTest(int ms)
+{
+    m_permissionRereadMs = ms < 0 ? 0 : ms;
 }
 
 void RtcController::setPokeCoalesceMsForTest(int ms)
@@ -746,9 +906,9 @@ RtcController::JoinBlock RtcController::joinBlock(const QString &roomId) const
     if (!m_mediaAvailable)
         return JoinBlock::NoMediaTransport;
     // Whether the server would accept our membership, checked last since it
-    // is room-specific. Defaults to true: an unknown capability must not
-    // disable Join; only a known refusal does.
-    if (!m_canPublishMembership.value(roomId, true))
+    // is room-specific. Unknown does not disable Join; a snapshot that says
+    // no, or the server having refused this room already, does.
+    if (publishRefused(roomId))
         return JoinBlock::NoPermission;
     return JoinBlock::None;
 }

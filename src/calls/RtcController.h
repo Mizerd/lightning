@@ -28,6 +28,7 @@
 #include <QStringList>
 #include <QTimer>
 #include <QVariantList>
+#include <QVariantMap>
 #include <QtQml/qqmlregistration.h>
 
 #include "matrix/RtcSession.h"
@@ -158,9 +159,24 @@ public:
     Q_INVOKABLE JoinBlock joinBlock(const QString &roomId) const;
 
     /// Whether this account may write the room's call membership, per the
-    /// room snapshot. Unknown is treated as permitted: Join must not be
-    /// disabled on a guess.
+    /// room's member snapshot. Unknown is treated as permitted: Join must not
+    /// be disabled on a guess. Every snapshot the client delivers lands here
+    /// on its own (roomMembersReceived), whoever asked for it.
     void setCanPublishMembership(const QString &roomId, bool can);
+    /// The room the user has open. Its permission is read now unless it is
+    /// known and fresh, or `snapshotRequested` says a member snapshot for it
+    /// is already on its way. Refusal evidence for any other room is dropped.
+    void setCurrentRoom(const QString &roomId, bool snapshotRequested = false);
+    /// The homeserver answered our call membership publish in `roomId` with
+    /// `category`. `forbidden` is evidence this account may not publish there
+    /// and blocks the lane until the next membership or power-level poke for
+    /// the room (one signal carries both), the user opens another room, or
+    /// the account changes. Other categories
+    /// say nothing about permission and are ignored.
+    void noteMembershipRefused(const QString &roomId, const QString &category);
+    /// Test seam: how long a power-level poke waits before the open room's
+    /// permission is re-read.
+    void setPermissionRereadMsForTest(int ms);
     /// The same answer as a stable token, translated in QML.
     Q_INVOKABLE QString joinBlockReason(const QString &roomId) const;
 
@@ -234,6 +250,9 @@ Q_SIGNALS:
     void sessionChanged(const QString &roomId);
     /// Transport availability changed.
     void availabilityChanged();
+    /// The homeserver refused our call membership in this room as forbidden,
+    /// after the join was torn down. The lane choice may now differ.
+    void membershipRefused(const QString &roomId);
 
 private Q_SLOTS:
     void onSessionReceived(quint64 opId, const RtcSessionData &session);
@@ -242,9 +261,16 @@ private Q_SLOTS:
                               const QString &category,
                               const QStringList &serverServiceUrls,
                               const QString &participantFocusUrl);
+    void onRoomMembersReceived(quint64 opId, const QString &roomId,
+                               const QVariantMap &snapshot);
+    void onRoomMemberEventSeen(const QString &roomId);
+    void rereadCurrentRoomPermission();
 
 private:
     void clearForNewSession();
+    /// Snapshot says no, or the server refused a publish here.
+    bool publishRefused(const QString &roomId) const;
+    void requestPermissionRead(const QString &roomId);
     void flushPokes();
     void reapStaleReads();
     /// True when some transport is reachable for this room: its session's
@@ -335,6 +361,20 @@ private:
     // the irreversibility guard covers every room seen encrypted.
     mutable QHash<QString, RoomEncryption> m_encryptedRooms;
     EncryptionResolver m_encryptionResolver;
+    /// The member snapshot's answer per room. Absent means unknown.
     QHash<QString, bool> m_canPublishMembership;
+    /// Answers a power-level or membership poke may have outdated. Kept as
+    /// the best guess until re-read.
+    QSet<QString> m_permissionStale;
+    /// Rooms where the homeserver refused our membership as forbidden, with
+    /// when. Bounded.
+    QHash<QString, qint64> m_membershipRefusedAtMs;
+    /// Member snapshots this controller asked for, one per room at a time.
+    QHash<quint64, PendingRead> m_permissionReads;
+    QSet<QString> m_permissionRoomsBeingRead;
+    QString m_currentRoom;
+    /// Coalesces pokes for the open room into one re-read.
+    QTimer m_permissionRereadTimer;
+    int m_permissionRereadMs = 10000;
 
 };

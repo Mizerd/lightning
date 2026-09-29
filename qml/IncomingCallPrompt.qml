@@ -261,11 +261,10 @@ Rectangle {
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.textMeta
-            // Localpart only, as in the timeline.
+            // The caller's display name in the room when known, else the
+            // localpart (CallController::callerDisplayName). Never the MXID.
             text: {
-                var caller = app.calls.callerUserId
-                if (caller.length > 1 && caller.charAt(0) === "@")
-                    caller = caller.substring(1).split(":")[0]
+                var caller = app.calls.callerDisplayName || ""
 
                 // A MatrixRTC ring invites to a session: "started a call", and
                 // any obstacle is the join gate, never the legacy engine.

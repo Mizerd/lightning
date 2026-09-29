@@ -66,6 +66,7 @@
 #include "spaces/SpaceModerationController.h"
 #include "threads/ThreadController.h"
 #include "calls/CallController.h"
+#include "calls/CallLanePolicy.h"
 #include "calls/RtcController.h"
 #include "calls/CallDeviceController.h"
 #include "calls/SfuCallController.h"
@@ -1189,6 +1190,13 @@ private:
     std::unique_ptr<CallController> m_calls;
     /// See the Q_PROPERTY: bumped from RtcController's own change signals.
     int m_callGateRevision = 0;
+    /// A call-button MatrixRTC join that may fall back to the legacy lane on
+    /// a `forbidden` refusal, and the call failure on the status strip
+    /// (CallLanePolicy.h).
+    lightning::calls::LegacyFallbackArm m_legacyFallback;
+    lightning::calls::CallFailureNotice m_callNotice;
+    /// Clears the status strip when it still shows our call failure.
+    void withdrawCallFailure();
     std::unique_ptr<RtcController> m_rtc;
     std::unique_ptr<SfuCallController> m_groupCall;
     std::unique_ptr<CallDeviceController> m_callDevices;

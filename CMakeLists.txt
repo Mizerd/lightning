@@ -3137,6 +3137,18 @@ if(BUILD_TESTING)
     set_tests_properties(rtc-session PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # The incoming-call card names the caller by room display name, with the
+    # localpart as the fallback.
+    qt_add_executable(call-caller-name-test
+        tests/CallCallerNameTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(call-caller-name-test)
+    target_link_libraries(call-caller-name-test PRIVATE Qt6::Test)
+    add_test(NAME call-caller-name COMMAND call-caller-name-test)
+    set_tests_properties(call-caller-name PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # m.location (MSC3488) and live beacons (MSC3672).
     qt_add_executable(location-message-test
         tests/LocationMessageTest.cpp
@@ -4580,6 +4592,14 @@ if(BUILD_TESTING)
     target_include_directories(capture-device-selection-test PRIVATE src)
     target_link_libraries(capture-device-selection-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME capture-device-selection COMMAND capture-device-selection-test)
+
+    # Which refused MatrixRTC joins may fall back to a legacy call, and when a
+    # call failure leaves the shared status strip. Header-only rules.
+    qt_add_executable(call-lane-policy-test
+        tests/CallLanePolicyTest.cpp src/calls/CallLanePolicy.h)
+    target_include_directories(call-lane-policy-test PRIVATE src)
+    target_link_libraries(call-lane-policy-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME call-lane-policy COMMAND call-lane-policy-test)
 
     qt_add_executable(updater-relaunch-environment-test
         tests/RelaunchEnvironmentTest.cpp src/updater/RelaunchEnvironment.cpp)

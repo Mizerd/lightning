@@ -807,14 +807,82 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // A call answered by joining the room (the MatrixRTC lane) must also end
     // the ring on the notification lane. Hooked to the state change so every
     // entry point is covered.
+    //
+    // The strip shows the last errorReported(), so this mirror says whether a
+    // call failure is still what it shows; withdrawCallFailure() must never
+    // clear somebody else's message.
+    connect(this, &AppController::errorReported, this,
+            [this](const QString &message) { m_callNotice.reported(message); });
+    // An empty reason withdraws, and only our own notice.
     connect(m_groupCall.get(), &SfuCallController::callFailed, this,
             [this](const QString &reason) {
-                Q_EMIT errorReported(reason);
+                if (const auto report = m_callNotice.failed(reason))
+                    Q_EMIT errorReported(*report);
             });
+    // A call that carries on another lane makes the failure stale; it stayed
+    // up through a whole working legacy call.
+    connect(m_calls.get(), &CallController::stateChanged, this, [this] {
+        if (m_calls->state() == CallController::State::Active)
+            withdrawCallFailure();
+    });
+    // The server refused our call membership. The gate now says so, and a
+    // join the call button started in a 1:1 DM is re-placed on the legacy
+    // lane rather than left failed: the user asked for a call. A join from
+    // the call banner is not, since that asks for THIS call.
+    connect(m_rtc.get(), &RtcController::membershipRefused, this,
+            [this](const QString &roomId) {
+                const auto armed = m_legacyFallback.take(roomId);
+                if (!armed.fallBack)
+                    return;
+                const bool withVideo = armed.video;
+                if (roomId != m_currentRoomId || withVideo
+                    || preferredCallLane(roomId) != QLatin1String("legacy")
+                    || m_groupCall->active()
+                    || (m_calls->state() != CallController::State::Idle
+                        && m_calls->state() != CallController::State::Ended)) {
+                    return;
+                }
+                qCInfo(lcApp) << "matrixrtc membership refused; placing the "
+                                 "call on the legacy 1:1 lane instead";
+                const bool ok =
+                    m_calls->placeCall(roomId, legacyCallPeer(roomId));
+                qCInfo(lcApp) << "legacy call dispatched ok=" << ok;
+                if (ok)
+                    withdrawCallFailure();
+            });
+    // A join failure belongs to the room it happened in; a running call's
+    // notices stay while the user looks at other rooms.
+    connect(this, &AppController::currentRoomIdChanged, this, [this] {
+        m_legacyFallback.roomChanged();
+        const bool callRunning =
+            m_groupCall->active() || m_calls->sessionLive();
+        if (const auto report = m_callNotice.roomChanged(callRunning))
+            Q_EMIT errorReported(*report);
+    });
     connect(m_groupCall.get(), &SfuCallController::stateChanged, this,
             [this] {
                 if (m_groupCall->active())
                     m_calls->noteAnsweredByOtherLane(m_groupCall->roomId());
+                // Any new join, the gate passed, or the call over: nothing
+                // left for the button's fallback (CallLanePolicy.h).
+                using Phase = lightning::calls::LegacyFallbackArm::Phase;
+                switch (m_groupCall->state()) {
+                case SfuCallController::State::Idle:
+                    m_legacyFallback.phaseChanged(Phase::Idle);
+                    break;
+                case SfuCallController::State::Preparing:
+                    m_legacyFallback.phaseChanged(Phase::Preparing);
+                    break;
+                case SfuCallController::State::Failed:
+                    m_legacyFallback.phaseChanged(Phase::Failed);
+                    break;
+                case SfuCallController::State::Ended:
+                    m_legacyFallback.phaseChanged(Phase::Ended);
+                    break;
+                default:
+                    m_legacyFallback.phaseChanged(Phase::PastTheGate);
+                    break;
+                }
             });
     m_callDevices->setSettings(m_settings.get());
     // Call sounds watch both lanes; the player is installed separately
@@ -888,9 +956,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 // D-Bus call, only when the daemon advertises body-markup.
                 const QString roomName = room.value(QStringLiteral("name"))
                                              .toString();
-                // Localpart only, never the full MXID.
-                const QString caller = senderId.mid(1)
-                                           .section(QLatin1Char(':'), 0, 0);
+                // The room member's display name when known (with the
+                // localpart when it could be mistaken for someone else), else
+                // the localpart; never the full MXID.
+                const QString caller =
+                    CallController::callerNameIn(m_client.get(), roomId,
+                                                 senderId);
                 const QString body = privatePreview
                     ? tr("Incoming voice call")
                     : (roomName.isEmpty()
@@ -1345,17 +1416,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // `forwarded` fires only once the send was dispatched.
     connect(m_forward.get(), &ForwardController::forwarded,
             this, &AppController::openRoom);
-    // The join gate learns from the member snapshot whether the server would
-    // accept a call membership. It starts permitted (an unknown capability
-    // must not disable Join) and refuses once power levels are known.
-    connect(m_roomInfo.get(), &RoomInfoController::membersChanged, this,
-            [this] {
-                const QString roomId = m_roomInfo->roomId();
-                if (!roomId.isEmpty()) {
-                    m_rtc->setCanPublishMembership(
-                        roomId, m_roomInfo->canPublishCallMembership());
-                }
-            });
+    // Whether the server would accept a call membership is read by
+    // RtcController from every member snapshot itself (see setCurrentRoom).
+    // It is not pushed from the room info panel: that reached only rooms the
+    // panel had shown, and its reset wrote "permitted" over a known refusal.
     // canStartCall() is a Q_INVOKABLE reading asynchronous state, so the call
     // button's binding needs a revision to re-evaluate.
     //
@@ -2449,6 +2513,13 @@ QString AppController::legacyCallPeer(const QString &roomId) const
     return targets.first();
 }
 
+void AppController::withdrawCallFailure()
+{
+    // The strip may show something newer; that is not ours to clear.
+    if (const auto report = m_callNotice.withdraw())
+        Q_EMIT errorReported(*report);
+}
+
 bool AppController::canStartCall(const QString &roomId) const
 {
     return !preferredCallLane(roomId).isEmpty();
@@ -2479,6 +2550,10 @@ bool AppController::startCall(const QString &roomId, bool withVideo)
     if (lane == QLatin1String("matrixrtc")) {
         const bool ok = m_groupCall->join(roomId, withVideo);
         qCInfo(lcApp) << "matrixrtc join dispatched ok=" << ok;
+        // Armed so a membership the server refuses can fall back to the
+        // legacy lane (see the membershipRefused connection). After join():
+        // its own Preparing dropped any older arm.
+        m_legacyFallback.buttonJoinDispatched(roomId, withVideo, ok);
         return ok;
     }
     if (lane == QLatin1String("legacy")) {
@@ -2491,6 +2566,9 @@ bool AppController::startCall(const QString &roomId, bool withVideo)
         }
         const bool ok = m_calls->placeCall(roomId, legacyCallPeer(roomId));
         qCInfo(lcApp) << "legacy call dispatched ok=" << ok;
+        // An earlier MatrixRTC refusal no longer describes this call.
+        if (ok)
+            withdrawCallFailure();
         return ok;
     }
 
@@ -2781,13 +2859,20 @@ void AppController::setCurrentRoomId(const QString &roomId)
     // Hydrate the member roster on first open so display names resolve in
     // mentions, replies and thread summaries. Once per room per session; a
     // failed fetch un-marks the room so the next open retries.
+    bool membersRequested = false;
     if (!roomId.isEmpty() && m_client
         && !m_memberHydratedRooms.contains(roomId)) {
         // Record only a dispatched request: a synchronous rejection returns 0
         // without ever emitting roomMembersReceived.
-        if (m_client->requestRoomMembers(roomId) != 0)
+        if (m_client->requestRoomMembers(roomId) != 0) {
             m_memberHydratedRooms.insert(roomId);
+            membersRequested = true;
+        }
     }
+    // The call-membership permission comes from that same snapshot; the gate
+    // asks for its own only when none is on its way and it has no fresh
+    // answer. Known before the call button is pressed.
+    m_rtc->setCurrentRoom(roomId, membersRequested);
     // MSC2346 bridge state, once per room per session, only for a room the
     // user opened (never from the room list, whose badge is computed in
     // data()). /state grows with membership, so above 500 loaded members the

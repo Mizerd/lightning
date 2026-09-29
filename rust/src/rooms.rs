@@ -1665,7 +1665,9 @@ async fn members_snapshot_json(
         // can work. Checked with the string we actually send
         // (`rtc::EV_MEMBER_LEGACY`), not a typed ruma enum, whose aliasing could
         // govern a different wire string. Default power levels put state at 50.
-        let can_publish_rtc_membership = own_member.as_ref().is_some_and(|m| {
+        // `None` (null on the wire) when our own member is not in the store
+        // yet: unknown, which the call gate treats as permitted, not refused.
+        let can_publish_rtc_membership: Option<bool> = own_member.as_ref().map(|m| {
             m.can_send_state(StateEventType::from(crate::rtc::EV_MEMBER_LEGACY))
         });
         let join_rule = join_rule_str(room.join_rule().as_ref());

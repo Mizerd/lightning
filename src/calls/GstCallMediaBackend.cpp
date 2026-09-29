@@ -108,6 +108,104 @@ int opusPayloadTypeFromSdp(const QString &sdp)
                                                  : kDefaultOpusPayloadType;
 }
 
+// One media section's shape: kind, direction and whether it is rejected.
+QString sectionShape(const GstSDPMedia *media)
+{
+    const char *kind = gst_sdp_media_get_media(media);
+    QString out = QString::fromUtf8(kind ? kind : "?").left(16);
+    static const char *const kDirections[] = {"sendrecv", "sendonly",
+                                              "recvonly", "inactive"};
+    const char *direction = "sendrecv"; // the SDP default
+    for (const char *candidate : kDirections) {
+        if (gst_sdp_media_get_attribute_val(media, candidate)) {
+            direction = candidate;
+            break;
+        }
+    }
+    out += QLatin1Char(':') + QString::fromLatin1(direction);
+    if (gst_sdp_media_get_port(media) == 0)
+        out += QStringLiteral(":port0");
+    return out;
+}
+
+// The offer's media kind at `mline`, or empty when there is no such section.
+QString offeredKind(const GstSDPMessage *sdp, guint mline)
+{
+    if (!sdp || mline >= gst_sdp_message_medias_len(sdp))
+        return {};
+    const char *kind =
+        gst_sdp_media_get_media(gst_sdp_message_get_media(sdp, mline));
+    return QString::fromUtf8(kind ? kind : "");
+}
+
+// Sets every transceiver whose offered section is not audio to inactive,
+// before the answer is created, so the answer declines it instead of
+// accepting a track this engine cannot play. Keyed on the offer's section:
+// webrtcbin reports our own audio transceiver's kind as unknown at this
+// point. Returns how many were declined.
+int declineUnhandledSections(GstElement *webrtc)
+{
+    GstWebRTCSessionDescription *remote = nullptr;
+    g_object_get(webrtc, "remote-description", &remote, nullptr);
+    if (!remote)
+        return 0;
+    int declined = 0;
+    // Bounded: an offer names a handful of sections.
+    for (guint i = 0; i < 32; ++i) {
+        GstWebRTCRTPTransceiver *transceiver = nullptr;
+        g_signal_emit_by_name(webrtc, "get-transceiver", static_cast<gint>(i),
+                              &transceiver);
+        if (!transceiver)
+            break;
+        guint mline = G_MAXUINT;
+        g_object_get(transceiver, "mlineindex", &mline, nullptr);
+        if (offeredKind(remote->sdp, mline) != QLatin1String("audio")) {
+            g_object_set(transceiver, "direction",
+                         GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE,
+                         nullptr);
+            ++declined;
+        }
+        gst_object_unref(transceiver);
+    }
+    gst_webrtc_session_description_free(remote);
+    return declined;
+}
+
+// Whether a receive pad carries Opus audio, the only thing the receive chain
+// decodes. No caps at all fails closed: such a pad is drained, since linking
+// an unknown track into the Opus chain is what stopped the transport. Absent
+// FIELDS are tolerated (a pad's caps may name only application/x-rtp), a
+// field naming something else is not.
+bool padCarriesOpusAudio(GstPad *pad)
+{
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    if (!caps)
+        caps = gst_pad_query_caps(pad, nullptr);
+    if (!caps)
+        return false;
+    bool opus = false;
+    if (!gst_caps_is_empty(caps) && !gst_caps_is_any(caps)
+        && gst_caps_get_size(caps) > 0) {
+        opus = true;
+        const GstStructure *structure = gst_caps_get_structure(caps, 0);
+        const gchar *media = gst_structure_get_string(structure, "media");
+        const gchar *encoding =
+            gst_structure_get_string(structure, "encoding-name");
+        if (media && g_ascii_strcasecmp(media, "audio") != 0)
+            opus = false;
+        if (encoding && g_ascii_strcasecmp(encoding, "OPUS") != 0)
+            opus = false;
+    }
+    gst_caps_unref(caps);
+    return opus;
+}
+
+GstPadProbeReturn countPacket(GstPad *, GstPadProbeInfo *, gpointer counter)
+{
+    static_cast<std::atomic<int> *>(counter)->fetch_add(1);
+    return GST_PAD_PROBE_OK;
+}
+
 struct BusCtx {
     GstCallMediaBackend *backend = nullptr;
     quintptr pipelineToken = 0;
@@ -177,6 +275,24 @@ bool GstCallMediaBackend::runtimeAvailable(QString *whyNot)
         gst_object_unref(factory);
     }
     return true;
+}
+
+QString GstCallMediaBackend::sdpSectionShape(const QString &sdp)
+{
+    GstSDPMessage *message = nullptr;
+    if (gst_sdp_message_new_from_text(sdp.toUtf8().constData(), &message)
+        != GST_SDP_OK) {
+        if (message)
+            gst_sdp_message_free(message);
+        return QStringLiteral("unparsable");
+    }
+    QStringList sections;
+    const guint count = qMin<guint>(gst_sdp_message_medias_len(message), 16);
+    for (guint i = 0; i < count; ++i)
+        sections.append(sectionShape(gst_sdp_message_get_media(message, i)));
+    gst_sdp_message_free(message);
+    return sections.isEmpty() ? QStringLiteral("none")
+                              : sections.join(QLatin1Char(' '));
 }
 
 int GstCallMediaBackend::offerPromiseErrorReplyContextRefsForTest()
@@ -279,6 +395,8 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     }
 
     m_session = Session();
+    m_receivedAudioPackets.store(0);
+    m_drainedPads.store(0);
     m_session.callId = callId;
     m_session.pipeline = pipeline;
     m_session.webrtc = webrtc;
@@ -439,6 +557,9 @@ void GstCallMediaBackend::createAnswer(const QString &callId,
         Q_EMIT failed(callId, QStringLiteral("bad_remote_offer"));
         return;
     }
+    // Shape only (kinds and directions), never the SDP itself.
+    qCInfo(lcCallMedia) << "remote offer sections="
+                        << sdpSectionShape(remoteOfferSdp);
     GstWebRTCSessionDescription *offer = gst_webrtc_session_description_new(
         GST_WEBRTC_SDP_TYPE_OFFER, message); // takes ownership of message
     GstPromise *promise = gst_promise_new_with_change_func(
@@ -598,6 +719,9 @@ void GstCallMediaBackend::handleLocalDescription(quintptr token, bool offer,
         handleFailure(token, QStringLiteral("description_failed"));
         return;
     }
+    qCInfo(lcCallMedia) << (offer ? "local offer sections="
+                                  : "local answer sections=")
+                        << sdpSectionShape(sdp);
     if (offer)
         Q_EMIT offerReady(m_session.callId, sdp);
     else
@@ -720,6 +844,12 @@ void GstCallMediaBackend::onRemoteOfferSet(GstPromise *promise,
     marshal(backend, [backend, token] {
         backend->handleRemoteDescriptionApplied(token);
     });
+    // Decline what this engine cannot carry before answering; see the header.
+    const int declined = declineUnhandledSections(webrtc);
+    if (declined > 0) {
+        qCInfo(lcCallMedia) << "declining" << declined
+                            << "offered section(s) that are not audio";
+    }
     // Answer creation continues on this thread; the element is ref-held, and
     // an answer for a closed session is dropped by the Qt-side token check.
     GstPromise *answerPromise = gst_promise_new_with_change_func(
@@ -812,6 +942,44 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         GST_ELEMENT(gst_element_get_parent(webrtc)); // owns one ref
     if (!pipeline)
         return;
+    const quintptr token = reinterpret_cast<quintptr>(webrtc);
+    if (!padCarriesOpusAudio(srcPad)) {
+        // A track the Opus chain cannot decode (a video section the peer
+        // sends anyway, as webrtcbin does after an inactive answer). Drained,
+        // never linked into the chain: not-negotiated there stops the shared
+        // transport, and with it the call's audio.
+        backend->m_drainedPads.fetch_add(1);
+        qCInfo(lcCallMedia) << "a receive track that is not Opus audio is "
+                               "discarded";
+        GError *error = nullptr;
+        GstElement *drain = gst_parse_bin_from_description(
+            "fakesink sync=false async=false", TRUE, &error);
+        bool ok = !error && drain;
+        if (error)
+            g_error_free(error);
+        if (ok && !gst_bin_add(GST_BIN(pipeline), drain)) {
+            drain = nullptr; // sunk and dropped by gst_bin_add
+            ok = false;
+        }
+        if (ok) {
+            gst_element_sync_state_with_parent(drain);
+            GstPad *sinkPad = gst_element_get_static_pad(drain, "sink");
+            ok = sinkPad && gst_pad_link(srcPad, sinkPad) == GST_PAD_LINK_OK;
+            if (sinkPad)
+                gst_object_unref(sinkPad);
+        } else if (drain) {
+            gst_object_unref(drain);
+        }
+        gst_object_unref(pipeline);
+        if (!ok) {
+            // An unlinked pad returns not-linked, which stops the transport
+            // just the same, so this is still a failure.
+            marshal(backend, [backend, token] {
+                backend->handleFailure(token, QStringLiteral("media_receive"));
+            });
+        }
+        return;
+    }
     // m_testTone and m_audioSinkElement are set before any session and never
     // changed during one, so reading them here is safe.
     const QString sink = backend->m_audioSinkElement.isEmpty()
@@ -835,7 +1003,6 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
                   .arg(sink);
     const QByteArray descriptionUtf8 = descriptionString.toUtf8();
     const char *description = descriptionUtf8.constData();
-    const quintptr token = reinterpret_cast<quintptr>(webrtc);
     GError *error = nullptr;
     GstElement *bin =
         gst_parse_bin_from_description(description, TRUE, &error);
@@ -867,6 +1034,10 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
     }
     gst_element_sync_state_with_parent(bin);
     GstPad *sinkPad = gst_element_get_static_pad(bin, "sink");
+    if (backend->m_testTone) {
+        gst_pad_add_probe(sinkPad, GST_PAD_PROBE_TYPE_BUFFER, countPacket,
+                          &backend->m_receivedAudioPackets, nullptr);
+    }
     const GstPadLinkReturn linked = gst_pad_link(srcPad, sinkPad);
     gst_object_unref(sinkPad);
     gst_object_unref(pipeline);

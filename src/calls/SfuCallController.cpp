@@ -1416,8 +1416,16 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
         qCWarning(lcSfuCall)
             << "membership REFUSED by the homeserver category=" << category
             << "reportedAs=" << reported;
+        // Captured first: teardown() clears m_roomId.
+        const QString refusedRoom = m_roomId;
         teardown(State::Failed, userFacingError(reported));
         Q_EMIT callFailed(m_lastError);
+        // The refusal is evidence for the lane gate. Reported after the
+        // teardown, so the session change it announces cannot reach a call
+        // that is still Preparing, and a lane fallback it triggers starts
+        // after this failure was shown.
+        if (m_rtc)
+            m_rtc->noteMembershipRefused(refusedRoom, category);
         return;
     }
     m_membershipEventId = eventId;
