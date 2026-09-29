@@ -73,6 +73,8 @@ constexpr const char *kComponents[] = {
     "SpaceMemberActionDialog",
     // Close / server-admin delete confirmation; renders app.roomClosure.
     "RoomCloseDialog",
+    // Settings -> Account -> Change password; renders app.passwordChange.
+    "ChangePasswordSection",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

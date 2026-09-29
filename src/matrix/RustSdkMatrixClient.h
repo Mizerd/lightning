@@ -614,6 +614,11 @@ public:
     bool uiaSubmitPassword(quint64 uiaId, const QString &password) override;
     void uiaCancel(quint64 uiaId) override;
     quint64 requestOAuthManagementUrl(const QString &deviceId) override;
+    bool supportsPasswordChange() const override { return true; }
+    quint64 changePassword(const QString &currentPassword,
+                           const QString &newPassword,
+                           bool logoutDevices) override;
+    quint64 probePasswordChange() override;
     quint64 addRoomToSpace(const QString &spaceId, const QString &roomId) override;
     quint64 setSpaceChildSuggested(const QString &spaceId,
                                    const QString &roomId,

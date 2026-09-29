@@ -7359,6 +7359,38 @@ quint64 RustSdkMatrixClient::requestOAuthManagementUrl(const QString &deviceId)
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::changePassword(const QString &currentPassword,
+                                            const QString &newPassword,
+                                            bool logoutDevices)
+{
+    if (!m_rustHandle || currentPassword.isEmpty() || newPassword.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    // Convert once; keep no QString copy in C++. Rust scrubs its own copies.
+    QByteArray currentBytes = currentPassword.toUtf8();
+    QByteArray newBytes = newPassword.toUtf8();
+    const QString result = takeRustString(mx_rust_change_password(
+        m_rustHandle, currentBytes.constData(), newBytes.constData(),
+        logoutDevices, opId));
+    // volatile so the dead-store optimizer cannot drop the zeroing.
+    for (QByteArray *bytes : { &currentBytes, &newBytes }) {
+        volatile char *raw = bytes->data();
+        for (qsizetype i = 0; i < bytes->size(); ++i)
+            raw[i] = 0;
+    }
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::probePasswordChange()
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QString result = takeRustString(
+        mx_rust_password_change_probe(m_rustHandle, opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::searchMessages(const QString &term,
                                              const QString &roomId,
                                              const QString &nextBatch,
@@ -9951,6 +9983,22 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         Q_EMIT oauthManagementUrlReceived(
             opId(), event.value(QStringLiteral("ok")).toBool(),
             event.value(QStringLiteral("url")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("password_change_probe")) {
+        Q_EMIT passwordChangeProbed(
+            opId(), event.value(QStringLiteral("known")).toBool(),
+            event.value(QStringLiteral("can_change")).toBool(true),
+            event.value(QStringLiteral("management_url")).toString());
+        return true;
+    }
+
+    // A category only; the event never carries a password.
+    if (type == QLatin1String("password_change_result")) {
+        Q_EMIT passwordChangeFinished(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
 

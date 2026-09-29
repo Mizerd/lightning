@@ -92,6 +92,8 @@ mod search;
 mod sso;
 mod stickers;
 mod uia;
+// Account password change and its capability probe (FFI in the module).
+mod password;
 mod policy;
 mod presence;
 mod qrlogin;

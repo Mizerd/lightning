@@ -1628,6 +1628,22 @@ char *mx_rust_uia_cancel(void *client, unsigned long long uia_id);
 char *mx_rust_oauth_management_url(void *client,
                                    const char *device_id,
                                    unsigned long long op_id);
+/* Account password change (rust/src/password.rs): a no-auth attempt, then
+ * the m.login.password UIA stage with current_password. logout_devices=false
+ * is sent explicitly; true is the spec default and is omitted. Rust copies
+ * both strings into buffers it zeroes; the copies inside the ruma request,
+ * the SDK's retry clone and the serialized HTTP body are freed without
+ * zeroing. The caller zeroes its own buffers. Result:
+ * password_change_result { op_id, ok, category }, category one of
+ * wrong_password, weak_password, rate_limited, unsupported, network, failed.
+ * The probe asks m.change_password and the account page (auth metadata):
+ * password_change_probe { op_id, known, can_change, management_url }. */
+char *mx_rust_change_password(void *client,
+                              const char *current_password,
+                              const char *new_password,
+                              bool logout_devices,
+                              unsigned long long op_id);
+char *mx_rust_password_change_probe(void *client, unsigned long long op_id);
 /* v0.7.x server-side message search (POST /_matrix/client/v3/search).
  * Unencrypted rooms ONLY — the server cannot search ciphertext, and the UI
  * must disclose that. room_id empty = all rooms; next_batch pages.

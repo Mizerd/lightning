@@ -58,6 +58,10 @@ Item {
         { title: qsTr("Account"), keywords: qsTr("account profile"),
           section: "account", breadcrumb: qsTr("Account"),
           anchor: "accountIdentityCard" },
+        { title: qsTr("Change password"),
+          keywords: qsTr("password change account security"),
+          section: "account", breadcrumb: qsTr("Account"),
+          anchor: "changePasswordCard" },
         { title: qsTr("Homeserver"), keywords: qsTr("homeserver server url"),
           section: "account", breadcrumb: qsTr("Account"),
           anchor: "homeserverField" },
@@ -5785,6 +5789,18 @@ Item {
                                             file.toString())
                                     }
                                 }
+                            }
+                        }
+
+                        // Change password (Element's Account section), or
+                        // the account page on OAuth/MAS accounts. Rust
+                        // backend only.
+                        SettingsCard {
+                            objectName: "changePasswordCard"
+                            visible: !!app.passwordChange
+                                     && app.passwordChange.available
+                            ChangePasswordSection {
+                                width: parent.width
                             }
                         }
 

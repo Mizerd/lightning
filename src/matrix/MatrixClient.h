@@ -1275,6 +1275,26 @@ public:
     // device's page. Answers on oauthManagementUrlReceived.
     virtual quint64 requestOAuthManagementUrl(const QString &deviceId)
     { Q_UNUSED(deviceId); return 0; }
+    // Account password change: a no-auth attempt, then the password UIA
+    // stage with the current password. logoutDevices=false is sent
+    // explicitly; true is the spec default and is omitted. The passwords are
+    // never stored, logged or echoed. Lightning's own copies are zeroed (the
+    // C++ UTF-8 buffers, the Rust Secret); the copies inside the ruma request,
+    // the SDK's retry clone and the serialized HTTP body are freed without
+    // zeroing. Answers on passwordChangeFinished with a category:
+    // wrong_password, weak_password, rate_limited, unsupported, network or
+    // failed ("" when ok).
+    virtual bool supportsPasswordChange() const { return false; }
+    virtual quint64 changePassword(const QString &currentPassword,
+                                   const QString &newPassword,
+                                   bool logoutDevices)
+    {
+        Q_UNUSED(currentPassword); Q_UNUSED(newPassword);
+        Q_UNUSED(logoutDevices); return 0;
+    }
+    // Whether the server allows it (m.change_password) and the account page
+    // from its auth metadata (OAuth/MAS). Answers on passwordChangeProbed.
+    virtual quint64 probePasswordChange() { return 0; }
     // Server-side message search. Unencrypted rooms only (the server cannot
     // search ciphertext), and every UI surface must say so. Empty `roomId`
     // means all rooms; `nextBatch` pages. Answers on messageSearchFinished.
@@ -2032,6 +2052,10 @@ Q_SIGNALS:
                      bool wrongPassword, const QStringList &stages);
     void deviceDeleteFinished(quint64 opId, bool ok, const QString &category);
     void oauthManagementUrlReceived(quint64 opId, bool ok, const QString &url);
+    // known=false: the server could not be asked (the form stays offered).
+    void passwordChangeProbed(quint64 opId, bool known, bool canChange,
+                              const QString &managementUrl);
+    void passwordChangeFinished(quint64 opId, bool ok, const QString &category);
     // One server-search page. Each row: roomId, eventId, sender,
     // senderDisplayName, senderAvatarUrl, timestampMs, msgtype, body.
     void messageSearchFinished(quint64 opId, bool ok,

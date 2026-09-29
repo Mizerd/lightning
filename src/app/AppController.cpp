@@ -312,6 +312,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_discovery = std::make_unique<RoomDiscoveryController>(this);
     m_messageSearch = std::make_unique<MessageSearchController>(this);
     m_uia = std::make_unique<UiaController>(this);
+    m_passwordChange = std::make_unique<PasswordChangeController>(this);
+    // OAuth (MAS) accounts change their password on the account page.
+    m_passwordChange->setOAuthAccountCheck(
+        [this] { return activeAccountIsOAuth(); });
     m_moderation = std::make_unique<ModerationController>(this);
     m_forward      = std::make_unique<ForwardController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
@@ -1372,6 +1376,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_discovery->setClient(m_client.get());
     m_messageSearch->setClient(m_client.get());
     m_uia->setClient(m_client.get());
+    m_passwordChange->setClient(m_client.get());
     m_moderation->setClient(m_client.get());
     m_forward->setClient(m_client.get());
     m_forward->setMediaBridge(m_mediaBridge.get());
@@ -1501,6 +1506,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // disappears only when the server says so.
     connect(m_uia.get(), &UiaController::signOutFinished, this,
             [this](bool, const QString &) { refreshSessionDevices(); });
+    // "Sign out of all other devices" removes sessions the list still shows.
+    connect(m_passwordChange.get(), &PasswordChangeController::finished, this,
+            [this](bool ok, const QString &) {
+                if (ok)
+                    refreshSessionDevices();
+            });
     // A joined room opens once listed; a joined Space is selected like a
     // created one.
     connect(m_discovery.get(), &RoomDiscoveryController::roomJoined,

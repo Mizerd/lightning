@@ -370,6 +370,8 @@ set(APP_SOURCES
     src/app/RoomDiscoveryController.cpp
     src/app/UiaController.h
     src/app/UiaController.cpp
+    src/app/PasswordChangeController.h
+    src/app/PasswordChangeController.cpp
     src/app/ModerationController.h
     src/app/ModerationController.cpp
     src/app/ForwardController.h
@@ -868,6 +870,7 @@ set(APP_QML_FILES
     qml/VerificationPanel.qml
     qml/VerificationDialog.qml
     qml/UiaPromptDialog.qml
+    qml/ChangePasswordSection.qml
     qml/ReportMessageDialog.qml
     qml/ForwardMessageDialog.qml
     qml/UpdateAvailablePrompt.qml
@@ -2811,6 +2814,20 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME uia-session COMMAND uia-session-test)
 
+    # Settings -> Account -> Change password: local checks before any backend
+    # call, error categories, the sign-out choice, OAuth/capability routing,
+    # stale answers after sign-out, and no password retained.
+    qt_add_executable(password-change-test
+        tests/PasswordChangeControllerTest.cpp
+        src/app/PasswordChangeController.h
+        src/app/PasswordChangeController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(password-change-test PRIVATE src)
+    target_link_libraries(password-change-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME password-change COMMAND password-change-test)
+
     # Personal moderation: ignore/unignore, remote list pushes, reporting, and
     # the notification ignore guard.
     qt_add_executable(moderation-test
@@ -3242,6 +3259,19 @@ if(BUILD_TESTING)
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME qml-component-load COMMAND qml-component-load-test)
     set_tests_properties(qml-component-load PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Change password section: Password echo on every field, and the fields
+    # empty with no undo history after submit, on hide and when the account
+    # page takes over.
+    qt_add_executable(change-password-qml-test
+        tests/ChangePasswordSectionQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(change-password-qml-test)
+    target_link_libraries(change-password-qml-test PRIVATE Qt6::Test)
+    add_test(NAME change-password-qml COMMAND change-password-qml-test)
+    set_tests_properties(change-password-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Incoming-call card contracts plus a real offscreen instantiation against

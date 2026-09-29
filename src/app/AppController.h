@@ -6,6 +6,7 @@
 #include "app/ForwardController.h"
 #include "app/ModerationController.h"
 #include "app/UiaController.h"
+#include "app/PasswordChangeController.h"
 #include "models/MessageSearchController.h"
 #include "models/RoomExport.h"
 #include "models/WidgetController.h"
@@ -334,6 +335,8 @@ class AppController : public QObject
     Q_PROPERTY(RoomDiscoveryController* discovery READ discovery CONSTANT)
     Q_PROPERTY(MessageSearchController* messageSearch READ messageSearch CONSTANT)
     Q_PROPERTY(UiaController* uia READ uia CONSTANT)
+    // Settings → Account → Change password.
+    Q_PROPERTY(PasswordChangeController* passwordChange READ passwordChange CONSTANT)
     Q_PROPERTY(ModerationController* moderation READ moderation CONSTANT)
     // Message forwarding; see ForwardController.
     Q_PROPERTY(ForwardController* forward READ forward CONSTANT)
@@ -591,6 +594,10 @@ public:
     RoomDiscoveryController *discovery() const { return m_discovery.get(); }
     MessageSearchController *messageSearch() const { return m_messageSearch.get(); }
     UiaController *uia() const { return m_uia.get(); }
+    PasswordChangeController *passwordChange() const
+    {
+        return m_passwordChange.get();
+    }
     ModerationController *moderation() const { return m_moderation.get(); }
     ForwardController *forward() const { return m_forward.get(); }
     // OAuth accounts manage devices in the account console, not via a
@@ -1230,6 +1237,7 @@ private:
     std::unique_ptr<RoomDiscoveryController> m_discovery;
     std::unique_ptr<MessageSearchController> m_messageSearch;
     std::unique_ptr<UiaController> m_uia;
+    std::unique_ptr<PasswordChangeController> m_passwordChange;
     std::unique_ptr<ModerationController> m_moderation;
     std::unique_ptr<ForwardController> m_forward;
     // Media keys this account asked to star or copy; the shared media fetch
