@@ -91,6 +91,13 @@ the lightning-deploy pipeline only after packages publish and verify
 
 ### What release rounds have learned (operational traps)
 
+- **ONE FAILED JOB IN AN OTHERWISE GREEN PIPELINE: RETRY THAT JOB, NOT THE
+  PIPELINE** (Rokas, 2026-09-29). `glab api --method POST
+  projects/6/jobs/<job id>/retry`; the jobs that were skipped behind it run
+  once it passes. A full re-run rebuilds every package for nothing and holds
+  the runners for the whole length again. Re-run the full pipeline only when
+  the fix needs a new commit, or when several jobs failed for one cause.
+
 - **THE LOCAL PACKAGE RUNNERS CANNOT LINK THIS PROJECT, and the failures look
   random because both hosts carry identical tags.** Measured across pipelines
   177/178/179 on 2026-09-06: jobs that landed on the LOCAL package runners
