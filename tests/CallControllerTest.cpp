@@ -2082,27 +2082,57 @@ private Q_SLOTS:
                  0.0);
     }
 
-    void aSpeakerAbsentFromTheRoundStopsSpeaking()
+    void speakersChangedIsADeltaSoASteadySpeakerKeepsItsRing()
     {
-        // LiveKit sends the active set, so absence means stopped; reading
-        // absence as "unchanged" leaves a ring stuck on.
+        // LiveKit repeats a speaker only when it starts, its level moves, or it
+        // stops (active=false). Replacing the set per message rang only
+        // whoever changed last; measured live with three speakers at once.
         SfuCallController call;
         call.ingestParticipantsForTest({
             sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
                            {}),
+            sfuParticipant(QStringLiteral("bob"), QStringLiteral("PA_2"), {}),
         });
+        CallParticipantModel *model = call.participantModel();
+        const int alice = participantRowFor(model, QStringLiteral("alice"));
+        const int bob = participantRowFor(model, QStringLiteral("bob"));
+        const auto speaking = [&](int row) {
+            return participantRole(model, row, CallParticipantModel::SpeakingRole)
+                .toBool();
+        };
         call.ingestSpeakersForTest(
             { speakerEntry(QStringLiteral("PA_1"), true, 0.5) });
+        call.ingestSpeakersForTest(
+            { speakerEntry(QStringLiteral("PA_2"), true, 0.4) });
+        QVERIFY(speaking(alice));
+        QVERIFY(speaking(bob));
+        // A message that names nobody changes nobody.
         call.ingestSpeakersForTest({});
-
-        CallParticipantModel *model = call.participantModel();
-        QCOMPARE(participantRole(model, 0,
-                                 CallParticipantModel::SpeakingRole).toBool(),
-                 false);
-        QCOMPARE(participantRole(model, 0,
+        QVERIFY(speaking(alice));
+        QVERIFY(speaking(bob));
+        // A stopped speaker arrives with active=false and level 0.
+        call.ingestSpeakersForTest(
+            { speakerEntry(QStringLiteral("PA_1"), false, 0.0) });
+        QVERIFY(!speaking(alice));
+        QCOMPARE(participantRole(model, alice,
                                  CallParticipantModel::SpeakingLevelRole)
                      .toDouble(),
                  0.0);
+        QVERIFY(speaking(bob));
+        // Someone who leaves while speaking is forgotten, so a rejoin under
+        // the same sid does not come back ringing. A leave is a
+        // ParticipantUpdate with state "disconnected" (also a delta).
+        QVariantMap gone = sfuParticipant(QStringLiteral("bob"),
+                                          QStringLiteral("PA_2"), {});
+        gone.insert(QStringLiteral("state"), QStringLiteral("disconnected"));
+        call.ingestParticipantsForTest({ gone });
+        QCOMPARE(model->rowCount(), 1);
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("alice"), QStringLiteral("PA_1"),
+                           {}),
+            sfuParticipant(QStringLiteral("bob"), QStringLiteral("PA_2"), {}),
+        });
+        QVERIFY(!speaking(participantRowFor(model, QStringLiteral("bob"))));
     }
 
     void aMuteChangeIsOneRoleOnOneRowNotAMembershipChange()

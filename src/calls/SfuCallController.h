@@ -539,6 +539,8 @@ private Q_SLOTS:
                      const QByteArray &sifTrailer = QByteArray());
     void onSfuParticipants(const QVariantList &updates);
     void onSfuSpeakers(const QVariantList &speakers);
+    /// Applies one SpeakersChanged delta to m_speaking/m_speakingLevel.
+    void mergeSpeakers(const QVariantList &speakers);
     void onSfuConnectionQuality(const QVariantList &updates);
     void onSfuRemoteDescription(const QString &kind, const QString &target,
                                 const QString &sdp);

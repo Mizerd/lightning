@@ -1810,20 +1810,33 @@ void SfuCallController::onSfuSpeakers(const QVariantList &speakers)
 {
     if (!active())
         return;
-    m_speaking.clear();
-    m_speakingLevel.clear();
+    mergeSpeakers(speakers);
+}
+
+void SfuCallController::mergeSpeakers(const QVariantList &speakers)
+{
+    // SpeakersChanged is a DELTA, as livekit-client reads it: the server sends
+    // a speaker when it starts or its level moves, and one that stopped with
+    // active=false. A steady speaker is not repeated, so replacing the set
+    // with each message rang only whoever changed last.
     for (const QVariant &value : speakers) {
         const QVariantMap entry = value.toMap();
         const QString sid = entry.value(QStringLiteral("sid")).toString();
         if (sid.isEmpty())
             continue;
-        m_speaking.insert(sid,
-                          entry.value(QStringLiteral("active")).toBool());
+        if (!entry.value(QStringLiteral("active")).toBool()) {
+            m_speaking.remove(sid);
+            m_speakingLevel.remove(sid);
+            continue;
+        }
+        m_speaking.insert(sid, true);
         // LiveKit's SpeakerInfo `level` (0..1). Absent stays absent; the model
         // treats it as 0.0 rather than inventing an amplitude.
         if (entry.contains(QStringLiteral("level"))) {
             m_speakingLevel.insert(
                 sid, entry.value(QStringLiteral("level")).toDouble());
+        } else {
+            m_speakingLevel.remove(sid);
         }
     }
     // Per-row dataChanged on the speaking roles only; participantsChanged()
@@ -3825,6 +3838,18 @@ void SfuCallController::rebuildModels()
     }
 
     m_participantModel->applyParticipants(rows);
+    // A participant who left while speaking gets no active=false; forget it.
+    QSet<QString> present;
+    for (const CallParticipantRow &row : rows)
+        present.insert(row.sid);
+    for (auto it = m_speaking.begin(); it != m_speaking.end();) {
+        if (present.contains(it.key())) {
+            ++it;
+        } else {
+            m_speakingLevel.remove(it.key());
+            it = m_speaking.erase(it);
+        }
+    }
     // Re-apply the last speaker and quality data so new rows are not born
     // stale.
     m_participantModel->applySpeakers(m_speaking, m_speakingLevel);
@@ -3940,22 +3965,7 @@ void SfuCallController::setLocalMediaStateForTest(bool cameraOn,
 
 void SfuCallController::ingestSpeakersForTest(const QVariantList &speakers)
 {
-    m_speaking.clear();
-    m_speakingLevel.clear();
-    for (const QVariant &value : speakers) {
-        const QVariantMap entry = value.toMap();
-        const QString sid = entry.value(QStringLiteral("sid")).toString();
-        if (sid.isEmpty())
-            continue;
-        m_speaking.insert(sid,
-                          entry.value(QStringLiteral("active")).toBool());
-        if (entry.contains(QStringLiteral("level"))) {
-            m_speakingLevel.insert(
-                sid, entry.value(QStringLiteral("level")).toDouble());
-        }
-    }
-    if (m_participantModel)
-        m_participantModel->applySpeakers(m_speaking, m_speakingLevel);
+    mergeSpeakers(speakers);
 }
 
 void SfuCallController::ingestConnectionQualityForTest(

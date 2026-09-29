@@ -264,8 +264,8 @@ void CallParticipantModel::applySpeakers(
     for (int i = 0; i < m_rows.size(); ++i) {
         Entry &entry = m_rows[i];
         const QString &sid = entry.row.sid;
-        // Absence from the round means not speaking: LiveKit sends the active
-        // set. Treating absence as "unchanged" leaves rings stuck on.
+        // The caller hands over the whole current set (SfuCallController
+        // merges LiveKit's deltas), so absence here means not speaking.
         qreal level = sid.isEmpty() ? 0.0 : levelBySid.value(sid, 0.0);
         if (level < 0.0)
             level = 0.0;
