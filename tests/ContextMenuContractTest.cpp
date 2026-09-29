@@ -432,7 +432,9 @@ private Q_SLOTS:
                          "it is meant to undo: %1").arg(args.simplified())));
         }
         // An exact count: a floor would let a new unchecked site slip in.
-        QCOMPARE(found, 6);
+        // Eight since the link media card: its consent (request) and its
+        // dismiss button route through the delegate too.
+        QCOMPARE(found, 8);
     }
 
     void copyRoomLinkAndLeaveRoomAreSignalRouted()

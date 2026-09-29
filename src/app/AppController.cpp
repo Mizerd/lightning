@@ -427,6 +427,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pagination   = std::make_unique<PaginationController>(this);
     m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
     m_linkPreviews = std::make_unique<LinkPreviewController>(this);
+    // A link's own media reaches MediaBridge only through a preview that
+    // loaded under the preview policy (LinkPreviewController::resolveLinkMedia).
+    m_mediaBridge->setLinkMediaResolver([this](const QString &mediaKey) {
+        return m_linkPreviews ? m_linkPreviews->resolveLinkMedia(mediaKey)
+                              : QVariantMap{};
+    });
     m_gifTransport = std::make_unique<MatrixGifTransport>(this);
     m_gif          = std::make_unique<GifSearchController>(this);
     m_gif->setTransport(m_gifTransport.get());
@@ -1428,6 +1434,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             this, [this]() {
         m_linkPreviews->setAllowEncrypted(
             m_settings->loadPreviewsInEncryptedRooms());
+    });
+    m_linkPreviews->setInlineMedia(m_settings->showLinkMediaInline());
+    connect(m_settings.get(), &SettingsManager::showLinkMediaInlineChanged,
+            this, [this]() {
+        m_linkPreviews->setInlineMedia(m_settings->showLinkMediaInline());
     });
 
     // Wheel speed affects discrete mouse-wheel distance only, not touchpad or

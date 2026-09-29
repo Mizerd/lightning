@@ -284,11 +284,15 @@ pub(crate) fn fetch_user_profile(
 // ---------------------------------------------------------------------------
 
 const MAX_HTML_BYTES: usize = 2 * 1_048_576;
-const MAX_IMAGE_BYTES: usize = 5 * 1_048_576;
+pub(crate) const MAX_IMAGE_BYTES: usize = 5 * 1_048_576;
 const MAX_IMAGE_PIXELS: u64 = 25_000_000;
 const MAX_REDIRECTS: usize = 4;
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+/// How much of the first response a preview reads before deciding what it is.
+/// A video, or an image too large to inline, is described from this head and
+/// the rest is never downloaded.
+const PREVIEW_HEAD_BYTES: usize = 64 * 1024;
 
 pub(crate) fn public_ip(ip: std::net::IpAddr) -> bool {
     match ip {
@@ -315,9 +319,15 @@ pub(crate) fn public_ip(ip: std::net::IpAddr) -> bool {
             if let Some(v4) = v.to_ipv4() {
                 return public_ip(std::net::IpAddr::V4(v4));
             }
+            // 6to4 (2002::/16) and Teredo (2001::/32) embed an IPv4 destination
+            // too, and site-local fec0::/10 is deprecated private space.
+            let s = v.segments();
             !(v.is_loopback() || v.is_unspecified()
-                || v.is_multicast() || (v.segments()[0] & 0xfe00) == 0xfc00
-                || (v.segments()[0] & 0xffc0) == 0xfe80)
+                || v.is_multicast() || (s[0] & 0xfe00) == 0xfc00
+                || (s[0] & 0xffc0) == 0xfe80
+                || (s[0] & 0xffc0) == 0xfec0
+                || s[0] == 0x2002
+                || (s[0] == 0x2001 && s[1] == 0x0000))
         }
     }
 }
@@ -331,6 +341,34 @@ pub(crate) const PREVIEW_ACCEPT: &str =
 async fn safe_get(url: &url::Url, limit: usize, accept: &str)
     -> Result<SafeResponse, &'static str> {
     use futures_util::StreamExt;
+    let response = safe_open(url, accept, REQUEST_TIMEOUT).await?;
+    let status = response.status();
+    let mime = response_mime(&response);
+    let location = response.headers().get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok()).map(str::to_owned);
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|_| "request_failure")?;
+        if bytes.len() + chunk.len() > limit { return Err("response_too_large"); }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(SafeResponse { status, mime, location, bytes })
+}
+
+/// The Content-Type without parameters, lowercased; "" when absent.
+pub(crate) fn response_mime(response: &reqwest::Response) -> String {
+    response.headers().get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok()).unwrap_or("").split(';').next().unwrap_or("")
+        .trim().to_ascii_lowercase()
+}
+
+/// Every check `safe_get` makes, with the body left unread: https only, no
+/// credentials, public DNS answers pinned, no proxy, no redirect following.
+/// `timeout` bounds the whole exchange, including reading the body later.
+pub(crate) async fn safe_open(url: &url::Url, accept: &str,
+                              timeout: std::time::Duration)
+    -> Result<reqwest::Response, &'static str> {
     if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some()
         || url.host_str().is_none() { return Err("invalid_url"); }
     let host = url.host_str().unwrap();
@@ -350,31 +388,47 @@ async fn safe_get(url: &url::Url, limit: usize, accept: &str)
     // address and every check above.
     let client = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none())
         .no_proxy()
-        .connect_timeout(CONNECT_TIMEOUT).timeout(REQUEST_TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT).timeout(timeout)
         .user_agent(crate::USER_AGENT).resolve(host, addresses[0]).build()
         .map_err(|_| "request_failure")?;
-    let response = client.get(url.clone())
+    client.get(url.clone())
         .header(reqwest::header::ACCEPT, accept)
         // Some CDN/WAF layers treat requests without standard browser headers
         // (Accept-Language especially) as bots. Accept-Encoding comes from
         // reqwest's gzip/deflate features.
         .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
         .send().await.map_err(|e|
-        if e.is_timeout() { "timeout" } else { "request_failure" })?;
-    let status = response.status();
-    let mime = response.headers().get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok()).unwrap_or("").split(';').next().unwrap_or("")
-        .trim().to_ascii_lowercase();
-    let location = response.headers().get(reqwest::header::LOCATION)
-        .and_then(|v| v.to_str().ok()).map(str::to_owned);
+        if e.is_timeout() { "timeout" } else { "request_failure" })
+}
+
+fn body_error(e: reqwest::Error) -> &'static str {
+    if e.is_timeout() { "timeout" } else { "request_failure" }
+}
+
+/// Reads from a `safe_open` body until at least `want` bytes are held or the
+/// body ends. May hold up to one chunk more than `want`.
+pub(crate) async fn read_head(response: &mut reqwest::Response, want: usize)
+    -> Result<Vec<u8>, &'static str> {
     let mut bytes = Vec::new();
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|_| "request_failure")?;
+    while bytes.len() < want {
+        match response.chunk().await.map_err(body_error)? {
+            Some(chunk) => bytes.extend_from_slice(&chunk),
+            None => break,
+        }
+    }
+    Ok(bytes)
+}
+
+/// Reads the rest of a `safe_open` body onto `bytes`, failing with
+/// "response_too_large" as soon as the total would pass `limit`.
+pub(crate) async fn read_rest(response: &mut reqwest::Response, bytes: &mut Vec<u8>,
+                              limit: usize) -> Result<(), &'static str> {
+    if bytes.len() > limit { return Err("response_too_large"); }
+    while let Some(chunk) = response.chunk().await.map_err(body_error)? {
         if bytes.len() + chunk.len() > limit { return Err("response_too_large"); }
         bytes.extend_from_slice(&chunk);
     }
-    Ok(SafeResponse { status, mime, location, bytes })
+    Ok(())
 }
 
 fn clipped(value: String, max: usize) -> String { value.chars().take(max).collect() }
@@ -470,11 +524,52 @@ pub(crate) async fn safe_get_following_redirects(
     })
 }
 
+/// `safe_get_following_redirects` with the final body left unread, for a
+/// caller that decides from the head whether to read the rest. Every hop gets
+/// `safe_open`'s checks; a redirect's own body is never read.
+pub(crate) async fn safe_open_following_redirects(
+    mut url: url::Url,
+    accept: &str,
+    timeout: std::time::Duration,
+) -> Result<(reqwest::Response, url::Url, u32), PreviewFailure> {
+    for redirects in 0..=MAX_REDIRECTS {
+        let redirects = redirects as u32;
+        let response = safe_open(&url, accept, timeout)
+            .await
+            .map_err(|category| PreviewFailure {
+                category,
+                status: None,
+                redirects,
+            })?;
+        let status = response.status();
+        if !status.is_redirection() {
+            return Ok((response, url, redirects));
+        }
+        let fail = |category: &'static str| PreviewFailure {
+            category,
+            status: Some(status.as_u16()),
+            redirects,
+        };
+        if redirects as usize == MAX_REDIRECTS {
+            return Err(fail("too_many_redirects"));
+        }
+        let next = response.headers().get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| fail("invalid_redirect"))?;
+        url = url.join(next).map_err(|_| fail("invalid_redirect"))?;
+    }
+    Err(PreviewFailure {
+        category: "too_many_redirects",
+        status: None,
+        redirects: MAX_REDIRECTS as u32,
+    })
+}
+
 // Some CDNs mislabel images as application/octet-stream or text/html, so
 // classification checks both the declared MIME and the bytes. A declared
 // image must match its magic; a generic label may be promoted only when the
 // bytes prove a supported raster. HTML stays HTML; SVG never matches.
-fn classify_preview_payload(
+pub(crate) fn classify_preview_payload(
     declared_mime: &str,
     bytes: &[u8],
 ) -> Result<Option<&'static str>, &'static str> {
@@ -503,47 +598,63 @@ fn classify_preview_payload(
 const MAX_INITIAL_FETCH_BYTES: usize = MAX_IMAGE_BYTES;
 
 async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
-    let (response, final_page, redirects) =
-        safe_get_following_redirects(page, MAX_INITIAL_FETCH_BYTES, PREVIEW_ACCEPT).await?;
-    if !response.status.is_success() {
-        let category = if response.status.is_server_error() || response.status.as_u16() == 429 {
+    let (mut response, final_page, redirects) =
+        safe_open_following_redirects(page, PREVIEW_ACCEPT, REQUEST_TIMEOUT).await?;
+    let status = response.status();
+    if !status.is_success() {
+        let category = if status.is_server_error() || status.as_u16() == 429 {
             "http_transient"
         } else {
             "http_terminal"
         };
         return Err(PreviewFailure {
             category,
-            status: Some(response.status.as_u16()),
+            status: Some(status.as_u16()),
             redirects,
         });
     }
-    match classify_preview_payload(&response.mime, &response.bytes).map_err(|category| {
-        PreviewFailure {
-            category,
-            status: Some(response.status.as_u16()),
-            redirects,
+    let fail = |category: &'static str| PreviewFailure {
+        category,
+        status: Some(status.as_u16()),
+        redirects,
+    };
+    let declared = response_mime(&response);
+    let declared_len = response.content_length();
+    let mut bytes = read_head(&mut response, PREVIEW_HEAD_BYTES).await.map_err(fail)?;
+    // A video, or an image too large to inline, is described from its head
+    // and the rest is never read; the player or viewer fetches it on request.
+    use crate::linkmedia::{judge_head, HeadVerdict};
+    let head_image = match judge_head(&declared, &bytes, declared_len) {
+        HeadVerdict::Video(mime) => {
+            return Ok(crate::linkmedia::direct_video_fields(mime, declared_len));
         }
-    })? {
+        HeadVerdict::LargeImage(mime) => {
+            return Ok(crate::linkmedia::large_image_fields(
+                mime, &bytes, declared_len.unwrap_or(0)));
+        }
+        HeadVerdict::ReadRest { image } => image,
+    };
+    match read_rest(&mut response, &mut bytes, MAX_INITIAL_FETCH_BYTES).await {
+        Ok(()) => {}
+        // No declared length, and the image did not fit.
+        Err("response_too_large") if head_image.is_some() => {
+            return Ok(crate::linkmedia::large_image_fields(
+                head_image.unwrap_or_default(), &bytes, declared_len.unwrap_or(0)));
+        }
+        Err(category) => return Err(fail(category)),
+    }
+    drop(response);
+    match classify_preview_payload(&declared, &bytes).map_err(fail)? {
         Some(mime) => {
-            let mut fields = image_fields(mime.to_owned(), response.bytes).map_err(|category| {
-                PreviewFailure {
-                    category,
-                    status: Some(response.status.as_u16()),
-                    redirects,
-                }
-            })?;
+            let mut fields = image_fields(mime.to_owned(), bytes).map_err(fail)?;
             fields["preview_kind"] = "direct_media".into();
             Ok(fields)
         }
         None => {
-            if response.bytes.len() > MAX_HTML_BYTES {
-                return Err(PreviewFailure {
-                    category: "response_too_large",
-                    status: Some(response.status.as_u16()),
-                    redirects,
-                });
+            if bytes.len() > MAX_HTML_BYTES {
+                return Err(fail("response_too_large"));
             }
-            let html = String::from_utf8_lossy(&response.bytes);
+            let html = String::from_utf8_lossy(&bytes);
             let (metadata, html_title) = html_fields(&html);
             let title = pick(&metadata, &["og:title", "twitter:title"]);
             let description = pick(
@@ -561,11 +672,7 @@ async fn preview(page: url::Url) -> Result<serde_json::Value, PreviewFailure> {
                 && description.is_empty()
                 && image.is_none()
             {
-                return Err(PreviewFailure {
-                    category: "no_metadata",
-                    status: Some(response.status.as_u16()),
-                    redirects,
-                });
+                return Err(fail("no_metadata"));
             }
             let mut fields = json!({
                 "preview_kind": "metadata",
@@ -613,7 +720,7 @@ fn image_fields(mime: String, bytes: Vec<u8>) -> Result<serde_json::Value, &'sta
     Ok(json!({"image_source":source,"image_mime":mime,"image_width":width,
         "image_height":height,"image_size":bytes.len()}))
 }
-fn image_dimensions(mime: &str, b: &[u8]) -> Option<(u32,u32)> {
+pub(crate) fn image_dimensions(mime: &str, b: &[u8]) -> Option<(u32,u32)> {
     let be = |i| u32::from_be_bytes([b[i],b[i+1],b[i+2],b[i+3]]);
     if mime == "image/png" && b.len() >= 24 && &b[..8] == b"\x89PNG\r\n\x1a\n" { return Some((be(16),be(20))); }
     if mime == "image/gif" && b.len() >= 10 && (&b[..6] == b"GIF87a" || &b[..6] == b"GIF89a") {
@@ -678,12 +785,28 @@ pub(crate) fn server_preview_fields(data: &serde_json::Value) -> Option<serde_js
     };
     let title = text("og:title");
     let description = text("og:description");
-    if title.is_empty() && description.is_empty() {
-        return None;
-    }
     // Same field set as the client path. `og:image` is an mxc:// URI here,
     // resolved by the media bridge, so the thumbnail needs no direct contact.
     let image_source = text("og:image");
+    let image_mime = text("og:image:type");
+    // A direct image link: the server fetched the image itself and answers
+    // with its mxc and type alone (Synapse's media branch; the description is
+    // only a Content-Disposition filename). Taken as media, so the client does
+    // not fall back to contacting the site. Raster types only: SVG stays out.
+    // A page without a title still has a body summary (spaces) or a site name,
+    // so neither is read as a bare image.
+    let file_name_only = description.is_empty()
+        || (description.len() <= 255 && description.contains('.')
+            && !description.chars().any(char::is_whitespace));
+    let direct_image = title.is_empty()
+        && file_name_only
+        && text("og:site_name").is_empty()
+        && image_source.starts_with("mxc://")
+        && matches!(image_mime.as_str(),
+                    "image/jpeg" | "image/png" | "image/webp" | "image/gif");
+    if title.is_empty() && description.is_empty() && !direct_image {
+        return None;
+    }
     let image_size = obj
         .get("matrix:image:size")
         .and_then(|v| v.as_u64())
@@ -691,14 +814,15 @@ pub(crate) fn server_preview_fields(data: &serde_json::Value) -> Option<serde_js
     let dim = |k: &str| -> u64 {
         obj.get(k).and_then(|v| v.as_u64()).unwrap_or(0)
     };
+    let preview_kind = if direct_image { "direct_media" } else { "metadata" };
     Some(json!({
-        "preview_kind": "metadata",
+        "preview_kind": preview_kind,
         "preview_route": "server",
         "title": clipped(title, 300),
         "description": clipped(description, 1000),
         "site_name": clipped(text("og:site_name"), 120),
         "image_source": image_source,
-        "image_mime": text("og:image:type"),
+        "image_mime": image_mime,
         "image_width": dim("og:image:width"),
         "image_height": dim("og:image:height"),
         "image_size": image_size,
@@ -4963,6 +5087,57 @@ mod tests {
         .expect("usable");
         assert_eq!(with_image["image_source"], "mxc://example.org/abc");
         assert_eq!(with_image["image_size"], 4096);
+        assert_eq!(with_image["preview_kind"], "metadata");
+    }
+
+    // A direct image link the server fetched answers with the image alone.
+    // Falling back would fetch it from the site and hand it the reader's IP.
+    #[test]
+    fn a_server_answer_for_a_direct_image_is_media_not_a_fallback() {
+        use super::server_preview_fields as f;
+        let answer = f(&json!({
+            "og:image": "mxc://example.org/img",
+            "og:image:type": "image/png",
+            "og:image:width": 640,
+            "og:image:height": 480,
+            "matrix:image:size": 9000
+        }))
+        .expect("the server's image must be used");
+        assert_eq!(answer["preview_kind"], "direct_media");
+        assert_eq!(answer["preview_route"], "server");
+        assert_eq!(answer["image_source"], "mxc://example.org/img");
+        assert_eq!(answer["image_mime"], "image/png");
+        assert_eq!(answer["image_width"], 640);
+        // Synapse's description here is the Content-Disposition filename.
+        let named = f(&json!({
+            "og:description": "photo.jpg",
+            "og:image": "mxc://example.org/img",
+            "og:image:type": "image/jpeg"
+        }))
+        .expect("usable");
+        assert_eq!(named["preview_kind"], "direct_media");
+        // SVG is never media, and a non-mxc image is not the server's copy.
+        assert!(f(&json!({ "og:image": "mxc://example.org/s",
+                            "og:image:type": "image/svg+xml" })).is_none());
+        assert!(f(&json!({ "og:image": "https://example.org/a.png",
+                            "og:image:type": "image/png" })).is_none());
+        // A titleless PAGE keeps its card: a body summary has spaces, and a
+        // site name marks a page.
+        let page = f(&json!({
+            "og:description": "Some words from the page body.",
+            "og:image": "mxc://example.org/img",
+            "og:image:type": "image/png"
+        }))
+        .expect("usable");
+        assert_eq!(page["preview_kind"], "metadata");
+        let site = f(&json!({
+            "og:site_name": "Example",
+            "og:description": "x.png",
+            "og:image": "mxc://example.org/img",
+            "og:image:type": "image/png"
+        }))
+        .expect("usable");
+        assert_eq!(site["preview_kind"], "metadata");
     }
 
     #[test]
@@ -4991,6 +5166,15 @@ mod tests {
         assert!(!public_ip("::127.0.0.1".parse().unwrap()));
         // A mapped public address stays public.
         assert!(public_ip("::ffff:93.184.216.34".parse().unwrap()));
+        // 6to4 and Teredo carry an IPv4 destination inside; site-local is
+        // private. The neighbouring real prefixes stay public.
+        assert!(!public_ip("2002:7f00:1::1".parse().unwrap()));
+        assert!(!public_ip("2002:c0a8:101::1".parse().unwrap()));
+        assert!(!public_ip("2001:0:4136:e378:8000:63bf:3fff:fdd2".parse().unwrap()));
+        assert!(!public_ip("fec0::1".parse().unwrap()));
+        assert!(!public_ip("feff::1".parse().unwrap()));
+        assert!(public_ip("2001:4860:4860::8888".parse().unwrap()));
+        assert!(public_ip("2003:e0::1".parse().unwrap()));
     }
 
     #[test]

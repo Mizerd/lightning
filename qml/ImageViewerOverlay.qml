@@ -38,7 +38,8 @@ Popup {
     closePolicy: Popup.CloseOnEscape
 
     // Entries from TimelineModel::imageEntries(); each has
-    // {row, mediaKey, filename, sender, timestamp, mime, httpUrl}.
+    // {row, mediaKey, filename, sender, timestamp, mime, httpUrl}. A link's
+    // own image (a "link:" key) also carries linkUrl and linkHost.
     property var entries: []
     property int currentIndex: -1
     readonly property var current:
@@ -51,6 +52,9 @@ Popup {
     property real zoom: 1.0
     readonly property real minZoom: 0.1
     readonly property real maxZoom: 10.0
+    // The link a link's own image came from, or "".
+    readonly property string currentLinkUrl:
+        current !== null ? (current.linkUrl || "") : ""
     property real baseWidth: 0
     property real baseHeight: 0
     property real naturalWidth: 0
@@ -97,6 +101,31 @@ Popup {
     /// Open on the images the timeline has loaded, located by media key (or by
     /// URL on the HTTP backend).
     function openFor(mediaKey, httpUrl) {
+        // A link that is itself an image: shown alone. MediaBridge fetches it
+        // through the "link:" key (the preview's own bytes, the homeserver's
+        // copy, or the link under the preview's size cap), never by URL.
+        if (mediaKey.indexOf("link:") === 0) {
+            var entry = app.linkPreviews.viewerEntry(mediaKey)
+            if (!entry || !entry.url)
+                return
+            openAt([{
+                "row": -1,
+                "mediaKey": mediaKey,
+                "filename": entry.fileName || entry.host || "",
+                "sender": "",
+                "timestamp": undefined,
+                "mime": entry.mime || "",
+                "httpUrl": "",
+                "linkUrl": entry.url,
+                "linkHost": entry.host || "",
+                "isImage": true,
+                "isVideo": false,
+                "isVisual": true,
+                "thumbAvailable": false,
+                "size": 0
+            }], 0)
+            return
+        }
         var list = app.timeline.imageEntries()
         var found = -1
         for (var i = 0; i < list.length; ++i) {
@@ -237,6 +266,14 @@ Popup {
             zoomAt(viewportPoint, clickZoom)
     }
 
+    // A payload can land between open() and `opened` (a link's held image
+    // completes on the next event-loop turn), while the Connections below is
+    // still disabled: read it again once open.
+    onOpened: {
+        if (viewer.usesBridge && viewer.bridgeSource === "")
+            viewer.loadCurrent()
+    }
+
     Connections {
         target: app.mediaBridge
         enabled: viewer.opened && viewer.usesBridge
@@ -286,6 +323,14 @@ Popup {
                 saveDialog.currentFile = viewer.suggestedSaveUrl()
                 saveDialog.open()
             }
+        }
+        AppMenuItem {
+            objectName: "viewerOpenLinkInBrowser"
+            iconName: "link"
+            text: qsTr("Open in browser")
+            visible: viewer.currentLinkUrl.length > 0
+            height: visible ? implicitHeight : 0
+            onTriggered: app.media.openWebUrl(viewer.currentLinkUrl)
         }
         AppMenuSeparator {}
         AppMenuItem {
@@ -437,6 +482,7 @@ Popup {
                     // Static image path.
                     Image {
                         id: staticImage
+                        objectName: "viewerStaticImage"
                         // The still is the default and the fallback: it yields
                         // only once the AnimatedImage reports Ready, so
                         // undecodable animations still show a picture.
@@ -644,18 +690,21 @@ Popup {
                     elide: Label.ElideMiddle
                 }
                 Label {
+                    objectName: "viewerSubtitle"
                     // Remote or externally chosen text: never markup.
                     textFormat: Text.PlainText
                     Layout.fillWidth: true
                     // Guarded on the sender: openFor()'s miss branch knows only
-                    // the media key, and "· 1 Jan 1970" is worse than blank.
+                    // the media key, and "· 1 Jan 1970" is worse than blank. A
+                    // link's image names the site instead.
                     text: viewer.current !== null
                           && (viewer.current.sender || "").length > 0
                           ? qsTr("%1 · %2")
                                 .arg(viewer.current.sender)
                                 .arg(Qt.formatDateTime(viewer.current.timestamp,
                                                        "d MMM yyyy hh:mm"))
-                          : ""
+                          : viewer.current !== null
+                            ? (viewer.current.linkHost || "") : ""
                     color: AppTheme.scrimInkMuted
                     font.pixelSize: AppTheme.textMeta
                     elide: Label.ElideRight
@@ -912,6 +961,19 @@ Popup {
                     Layout.leftMargin: 4
                     Layout.rightMargin: 4
                     visible: viewer.usesBridge
+                }
+                IconButton {
+                    objectName: "viewerOpenInBrowserButton"
+                    visible: viewer.currentLinkUrl.length > 0
+                    iconName: "link"
+                    iconSize: 20
+                    implicitWidth: 32; implicitHeight: 32
+                    iconColorOverride: AppTheme.scrimInk
+                    Accessible.name: qsTr("Open in browser")
+                    ToolTip.text: qsTr("Open in browser")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
+                    onClicked: app.media.openWebUrl(viewer.currentLinkUrl)
                 }
                 IconButton {
                     objectName: "viewerSaveButton"

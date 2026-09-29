@@ -991,6 +991,10 @@ char *mx_rust_stickers_add_to_user_pack(void *client,
  *              "image_source","image_mime","image_width","image_height",
  *              "image_size"}}
  * or ok=false with a coarse "category".
+ * preview_kind "direct_media" is a URL that is itself an image (image_source
+ * empty when it is too large to inline); "direct_video" is a video described
+ * from its head only, with "video_mime" and "video_size" (0 = unknown). Both
+ * carry "media_too_large" when over what mx_rust_link_media_fetch accepts.
  */
 char *mx_rust_get_url_preview(void *client,
                               const char *url,
@@ -1833,6 +1837,23 @@ char *mx_rust_media_fetch_mxc(void *client,
                               unsigned long long width,
                               unsigned long long height,
                               unsigned long long op_id);
+/*
+ * A link's own media (a URL that is itself an image or a video), fetched for
+ * MediaBridge key `key` ("link:" + 40 hex) only on an explicit request (Play,
+ * the viewer). Same safe fetch as a preview (https, public DNS pinned, no
+ * proxy, every redirect re-validated), capped (image 25 MiB / 50 MP, video
+ * 100 MiB) and validated by magic. Answers with the ordinary `media_ready`
+ * (kind 0, bytes via mx_rust_media_take) or `media_failed` ("too_large",
+ * "rejected", "blocked", "timeout", "http_transient", "http_terminal", ...).
+ * Cancellable with mx_rust_media_cancel. The URL is never logged.
+ *   expect: 0 image, 1 video. timeout_class: as mx_rust_media_fetch.
+ */
+char *mx_rust_link_media_fetch(void *client,
+                               const char *url,
+                               const char *key,
+                               unsigned int expect,
+                               unsigned int timeout_class,
+                               unsigned long long op_id);
 /*
  * Cancel an in-flight media fetch by op id: aborts the download task and
  * drops any parked bytes. Idempotent; no terminal event is emitted for a

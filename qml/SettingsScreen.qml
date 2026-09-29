@@ -315,6 +315,11 @@ Item {
           keywords: qsTr("link preview encrypted"), section: "privacy",
           breadcrumb: qsTr("Privacy & security · Link previews"),
           anchor: "encryptedPreviewCheck" },
+        { title: qsTr("Show images and videos from links inline"),
+          keywords: qsTr("link preview image video embed inline media player viewer"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Link previews"),
+          anchor: "inlineLinkMediaCheck" },
         { title: qsTr("Autoplay and prefetch media"),
           keywords: qsTr("gif autoplay prefetch video audio media"),
           section: "privacy", breadcrumb: qsTr("Privacy & security · Media"),
@@ -4090,6 +4095,28 @@ Item {
                                     text: qsTr("Load previews in encrypted rooms")
                                     checked: app.settings.loadPreviewsInEncryptedRooms
                                     onToggled: app.settings.loadPreviewsInEncryptedRooms = checked
+                                }
+                                // A link that is itself a picture or a video.
+                                // Only for previews the switches above allow;
+                                // a video downloads only when Play is pressed.
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "inlineLinkMediaCheck"
+                                    text: qsTr("Show images and videos from links inline")
+                                    checked: app.settings.showLinkMediaInline
+                                    onToggled: app.settings.showLinkMediaInline = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("A picture opens in Lightning's viewer and a video plays here. "
+                                               + "A video, or a picture too large to preview, is downloaded "
+                                               + "from the link's site only when you press Play or open it.")
                                 }
                                 // Privacy caution: the danger rule carries the
                                 // caution so the copy stays readable body ink.

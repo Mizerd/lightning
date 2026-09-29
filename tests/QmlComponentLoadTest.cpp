@@ -64,6 +64,9 @@ constexpr const char *kComponents[] = {
     "HomePane",
     // Collapsed-embed summary row; reads only AppTheme and Icon.
     "CollapsedEmbedRow",
+    // A link's own video or large image; reads app.linkPreviews and
+    // app.mediaBridge, and every preview field defaults to empty.
+    "LinkMediaCard",
     // Space Home lobby; every input has an empty default and it reads no `app`.
     "SpaceLobby",
     // Space kick/ban confirmation; renders app.spaceModeration.

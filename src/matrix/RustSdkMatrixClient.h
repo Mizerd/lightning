@@ -422,6 +422,8 @@ public:
     quint64 fetchMutualRooms(const QString &userId) override;
     bool supportsUrlPreview() const override { return true; }
     quint64 fetchUrlPreview(const QString &url) override;
+    quint64 fetchLinkMedia(const QString &url, const QString &linkKey,
+                           int expect, int timeoutClass) override;
     bool supportsGifProvider() const override { return true; }
     quint64 gifGet(const QString &url) override;
     quint64 gifDownload(const QString &url) override;

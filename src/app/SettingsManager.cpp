@@ -41,6 +41,7 @@ constexpr auto kPreferredEmojiTone  = "emoji/preferredTone";
 constexpr auto kPreviewsUnencrypted = "previews/autoLoadUnencrypted";
 constexpr auto kPreviewsEncrypted   = "previews/loadInEncryptedRooms";
 constexpr auto kPreviewsAnimateGifs = "previews/animateGifs";
+constexpr auto kPreviewsInlineMedia = "previews/inlineMedia";
 // Screen-share quality. Device-global. Clamped on read and write because
 // the value reaches a GStreamer caps string.
 constexpr auto kShareMaxHeight      = "calls/shareMaxHeight";
@@ -2042,6 +2043,22 @@ void SettingsManager::setAnimateGifPreviews(bool v)
         return;
     m_store->setValue(kPreviewsAnimateGifs, v);
     Q_EMIT animateGifPreviewsChanged();
+}
+
+bool SettingsManager::showLinkMediaInline() const
+{
+    // On: it only changes how a preview the reader already allowed is shown,
+    // and what Play or the viewer may then fetch. Previews themselves stay off
+    // by default (docs/privacy.md).
+    return m_store->value(kPreviewsInlineMedia, true).toBool();
+}
+
+void SettingsManager::setShowLinkMediaInline(bool v)
+{
+    if (showLinkMediaInline() == v)
+        return;
+    m_store->setValue(kPreviewsInlineMedia, v);
+    Q_EMIT showLinkMediaInlineChanged();
 }
 
 bool SettingsManager::sharePresence() const

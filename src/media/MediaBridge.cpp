@@ -471,6 +471,10 @@ QString MediaBridge::mediaSource(const QString &mediaKey, const QString &kind)
             return borrowed;
         }
     }
+    // A link has no thumbnail of its own: a smaller class can only borrow the
+    // full payload above. Nothing to fetch, and nothing failed.
+    if (kindValue != 0 && isLinkMediaKey(mediaKey))
+        return {};
     // A failure mark blocks re-dispatch so QML repolling cannot loop.
     if (failureBlocks(cacheKey)) {
         qCDebug(lcMediaTrace, "media %s suppressed=failure-mark(%s)",
@@ -992,7 +996,8 @@ void MediaBridge::onPosterReady(const QString &mediaKey,
         buffer.open(QIODevice::ReadOnly);
         QImageReader reader(&buffer);
         const QSize size = reader.size();
-        if (size.isValid() && size.width() > 0 && size.height() > 0)
+        if (size.isValid() && size.width() > 0 && size.height() > 0
+            && !isLinkMediaKey(mediaKey))
             Q_EMIT videoDimensionsLearned(mediaKey, size.width(),
                                           size.height());
     }
@@ -1045,8 +1050,11 @@ QString MediaBridge::playableExtensionFor(const QByteArray &bytes,
 QString MediaBridge::previewAnimatedSource(const QString &dataSource,
                                            const QString &mimetype)
 {
-    if (mimetype != QLatin1String("image/gif")
-        || !dataSource.startsWith(QLatin1String("data:image/gif;base64,")))
+    // GIF, or WebP (writeAnimatedFile keeps only an animated one).
+    if ((mimetype != QLatin1String("image/gif")
+         && mimetype != QLatin1String("image/webp"))
+        || !dataSource.startsWith(QStringLiteral("data:") + mimetype
+                                  + QStringLiteral(";base64,")))
         return {};
     const QByteArray bytes = QByteArray::fromBase64(
         dataSource.mid(dataSource.indexOf(QLatin1Char(',')) + 1).toLatin1(),
@@ -1264,6 +1272,8 @@ void MediaBridge::dispatch(const Pending &request)
     else if (tracked.isMxc)
         opId = m_client->fetchMxcThumbnail(tracked.mediaKey, tracked.size,
                                            tracked.size);
+    else if (isLinkMediaKey(tracked.mediaKey))
+        opId = dispatchLinkMedia(tracked);
     else
         opId = m_client->fetchMedia(tracked.mediaKey, tracked.kind,
                                     tracked.timeoutClass);
@@ -1296,6 +1306,45 @@ void MediaBridge::dispatch(const Pending &request)
             static_cast<unsigned long long>(opId),
             static_cast<long long>(m_inflight.size() + 1));
     m_inflight.insert(opId, tracked);
+}
+
+quint64 MediaBridge::dispatchLinkMedia(Pending &request)
+{
+    // Full payloads only: a link has no thumbnail of its own.
+    if (request.kind != 0 || !m_linkResolver)
+        return 0;
+    const QVariantMap target = m_linkResolver(request.mediaKey);
+    const QByteArray held = target.value(QStringLiteral("bytes")).toByteArray();
+    if (!held.isEmpty()) {
+        // Queued, so it completes like a fetch: after dispatch() records the
+        // op, and dropped as stale if clear() or a cancel came first.
+        const quint64 opId = m_nextLocalOpId++;
+        const QString mediaKey = request.mediaKey;
+        const QString mime = target.value(QStringLiteral("mime")).toString();
+        QMetaObject::invokeMethod(
+            this,
+            [this, opId, mediaKey, held, mime] {
+                onMediaReady(opId, mediaKey, 0, held, mime, QString());
+            },
+            Qt::QueuedConnection);
+        return opId;
+    }
+    if (!m_client)
+        return 0;
+    // The homeserver's copy (a server-route preview): the site is not
+    // contacted again.
+    const QString mxc = target.value(QStringLiteral("mxc")).toString();
+    if (mxc.startsWith(QLatin1String("mxc://")))
+        return m_client->fetchMxcThumbnail(mxc, 0, 0);
+    const QString url = target.value(QStringLiteral("url")).toString();
+    if (url.isEmpty())
+        return 0;
+    // A third-party host over the open internet: at least the playable class
+    // (90 s Rust / 100 s watchdog), kept in step with the watchdog here.
+    request.timeoutClass = qMax(request.timeoutClass, 1);
+    return m_client->fetchLinkMedia(
+        url, request.mediaKey,
+        target.value(QStringLiteral("expect")).toInt(), request.timeoutClass);
 }
 
 void MediaBridge::pump()
@@ -1478,7 +1527,9 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
     const bool prefetchWanted = m_prefetchWanted.contains(request.cacheKey);
     // Remember the sniffed A/V size so metadata-less events can prefetch (and
     // get posters) in later sessions.
-    if (request.kind == 0 && looksLikeAvContainer(bytes))
+    // Not for a link: that would be a record of which links were played.
+    if (request.kind == 0 && !isLinkMediaKey(request.mediaKey)
+        && looksLikeAvContainer(bytes))
         Q_EMIT playableSizeLearned(request.mediaKey,
                                    static_cast<qint64>(bytes.size()));
     // A motion probe keeps only a file, and only for an animation.

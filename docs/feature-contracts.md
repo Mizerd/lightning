@@ -394,6 +394,35 @@ backend capability checks and honest live-test status.
 - Backward pagination and retry, stable navigation, loaded-timeline search,
   message links/permalinks, message details, context menus, sender profiles
 - Link previews with encrypted-room privacy controls and security validation
+- **A link that is itself an image or a video shows as that media** (setting
+  "Show images and videos from links inline", `previews/inlineMedia`, ON; it
+  is presentation and loads nothing itself, and has its own NOTIFY so a
+  toggle does not make rows re-request evicted previews). A direct image
+  draws inline and a click opens the in-app
+  viewer (zoom, copy, save, Open in browser); a video, or an image over the
+  5 MiB inline cap, is a cover that fetches NOTHING until Play or View. The
+  preview reads a 64 KiB head and describes a video from it, so the body is
+  never downloaded to preview it (it used to read 5 MiB of an mp4 and show
+  nothing). Invariants: every byte goes through `rooms::safe_open` (https,
+  public DNS pinned, no proxy, every redirect re-validated) and is validated
+  by magic (`rust/src/linkmedia.rs`, caps 25 MiB / 50 MP image, 100 MiB
+  video); MediaBridge reaches a link only through a `link:<sha256>` key that
+  `LinkPreviewController::resolveLinkMedia` answers, and only for a preview
+  that LOADED, with inline media on, and not when the preview already knows
+  it is over the cap; loaded is per URL but contacting the site is per ROW
+  (`mediaAllowed` = auto-load for the row's room class or its own consent), so
+  a card that came from another room's preview states that the site sees the
+  IP before the Play/View press that records the row's consent; a row whose
+  cache entry was evicted (64 MiB budget) opens the browser on click, never a
+  dead click; an image the preview holds is served from those bytes
+  and a server-route image from the homeserver's mxc, so opening the viewer
+  contacts the site again only for an over-5 MiB image; a link leaves no
+  learned size or dimensions on disk; no QML Image or MediaPlayer ever gets
+  the URL. A server answer for a direct image (mxc plus a raster type, no
+  title) is now used instead of falling back to a direct fetch. Preview
+  images are held within a 64 MiB budget. og:video is NOT supported: a page's
+  video is a second host and a second policy question. Live validation NOT
+  TESTED.
 - Smooth mouse-wheel motion, touchpad pixel scrolling, configurable wheel
   speed, keyboard scrolling, and per-room position preservation
 

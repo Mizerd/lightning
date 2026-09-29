@@ -5959,6 +5959,29 @@ quint64 RustSdkMatrixClient::fetchUrlPreview(const QString &url)
     return opId;
 }
 
+quint64 RustSdkMatrixClient::fetchLinkMedia(const QString &url,
+                                            const QString &linkKey,
+                                            int expect, int timeoutClass)
+{
+    // Rust re-checks all of this; unsafe schemes never cross the FFI.
+    if (!m_rustHandle || !linkKey.startsWith(QLatin1String("link:"))
+        || !url.trimmed().toLower().startsWith(QLatin1String("https://")))
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray target = url.toUtf8();
+    const QByteArray key = linkKey.toUtf8();
+    const QString result = takeRustString(mx_rust_link_media_fetch(
+        m_rustHandle, target.constData(), key.constData(),
+        static_cast<unsigned int>(qBound(0, expect, 1)),
+        static_cast<unsigned int>(qBound(0, timeoutClass, 2)), opId));
+    if (!result.isEmpty()) {
+        // A constant bridge reason; no URL.
+        qCWarning(lcRust) << "link media fetch refused reason=" << result;
+        return 0;
+    }
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::gifGet(const QString &url)
 {
     // https-only guard before the FFI. The URL carries the provider key, so it
@@ -8375,6 +8398,15 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         fields.insert(QStringLiteral("imageSize"),
                       static_cast<qint64>(
                           raw.value(QStringLiteral("image_size")).toDouble()));
+        // A direct video link (preview_kind "direct_video") and whether a
+        // direct image or video is over what the link media fetch accepts.
+        fields.insert(QStringLiteral("videoMime"),
+                      raw.value(QStringLiteral("video_mime")).toString());
+        fields.insert(QStringLiteral("videoSize"),
+                      static_cast<qint64>(
+                          raw.value(QStringLiteral("video_size")).toDouble()));
+        fields.insert(QStringLiteral("mediaTooLarge"),
+                      raw.value(QStringLiteral("media_too_large")).toBool());
         Q_EMIT urlPreviewFinished(
             opId(), event.value(QStringLiteral("ok")).toBool(), fields,
             event.value(QStringLiteral("category")).toString(),

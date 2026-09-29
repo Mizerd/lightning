@@ -13,6 +13,7 @@
 #include <QUrl>
 #include <QVariantMap>
 #include <QTemporaryDir>
+#include <functional>
 #include <memory>
 
 class MatrixClient;
@@ -47,6 +48,23 @@ public:
 
     void setClient(MatrixClient *client);
     bool supported() const;
+
+    // A link's own media: "link:<hash>" keys (LinkPreviewController::
+    // mediaKeyForUrl) go through every path here like any media key. What a
+    // key may fetch is answered by the resolver: {"bytes","mime"} the preview
+    // already holds (delivered as a completion, so every check below
+    // applies), {"mxc"} the homeserver's copy, or {"url","expect"} the link
+    // itself (MatrixClient::fetchLinkMedia). {} refuses: without a resolver,
+    // or for a link whose preview did not load, nothing is fetched.
+    using LinkMediaResolver = std::function<QVariantMap(const QString &)>;
+    void setLinkMediaResolver(LinkMediaResolver resolver)
+    {
+        m_linkResolver = std::move(resolver);
+    }
+    static bool isLinkMediaKey(const QString &mediaKey)
+    {
+        return mediaKey.startsWith(QLatin1String("link:"));
+    }
 
     // Returns the image-provider URL when the payload is already cached,
     // otherwise dispatches a fetch and returns an empty string; QML retries
@@ -172,6 +190,8 @@ public:
     // a supported A/V container, "" otherwise. Public for tests.
     static QString playableExtensionFor(const QByteArray &bytes,
                                         const QString &mimetype);
+    // An animated GIF or WebP from a client-preview data: URL, as a file:// URL,
+    // or "" (not an animation, or refused).
     Q_INVOKABLE QString previewAnimatedSource(const QString &dataSource,
                                               const QString &mimetype);
     // Validated client-preview bytes exposed only through the bounded
@@ -337,6 +357,9 @@ private:
     void dropInterestSets(const QString &cacheKey);
     static bool isAvatarClassKey(const QString &cacheKey);
     void dispatch(const Pending &request);
+    // A "link:" key's fetch through the resolver; 0 when it refuses. May raise
+    // the request's timeout class: a link fetch is never the 40 s class.
+    quint64 dispatchLinkMedia(Pending &request);
     void pump();
     bool alreadyPending(const QString &cacheKey) const;
     // Raises an already-queued entry to the caller's priority and timeout
@@ -394,6 +417,11 @@ private:
     void onPosterReady(const QString &mediaKey, const QByteArray &jpeg);
 
     MatrixClient *m_client = nullptr;
+    LinkMediaResolver m_linkResolver;
+    // Op ids for completions delivered from bytes already held; far above any
+    // backend op id, so the two can never collide.
+    static constexpr quint64 kLocalOpIdBase = quint64(1) << 62;
+    quint64 m_nextLocalOpId = kLocalOpIdBase;
 
     mutable QMutex m_cacheMutex;
     QHash<QString, QByteArray> m_cache;

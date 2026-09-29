@@ -97,6 +97,24 @@ IP-address consequence.
 is built without a cookie jar), no Matrix identifiers, no room or event IDs, no
 message text beyond the URL itself, and no referrer.
 
+**Images and videos from links.** When a previewed link is itself an image
+or a video, Lightning can show it as that media (**Settings → Privacy &
+security → Link previews → Show images and videos from links inline**, on by
+default). The setting only changes how a loaded preview is shown; it loads
+nothing by itself. The preview reads the first 64 KiB of the response and
+describes a video, or an image over 5 MiB, from it without downloading the
+rest. The video, or the large image, is fetched from the link's site **only
+when you press Play or open it**, with the same request and safety limits as
+a preview, capped at 100 MiB (video) or 25 MiB (image); that request tells
+the site you opened it. An image the preview already downloaded is shown from
+those bytes, and one your homeserver previewed comes from your homeserver, so
+opening it in the viewer contacts nobody else. A preview is remembered per
+link for the session, so a link previewed in one room shows the same card
+wherever it appears; in a message where you had not allowed previews (an
+encrypted room, or with automatic loading off), the card says the site will
+see your IP address before you press Play or open it, and that press is your
+consent for that message. Nothing about which links you played is stored.
+
 **Safety limits** (`rust/src/rooms.rs`, `safe_get`): HTTPS only; credentials in
 URLs refused; `localhost`/`.local` refused; DNS answers must resolve to public
 addresses (private, loopback, link-local, multicast and CGNAT ranges are

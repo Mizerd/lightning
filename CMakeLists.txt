@@ -794,6 +794,8 @@ set(APP_QML_FILES
     qml/MediaHiddenPlaceholder.qml
     # One-line summary for a collapsed media or link embed.
     qml/CollapsedEmbedRow.qml
+    # A link that is itself a video, or an image too large to inline.
+    qml/LinkMediaCard.qml
     qml/RoomActivityDelegate.qml
     qml/ShortcutRow.qml
     qml/MessageComposerBar.qml
@@ -2042,6 +2044,19 @@ if(BUILD_TESTING)
     target_link_libraries(link-preview-qml-test PRIVATE Qt6::Test)
     add_test(NAME link-preview-qml COMMAND link-preview-qml-test)
     set_tests_properties(link-preview-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # A link that is itself an image or a video: the viewer rather than the
+    # browser, nothing fetched before Play, the over-cap wording, the plain
+    # card with inline media off, collapsed embeds, no remote Image source.
+    qt_add_executable(link-media-qml-test
+        tests/LinkMediaQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(link-media-qml-test)
+    target_link_libraries(link-media-qml-test PRIVATE Qt6::Test)
+    add_test(NAME link-media-qml COMMAND link-media-qml-test)
+    set_tests_properties(link-media-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # The audio card's cover art keeps its aspect ratio at every size.
@@ -3600,6 +3615,39 @@ if(BUILD_TESTING)
     target_include_directories(link-preview-test PRIVATE src)
     target_link_libraries(link-preview-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME link-preview COMMAND link-preview-test)
+
+    # A link's own media: the resolver gate (only a LOADED preview, only with
+    # inline media on), MediaBridge's "link:" keys, the held-bytes budget and
+    # the setting's default.
+    qt_add_executable(link-media-test
+        tests/LinkMediaTest.cpp
+        src/models/LinkPreview.h
+        src/models/LinkPreview.cpp
+        src/models/LinkPreviewController.h
+        src/models/LinkPreviewController.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+        src/media/MediaBridge.h
+        src/media/MediaBridge.cpp
+        src/media/PlayableFileWriter.h
+        src/media/PlayableFileWriter.cpp
+        src/app/GuiStallTracer.cpp
+        src/media/VideoPosterExtractor.h
+        src/media/VideoPosterExtractor.cpp
+        src/media/MediaImageProvider.h
+        src/media/MediaImageProvider.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(link-media-test PRIVATE src)
+    target_link_libraries(link-media-test
+        PRIVATE Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Quick Qt6::Test)
+    add_test(NAME link-media COMMAND link-media-test)
 
     # Avatar/media requests: dedup, per-size keys, bounded LRU, sign-out stale
     # rejection, failure marking with explicit retry.

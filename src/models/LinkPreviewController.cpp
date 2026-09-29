@@ -4,11 +4,64 @@
 #include "models/LinkPreview.h"
 #include "models/MessageHtml.h"
 
+#include <QCryptographicHash>
 #include <QLoggingCategory>
+#include <QUrl>
 
 Q_LOGGING_CATEGORY(lcPreview, "lightning.timeline.linkpreview")
 
 using matrix::link_preview::GifClass;
+
+namespace {
+const QString kDirectMedia = QStringLiteral("direct_media");
+const QString kDirectVideo = QStringLiteral("direct_video");
+
+// The link's last path segment, for a caption. Sender-chosen text: control
+// and bidi-override characters are dropped so "a\u202Egnp.exe" cannot pose as
+// another name, and it is clipped.
+QString fileNameForUrl(const QString &url)
+{
+    QString leaf = QUrl(url).fileName(QUrl::FullyDecoded);
+    QString out;
+    out.reserve(leaf.size());
+    for (const QChar c : std::as_const(leaf)) {
+        const char16_t u = c.unicode();
+        if (u < 0x20 || u == 0x7f || u == 0x061c
+            || (u >= 0x200e && u <= 0x200f) || (u >= 0x2028 && u <= 0x202e)
+            || (u >= 0x2066 && u <= 0x2069))
+            continue;
+        out.append(c);
+    }
+    out = out.trimmed();
+    if (out.size() > 80) {
+        // Never between the halves of a surrogate pair.
+        qsizetype cut = 79;
+        if (out.at(cut - 1).isHighSurrogate())
+            --cut;
+        out = out.left(cut) + QChar(0x2026);
+    }
+    return out;
+}
+
+// What a loaded entry is: "image", "video" or "".
+QString mediaKindOf(const QVariantMap &fields)
+{
+    const QString kind = fields.value(QStringLiteral("previewKind")).toString();
+    if (kind == kDirectMedia)
+        return QStringLiteral("image");
+    if (kind == kDirectVideo)
+        return QStringLiteral("video");
+    return {};
+}
+
+// Memory a preview's image text holds (QString is UTF-16).
+qint64 heldBytesOf(const QVariantMap &fields)
+{
+    const QString src = fields.value(QStringLiteral("imageSource")).toString();
+    return src.startsWith(QLatin1String("data:"))
+        ? static_cast<qint64>(src.size()) * 2 : 0;
+}
+} // namespace
 
 LinkPreviewController::LinkPreviewController(QObject *parent)
     : QObject(parent)
@@ -61,6 +114,99 @@ void LinkPreviewController::setAllowEncrypted(bool value)
         return;
     m_allowEncrypted = value;
     Q_EMIT policyChanged();
+}
+
+void LinkPreviewController::setInlineMedia(bool value)
+{
+    if (m_inlineMedia == value)
+        return;
+    m_inlineMedia = value;
+    Q_EMIT inlineMediaChanged();
+}
+
+QString LinkPreviewController::mediaKeyForUrl(const QString &url)
+{
+    if (url.isEmpty())
+        return {};
+    return QStringLiteral("link:")
+        + QString::fromLatin1(QCryptographicHash::hash(
+                                  url.toUtf8(), QCryptographicHash::Sha256)
+                                  .toHex()
+                                  .left(40));
+}
+
+QVariantMap LinkPreviewController::resolveLinkMedia(const QString &mediaKey) const
+{
+    if (!m_inlineMedia)
+        return {};
+    const QString url = m_mediaKeys.value(mediaKey);
+    if (url.isEmpty())
+        return {};
+    const auto it = m_urls.constFind(url);
+    if (it == m_urls.constEnd() || it->state != QLatin1String("loaded"))
+        return {};
+    const QVariantMap &fields = it->fields;
+    const QString kind = mediaKindOf(fields);
+    const bool tooLarge =
+        fields.value(QStringLiteral("mediaTooLarge")).toBool();
+    if (kind == QLatin1String("video")) {
+        if (tooLarge)
+            return {};
+        return { { QStringLiteral("url"), url },
+                 { QStringLiteral("expect"), 1 } };
+    }
+    if (kind != QLatin1String("image"))
+        return {};
+    const QString src = fields.value(QStringLiteral("imageSource")).toString();
+    const QString mime = fields.value(QStringLiteral("imageMime")).toString();
+    if (src.startsWith(QLatin1String("mxc://")))
+        return { { QStringLiteral("mxc"), src } };
+    if (!src.isEmpty()) {
+        // Only the exact shape Rust builds: data:<validated mime>;base64,...
+        const QString prefix = QStringLiteral("data:") + mime
+            + QStringLiteral(";base64,");
+        if (!mime.startsWith(QLatin1String("image/")) || !src.startsWith(prefix))
+            return {};
+        const QByteArray bytes = QByteArray::fromBase64(
+            QStringView(src).mid(prefix.size()).toLatin1(),
+            QByteArray::AbortOnBase64DecodingErrors);
+        if (bytes.isEmpty())
+            return {};
+        return { { QStringLiteral("bytes"), bytes },
+                 { QStringLiteral("mime"), mime } };
+    }
+    // Too large to inline: the viewer fetches it, within the cap.
+    if (tooLarge)
+        return {};
+    return { { QStringLiteral("url"), url }, { QStringLiteral("expect"), 0 } };
+}
+
+bool LinkPreviewController::linkMediaAvailable(const QString &mediaKey) const
+{
+    if (!m_inlineMedia)
+        return false;
+    const QString url = m_mediaKeys.value(mediaKey);
+    if (url.isEmpty())
+        return false;
+    const auto it = m_urls.constFind(url);
+    return it != m_urls.constEnd() && it->state == QLatin1String("loaded");
+}
+
+QVariantMap LinkPreviewController::viewerEntry(const QString &mediaKey) const
+{
+    const QString url = m_mediaKeys.value(mediaKey);
+    if (url.isEmpty())
+        return {};
+    const auto it = m_urls.constFind(url);
+    QString mime;
+    if (it != m_urls.constEnd())
+        mime = it->fields.value(QStringLiteral("imageMime")).toString();
+    return {
+        { QStringLiteral("url"), url },
+        { QStringLiteral("host"), matrix::link_preview::sanitizedHost(url) },
+        { QStringLiteral("fileName"), fileNameForUrl(url) },
+        { QStringLiteral("mime"), mime },
+    };
 }
 
 QVariantMap LinkPreviewController::previewFor(const QString &itemKey,
@@ -174,8 +320,10 @@ void LinkPreviewController::retry(const QString &itemKey)
         || urlIt->state != QLatin1String("failed")
         || !stateFor(it.value()).value(QStringLiteral("retryable")).toBool())
         return;
+    m_heldBytes -= urlIt->heldBytes;
     m_urls.remove(it->url);
     m_urlOrder.removeOne(it->url);
+    m_mediaKeys.remove(mediaKeyForUrl(it->url));
     it->consented = true; // retry is always an explicit gesture
     dispatch(it->url);
     Q_EMIT previewChanged(itemKey);
@@ -263,24 +411,45 @@ void LinkPreviewController::dispatch(const QString &url)
     qCInfo(lcPreview) << "url preview requested host=" << host;
 }
 
-void LinkPreviewController::evictIfNeeded()
+void LinkPreviewController::evictIfNeeded(const QString &keep)
 {
-    while (m_urls.size() > m_urlCacheLimit) {
-        // Oldest entry not in flight; in-flight entries must stay resolvable.
+    for (;;) {
+        const bool overCount = m_urls.size() > m_urlCacheLimit;
+        const bool overBytes = m_heldBytes > m_heldBytesBudget;
+        if (!overCount && !overBytes)
+            break;
+        // Oldest entry not in flight; in-flight entries must stay resolvable,
+        // and the one just filled is what its rows are about to draw. Over the
+        // byte budget alone, an entry holding no image frees nothing.
         int victimIndex = -1;
         for (int i = 0; i < m_urlOrder.size(); ++i) {
-            if (m_urls.value(m_urlOrder.at(i)).state
-                != QLatin1String("loading")) {
-                victimIndex = i;
-                break;
-            }
+            const QString &candidate = m_urlOrder.at(i);
+            if (candidate == keep)
+                continue;
+            const auto it = m_urls.constFind(candidate);
+            if (it == m_urls.constEnd()
+                || it->state == QLatin1String("loading")
+                || (!overCount && it->heldBytes == 0))
+                continue;
+            victimIndex = i;
+            break;
         }
         if (victimIndex < 0)
             break; // everything is loading; the cap is exceeded briefly
-        const QString victim = m_urlOrder.takeAt(victimIndex);
-        m_urls.remove(victim);
-        m_urlItems.remove(victim);
+        dropUrl(m_urlOrder.takeAt(victimIndex));
     }
+}
+
+void LinkPreviewController::dropUrl(const QString &url)
+{
+    const auto it = m_urls.find(url);
+    if (it != m_urls.end()) {
+        m_heldBytes -= it->heldBytes;
+        m_urls.erase(it);
+    }
+    m_urlOrder.removeOne(url);
+    m_urlItems.remove(url);
+    m_mediaKeys.remove(mediaKeyForUrl(url));
 }
 
 QVariantMap LinkPreviewController::stateFor(const ItemEntry &item) const
@@ -329,9 +498,31 @@ QVariantMap LinkPreviewController::stateFor(const ItemEntry &item) const
     out.insert(QStringLiteral("isGif"), gif != GifClass::NotGif);
     out.insert(QStringLiteral("gifOversized"), gif == GifClass::Oversized);
     out.insert(QStringLiteral("animationExpected"), gif == GifClass::Gif);
-    out.insert(QStringLiteral("isDirectMedia"),
-               entry.fields.value(QStringLiteral("previewKind")).toString()
-                   == QLatin1String("direct_media"));
+    const QString mediaKind = mediaKindOf(entry.fields);
+    out.insert(QStringLiteral("isDirectMedia"), !mediaKind.isEmpty());
+    out.insert(QStringLiteral("mediaKind"), mediaKind);
+    if (!mediaKind.isEmpty()) {
+        const bool video = mediaKind == QLatin1String("video");
+        out.insert(QStringLiteral("mediaKey"), mediaKeyForUrl(item.url));
+        // An image already in hand (inline bytes or the server's copy) draws
+        // at once; otherwise the card offers the viewer or the player.
+        out.insert(QStringLiteral("mediaHeld"),
+                   !video
+                       && !entry.fields.value(QStringLiteral("imageSource"))
+                               .toString().isEmpty());
+        out.insert(QStringLiteral("mediaSize"),
+                   entry.fields.value(video ? QStringLiteral("videoSize")
+                                            : QStringLiteral("imageSize"))
+                       .toLongLong());
+        out.insert(QStringLiteral("mediaTooLarge"),
+                   entry.fields.value(QStringLiteral("mediaTooLarge")).toBool());
+        out.insert(QStringLiteral("fileName"), fileNameForUrl(item.url));
+        // Loaded is per URL; contacting the site again is per row.
+        out.insert(QStringLiteral("mediaAllowed"),
+                   item.consented
+                       || (item.encrypted ? m_allowEncrypted
+                                          : m_autoLoadUnencrypted));
+    }
     return out;
 }
 
@@ -352,6 +543,10 @@ void LinkPreviewController::onPreviewFinished(quint64 opId, bool ok,
     if (ok) {
         urlIt->state = QStringLiteral("loaded");
         urlIt->fields = fields;
+        urlIt->heldBytes = heldBytesOf(fields);
+        m_heldBytes += urlIt->heldBytes;
+        if (!mediaKindOf(fields).isEmpty())
+            m_mediaKeys.insert(mediaKeyForUrl(url), url);
     } else {
         urlIt->state = QStringLiteral("failed");
         urlIt->category = category;
@@ -365,7 +560,9 @@ void LinkPreviewController::onPreviewFinished(quint64 opId, bool ok,
                       << "httpStatus=" << httpStatus
                       << "redirects=" << redirectCount;
 
+    // Read before evicting: a budget eviction drops other URLs' interest.
     const QStringList interested = m_urlItems.value(url);
+    evictIfNeeded(url);
     for (const QString &itemKey : interested)
         Q_EMIT previewChanged(itemKey);
 }
@@ -377,6 +574,8 @@ void LinkPreviewController::clear()
     m_urlOrder.clear();
     m_inflight.clear();
     m_urlItems.clear();
+    m_mediaKeys.clear();
+    m_heldBytes = 0;
     // Dismissals do not carry over to another account (reached from
     // onLoggedOut() and setClient()).
     m_dismissed.clear();

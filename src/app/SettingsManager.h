@@ -135,6 +135,12 @@ class SettingsManager : public QObject
                    NOTIFY loadPreviewsInEncryptedRoomsChanged)
     Q_PROPERTY(bool animateGifPreviews READ animateGifPreviews
                    WRITE setAnimateGifPreviews NOTIFY animateGifPreviewsChanged)
+    // A link that is itself an image or a video shows as that media (viewer on
+    // click, player on Play). On by default: it can fetch only what the two
+    // preview switches above already allow, and those default off.
+    Q_PROPERTY(bool showLinkMediaInline READ showLinkMediaInline
+                   WRITE setShowLinkMediaInline
+                   NOTIFY showLinkMediaInlineChanged)
     // Screen-share quality. Device-global.
     Q_PROPERTY(int shareMaxHeight READ shareMaxHeight WRITE setShareMaxHeight
                    NOTIFY shareQualityChanged)
@@ -503,6 +509,8 @@ public:
     void setLoadPreviewsInEncryptedRooms(bool v);
     bool animateGifPreviews() const;
     void setAnimateGifPreviews(bool v);
+    bool showLinkMediaInline() const;
+    void setShowLinkMediaInline(bool v);
     /// Screen-share ceiling in scanlines: 720, 1080 or 1440. Never upscales.
     int shareMaxHeight() const;
     void setShareMaxHeight(int v);
@@ -828,6 +836,7 @@ Q_SIGNALS:
     void shareQualityChanged();
     void loadPreviewsInEncryptedRoomsChanged();
     void animateGifPreviewsChanged();
+    void showLinkMediaInlineChanged();
     void sharePresenceChanged();
     void spacesRailVisibleChanged();
     void spaceBannersVisibleChanged();

@@ -347,6 +347,7 @@ Item {
     }
     // `host` comes from LinkPreviewController::sanitizedHost; title and
     // siteName are resolved because this only exists in the `loaded` state.
+    // A direct media link has neither and names its file instead.
     function previewEmbedDetail() {
         var p = root.preview || {}
         var parts = []
@@ -354,8 +355,56 @@ Item {
         if (host.length > 0) parts.push(host)
         var title = (p.title || "").trim()
         if (title.length === 0) title = (p.siteName || "").trim()
+        if (title.length === 0) title = (p.fileName || "").trim()
         if (title.length > 0) parts.push(title)
         return parts.join(" · ")
+    }
+    // "image", "video" or "" for a loaded preview that is the link's own
+    // media (LinkPreviewController: a URL that is itself an image or video).
+    function previewMediaKind() {
+        var p = root.preview || {}
+        return p.isDirectMedia === true ? (p.mediaKind || "") : ""
+    }
+    function previewEmbedIcon() {
+        var kind = root.previewMediaKind()
+        return kind === "video" ? "videocam" : kind === "image" ? "image" : "link"
+    }
+    function previewEmbedKind() {
+        var kind = root.previewMediaKind()
+        return kind === "video" ? qsTr("Video")
+             : kind === "image" ? qsTr("Image") : qsTr("Link")
+    }
+    // "Video · clip.mp4 · 12.4 MB" for the plain card (inline media off).
+    function linkMediaSummary() {
+        var p = root.preview || {}
+        var parts = [root.previewEmbedKind()]
+        var name = (p.fileName || "").trim()
+        if (name.length > 0) parts.push(name)
+        var size = root.embedSizeText(p.mediaSize || 0)
+        if (size.length > 0) parts.push(size)
+        return parts.join(" · ")
+    }
+    // "Show images and videos from links inline". Presentation only: what may
+    // be fetched is still decided by the preview policy (resolveLinkMedia).
+    readonly property bool linkMediaInline:
+        typeof app !== "undefined" && app && app.linkPreviews
+        && app.linkPreviews.inlineMedia === true
+    // The link's own image opens in the in-app viewer, which fetches through
+    // MediaBridge's "link:" key and never hands the URL to an Image. The row
+    // can outlive the cache entry behind it (the byte budget); the click then
+    // opens the browser, as it always did, rather than doing nothing.
+    function openLinkMedia() {
+        var p = root.preview || {}
+        var key = p.mediaKey || ""
+        if (key.length === 0)
+            return
+        if (!app.linkPreviews.linkMediaAvailable(key)
+                || !root.timelineView || !root.timelineView.openImage) {
+            if ((p.url || "").length > 0)
+                app.media.openWebUrl(p.url)
+            return
+        }
+        root.timelineView.openImage(key, "")
     }
     // Find highlighting: the active query, or "". Reads the delegate's own
     // model, so a thread panel search does not light up the room timeline.
@@ -2080,8 +2129,8 @@ Item {
                             maximumWidth: root.contentInnerCap
                             interactive: root.rowActionsEnabled
                             expanded: root.embedExpanded
-                            iconName: "link"
-                            kindLabel: qsTr("Link")
+                            iconName: root.previewEmbedIcon()
+                            kindLabel: root.previewEmbedKind()
                             detailText: root.previewEmbedDetail()
                             onToggleRequested: root.toggleEmbedExpanded()
                         }
@@ -2096,16 +2145,30 @@ Item {
                             root.contentInnerCap,
                             item ? item.implicitWidth : 400)
                         Layout.maximumWidth: root.contentInnerCap
+                        // The collapse test is spelled out, not read from
+                        // previewEmbedCollapsed: that is a second binding on
+                        // `preview`, and whichever Qt re-evaluates first, this
+                        // one could see the new state with the old collapse
+                        // flag and build (and fetch for) the card for one pass
+                        // before tearing it down.
                         active: root.preview.state !== undefined
                                 && root.preview.state !== "none"
                                 && !model.redacted
                                 && !model.isImage && !model.isFile
-                                && !root.previewEmbedCollapsed
+                                && !(root.collapseEmbedsSetting
+                                     && root.preview.state === "loaded"
+                                     && !root.embedExpanded)
                         visible: active
+                        // A link's own media: the picture when it is in
+                        // hand, otherwise a cover that fetches only on Play or
+                        // View. With inline media off, the plain card.
                         sourceComponent: root.preview.state === "loaded"
                                          && root.preview.isDirectMedia === true
-                                         && root.preview.gifOversized !== true
-                                         ? directMediaPreviewComponent
+                                         && root.linkMediaInline
+                                         ? (root.preview.mediaKind === "image"
+                                            && root.preview.mediaHeld === true
+                                            ? directMediaPreviewComponent
+                                            : linkMediaCardComponent)
                                          : linkPreviewComponent
                     }
 
@@ -3820,7 +3883,8 @@ Item {
     // ---- link preview card ----
 
     // A validated direct raster response is media, not article metadata, and
-    // gets its own compact renderer.
+    // gets its own compact renderer. A click opens the in-app viewer; the
+    // browser is one button away.
     Component {
         id: directMediaPreviewComponent
         Rectangle {
@@ -3845,10 +3909,32 @@ Item {
                     widthHint = maxHeight / aspectRatio
                 return Math.max(1, Math.min(widthHint, maxWidth))
             }
-            readonly property string animatedSource:
-                p.isGif === true && app.settings.gifAutoplay !== 2
-                ? app.mediaBridge.previewAnimatedSource(p.imageSource || "",
-                                                        p.imageMime || "") : ""
+            readonly property string sourceText: p.imageSource || ""
+            readonly property string imageMime: p.imageMime || ""
+            // GIF, or WebP when it proves animated. Autoplay Never (2) never
+            // animates; Always (0) animates unless reduced motion is on; On
+            // hover (1), and reduced motion, animate under the pointer.
+            readonly property bool animationCandidate:
+                (imageMime === "image/gif" && p.gifOversized !== true)
+                || imageMime === "image/webp"
+            readonly property int gifMode: app.settings.gifAutoplay
+            readonly property bool animationWanted:
+                animationCandidate && gifMode !== 2
+                && ((gifMode === 0 && !AppTheme.reducedMotion)
+                    || directMediaHover.hovered)
+            // Materialized whenever animation is allowed at all, so On hover
+            // starts at once. Inline preview bytes are local; a server-route
+            // mxc fetches the original from the homeserver, never the site.
+            property int animationTick: 0
+            readonly property string animatedSource: {
+                var _ = animationTick
+                if (!animationCandidate || gifMode === 2)
+                    return ""
+                if (sourceText.indexOf("mxc://") === 0)
+                    return app.mediaBridge.mxcAnimatedSource(sourceText)
+                return app.mediaBridge.previewAnimatedSource(sourceText,
+                                                             imageMime)
+            }
             // A server-route preview (/preview_url) delivers og:image as an mxc
             // URI; previewImageSource only accepts inline data:, so an mxc goes
             // through the authenticated media route and the tick re-reads when
@@ -3856,16 +3942,20 @@ Item {
             property int previewTick: 0
             Connections {
                 target: app.mediaBridge
-                function onMediaCached(cacheKey) { previewTick += 1 }
+                function onMediaCached(cacheKey) { directMedia.previewTick += 1 }
+                function onAnimatedMediaReady(cacheKey) {
+                    if (cacheKey === "mxcanim:" + directMedia.sourceText)
+                        directMedia.animationTick += 1
+                }
             }
             readonly property string staticSource: {
                 var _ = previewTick
-                var src = p.imageSource || ""
+                var src = sourceText
                 if (src.length === 0)
                     return ""
                 if (src.indexOf("mxc://") === 0)
                     return app.mediaBridge.mxcImageSource(src, 512)
-                return app.mediaBridge.previewImageSource(src, p.imageMime || "")
+                return app.mediaBridge.previewImageSource(src, imageMime)
             }
 
             implicitWidth: displayWidth
@@ -3876,16 +3966,22 @@ Item {
 
             Image {
                 anchors.fill: parent
-                visible: directMedia.animatedSource.length === 0
+                // The still stays until the animation has a frame to show.
+                visible: !directAnimated.visible
                 source: directMedia.staticSource
                 fillMode: Image.PreserveAspectFit
+                sourceSize.width: 720
                 asynchronous: true
                 cache: true
             }
             AnimatedImage {
+                id: directAnimated
                 anchors.fill: parent
-                visible: directMedia.animatedSource.length > 0
-                source: visible ? directMedia.animatedSource : ""
+                visible: directMedia.animationWanted
+                         && status === AnimatedImage.Ready
+                // Not gated on `visible`, which waits for Ready.
+                source: directMedia.animationWanted
+                        ? directMedia.animatedSource : ""
                 fillMode: Image.PreserveAspectFit
                 playing: visible
                 asynchronous: true
@@ -3910,33 +4006,88 @@ Item {
                 }
             }
             MouseArea {
+                objectName: "directMediaOpenViewer"
                 anchors.fill: parent
-                enabled: (directMedia.p.url || "").length > 0
+                enabled: (directMedia.p.mediaKey || "").length > 0
                              && root.rowActionsEnabled
                 cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                onClicked: app.media.openWebUrl(directMedia.p.url)
+                onClicked: root.openLinkMedia()
             }
-            // Same dismissal as the ordinary card; only built for a loaded
-            // preview.
-            IconButton {
-                id: directDismissButton
-                objectName: "linkPreviewDismissButton"
+            // Open in the browser and dismiss, over the corner, on a scrim
+            // like the GIF badge so the ink survives any picture. Only built
+            // for a loaded preview.
+            Rectangle {
                 z: 3
                 anchors.top: parent.top
                 anchors.right: parent.right
-                anchors.margins: 2
-                size: "sm"
-                iconName: "close"
-                opacity: directMediaHover.hovered || directDismissButton.hovered
-                         || directDismissButton.activeFocus ? 1.0 : 0.5
-                Accessible.name: qsTr("Dismiss link preview")
-                ToolTip.text: qsTr("Dismiss preview")
-                ToolTip.visible: directDismissButton.hovered
-                ToolTip.delay: 400
-                onClicked: app.linkPreviews.dismissPreviewForEvent(
-                               root.previewRoomId, root.actionKey)
+                anchors.margins: 4
+                radius: AppTheme.radiusSm
+                color: AppTheme.overlayScrim
+                width: directActions.implicitWidth
+                height: directActions.implicitHeight
+                opacity: directMediaHover.hovered || directOpenButton.hovered
+                         || directDismissButton.hovered
+                         || directOpenButton.activeFocus
+                         || directDismissButton.activeFocus ? 1.0 : 0.6
+                Row {
+                    id: directActions
+                    IconButton {
+                        id: directOpenButton
+                        objectName: "directMediaOpenInBrowser"
+                        size: "sm"
+                        iconName: "link"
+                        iconColorOverride: AppTheme.scrimInk
+                        enabled: (directMedia.p.url || "").length > 0
+                                 && root.rowActionsEnabled
+                        Accessible.name: qsTr("Open link in browser")
+                        ToolTip.text: qsTr("Open in browser")
+                        ToolTip.visible: directOpenButton.hovered
+                        ToolTip.delay: 400
+                        onClicked: app.media.openWebUrl(directMedia.p.url)
+                    }
+                    IconButton {
+                        id: directDismissButton
+                        objectName: "linkPreviewDismissButton"
+                        size: "sm"
+                        iconName: "close"
+                        iconColorOverride: AppTheme.scrimInk
+                        Accessible.name: qsTr("Dismiss link preview")
+                        ToolTip.text: qsTr("Dismiss preview")
+                        ToolTip.visible: directDismissButton.hovered
+                        ToolTip.delay: 400
+                        onClicked: app.linkPreviews.dismissPreviewForEvent(
+                                       root.previewRoomId, root.actionKey)
+                    }
+                }
             }
             HoverHandler { id: directMediaHover }
+            Accessible.role: Accessible.Button
+            Accessible.name: qsTr("View image %1")
+                                 .arg(directMedia.p.fileName
+                                      || directMedia.p.host || "")
+        }
+    }
+
+    // A link that is a video, or an image too large to inline: a cover that
+    // fetches nothing until Play or View (LinkMediaCard.qml).
+    Component {
+        id: linkMediaCardComponent
+        LinkMediaCard {
+            preview: root.preview
+            maximumWidth: root.contentInnerCap
+            ownerKey: root.actionKey + "\u001f" + (root.preview.mediaKey || "")
+            rowOnScreen: root.rowOnScreen
+            interactive: root.rowActionsEnabled
+            onViewRequested: root.openLinkMedia()
+            // Play/View pressed on a card this row had not itself allowed
+            // (the card came from another room's preview of the same link):
+            // the notice on the card said the site sees your IP, and the
+            // press records this row's consent.
+            onConsentGiven: app.linkPreviews.requestPreviewForEvent(
+                                root.previewRoomId, root.actionKey)
+            onOpenInBrowserRequested: app.media.openWebUrl(root.preview.url)
+            onDismissRequested: app.linkPreviews.dismissPreviewForEvent(
+                                    root.previewRoomId, root.actionKey)
         }
     }
 
@@ -3963,7 +4114,8 @@ Item {
             readonly property string previewStatic: {
                 var _ = previewTick
                 var src = p.imageSource || ""
-                if (src.length === 0)
+                // A link's own image is never drawn on this card.
+                if (src.length === 0 || p.isDirectMedia === true)
                     return ""
                 if (src.indexOf("mxc://") === 0)
                     return app.mediaBridge.mxcImageSource(src, 512)
@@ -4203,11 +4355,14 @@ Item {
                     Layout.fillWidth: true
                     spacing: 3
 
-                    // Thumbnail bytes were fetched and validated by Rust.
+                    // Thumbnail bytes were fetched and validated by Rust. A
+                    // link's own image is never drawn here: this card is what
+                    // shows when inline media is off.
                     Rectangle {
                         visible: ((card.p.imageMxc || "").length > 0
                                   || (card.p.imageSource || "").length > 0)
                                  && !(card.p.gifOversized === true)
+                                 && card.p.isDirectMedia !== true
                         Layout.fillWidth: true
                         Layout.preferredHeight: visible ? Math.min(180,
                             (card.p.imageHeight > 0 && card.p.imageWidth > 0)
@@ -4274,6 +4429,23 @@ Item {
                         }
                     }
 
+                    // A Loader, not a hidden Label: a Label whose text stays
+                    // "" keeps observing the viewport on every other card.
+                    Loader {
+                        active: card.p.isDirectMedia === true
+                        visible: active
+                        Layout.fillWidth: true
+                        sourceComponent: Label {
+                            objectName: "linkPreviewMediaSummary"
+                            // Sender-chosen file name: never markup.
+                            textFormat: Text.PlainText
+                            text: root.linkMediaSummary()
+                            color: AppTheme.text
+                            font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                            font.weight: AppTheme.weightStrong
+                            elide: Label.ElideMiddle
+                        }
+                    }
                     Label {
                         visible: card.p.isDirectMedia !== true
                                  && (card.p.siteName || "").length > 0

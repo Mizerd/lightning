@@ -1474,6 +1474,17 @@ public:
     // Server-side thumbnail of a plain mxc URI (avatars).
     virtual quint64 fetchMxcThumbnail(const QString &mxc, int width, int height)
     { Q_UNUSED(mxc); Q_UNUSED(width); Q_UNUSED(height); return 0; }
+    // A link's own media (a direct image or video URL), for MediaBridge key
+    // `linkKey`. Answers with mediaReady/mediaFailed under that key, kind 0.
+    // expect: 0 image, 1 video; timeoutClass as fetchMedia. The URL is never
+    // logged. 0 when unsupported or refused.
+    virtual quint64 fetchLinkMedia(const QString &url, const QString &linkKey,
+                                   int expect, int timeoutClass = 0)
+    {
+        Q_UNUSED(url); Q_UNUSED(linkKey); Q_UNUSED(expect);
+        Q_UNUSED(timeoutClass);
+        return 0;
+    }
     // Cancel an in-flight media fetch. Best-effort and idempotent; no
     // mediaReady/mediaFailed follows a cancelled op.
     virtual void cancelMediaFetch(quint64 opId) { Q_UNUSED(opId); }
@@ -1607,7 +1618,8 @@ Q_SIGNALS:
                              const QVariantList &rooms);
     // URL preview. `fields` carries whitelisted OpenGraph values only (title,
     // description, siteName, imageMxc, imageMime, imageWidth, imageHeight,
-    // imageSize), never the URL. httpStatus/redirectCount are sanitized failure
+    // imageSize; videoMime, videoSize and mediaTooLarge for a direct video or
+    // large image), never the URL. httpStatus/redirectCount are sanitized failure
     // diagnostics (0 when not applicable).
     void urlPreviewFinished(quint64 opId, bool ok, const QVariantMap &fields,
                             const QString &category, int httpStatus = 0,

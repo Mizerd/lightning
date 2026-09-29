@@ -80,6 +80,7 @@ mod discover;
 mod gifs;
 mod ignore;
 mod imagesend;
+mod linkmedia;
 mod localsearch;
 mod location;
 mod mediahistory;
@@ -6477,6 +6478,29 @@ pub unsafe extern "C" fn mx_rust_get_url_preview(
         let bridge = unsafe { bridge(ptr)? };
         let url = unsafe { cstr_arg(url) }?;
         rooms::fetch_url_preview(bridge, url, op_id).map(|_| String::new())
+    })
+}
+
+/// Fetch a direct image or video link for MediaBridge key `key` ("link:" +
+/// 40 hex). `expect`: 0 image, 1 video. `timeout_class`: 0 viewer, 1 playable,
+/// 2 save. Same safe fetch as a preview, a size cap and magic validation;
+/// answers with `media_ready` (bytes via mx_rust_media_take) or
+/// `media_failed`. The URL is never logged.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_link_media_fetch(
+    ptr: *mut c_void,
+    url: *const c_char,
+    key: *const c_char,
+    expect: u32,
+    timeout_class: u32,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let url = unsafe { cstr_arg(url) }?;
+        let key = unsafe { cstr_arg(key) }?;
+        linkmedia::link_media_fetch(bridge, url, key, expect, timeout_class, op_id)
+            .map(|_| String::new())
     })
 }
 
