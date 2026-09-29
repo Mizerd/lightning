@@ -144,19 +144,31 @@ Replace `0.9.9` below with the version you downloaded.
 
 ### Linux
 
+**On an older distribution, install from
+[Flathub](https://flathub.org/apps/org.lightning_matrix.Lightning).** The
+Flatpak brings its own Qt, GStreamer and C library, so the host's versions do
+not matter.
+
 The deb and the rpm are each built against a recent Qt, and their declared
 dependencies say so. **If your distribution ships an older Qt the package will
-refuse to install rather than half-work** — use the AppImage or the Flatpak
-there, both of which carry their own Qt.
+refuse to install rather than half-work.** The AppImage carries its own Qt but
+uses the host's C and C++ runtime, so it needs a recent distribution too.
 
 | package | needs | known good | known to FAIL |
 |---|---|---|---|
-| `.deb` | Qt >= 6.8.2, GStreamer >= 1.26.2, `QtQuick.Effects` (Qt 6.5+) | Debian 13 | **Ubuntu 24.04 LTS** (Qt 6.4.2), and its derivatives — Mint 22.x, Pop!_OS 24.04 |
+| Flatpak | flatpak, and Flathub for the KDE 6.11 runtime | Debian 12 (its own flatpak 1.14.10) | — |
+| `.deb` | Qt >= 6.8.2, GStreamer >= 1.26.2, glibc >= 2.38, `QtQuick.Effects` (Qt 6.5+) | Debian 13 | **Debian 12** (Qt 6.4.2, glibc 2.36); **Ubuntu 24.04 LTS** (Qt 6.4.2), and its derivatives — Mint 22.x, Pop!_OS 24.04 |
 | `.rpm` | Qt 6.11 | Fedora 44 | **Fedora 43** (Qt 6.10.3) |
+| AppImage | glibc >= 2.39, libstdc++ from GCC 14 or newer | Debian 13, Ubuntu 24.04 | **Debian 12** (glibc 2.36: `GLIBC_2.38 not found`), and so Ubuntu 22.04 and Mint 21.x |
+| snap | snapd | Debian 12 (snapd 2.57.6, which updates itself on first install) | — |
 
-Both rows are measured on a real installation of each distribution, not
-inferred from the packaging. openSUSE and RHEL are **untested**; the rpm's Qt
-6.11 floor makes any current RHEL unlikely to satisfy it.
+The deb and rpm rows are measured on a real installation of each distribution.
+The Debian 12 results, and the AppImage's Ubuntu 24.04 result, are measured in
+containers of those releases: the deb refused by `apt`, the AppImage stopping
+at the dynamic loader on Debian 12, and the Flatpak and the snap starting and
+passing their built-in checks. Ubuntu 22.04 and Mint 21.x are inferred from
+their glibc (2.35), not run. openSUSE and RHEL are **untested**;
+the rpm's Qt 6.11 floor makes any current RHEL unlikely to satisfy it.
 
 ```sh
 sudo apt install ./lightning_0.9.9_amd64.deb            # Debian 13+
@@ -172,8 +184,8 @@ sudo zypper install ./lightning-0.9.9-1.x86_64.rpm      # openSUSE (untested)
 chmod +x Lightning-0.9.9-x86_64.*pp[Ii]mage && ./Lightning-0.9.9-x86_64.*pp[Ii]mage
 
 flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install --user flathub org.kde.Platform//6.9     # the runtime, once
-flatpak install --user ./lightning_0.9.9_amd64.flatpak
+flatpak install --user flathub org.lightning_matrix.Lightning   # from Flathub
+flatpak install --user ./lightning_0.9.9_amd64.flatpak          # or the release file; it fetches its runtime itself
 flatpak run org.lightning_matrix.Lightning
 
 sudo snap install --dangerous ./lightning_0.9.9_amd64.snap
@@ -182,7 +194,9 @@ sudo snap install --dangerous ./lightning_0.9.9_amd64.snap
 The leading `./` matters for `apt` and `dnf`, or they look for a package by that
 name in your repositories. The AppImage installs nothing — delete the file to
 remove it; if it will not start you may need FUSE, or run it with
-`--appimage-extract-and-run`. The snap is not published to the Snap Store, so
+`--appimage-extract-and-run`. If it stops with `GLIBC_2.38' not found`, the
+distribution is older than the AppImage supports: use the Flatpak. The snap is
+not published to the Snap Store, so
 `--dangerous` means "this file is not signed by the store", not that the snap is
 unsafe; it is built with `strict` confinement.
 
