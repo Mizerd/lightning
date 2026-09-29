@@ -37,8 +37,10 @@ class AuthManager : public QObject
     //   idle       no homeserver resolved yet
     //   probing    discovery in flight
     //   done       the server answered
-    //   failed     the server could not be asked
+    //   failed     the server could not be asked, or the text is not an
+    //              address (nothing is asked then)
     Q_PROPERTY(QString discoveryState READ discoveryState NOTIFY discoveryChanged)
+    // The address being asked, as normalizedServerAddress() gives it.
     Q_PROPERTY(QString discoveredHomeserver READ discoveredHomeserver NOTIFY discoveryChanged)
     Q_PROPERTY(bool serverOffersPassword READ serverOffersPassword NOTIFY discoveryChanged)
     Q_PROPERTY(bool serverOffersBrowserLogin READ serverOffersBrowserLogin NOTIFY discoveryChanged)
@@ -53,6 +55,19 @@ class AuthManager : public QObject
 
 public:
     explicit AuthManager(MatrixClient *client, QObject *parent = nullptr);
+
+    // The homeserver field's text as the one form every sign-in path hands
+    // the backend: "https://host[:port][/path]", or "http://..." only when
+    // http:// was typed. Accepts "matrix.org", any scheme or host case, spaces,
+    // a trailing slash, a pasted API path (/_matrix/..., /.well-known/...) and
+    // a pasted Matrix ID (@you:matrix.org). Without a scheme the text must be
+    // a server name as Matrix writes one, so a password typed here by mistake
+    // is not looked up. It still goes through the SDK's discovery, which
+    // strips the scheme again and asks the server name (with a path, it
+    // checks the URL itself); nothing here guesses a client API URL. Empty for
+    // text that cannot be a server address, including any with a user name or
+    // password in it.
+    static QString normalizedServerAddress(const QString &typed);
 
     bool isLoggingIn() const { return m_loggingIn; }
     bool isLoggedIn() const;
@@ -114,6 +129,9 @@ private:
     void setBrowserLoginInProgress(bool v);
     // Runs a discovery asked for while a browser sign-in was in flight.
     void runDeferredDiscovery();
+    // Refuses a sign-in whose server text is not an address, without asking
+    // the backend.
+    void refuseServerAddress();
 
     MatrixClient *m_client = nullptr;
     bool m_loggingIn = false;
@@ -129,4 +147,6 @@ private:
     // A discovery asked for during a browser sign-in, run when it ends.
     bool m_discoveryDeferred = false;
     QString m_deferredDiscovery;
+    // The answer of a probe abandoned for text that asks nothing.
+    bool m_dropNextDiscovery = false;
 };

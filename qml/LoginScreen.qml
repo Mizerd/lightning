@@ -409,12 +409,16 @@ Item {
                           ? qsTr("Continue with %1").arg(root.browserAuthorityName)
                           : qsTr("Continue")
                     // Needs no typed user or password: the homeserver
-                    // identifies the account.
-                    enabled: !app.auth.isLoggingIn
+                    // identifies the account. Off while an edit of the field
+                    // is waiting to be asked about: a click does not end the
+                    // edit, so the buttons would still be the last server's.
+                    enabled: !app.auth.isLoggingIn && !discoverDebounce.running
                     Layout.fillWidth: true
                     Layout.topMargin: AppTheme.spacingXS
                     Accessible.name: text
-                    onClicked: app.auth.beginBrowserLogin(homeserverField.text)
+                    // The server this button names, not the field's text,
+                    // which may have changed since it was asked.
+                    onClicked: app.auth.beginBrowserLogin(app.auth.discoveredHomeserver)
                 }
                 Label {
                     objectName: "browserLoginHint"
@@ -478,11 +482,11 @@ Item {
                              && !app.auth.browserLoginInProgress
                     // Element's wording for an unnamed provider.
                     text: qsTr("Sign in with single sign-on")
-                    enabled: !app.auth.isLoggingIn
+                    enabled: !app.auth.isLoggingIn && !discoverDebounce.running
                     Layout.fillWidth: true
                     Layout.topMargin: AppTheme.spacingXS
                     Accessible.name: text
-                    onClicked: app.auth.beginSsoLogin(homeserverField.text, "")
+                    onClicked: app.auth.beginSsoLogin(app.auth.discoveredHomeserver, "")
                 }
                 Label {
                     objectName: "ssoLoginHint"
@@ -519,11 +523,11 @@ Item {
                         text: (modelData.name && modelData.name.length > 0)
                               ? qsTr("Continue with %1").arg(modelData.name)
                               : qsTr("Sign in with single sign-on")
-                        enabled: !app.auth.isLoggingIn
+                        enabled: !app.auth.isLoggingIn && !discoverDebounce.running
                         Layout.fillWidth: true
                         Layout.topMargin: AppTheme.spacingXS
                         Accessible.name: text
-                        onClicked: app.auth.beginSsoLogin(homeserverField.text,
+                        onClicked: app.auth.beginSsoLogin(app.auth.discoveredHomeserver,
                                                           modelData.id || "")
                     }
                 }

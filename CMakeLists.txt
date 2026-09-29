@@ -4385,6 +4385,18 @@ if(BUILD_TESTING)
         PRIVATE lightning-app-testlib Qt6::Test)
     add_test(NAME sso-callback COMMAND sso-callback-test)
 
+    # The homeserver field: every typed form of a server address becomes one
+    # form for every sign-in path, and never a guessed client API URL.
+    qt_add_executable(server-address-input-test
+        tests/ServerAddressInputTest.cpp
+    )
+    target_include_directories(server-address-input-test PRIVATE src)
+    target_link_libraries(server-address-input-test
+        PRIVATE lightning-app-testlib Qt6::Test)
+    target_compile_definitions(server-address-input-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME server-address-input COMMAND server-address-input-test)
+
     # Slash commands, composer half: which backend verb runs with which
     # arguments, and a refusal never destroys the draft.
     qt_add_executable(slash-command-composer-test

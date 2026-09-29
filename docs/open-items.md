@@ -82,8 +82,11 @@ Everything below was found or left open by that round's live testing and its
 - `adoptBrowserSession` saves the account record before the restore; a failed
   restore then blocks the next browser sign-in as ExistingStoreNeedsRestore
   (D6). Persistence; needs evidence before a fix.
-- darkcoffee's Firefox + matrix.org failure is UNEXPLAINED; the Chromium-family
-  failure it resembled is fixed.
+- ~~darkcoffee's Firefox + matrix.org failure is UNEXPLAINED~~ EXPLAINED
+  2026-09-29 by the reporter: the server was typed without `https://`
+  (`sk.community`). Discovery accepted the bare name, the browser sign-in
+  completed and the server issued a device, and then the app refused it
+  with a generic failure. Fixed by the server-address normalisation.
 
 ### Link media
 
