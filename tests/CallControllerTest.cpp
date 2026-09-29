@@ -599,6 +599,171 @@ private Q_SLOTS:
         QCOMPARE(call.parkedKeyCountForTest(), 3);
     }
 
+    // A refused join must not touch a call already running. It used to set
+    // Failed first, which reads as inactive while that call's engine and
+    // membership live on, and the next join then skipped tearing them down.
+    // This target has no media engine, so every join here is refused, which
+    // is the path under test.
+    void aRefusedJoinLeavesTheRunningCallAlone()
+    {
+        struct SfuClient : RecordingCallClient {
+            bool supportsSfu() const override { return true; }
+        };
+        SfuClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!first:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+        QSignalSpy changed(&call, &SfuCallController::stateChanged);
+
+        QVERIFY(!call.join(QStringLiteral("!second:x"), false));
+        QCOMPARE(call.state(), SfuCallController::State::Connected);
+        QVERIFY(call.active());
+        QCOMPARE(call.roomId(), QStringLiteral("!first:x"));
+        QCOMPARE(changed.count(), 0);
+        QVERIFY(call.lastError().isEmpty());
+        // Still reported.
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(!failed.first().first().toString().isEmpty());
+
+        // The same with no client at all.
+        SfuCallController bare;
+        bare.setCallStateForTest(SfuCallController::State::Connected);
+        QVERIFY(!bare.join(QStringLiteral("!second:x"), false));
+        QCOMPARE(bare.state(), SfuCallController::State::Connected);
+
+        // The refusal stays on screen until a join gets past the gate, which
+        // withdraws it with an empty message, exactly as for a refusal with
+        // no call running.
+        call.leave();
+        const quint64 accepted = call.beginMembershipPublishForTest(
+            QStringLiteral("!second:x"),
+            QStringLiteral("https://sfu.example.org"));
+        client.answerPublish(accepted, true, QString());
+        QCOMPARE(call.state(), SfuCallController::State::Authorizing);
+        QCOMPARE(failed.count(), 2);
+        QVERIFY2(failed.at(1).at(0).toString().isEmpty(),
+                 "a refusal made while a call was active is never withdrawn, "
+                 "so the status strip shows it through the next call");
+
+        // With no call running, a refusal still reads as Failed.
+        call.leave();
+        QVERIFY(!call.join(QStringLiteral("!second:x"), false));
+        QCOMPARE(call.state(), SfuCallController::State::Failed);
+        QVERIFY(!call.lastError().isEmpty());
+    }
+
+    // Received audio the engine could not rebuild (the sound server went
+    // away) is told to the user once, without ending the call, and the
+    // notice is withdrawn when the output comes back.
+    void aLostPlaybackIsReportedWithoutEndingTheCall()
+    {
+        SfuCallController call;
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+        const auto report = [&call](bool lost) {
+            QVERIFY(QMetaObject::invokeMethod(&call, "onRemotePlaybackFailed",
+                                              Qt::DirectConnection,
+                                              Q_ARG(bool, lost)));
+        };
+        report(true);
+        report(true);
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(!failed.at(0).at(0).toString().isEmpty());
+        QCOMPARE(call.state(), SfuCallController::State::Connected);
+
+        report(false);
+        QCOMPARE(failed.count(), 2);
+        QVERIFY(failed.at(1).at(0).toString().isEmpty());
+
+        // Nothing once the call is over.
+        call.leave();
+        report(true);
+        QCOMPARE(failed.count(), 2);
+    }
+
+    // "Leave and rejoin" is advice about the call it was shown in: leaving
+    // withdraws it, where it used to stay on screen after the call ended.
+    void theLostPlaybackNoticeEndsWithItsCall()
+    {
+        SfuCallController call;
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+        QVERIFY(QMetaObject::invokeMethod(&call, "onRemotePlaybackFailed",
+                                          Qt::DirectConnection,
+                                          Q_ARG(bool, true)));
+        QCOMPARE(failed.count(), 1);
+        call.leave();
+        QCOMPARE(failed.count(), 2);
+        QVERIFY(failed.at(1).at(0).toString().isEmpty());
+    }
+
+    // A withdrawal clears only its own notice: the playback notice coming
+    // back must not wipe a later, different one (the microphone's).
+    void aWithdrawalDoesNotClearSomebodyElsesNotice()
+    {
+        SfuCallController call;
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+        const auto report = [&call](bool lost) {
+            QVERIFY(QMetaObject::invokeMethod(&call, "onRemotePlaybackFailed",
+                                              Qt::DirectConnection,
+                                              Q_ARG(bool, lost)));
+        };
+        report(true);
+        QCOMPARE(failed.count(), 1);
+        // Somebody else's notice replaces it on screen.
+        Q_EMIT call.callFailed(QStringLiteral("Your microphone isn't available."));
+        QCOMPARE(failed.count(), 2);
+        // The output comes back: nothing is withdrawn, the microphone's
+        // notice stays.
+        report(false);
+        QCOMPARE(failed.count(), 2);
+    }
+
+    // The delivered key index is per call. Left over, it made "the very first
+    // key is always adopted" false in the next call.
+    void aDeliveredKeyIndexDoesNotOutliveItsCall()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QCOMPARE(call.deliveredKeyIndexForTest(), -1);
+
+        call.noteMediaKeySendForTest(41);
+        Q_EMIT client.rtcMediaKeySent(41, true, QString(), 1, 3);
+        QCOMPARE(call.deliveredKeyIndexForTest(), 3);
+
+        call.leave();
+        QCOMPARE(call.deliveredKeyIndexForTest(), -1);
+    }
+
+    // ...and the answer to the previous call's send cannot put it back after
+    // a rejoin.
+    void aKeySendAnswerFromThePreviousCallChangesNothing()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.noteMediaKeySendForTest(41);
+        call.leave();
+
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        Q_EMIT client.rtcMediaKeySent(41, true, QString(), 1, 3);
+        QCOMPARE(call.deliveredKeyIndexForTest(), -1);
+
+        // This call's own send still counts.
+        call.noteMediaKeySendForTest(42);
+        Q_EMIT client.rtcMediaKeySent(42, true, QString(), 1, 1);
+        QCOMPARE(call.deliveredKeyIndexForTest(), 1);
+    }
+
     // A stale membership of this device (left by a session killed mid-call)
     // must not suppress the call announcement; another of our devices, or
     // anyone else, is a real participant.

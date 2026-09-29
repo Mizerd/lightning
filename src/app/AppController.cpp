@@ -997,8 +997,40 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     static_cast<int>(qBound<qint64>(
                         qint64(5), remainingMs / 1000, qint64(300))),
                     acceptOffered, rtcLane, /*silenceOffered=*/ringing);
-                if (ownRinger)
+                if (ownRinger) {
                     m_callSounds->startIncomingRing(callId);
+                    // Our ringer plays on a thread a stalled sound server can
+                    // wedge (Qt < 6.10; CallSoundPlayer). Its loop is then
+                    // never acknowledged and ringerAvailable() turns false
+                    // within ~2 s: re-announce the card with the desktop's
+                    // sound rather than ring silently.
+                    const int ringSeconds = static_cast<int>(qBound<qint64>(
+                        qint64(5), remainingMs / 1000 - 3, qint64(300)));
+                    QTimer::singleShot(
+                        2500, this,
+                        [this, roomId, callId, body, ringSeconds] {
+                            if (m_announcedCallId != callId
+                                || m_callSounds->ringingCallId() != callId
+                                || m_callSounds->isRingSilenced(callId)
+                                || m_callSounds->ringerAvailable())
+                                return;
+                            // Read the gate again: the session read kicked at
+                            // the announce has usually opened Join by now, and
+                            // a stale answer would take the button away.
+                            const bool rtcLane = m_calls->rtcRing();
+                            const bool acceptOffered =
+                                callAcceptOffered(roomId, rtcLane);
+                            qCWarning(lcApp)
+                                << "own ringer not playing (sound thread "
+                                   "stuck); falling back to the desktop's "
+                                   "call sound";
+                            m_callSounds->stopIncomingRing();
+                            m_notifications->showIncomingCall(
+                                roomId, callId, tr("Incoming call"), body,
+                                /*sound=*/true, ringSeconds, acceptOffered,
+                                rtcLane, /*silenceOffered=*/true);
+                        });
+                }
             });
     // Silence has one entry point: CallSoundController::silenceRing decides
     // whether the id is still ringing, then the card drops its sound and
@@ -2672,7 +2704,10 @@ void AppController::enableCallMediaEngine()
             const auto camera = m_callDevices->cameraSelection();
             const auto microphone = m_callDevices->microphoneSelection();
             const auto speaker = m_callDevices->speakerSelection();
-            sfu->setPreferredDevices({camera.id, camera.description},
+            // `preferredMissing`: a chosen camera that is gone opens NO
+            // camera, never the default (CaptureDeviceSelection.h).
+            sfu->setPreferredDevices({camera.id, camera.description,
+                                      camera.preferredMissing},
                                      {microphone.id, microphone.description},
                                      {speaker.id, speaker.description});
         };

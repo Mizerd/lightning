@@ -18,6 +18,7 @@
 #include <QFile>
 
 #include <gst/app/gstappsrc.h>
+#include <gst/base/gstbasesink.h>
 #include <gst/gst.h>
 #include <gst/rtp/gstrtpbuffer.h>
 #include <gst/video/video-event.h>
@@ -119,6 +120,106 @@ QByteArray engineSource()
     return file.readAll();
 }
 #define SOURCE_UNDER_TEST engineSource()
+
+/// Wires a sender's publisher to a receiver's subscriber, the way the SFU
+/// relays them, and records the first failure either reports.
+void wireLoopback(SfuMediaEngine &sender, SfuMediaEngine &receiver,
+                  QObject *context, QString *failure)
+{
+    const auto note = [failure](const QString &why) {
+        if (failure->isEmpty())
+            *failure = why;
+    };
+    QObject::connect(&sender, &SfuMediaEngine::failed, context, note);
+    QObject::connect(&receiver, &SfuMediaEngine::failed, context, note);
+    QObject::connect(
+        &sender, &SfuMediaEngine::localDescription, &receiver,
+        [&receiver](int target, const QString &kind, const QString &sdp) {
+            if (target == int(SfuMediaEngine::Target::Publisher)
+                && kind == QStringLiteral("offer")) {
+                receiver.applyRemoteDescription(
+                    SfuMediaEngine::Target::Subscriber, kind, sdp);
+            }
+        });
+    QObject::connect(
+        &receiver, &SfuMediaEngine::localDescription, &sender,
+        [&sender](int target, const QString &kind, const QString &sdp) {
+            if (target == int(SfuMediaEngine::Target::Subscriber)
+                && kind == QStringLiteral("answer")) {
+                sender.applyRemoteDescription(
+                    SfuMediaEngine::Target::Publisher, kind, sdp);
+            }
+        });
+    QObject::connect(&sender, &SfuMediaEngine::localCandidate, &receiver,
+                     [&receiver](int target, const QString &init) {
+                         if (target == int(SfuMediaEngine::Target::Publisher))
+                             receiver.applyRemoteCandidate(
+                                 SfuMediaEngine::Target::Subscriber, init);
+                     });
+    QObject::connect(&receiver, &SfuMediaEngine::localCandidate, &sender,
+                     [&sender](int target, const QString &init) {
+                         if (target == int(SfuMediaEngine::Target::Subscriber))
+                             sender.applyRemoteCandidate(
+                                 SfuMediaEngine::Target::Publisher, init);
+                     });
+}
+
+/// The first sink element inside `bin` (borrowed), or null.
+GstElement *firstSinkOf(GstElement *bin)
+{
+    if (!bin)
+        return nullptr;
+    GstIterator *it = gst_bin_iterate_sinks(GST_BIN(bin));
+    GValue item = G_VALUE_INIT;
+    GstElement *found = nullptr;
+    if (gst_iterator_next(it, &item) == GST_ITERATOR_OK)
+        found = GST_ELEMENT(g_value_get_object(&item));
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    return found;
+}
+
+/// Counts the buffers reaching `sink`. The counter must outlive the probe.
+void countBuffersAt(GstElement *sink, std::atomic<int> *counter)
+{
+    GstPad *pad = gst_element_get_static_pad(sink, "sink");
+    gst_pad_add_probe(
+        pad, GST_PAD_PROBE_TYPE_BUFFER,
+        [](GstPad *, GstPadProbeInfo *, gpointer data) {
+            static_cast<std::atomic<int> *>(data)->fetch_add(1);
+            return GST_PAD_PROBE_OK;
+        },
+        counter, nullptr);
+    gst_object_unref(pad);
+}
+
+/// Makes `sink` fail the way pulsesink does when the sound server drops the
+/// client: it posts an error and returns GST_FLOW_ERROR for every buffer.
+void failLikeADisconnectedSoundServer(GstElement *sink)
+{
+    GstPad *pad = gst_element_get_static_pad(sink, "sink");
+    gst_pad_add_probe(
+        pad, GST_PAD_PROBE_TYPE_BUFFER,
+        [](GstPad *probed, GstPadProbeInfo *info, gpointer) {
+            GstElement *owner = gst_pad_get_parent_element(probed);
+            if (owner) {
+                GError *error = g_error_new_literal(
+                    GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_FAILED,
+                    "pa_stream_writable_size() failed: Connection terminated");
+                gst_element_post_message(
+                    owner, gst_message_new_error(GST_OBJECT(owner), error,
+                                                 "test"));
+                g_error_free(error);
+                gst_object_unref(owner);
+            }
+            gst_buffer_unref(GST_PAD_PROBE_INFO_BUFFER(info));
+            GST_PAD_PROBE_INFO_DATA(info) = nullptr;
+            GST_PAD_PROBE_INFO_FLOW_RETURN(info) = GST_FLOW_ERROR;
+            return GST_PAD_PROBE_HANDLED;
+        },
+        nullptr, nullptr);
+    gst_object_unref(pad);
+}
 } // namespace
 
 /// Collects Qt log output for the duration of one test. The diagnostics under
@@ -303,6 +404,40 @@ private slots:
             QSKIP(qPrintable(
                 QStringLiteral("no SFU media runtime: %1").arg(whyNot)));
         }
+    }
+
+    // Review M2: a device binding was set with g_object_set(char*), and
+    // avfvideosrc `device-index` / osxaudiosrc `device` are ints, which is
+    // undefined behaviour. The value is now converted to the property's type,
+    // and one it refuses is reported as not set (a camera then opens nothing).
+    // Measured on core elements, which every build has.
+    void aDeviceBindingIsConvertedToThePropertysType()
+    {
+        // An int property, as avfvideosrc's device-index.
+        QCOMPARE(SfuMediaEngine::applyDevicePropertyForTest(
+                     QStringLiteral("fakesrc"), QStringLiteral("num-buffers"),
+                     QStringLiteral("7")),
+                 QStringLiteral("7"));
+        // Not a number: refused, not set to garbage.
+        QVERIFY(SfuMediaEngine::applyDevicePropertyForTest(
+                    QStringLiteral("fakesrc"), QStringLiteral("num-buffers"),
+                    QStringLiteral("banana"))
+                    .isEmpty());
+        // Out of the property's range (num-buffers is -1..G_MAXINT).
+        QVERIFY(SfuMediaEngine::applyDevicePropertyForTest(
+                    QStringLiteral("fakesrc"), QStringLiteral("num-buffers"),
+                    QStringLiteral("-5"))
+                    .isEmpty());
+        // A string property, as v4l2src's device, is set as it is.
+        QCOMPARE(SfuMediaEngine::applyDevicePropertyForTest(
+                     QStringLiteral("filesrc"), QStringLiteral("location"),
+                     QStringLiteral("/dev/video61")),
+                 QStringLiteral("/dev/video61"));
+        // An unknown property sets nothing.
+        QVERIFY(SfuMediaEngine::applyDevicePropertyForTest(
+                    QStringLiteral("fakesrc"), QStringLiteral("device-path"),
+                    QStringLiteral("x"))
+                    .isEmpty());
     }
 
     // LIGHTNING_CALL_STATS_TRACE: unset/0/off = no trace; 1/true/yes = 5 s;
@@ -1047,11 +1182,22 @@ private slots:
         const int at = source.indexOf("const DeviceChoice camera = cameraChoice()");
         QVERIFY2(at > 0, "the camera device-binding site has moved; this case "
                          "is asserting against nothing");
-        const QByteArray guard = source.mid(at, 160);
-        QVERIFY2(guard.contains("pipewireFd < 0"),
-                 qPrintable(QStringLiteral(
-                     "a host device id is still bound onto the portal's "
-                     "pipewiresrc: %1").arg(QString::fromUtf8(guard))));
+        // Every condition on the stored choice (binding it, or refusing a
+        // missing one) must exempt the portal, whose camera it never names.
+        const int end = source.indexOf("\n    }\n", at);
+        QVERIFY(end > at);
+        int checked = 0;
+        for (const QByteArray &line : source.mid(at, end - at).split('\n')) {
+            if (!line.contains("if (") || !line.contains("camera."))
+                continue;
+            ++checked;
+            QVERIFY2(line.contains("pipewireFd < 0"),
+                     qPrintable(QStringLiteral(
+                         "the stored camera choice is applied to the portal's "
+                         "pipewiresrc: %1").arg(QString::fromUtf8(line))));
+        }
+        QVERIFY2(checked >= 2, "expected the binding and the missing-camera "
+                               "refusal conditions");
     }
 
     void aScreenShareCaptureUsesThePortalsOwnPipeWireRemote()
@@ -2833,11 +2979,7 @@ private slots:
     void theScreenSharePipelineParsesIncludingItsSelfView()
     {
         lightning::rtp::registerVp8Payloader();
-        const QString selfView = QStringLiteral(
-            "t. ! queue max-size-buffers=2 leaky=downstream "
-            "! videoconvert ! video/x-raw,format=RGBA "
-            "! appsink name=selfvidsink emit-signals=true "
-            "sync=false max-buffers=1 drop=true ");
+        const QString selfView = SfuMediaEngine::selfViewBranch();
         const QString description = SfuMediaEngine::videoPipelineDescription(
             QStringLiteral("videotestsrc is-live=true"),
             SfuMediaEngine::videoRateStage(/*screenShare=*/true),
@@ -4435,6 +4577,940 @@ private slots:
         // An index past the ring is still refused.
         engine.setInboundKey(stream, 256, key);
         QVERIFY(log.contains("REFUSED by the cryptor"));
+    }
+
+    // One sender with no key must not silence the others. Its frames are all
+    // dropped, so its sink never prerolls; before the fix that held the whole
+    // subscriber pipeline in PAUSED and every bin added later prerolled one
+    // frame and stopped, until the missing key arrived. Measured live
+    // 2026-09-25. The bins are the engine's own (buildReceiveBin); two live
+    // Opus RTP sources behind a jitterbuffer stand in for webrtcbin's pads.
+    void aTrackThatNeverDeliversDoesNotSilenceTheOthers()
+    {
+        struct Counter { std::atomic<int> n{0}; };
+        Counter keyed;
+        Counter keyless;
+        // What cryptoProbe returns for a sender with no key: DROP. Flipped
+        // later to stand for the key arriving.
+        std::atomic<bool> keyArrived{false};
+
+        GError *error = nullptr;
+        GstElement *pipeline = gst_parse_launch(
+            "audiotestsrc is-live=true freq=500 ! opusenc ! rtpopuspay "
+            "! rtpjitterbuffer latency=100 ! tee name=ta allow-not-linked=true "
+            "audiotestsrc is-live=true freq=700 ! opusenc ! rtpopuspay "
+            "! rtpjitterbuffer latency=100 ! tee name=tb allow-not-linked=true",
+            &error);
+        if (error) {
+            const QString message = QString::fromUtf8(error->message);
+            g_error_free(error);
+            if (pipeline)
+                gst_object_unref(pipeline);
+            QFAIL(qPrintable(message));
+        }
+        QVERIFY(pipeline);
+        // Stops the streaming threads before the counters above go away,
+        // including on an early return.
+        struct Stop {
+            GstElement *pipeline;
+            ~Stop()
+            {
+                gst_element_set_state(pipeline, GST_STATE_NULL);
+                gst_object_unref(pipeline);
+            }
+        } stop{pipeline};
+        QVERIFY(gst_element_set_state(pipeline, GST_STATE_PLAYING)
+                != GST_STATE_CHANGE_FAILURE);
+        QVERIFY(gst_element_get_state(pipeline, nullptr, nullptr,
+                                      5 * GST_SECOND)
+                != GST_STATE_CHANGE_FAILURE);
+
+        // Counts the buffers reaching the bin's sink; returns the sink (a
+        // pointer only, owned by the bin) or null. The test sink is made to
+        // sync like the autoaudiosink it stands in for: only a syncing sink
+        // is given the upstream latency.
+        const auto countAtSink = [](GstElement *bin,
+                                    Counter *counter) -> GstElement * {
+            GstIterator *it = gst_bin_iterate_sinks(GST_BIN(bin));
+            GValue item = G_VALUE_INIT;
+            GstElement *found = nullptr;
+            if (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+                found = GST_ELEMENT(g_value_get_object(&item));
+                g_object_set(found, "sync", TRUE, nullptr);
+                GstPad *pad = gst_element_get_static_pad(found, "sink");
+                gst_pad_add_probe(
+                    pad, GST_PAD_PROBE_TYPE_BUFFER,
+                    [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                        static_cast<Counter *>(data)->n.fetch_add(1);
+                        return GST_PAD_PROBE_OK;
+                    },
+                    counter, nullptr);
+                gst_object_unref(pad);
+            }
+            g_value_unset(&item);
+            gst_iterator_free(it);
+            return found;
+        };
+        // Added as soon as it is built, so the pipeline owns it before any
+        // check can return early; then synced and fed, as onPadAdded does.
+        const auto adopt = [pipeline](GstElement *bin) {
+            return bin && gst_bin_add(GST_BIN(pipeline), bin);
+        };
+        const auto syncAndLink = [pipeline](GstElement *bin,
+                                            const char *teeName) {
+            gst_element_sync_state_with_parent(bin);
+            if (!teeName)
+                return true; // added, never fed
+            GstElement *tee = gst_bin_get_by_name(GST_BIN(pipeline), teeName);
+            GstPad *src = gst_element_request_pad_simple(tee, "src_%u");
+            GstPad *sinkPad = gst_element_get_static_pad(bin, "sink");
+            const bool linked = gst_pad_link(src, sinkPad) == GST_PAD_LINK_OK;
+            gst_object_unref(sinkPad);
+            gst_object_unref(src);
+            gst_object_unref(tee);
+            return linked;
+        };
+
+        // The key-less sender first, then a video track that never delivers.
+        QString why;
+        GstElement *noKey = SfuMediaEngine::buildReceiveBin(
+            false, QStringLiteral("outvol_nokey"), true, &why);
+        QVERIFY2(adopt(noKey), qPrintable(why));
+        GstElement *depay = gst_bin_get_by_name(GST_BIN(noKey), "recvdepay");
+        QVERIFY(depay);
+        GstPad *depaySrc = gst_element_get_static_pad(depay, "src");
+        gst_pad_add_probe(
+            depaySrc, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                return static_cast<std::atomic<bool> *>(data)->load()
+                    ? GST_PAD_PROBE_OK
+                    : GST_PAD_PROBE_DROP;
+            },
+            &keyArrived, nullptr);
+        gst_object_unref(depaySrc);
+        gst_object_unref(depay);
+        QVERIFY(countAtSink(noKey, &keyless));
+        QVERIFY(syncAndLink(noKey, "tb"));
+
+        GstElement *silentVideo = SfuMediaEngine::buildReceiveBin(
+            true, QString(), true, &why);
+        QVERIFY2(adopt(silentVideo), qPrintable(why));
+        QVERIFY(syncAndLink(silentVideo, nullptr));
+        QTest::qWait(300);
+
+        // Then a sender whose frames decrypt.
+        GstElement *withKey = SfuMediaEngine::buildReceiveBin(
+            false, QStringLiteral("outvol_keyed"), true, &why);
+        QVERIFY2(adopt(withKey), qPrintable(why));
+        GstElement *keyedSink = countAtSink(withKey, &keyed);
+        QVERIFY(keyedSink);
+        QVERIFY(syncAndLink(withKey, "ta"));
+
+        // Opus at 20 ms is ~50 frames a second. Stuck in preroll, the sink
+        // takes exactly one.
+        QTRY_VERIFY_WITH_TIMEOUT(keyed.n.load() > 10, 5000);
+        const int before = keyed.n.load();
+        QTest::qWait(1000);
+        const int inOneSecond = keyed.n.load() - before;
+        GstState state = GST_STATE_VOID_PENDING;
+        gst_element_get_state(pipeline, &state, nullptr, 0);
+        QVERIFY2(inOneSecond >= 20,
+                 qPrintable(QStringLiteral(
+                     "the keyed sender delivered %1 frames in one second "
+                     "beside a key-less one (pipeline %2): one undecryptable "
+                     "stream silences everyone")
+                                .arg(inOneSecond)
+                                .arg(QString::fromUtf8(
+                                    gst_element_state_get_name(state)))));
+        QCOMPARE(state, GST_STATE_PLAYING);
+        QCOMPARE(keyless.n.load(), 0);
+        // The pipeline no longer replays PAUSED to PLAYING for each new bin,
+        // which is what used to give each sink the jitterbuffer's latency.
+        // The bin must do it itself, or a syncing audio sink renders every
+        // frame late.
+        const GstClockTime latency =
+            gst_base_sink_get_latency(GST_BASE_SINK(keyedSink));
+        QVERIFY2(latency >= 100 * GST_MSECOND,
+                 qPrintable(QStringLiteral("the receive sink was configured "
+                                           "for %1 ms of latency behind a "
+                                           "100 ms jitterbuffer")
+                                .arg(latency / GST_MSECOND)));
+
+        // The key arrives: that sender is heard too, and the other goes on.
+        keyArrived.store(true);
+        QTRY_VERIFY_WITH_TIMEOUT(keyless.n.load() > 20, 5000);
+        const int keyedNow = keyed.n.load();
+        QTRY_VERIFY_WITH_TIMEOUT(keyed.n.load() > keyedNow + 10, 5000);
+    }
+
+    // The send side of the same stall. A camera publish bin whose capture
+    // never delivers a frame left its self-view appsink waiting for a preroll
+    // frame, which held the publisher pipeline in PAUSED; every bin published
+    // after it synced to PAUSED and its live source produced nothing. The
+    // camera bin is the real publish description with the real self-view
+    // branch; a funnel into a sink stands in for webrtcbin, and a live Opus
+    // source for the next publish.
+    void aCameraThatNeverDeliversDoesNotStallLaterPublishes()
+    {
+        std::atomic<int> sent{0};
+        GError *error = nullptr;
+        GstElement *pipeline = gst_parse_launch(
+            "funnel name=wire ! fakesink name=out sync=false async=false",
+            &error);
+        if (error) {
+            const QString message = QString::fromUtf8(error->message);
+            g_error_free(error);
+            if (pipeline)
+                gst_object_unref(pipeline);
+            QFAIL(qPrintable(message));
+        }
+        QVERIFY(pipeline);
+        // Stops the streaming threads before `sent` goes away, including on
+        // an early return.
+        struct Stop {
+            GstElement *pipeline;
+            ~Stop()
+            {
+                gst_element_set_state(pipeline, GST_STATE_NULL);
+                gst_object_unref(pipeline);
+            }
+        } stop{pipeline};
+        GstElement *out = gst_bin_get_by_name(GST_BIN(pipeline), "out");
+        QVERIFY(out);
+        GstPad *outPad = gst_element_get_static_pad(out, "sink");
+        gst_pad_add_probe(
+            outPad, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                return GST_PAD_PROBE_OK;
+            },
+            &sent, nullptr);
+        gst_object_unref(outPad);
+        gst_object_unref(out);
+        QVERIFY(gst_element_set_state(pipeline, GST_STATE_PLAYING)
+                != GST_STATE_CHANGE_FAILURE);
+        QVERIFY(gst_element_get_state(pipeline, nullptr, nullptr,
+                                      5 * GST_SECOND)
+                != GST_STATE_CHANGE_FAILURE);
+
+        // Added, linked, then synced: publishVideo()'s order.
+        const auto publish = [pipeline](GstElement *bin) {
+            if (!bin || !gst_bin_add(GST_BIN(pipeline), bin))
+                return false;
+            GstElement *wire = gst_bin_get_by_name(GST_BIN(pipeline), "wire");
+            GstPad *sinkPad = gst_element_request_pad_simple(wire, "sink_%u");
+            GstPad *srcPad = gst_element_get_static_pad(bin, "src");
+            const bool linked =
+                srcPad && gst_pad_link(srcPad, sinkPad) == GST_PAD_LINK_OK;
+            if (srcPad)
+                gst_object_unref(srcPad);
+            gst_object_unref(sinkPad);
+            gst_object_unref(wire);
+            gst_element_sync_state_with_parent(bin);
+            return linked;
+        };
+
+        // A camera that opens and never produces a frame.
+        lightning::rtp::registerVp8Payloader();
+        const QString camera = SfuMediaEngine::videoPipelineDescription(
+            QStringLiteral("appsrc is-live=true format=time"),
+            SfuMediaEngine::cameraRateStage(false),
+            SfuMediaEngine::cameraLimitsCaps(false),
+            QStringLiteral("vp8enc deadline=1"),
+            SfuMediaEngine::selfViewBranch(), 4321u,
+            QStringLiteral("videoconvert ! videoscale"),
+            SfuMediaEngine::captureEntryFilter(false));
+        GstElement *cameraBin = gst_parse_bin_from_description(
+            camera.toUtf8().constData(), TRUE, &error);
+        if (error) {
+            const QString message = QString::fromUtf8(error->message);
+            g_error_free(error);
+            if (cameraBin)
+                gst_object_unref(cameraBin);
+            QFAIL(qPrintable(message));
+        }
+        QVERIFY(publish(cameraBin));
+        QTest::qWait(300);
+
+        // Then the next publish, which must flow.
+        GstElement *next = gst_parse_bin_from_description(
+            "audiotestsrc is-live=true ! opusenc ! rtpopuspay", TRUE, &error);
+        if (error) {
+            const QString message = QString::fromUtf8(error->message);
+            g_error_free(error);
+            if (next)
+                gst_object_unref(next);
+            QFAIL(qPrintable(message));
+        }
+        QVERIFY(publish(next));
+
+        // Opus at 20 ms is ~50 packets a second; a bin synced to PAUSED sends
+        // none.
+        QTRY_VERIFY_WITH_TIMEOUT(sent.load() > 10, 5000);
+        GstState state = GST_STATE_VOID_PENDING;
+        gst_element_get_state(pipeline, &state, nullptr, 0);
+        QCOMPARE(state, GST_STATE_PLAYING);
+    }
+
+    // One failed video publish poisoned every later one (found live: a busy
+    // camera, -16 or -22 at negotiation, then a screen share published with
+    // no frames at all, and the camera again, the same). The failed branch's
+    // self-view sink waited for a first frame that never came, so the
+    // publisher pipeline sat in PAUSED and every later branch synced to it.
+    void aFailedVideoPublishDoesNotStallTheNextOne()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        sender.setSelfViewInTestModeForTest(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QSignalSpy trackFailed(&sender, &SfuMediaEngine::publishFailed);
+        sender.start();
+        receiver.start();
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("cid-share"), 3, key);
+
+        // A camera that opens, never delivers a frame and then errors, as a
+        // busy device does at negotiation (-16, -22).
+        sender.setVideoSourceForTest(
+            QStringLiteral("appsrc is-live=true format=time"));
+        sender.publishVideo(QStringLiteral("cid-camera"), /*screenShare=*/false,
+                            -1, -1);
+        {
+            GstElement *bin =
+                sender.publishedBinForTest(QStringLiteral("cid-camera"));
+            QVERIFY(bin);
+            GstElement *camera = gst_bin_get_by_name(GST_BIN(bin), "capsrc");
+            QVERIFY(camera);
+            QTest::qWait(300);
+            GError *error = g_error_new_literal(
+                GST_RESOURCE_ERROR, GST_RESOURCE_ERROR_BUSY,
+                "error set output format: -16 (Device or resource busy)");
+            gst_element_post_message(
+                camera, gst_message_new_error(GST_OBJECT(camera), error,
+                                              "test"));
+            g_error_free(error);
+            gst_object_unref(camera);
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(trackFailed.count(), 1, 10000);
+        QCOMPARE(trackFailed.at(0).at(1).toString(),
+                 QStringLiteral("camera_failed"));
+        // The next video publish must reach the far end, even while the
+        // failed branch is still in the pipeline (the controller removes it
+        // on the report, but nothing may depend on that having finished).
+        sender.setVideoSourceForTest(QString());
+        sender.publishVideo(QStringLiteral("cid-share"), /*screenShare=*/true,
+                            -1, -1);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.framesDecrypted() > 10,
+            qPrintable(QStringLiteral("the share after a failed camera: %1 "
+                                      "frames decrypted, %2 encrypted; "
+                                      "failure=%3")
+                           .arg(receiver.framesDecrypted())
+                           .arg(sender.framesEncrypted())
+                           .arg(failure)),
+            45000);
+        // And removing the failed branch later changes nothing.
+        sender.unpublish(QStringLiteral("cid-camera"));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !sender.hasPublishedBinForTest(QStringLiteral("cid-camera")), 5000);
+        const quint64 before = receiver.framesDecrypted();
+        QTRY_VERIFY_WITH_TIMEOUT(receiver.framesDecrypted() > before + 10,
+                                 10000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        sender.stop();
+        receiver.stop();
+    }
+
+    // A remote stream's jitterbuffer and its two threads must go when the
+    // stream does: rtpbin keeps a timed-out source for good by default, so
+    // every remote rejoin grew the process by two threads (measured live,
+    // 85 -> 128 over 20 rejoins; threadgrow.c: +2 per new SSRC, reclaimed
+    // only with autoremove). The wait for a source timeout (20-40 s) does
+    // not fit this suite's budget, so the setting itself is asserted.
+    void theSubscriberDropsRemoteSourcesThatTimeOut()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        QCOMPARE(engine.subscriberAutoremoveForTest(), -1);
+        engine.applyRemoteDescription(
+            SfuMediaEngine::Target::Subscriber, QStringLiteral("offer"),
+            QStringLiteral("v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\n"
+                           "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n"
+                           "c=IN IP4 0.0.0.0\r\na=mid:0\r\n"
+                           "a=ice-ufrag:abcd\r\na=ice-pwd:abcdefghijklmnopqrstuvwx\r\n"
+                           "a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\n"
+                           "a=setup:actpass\r\na=sctp-port:5000\r\n"));
+        QCOMPARE(engine.subscriberAutoremoveForTest(), 1);
+        engine.stop();
+    }
+
+    // A microphone whose capture fails mid-call (measured: pulsesrc "Failed
+    // to connect stream: Timeout" while the sound server stalled) stayed dead
+    // for the whole call: nothing retried it, and the track stayed declared
+    // and silent. It is restarted in place, keeping its published track.
+    void aMicrophoneCaptureThatFailsIsRestartedAndKeepsItsTrack()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        sender.setCaptureRestartDelayForTest(50);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        QSignalSpy publishFailures(&sender, &SfuMediaEngine::publishFailed);
+
+        sender.start();
+        receiver.start();
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("first"), 3, key);
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !arrived.isEmpty(),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        QTRY_VERIFY_WITH_TIMEOUT(receiver.framesDecrypted() > 20, 15000);
+        const int trackSlots = sender.publisherTrackSlotsForTest();
+
+        // The source's next buffer fails, the way a lost sound server does;
+        // basesrc then posts the error and stops its task.
+        GstElement *bin = sender.publishedBinForTest(QStringLiteral("first"));
+        QVERIFY(bin);
+        GstElement *source = gst_bin_get_by_name(GST_BIN(bin), "micsrc");
+        QVERIFY(source);
+        GstPad *out = gst_element_get_static_pad(source, "src");
+        static std::atomic<int> failNext{0};
+        failNext.store(1);
+        gst_pad_add_probe(
+            out, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *info, gpointer) {
+                if (failNext.fetch_sub(1) <= 0) {
+                    failNext.store(0);
+                    return GST_PAD_PROBE_OK;
+                }
+                gst_buffer_unref(GST_PAD_PROBE_INFO_BUFFER(info));
+                GST_PAD_PROBE_INFO_DATA(info) = nullptr;
+                GST_PAD_PROBE_INFO_FLOW_RETURN(info) = GST_FLOW_ERROR;
+                return GST_PAD_PROBE_HANDLED;
+            },
+            nullptr, nullptr);
+        gst_object_unref(out);
+        gst_object_unref(source);
+
+        QTRY_VERIFY_WITH_TIMEOUT(sender.microphoneRestartsForTest() >= 1,
+                                 5000);
+        // Heard again, on the same track.
+        const quint64 before = receiver.framesDecrypted();
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.framesDecrypted() > before + 50,
+            qPrintable(QStringLiteral("after the capture failed the far end "
+                                      "decrypted %1 more frames")
+                           .arg(receiver.framesDecrypted() - before)),
+            10000);
+        QVERIFY(sender.hasPublishedBinForTest(QStringLiteral("first")));
+        QCOMPARE(sender.publisherTrackSlotsForTest(), trackSlots);
+        QCOMPARE(publishFailures.count(), 0);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // A microphone that never opens (a real refusal: pulsesrc pointed at a
+    // socket nobody listens on) is retried a bounded number of times and then
+    // reported as one track failure; the call itself goes on.
+    void aMicrophoneThatNeverOpensIsReportedWithoutEndingTheCall()
+    {
+        GstElementFactory *factory = gst_element_factory_find("pulsesrc");
+        if (!factory)
+            QSKIP("no pulsesrc: this refusal cannot be staged here");
+        gst_object_unref(factory);
+
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setMicrophoneSourceForTest(QStringLiteral(
+            "pulsesrc server=unix:/nonexistent/lightning-test-no-server"));
+        engine.setCaptureRestartDelayForTest(20);
+        QSignalSpy fatal(&engine, &SfuMediaEngine::failed);
+        QSignalSpy trackFailed(&engine, &SfuMediaEngine::publishFailed);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-mic"));
+
+        // 20+40+80+160+320 ms of restarts, then one report.
+        QTRY_COMPARE_WITH_TIMEOUT(trackFailed.count(), 1, 10000);
+        QCOMPARE(trackFailed.at(0).at(0).toString(),
+                 QStringLiteral("cid-mic"));
+        QCOMPARE(trackFailed.at(0).at(1).toString(),
+                 QStringLiteral("audio_source_failed"));
+        QCOMPARE(engine.microphoneRestartsForTest(), 5);
+        QTest::qWait(500);
+        QCOMPARE(trackFailed.count(), 1);
+        QCOMPARE(fatal.count(), 0);
+        engine.stop();
+    }
+
+    // Lightning's microphone carries the RFC 6464 audio level, which is what
+    // LiveKit's speaking indicator reads: without it no client (Element,
+    // Sable, Lightning itself) ever showed a Lightning participant speaking.
+    // Encrypted, so the frame the payloader sees is the encrypt probe's
+    // replacement buffer, which must keep the level meta.
+    void theMicrophoneCarriesItsAudioLevelForTheSpeakingIndicator()
+    {
+        if (!SfuMediaEngine::audioLevelExtensionAvailable())
+            QSKIP("no rtphdrextclientaudiolevel or level audio-level-meta");
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QString offer;
+        connect(&sender, &SfuMediaEngine::localDescription, this,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)
+                        && kind == QStringLiteral("offer"))
+                        offer = sdp;
+                });
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+
+        sender.start();
+        receiver.start();
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("first"), 3, key);
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !arrived.isEmpty(),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        QVERIFY2(offer.contains(QStringLiteral(
+                     "urn:ietf:params:rtp-hdrext:ssrc-audio-level")),
+                 "the offer declares no audio-level extension");
+
+        // What the SFU reads: the one-byte extension on each RTP packet.
+        struct Seen {
+            std::atomic<int> packets{0};
+            std::atomic<int> withLevel{0};
+            std::atomic<int> quietest{0};
+            std::atomic<int> loudest{127};
+        } seen;
+        GstElement *bin = receiver.receiveBinForTest(QStringLiteral("first"));
+        QVERIFY(bin);
+        GstPad *in = gst_element_get_static_pad(bin, "sink");
+        QVERIFY(in);
+        gst_pad_add_probe(
+            in, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *info, gpointer data) {
+                auto *s = static_cast<Seen *>(data);
+                GstRTPBuffer rtp = GST_RTP_BUFFER_INIT;
+                if (!gst_rtp_buffer_map(GST_PAD_PROBE_INFO_BUFFER(info),
+                                        GST_MAP_READ, &rtp))
+                    return GST_PAD_PROBE_OK;
+                s->packets.fetch_add(1);
+                gpointer ext = nullptr;
+                guint size = 0;
+                if (gst_rtp_buffer_get_extension_onebyte_header(
+                        &rtp, SfuMediaEngine::kAudioLevelExtId, 0, &ext,
+                        &size)
+                    && size >= 1) {
+                    const int level = static_cast<guint8 *>(ext)[0] & 0x7f;
+                    s->withLevel.fetch_add(1);
+                    if (level > s->quietest.load())
+                        s->quietest.store(level);
+                    if (level < s->loudest.load())
+                        s->loudest.store(level);
+                }
+                gst_rtp_buffer_unmap(&rtp);
+                return GST_PAD_PROBE_OK;
+            },
+            &seen, nullptr);
+        gst_object_unref(in);
+
+        QTRY_VERIFY_WITH_TIMEOUT(seen.packets.load() > 50, 10000);
+        QVERIFY2(seen.withLevel.load() * 10 >= seen.packets.load() * 9,
+                 qPrintable(QStringLiteral("%1 of %2 packets carried a level")
+                                .arg(seen.withLevel.load())
+                                .arg(seen.packets.load())));
+        // A 0.05 sine is about -29 dBov; 127 would mean silence.
+        QVERIFY2(seen.loudest.load() < 60,
+                 qPrintable(QStringLiteral("loudest level %1 -dBov")
+                                .arg(seen.loudest.load())));
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // Where the extension is missing the microphone publishes exactly as
+    // before: nothing in the SDP, and the far end still hears it.
+    void aMissingAudioLevelExtensionLeavesThePublishAlone()
+    {
+        struct Restore {
+            ~Restore() { SfuMediaEngine::disableAudioLevelExtensionForTest(false); }
+        } restore;
+        SfuMediaEngine::disableAudioLevelExtensionForTest(true);
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QString offer;
+        connect(&sender, &SfuMediaEngine::localDescription, this,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)
+                        && kind == QStringLiteral("offer"))
+                        offer = sdp;
+                });
+        sender.start();
+        receiver.start();
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("first"), 3, key);
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY_WITH_TIMEOUT(receiver.framesDecrypted() > 20, 45000);
+        QVERIFY(!offer.isEmpty());
+        QVERIFY(!offer.contains(QStringLiteral("ssrc-audio-level")));
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        sender.stop();
+        receiver.stop();
+    }
+
+    // One receive sink failing (pulsesink's "Connection terminated" when the
+    // sound server drops the client) returned an error upstream that stopped
+    // the shared ICE source: measured live, every participant's audio AND
+    // video stopped for good while the UI looked normal. It must stay in its
+    // own bin, and that bin must come back.
+    void aFailedReceiveSinkIsIsolatedAndRebuilt()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        receiver.setReceiveRebuildDelayForTest(50);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        QSignalSpy lost(&receiver, &SfuMediaEngine::remotePlaybackFailed);
+
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        sender.publishAudio(QStringLiteral("second"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.contains(QStringLiteral("first"))
+                && arrived.contains(QStringLiteral("second")),
+            qPrintable(QStringLiteral("tracks arrived: %1; failure=%2")
+                           .arg(arrived.join(QLatin1Char(',')), failure)),
+            45000);
+
+        std::atomic<int> second{0};
+        std::atomic<int> firstAgain{0};
+        GstElement *secondSink =
+            firstSinkOf(receiver.receiveBinForTest(QStringLiteral("second")));
+        GstElement *firstBin =
+            receiver.receiveBinForTest(QStringLiteral("first"));
+        GstElement *firstSink = firstSinkOf(firstBin);
+        QVERIFY(secondSink && firstSink);
+        countBuffersAt(secondSink, &second);
+        QTRY_VERIFY_WITH_TIMEOUT(second.load() > 10, 10000);
+
+        failLikeADisconnectedSoundServer(firstSink);
+
+        // The other track goes on.
+        const int before = second.load();
+        QTest::qWait(3000);
+        QVERIFY2(second.load() - before > 50,
+                 qPrintable(QStringLiteral(
+                     "the other track delivered %1 buffers in the 3 s after "
+                     "one sink failed: the failure reached the transport")
+                                .arg(second.load() - before)));
+        // The failed one is rebuilt, with a bin of its own, and plays.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            receiver.receiveBinForTest(QStringLiteral("first")) != nullptr
+                && receiver.receiveBinForTest(QStringLiteral("first"))
+                    != firstBin,
+            10000);
+        GstElement *rebuiltSink =
+            firstSinkOf(receiver.receiveBinForTest(QStringLiteral("first")));
+        QVERIFY(rebuiltSink);
+        countBuffersAt(rebuiltSink, &firstAgain);
+        QTRY_VERIFY_WITH_TIMEOUT(firstAgain.load() > 20, 10000);
+        QCOMPARE(receiver.receiveBinsForTest(), 2);
+        QCOMPARE(lost.count(), 0);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // A track retired while its output is being rebuilt must stay retired:
+    // the rebuild once took the entry out of the map for its whole run, so a
+    // retire in that window found nothing and the rebuild then put a live
+    // bin back for a stream the transceiver had already replaced (and its
+    // outvol_* shadowed the live one's).
+    void aTrackRetiredDuringItsRebuildStaysRetired()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        receiver.setReceiveRebuildDelayForTest(20);
+        // The rebuild job holds off long enough for the retire to land in
+        // the middle of it.
+        receiver.setRebuildJobDelayForTest(1500);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !arrived.isEmpty(),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        GstElement *sink =
+            firstSinkOf(receiver.receiveBinForTest(QStringLiteral("first")));
+        QVERIFY(sink);
+        failLikeADisconnectedSoundServer(sink);
+        // Isolated; its rebuild job is now waiting.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            receiver.receiveBinForTest(QStringLiteral("first")) == nullptr,
+            5000);
+        QTest::qWait(300);
+        QCOMPARE(receiver.retireAllReceiveBinsForTest(), 1);
+        QCOMPARE(receiver.receiveBinsForTest(), 0);
+
+        // The job finishes; nothing comes back.
+        QTest::qWait(2500);
+        QCOMPARE(receiver.receiveBinsForTest(), 0);
+        QVERIFY(receiver.receiveBinForTest(QStringLiteral("first")) == nullptr);
+        QTRY_COMPARE_WITH_TIMEOUT(receiver.receiveVolumeElementsForTest(), 0,
+                                  3000);
+        sender.stop();
+        receiver.stop();
+    }
+
+    // When every rebuild fails (no sound server comes back), the engine says
+    // so once, and still keeps the failure away from the other tracks.
+    void aSinkThatCannotBeRebuiltIsReportedOnce()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        receiver.setReceiveRebuildDelayForTest(20);
+        receiver.failReceiveRebuildsForTest(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        QSignalSpy lost(&receiver, &SfuMediaEngine::remotePlaybackFailed);
+
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        sender.publishAudio(QStringLiteral("second"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.contains(QStringLiteral("first"))
+                && arrived.contains(QStringLiteral("second")),
+            qPrintable(QStringLiteral("tracks arrived: %1; failure=%2")
+                           .arg(arrived.join(QLatin1Char(',')), failure)),
+            45000);
+        std::atomic<int> second{0};
+        GstElement *secondSink =
+            firstSinkOf(receiver.receiveBinForTest(QStringLiteral("second")));
+        GstElement *firstSink =
+            firstSinkOf(receiver.receiveBinForTest(QStringLiteral("first")));
+        QVERIFY(secondSink && firstSink);
+        countBuffersAt(secondSink, &second);
+
+        failLikeADisconnectedSoundServer(firstSink);
+
+        // 20+40+80+160+320 ms of retries, then one notice.
+        QTRY_COMPARE_WITH_TIMEOUT(lost.count(), 1, 10000);
+        QCOMPARE(lost.at(0).at(0).toBool(), true);
+        const int before = second.load();
+        QTest::qWait(1500);
+        QCOMPARE(lost.count(), 1);
+        QVERIFY2(second.load() - before > 20,
+                 "the track that did not fail stopped too");
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // webrtcbin never removes a receiving src pad (it has no pad-removed for
+    // them at all in 1.28), so a track the far end retires kept its receive
+    // bin and its audio output for the rest of the call: measured live as one
+    // extra PipeWire playback stream per screen share. The answer marking the
+    // section inactive is what retires it now.
+    void aTrackTheFarEndRetiresReleasesItsReceiveBin()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        QSignalSpy removed(&receiver, &SfuMediaEngine::remoteTrackRemoved);
+
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.size() >= 1,
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        QCOMPARE(receiver.receiveBinsForTest(), 1);
+
+        // The sender stops the track: its section goes a=inactive.
+        sender.unpublish(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.receiveBinsForTest() == 0,
+            qPrintable(QStringLiteral("a retired track still holds %1 "
+                                      "receive bin(s); failure=%2")
+                           .arg(receiver.receiveBinsForTest())
+                           .arg(failure)),
+            15000);
+        QTRY_COMPARE_WITH_TIMEOUT(removed.count(), 1, 5000);
+
+        // The next track gets a bin of its own, and only that one plays.
+        sender.publishAudio(QStringLiteral("second"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.size() >= 2,
+            qPrintable(QStringLiteral("the second track never arrived; "
+                                      "failure=%1").arg(failure)),
+            45000);
+        QCOMPARE(receiver.receiveBinsForTest(), 1);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+        // And stop() forgets them with the pipeline.
+        QCOMPARE(receiver.receiveBinsForTest(), 0);
+    }
+
+    // LiveKit hands a transceiver to the next track with a new SSRC, and
+    // webrtcbin answers every new SSRC with a NEW src pad on the same
+    // transceiver while the old one stays. The older pad's bin must go.
+    void aNewStreamOnATransceiverRetiresTheBinBeforeIt()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        int added = 0;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &, const QString &, const QString &) {
+                    ++added;
+                });
+
+        sender.start();
+        receiver.start();
+        // Keyed, so the survivor can be shown to decrypt.
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("first"), 3, key);
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            added >= 1,
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        QCOMPARE(receiver.receiveBinsForTest(), 1);
+
+        // Same transceiver, new SSRC.
+        GstElement *bin = sender.publishedBinForTest(QStringLiteral("first"));
+        QVERIFY(bin);
+        GstElement *pay = nullptr;
+        GstElement *filter = nullptr;
+        GstIterator *it = gst_bin_iterate_elements(GST_BIN(bin));
+        GValue item = G_VALUE_INIT;
+        while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            const gchar *factory = GST_OBJECT_NAME(
+                gst_element_get_factory(element));
+            if (g_strcmp0(factory, "rtpopuspay") == 0)
+                pay = element;
+            else if (g_strcmp0(factory, "capsfilter") == 0)
+                filter = element;
+            g_value_reset(&item);
+        }
+        g_value_unset(&item);
+        gst_iterator_free(it);
+        QVERIFY(pay && filter);
+        const guint ssrc = 0x5eed1234u;
+        GstCaps *caps = nullptr;
+        g_object_get(filter, "caps", &caps, nullptr);
+        QVERIFY(caps);
+        caps = gst_caps_make_writable(caps);
+        gst_structure_set(gst_caps_get_structure(caps, 0), "ssrc", G_TYPE_UINT,
+                          ssrc, nullptr);
+        g_object_set(pay, "ssrc", ssrc, nullptr);
+        g_object_set(filter, "caps", caps, nullptr);
+        gst_caps_unref(caps);
+
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            added >= 2,
+            qPrintable(QStringLiteral("the new SSRC never produced a pad; "
+                                      "failure=%1").arg(failure)),
+            20000);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.receiveBinsForTest() == 1,
+            qPrintable(QStringLiteral("%1 receive bins for one transceiver")
+                           .arg(receiver.receiveBinsForTest())),
+            5000);
+        // The survivor is the live one.
+        const quint64 before = receiver.framesDecrypted();
+        QTRY_VERIFY_WITH_TIMEOUT(receiver.framesDecrypted() > before + 10,
+                                 10000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
     }
 
 };

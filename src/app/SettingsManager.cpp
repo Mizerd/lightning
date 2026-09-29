@@ -1558,6 +1558,19 @@ void SettingsManager::setPreferredCameraId(const QString &id)
     Q_EMIT callDevicePreferenceChanged();
 }
 
+QString SettingsManager::preferredCameraDescription() const
+{
+    return sanitizedDeviceId(
+        m_store->value(QStringLiteral("calls/cameraDescription")).toString());
+}
+
+void SettingsManager::setPreferredCameraDescription(const QString &description)
+{
+    // No change signal: the id setter that follows announces the pair.
+    m_store->setValue(QStringLiteral("calls/cameraDescription"),
+                      sanitizedDeviceId(description.simplified()));
+}
+
 // Per-room modes are stored per account
 // (accounts/<slug>/notifications/room-mode/<roomId>). Reads fall back to the
 // legacy global key, which account writes never delete because other

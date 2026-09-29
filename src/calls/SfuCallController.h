@@ -484,6 +484,11 @@ public:
     /// Drive the local camera/share intent as the buttons do, minus the media
     /// engine, through the same private applyVideoState().
     void setLocalMediaStateForTest(bool cameraOn, bool screenSharing);
+    /// The newest outbound key index a peer is known to hold, or -1.
+    int deliveredKeyIndexForTest() const { return m_deliveredKeyIndex; }
+    /// Record a key send as this call's, as rotateAndDistributeKey() does
+    /// with the op the client returns.
+    void noteMediaKeySendForTest(quint64 op) { m_keySendOps.insert(op); }
 
 Q_SIGNALS:
     void stateChanged();
@@ -546,6 +551,10 @@ private Q_SLOTS:
     /// One track could not carry media: turn that control off and say so. The
     /// call is not ended. See SfuMediaEngine::publishFailed.
     void onEnginePublishFailed(const QString &cid, const QString &category);
+    /// Received audio could not be played and could not be rebuilt (true), or
+    /// plays again (false). See SfuMediaEngine::remotePlaybackFailed. The call
+    /// is not ended: the user is told, and a rejoin rebuilds everything.
+    void onRemotePlaybackFailed(bool failed);
     void onMediaKeyReceived(const QString &roomId, const QString &sender,
                             const QString &claimedDeviceId, int keyIndex,
                             const QString &keyBase64);
@@ -881,6 +890,27 @@ private:
     /// The device set the last media key reached; see distributeKeyIfNeeded().
     /// An empty set is never recorded.
     QString m_lastKeyTargets;
+    /// onRemotePlaybackFailed(true) told the user; per call.
+    bool m_playbackLostAnnounced = false;
+    /// The notice showing (the last callFailed text; empty when withdrawn),
+    /// and the failure setState() announced.
+    QString m_shownNotice;
+    QString m_announcedFailure;
+    /// Withdraw `notice` (an empty callFailed) only if it is still the one
+    /// showing. Returns whether it did.
+    bool withdrawNotice(const QString &notice);
+    /// The notice onRemotePlaybackFailed(true) shows.
+    static QString playbackLostNotice();
+    /// This call's key sends still awaiting an answer. An answer to any other
+    /// op (a previous call's) changes nothing. Grows by one per rotation and
+    /// shrinks per answer; cleared once per call (resetKeyLane()).
+    QSet<quint64> m_keySendOps;
+    /// Reset the outbound key state above; per call.
+    void resetKeyLane();
+    /// Refuse a join. A call already running is left alone and the refusal
+    /// only reported; otherwise the state becomes Failed, and `announce`
+    /// also emits callFailed.
+    void refuseJoin(const QString &message, bool announce);
     int m_keyLaneReconciles = 0;
     /// Local ICE candidates this session. Zero on the publisher means the peer
     /// connection never started (LiveKit's 60 s JOIN_FAILURE).

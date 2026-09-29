@@ -70,6 +70,9 @@ public:
     struct DeviceChoice {
         QString id;
         QString description;
+        /// Camera only: a camera was chosen and is not usable now. Opens no
+        /// camera rather than the default (CaptureDeviceSelection.h).
+        bool preferredMissing = false;
     };
     void setPreferredDevices(const DeviceChoice &camera,
                              const DeviceChoice &microphone,
@@ -82,6 +85,13 @@ public:
     /// The share's caps ceiling for a chosen height and rate. Static and pure
     /// so the caps strings are testable without a live peer.
     static QString shareLimitsCaps(int maxHeight, int fps);
+    /// Test-only: sets `property` on a fresh `factory` element the way a
+    /// device binding is applied, and reads it back serialised; empty when
+    /// the element refused it. avfvideosrc's `device-index` is an int, so the
+    /// conversion is the thing under test.
+    static QString applyDevicePropertyForTest(const QString &factory,
+                                              const QString &property,
+                                              const QString &value);
     /// Convert-and-scale stage for a share, CPU or GPU.
     static QString shareScaleStage(int maxHeight, bool gpu);
     /// The capsfilter between the capture and the rest. Pins PAR either way;
@@ -242,6 +252,9 @@ public:
                                             quint32 ssrc,
                                             const QString &scaleStage,
                                             const QString &entryFilter);
+    /// The self-view branch a camera or share publish tees off (not in
+    /// test-source mode). Its appsink never waits for a preroll frame.
+    static QString selfViewBranch();
     /// The rate stage: `videorate` pinning the output to a fixed rate. A
     /// desktop capture delivers on damage and videorate needs a second input
     /// buffer to emit anything; see the definition.
@@ -262,6 +275,17 @@ public:
     /// Name of the receive bin's `volume` element for one stream; shared by
     /// the bin that creates it and the lookup that finds it.
     static QString outputVolumeElementName(const QString &streamId);
+    /// One received track's chain, as a bin ready to add to the subscriber
+    /// pipeline (floating ref). `testSink` ends audio in a fakesink. The bin
+    /// handles its own preroll, so a track that never delivers a frame cannot
+    /// hold the pipeline's state. Returns null with `*error` on failure.
+    /// A non-empty `pulseClientName` makes the audio output a pulsesink on a
+    /// Pulse connection of that name (outside test mode); see
+    /// rebuildReceiveBin().
+    static GstElement *buildReceiveBin(bool video,
+                                       const QString &volumeElementName,
+                                       bool testSink, QString *error,
+                                       const QString &pulseClientName = QString());
     /// The identity a receive volume element is named for: per track, since a
     /// participant can publish microphone and share audio.
     static QString volumeKeyFor(const QString &streamId,
@@ -341,6 +365,74 @@ public:
     {
         return m_publishedBins.contains(cid);
     }
+
+    /// Test-only: the bin published under `cid` (borrowed), or null.
+    GstElement *publishedBinForTest(const QString &cid) const
+    {
+        return m_publishedBins.value(cid, nullptr);
+    }
+
+    /// Called by the bus sync handler, any thread: a receive bin posted an error. Its pad
+    /// is isolated at once (a sink's error flows back upstream and kills the
+    /// shared ICE transport, silencing every track) and a rebuild scheduled.
+    void isolateFailedReceiveBin(GstElement *pipelineChild);
+
+    /// GUI thread: the microphone's source posted an error. A capture that
+    /// failed (measured: pulsesrc "Failed to connect stream: Timeout" while
+    /// the sound server stalled) never retries by itself, so the track stays
+    /// declared and silent for the whole call. Restarted with backoff.
+    void handleCaptureError(const QString &cid);
+    /// Test-only: the receive bin of the first track from `streamId`
+    /// (borrowed), or null.
+    GstElement *receiveBinForTest(const QString &streamId) const
+    {
+        QMutexLocker lock(&m_receiveBinMutex);
+        for (auto it = m_receiveBins.cbegin(); it != m_receiveBins.cend(); ++it) {
+            if (it->streamId == streamId && it->bin)
+                return it->bin;
+        }
+        return nullptr;
+    }
+    /// Whether the microphone can carry its audio level to the SFU in the
+    /// RFC 6464 header extension (LiveKit's speaking indicator reads it):
+    /// `rtphdrextclientaudiolevel` exists and `level` can attach
+    /// GstAudioLevelMeta (1.20+). Without it the publish goes on as before.
+    static bool audioLevelExtensionAvailable();
+    /// The extmap id the microphone's audio level is sent under.
+    static constexpr int kAudioLevelExtId = 1;
+    /// Test-only: behave as if the audio-level extension were missing.
+    static void disableAudioLevelExtensionForTest(bool disabled);
+    /// Test-only: the microphone source description in test-source mode.
+    void setMicrophoneSourceForTest(const QString &description)
+    {
+        m_testMicSource = description;
+    }
+    /// Test-only: the video source description in test-source mode.
+    void setVideoSourceForTest(const QString &description)
+    {
+        m_testVideoSource = description;
+    }
+    /// Test-only: build the self-view branch in test-source mode too.
+    void setSelfViewInTestModeForTest(bool on) { m_testSelfView = on; }
+    /// Test-only: whether the subscriber's rtpbin drops timed-out sources.
+    /// -1 when there is no subscriber yet.
+    int subscriberAutoremoveForTest() const;
+    /// Test-only: the first microphone restart waits `ms`, doubling after.
+    void setCaptureRestartDelayForTest(int ms) { m_micRestartBaseDelayMs = ms; }
+    /// Test-only: microphone restarts attempted in this run.
+    int microphoneRestartsForTest() const { return m_micRestarts; }
+
+    /// Test-only: a rebuild job sleeps `ms` before it builds anything.
+    void setRebuildJobDelayForTest(int ms) { m_rebuildJobDelayMs.store(ms); }
+    /// Test-only: retire every receive bin, as a renegotiation marking every
+    /// section inactive would.
+    int retireAllReceiveBinsForTest();
+    /// Test-only: `outvol_*` elements in the subscriber pipeline.
+    int receiveVolumeElementsForTest() const;
+    /// Test-only: the first receive-bin rebuild waits `ms`, doubling after.
+    void setReceiveRebuildDelayForTest(int ms) { m_rebuildBaseDelayMs = ms; }
+    /// Test-only: every receive-bin rebuild fails, as with no sound server.
+    void failReceiveRebuildsForTest(bool fail) { m_failReceiveRebuilds = fail; }
 
     /// Test-only: does the bin published under `cid` contain `elementName`?
     /// Out of line so includers do not link against GStreamer.
@@ -481,6 +573,10 @@ Q_SIGNALS:
     /// Deliberately not `failed()`, which ends the call. See
     /// handlePublishError() for when it is raised.
     void publishFailed(const QString &cid, const QString &category);
+    /// A received track's output failed (the sound server went away) and
+    /// could not be rebuilt: true once when recovery is given up, false once
+    /// a later rebuild works again. The call carries on either way.
+    void remotePlaybackFailed(bool failed);
 
     /// A remote participant's frames are arriving and being dropped.
     /// `streamId` is the LiveKit participant sid. `reason` is a closed set:
@@ -785,8 +881,91 @@ private:
         /// Who stopped sending, for remoteTrackRemoved.
         QString streamId;
         QString kind;
+        /// The SDP mid of the pad's transceiver; see retireReceiveBins().
+        QString transceiverMid;
+        /// The track key the bin's volume and video route are named for.
+        QString trackKey;
+        /// Set while the bin's output has failed: a probe dropping what the
+        /// pad carries, so the failure cannot travel back into webrtcbin.
+        unsigned long isolateProbe = 0; // a gulong probe id
+        /// Rebuilds in the current run of failures, and when the last began.
+        int rebuilds = 0;
+        /// The Pulse client name a rebuild uses, when the output that failed
+        /// was a pulsesink; see rebuildReceiveBin().
+        QString rebuildClientName = QString();
+        /// A rebuild job is out for this entry. The entry stays in the map
+        /// meanwhile, so a retire in that window is seen; see
+        /// finishReceiveRebuild().
+        bool rebuilding = false;
+        /// The level the user had set on this track's volume element, kept
+        /// across rebuild attempts; -1 when unknown.
+        double level = -1.0;
+        qint64 lastRebuildMs = 0;
     };
     QHash<GstPad *, ReceiveBin> m_receiveBins;
+    /// Retire the receive bins fed by these transceivers, except the one on
+    /// `keep`. Any thread. webrtcbin never removes a src pad, so this, not
+    /// pad-removed, is how a track LiveKit retires stops playing. Returns how
+    /// many bins went.
+    int retireReceiveBins(const QSet<QString> &transceiverMids, GstPad *keep,
+                          const char *reason);
+    /// Unparent and stop one receive bin off the streaming thread.
+    /// `announce` emits remoteTrackRemoved (not for a rebuild).
+    void teardownReceiveBin(const ReceiveBin &entry, bool announce = true);
+    /// Build a receive chain for `srcPad` and add, probe, sync and link it.
+    /// `*binOut` is the bin once it is in the pipeline, even if linking then
+    /// failed. Any thread that is not the pad's streaming thread mid-push.
+    bool attachReceiveChain(GstElement *pipeline, GstPad *srcPad,
+                            const QString &streamId, const QString &trackKey,
+                            const QString &mediaKind, GstElement **binOut,
+                            QString *why,
+                            const QString &pulseClientName = QString());
+    /// The engine-side half of attachReceiveChain: build, add, probes, volume.
+    /// Quick; never waits on a device.
+    bool prepareReceiveChain(GstElement *pipeline, const QString &streamId,
+                             const QString &trackKey, const QString &mediaKind,
+                             GstElement **binOut, QString *why,
+                             const QString &pulseClientName = QString());
+    /// The other half: start the bin and link it. May block on the device;
+    /// touches no engine state.
+    static bool startReceiveChain(GstPad *srcPad, GstElement *bin,
+                                  QString *why);
+    /// GUI thread: a rebuild job's verdict. See rebuildReceiveBin().
+    void finishReceiveRebuild(GstPad *pad, quint64 generation,
+                              GstElement *bin, bool ok, const QString &why,
+                              double level, const QString &outputName);
+    /// The client name of the fresh Pulse connection after a drop, or empty.
+    /// Guarded by m_receiveBinMutex.
+    QString m_freshPulseClient;
+    std::atomic<int> m_rebuildJobDelayMs{0};
+    /// True for the current session; a rebuild job holds a copy and stops
+    /// its own bin once this goes false (teardown sets it and replaces it).
+    std::shared_ptr<std::atomic<bool>> m_sessionLive =
+        std::make_shared<std::atomic<bool>>(true);
+    /// Bumped when a run of output failures begins; names the fresh Pulse
+    /// connection the rebuilds of that run share.
+    std::atomic<int> m_receiveSinkEpoch{0};
+    /// GUI thread: rebuild an isolated bin after a backoff, bounded.
+    void scheduleReceiveRebuild(GstPad *pad, quint64 generation);
+    void rebuildReceiveBin(GstPad *pad, quint64 generation);
+    /// A rebuild job on a GStreamer pool thread; see rebuildReceiveBin().
+    static void runRebuildJob(GstElement *pipeline, void *data);
+    static constexpr int kMaxReceiveRebuilds = 5;
+    void restartMicrophone(const QString &cid, quint64 generation);
+    static constexpr int kMaxMicRestarts = 5;
+    QString m_micCid;
+    QString m_testMicSource;
+    QString m_testVideoSource;
+    bool m_testSelfView = false;
+    int m_micRestarts = 0;
+    qint64 m_micLastRestartMs = 0;
+    bool m_micRestartPending = false;
+    bool m_micFailureReported = false;
+    int m_micRestartBaseDelayMs = 500;
+    int m_rebuildBaseDelayMs = 500;
+    bool m_failReceiveRebuilds = false;
+    /// remotePlaybackFailed(true) was emitted and not yet withdrawn.
+    bool m_playbackFailureAnnounced = false;
 
     /// Not owned. QPointer so a destroyed router is never dereferenced from a
     /// late streaming-thread callback.

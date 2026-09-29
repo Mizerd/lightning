@@ -23,8 +23,13 @@
 //   3. Shape, only when the monitor offered nothing: a `/dev/video*` id for
 //      `v4l2src` is taken at face value. Otherwise no binding.
 //
-// Ambiguity (two candidates with one display name) yields no binding, so the
-// platform default is kept.
+// Ambiguity (two candidates with one display name) yields no binding.
+//
+// No binding means different things per kind. A microphone or speaker keeps
+// the platform default. A CAMERA is refused (DeviceBinding::refused): the
+// default is some other camera, and opening a camera the user did not choose
+// is a privacy failure. Reported live: a PipeWire host's camera choice never
+// bound, and the laptop's own webcam opened instead of the chosen one.
 //
 // The result is a property name and value to g_object_set on the parsed
 // element, so this file needs no GStreamer headers and is tested directly.
@@ -55,6 +60,9 @@ struct DeviceBinding {
     /// Channels the device captures (the monitor's `audio.channels`), or 0.
     /// See captureMixMatrix().
     int channels = 0;
+    /// A camera was chosen and could not be bound: the caller must not open
+    /// the capture at all. Never set for microphones and speakers.
+    bool refused = false;
 
     bool isEmpty() const { return property.isEmpty(); }
 };
@@ -81,14 +89,14 @@ QString captureMixMatrix(int channels);
 /// `not-negotiated`.
 QString captureChannelCaps(int channels);
 
-/// The property binding for `element`, or an empty binding ("let the platform
-/// choose").
+/// The property binding for `element`, or an empty binding: "let the platform
+/// choose" for audio, "refused" (see `refused`) for a chosen camera.
 ///
 /// `qtDeviceId` and `qtDescription` come from QMediaDevices; an empty id
-/// ("system default") always yields an empty binding. `candidates` is what
-/// GStreamer's device monitor reported for the device class; an empty list
-/// means the monitor was unavailable, enabling the shape rule. Unknown
-/// elements yield an empty binding.
+/// ("system default") always yields an empty binding that is not refused.
+/// `candidates` is what GStreamer's device monitor reported for the device
+/// class; an empty list means the monitor was unavailable, enabling the
+/// shape rule. Unknown elements yield an empty binding.
 DeviceBinding resolveDeviceBinding(CaptureKind kind, const QString &element,
                                    const QString &qtDeviceId,
                                    const QString &qtDescription,
@@ -113,6 +121,51 @@ ElementChoice chooseCaptureElement(CaptureKind kind,
                                    const QString &qtDeviceId,
                                    const QString &qtDescription,
                                    const QList<GstDeviceCandidate> &candidates);
+
+/// A camera as QMediaDevices lists it.
+struct PresentCamera {
+    QString id;
+    QString description;
+};
+
+/// The camera a call should open, from the stored preference and the cameras
+/// Qt lists now.
+struct CameraSelection {
+    /// Empty with `preferredMissing` false means "system default".
+    QString id;
+    QString description;
+    /// A camera was chosen and is not usable now: unplugged, or its node now
+    /// belongs to another camera. The engine must open NO camera; the default
+    /// would be a different device.
+    bool preferredMissing = false;
+};
+
+/// `storedDescription` is the description saved with the choice; empty for
+/// a choice saved before it was recorded, which skips that check. A Linux id
+/// is /dev/videoN and renumbers on replug, so the same id with a different
+/// description is a different camera. Only those ids are checked: a Windows
+/// or macOS id names one device for good, and a driver or Qt update that
+/// renames it must not lock the user out of their camera.
+///
+/// Inline: CallDeviceController uses it in builds without the media engine,
+/// where the rest of this file is not compiled.
+inline CameraSelection resolveCameraPreference(
+    const QString &preferredId, const QString &storedDescription,
+    const QList<PresentCamera> &present)
+{
+    if (preferredId.isEmpty())
+        return {};
+    for (const PresentCamera &camera : present) {
+        if (camera.id != preferredId)
+            continue;
+        const QString stored = storedDescription.simplified();
+        if (preferredId.startsWith(QLatin1String("/dev/video"))
+            && !stored.isEmpty() && camera.description.simplified() != stored)
+            return CameraSelection{QString(), QString(), true};
+        return CameraSelection{camera.id, camera.description, false};
+    }
+    return CameraSelection{QString(), QString(), true};
+}
 
 /// The identifying property keys for `element`, most specific first.
 QStringList identityKeysForElement(const QString &element);

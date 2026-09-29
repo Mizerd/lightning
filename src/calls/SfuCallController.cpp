@@ -137,6 +137,11 @@ constexpr int kMaxPendingAnnotations = kMaxParticipants;
 
 SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
 {
+    // The notice on screen is whatever callFailed() said last. A withdrawal
+    // (an empty callFailed) clears it for everyone, so each withdrawer first
+    // checks that the notice showing is still its own; see withdrawNotice().
+    connect(this, &SfuCallController::callFailed, this,
+            [this](const QString &message) { m_shownNotice = message; });
 #ifdef HAVE_LIGHTNING_WEBRTC
     m_videoRouter = new SfuVideoRouter(this);
 #endif
@@ -258,22 +263,28 @@ void SfuCallController::setClient(MatrixClient *client)
     // Log key send results (counts only, never the key); a distribution that
     // reached nobody otherwise looks like a dead call.
     connect(m_client, &MatrixClient::rtcMediaKeySent, this,
-            [this](quint64, bool ok, const QString &category, int delivered,
+            [this](quint64 op, bool ok, const QString &category, int delivered,
                    int keyIndex) {
+                // Only this call's sends may change its key state: an answer
+                // to the previous call's send can land after a rejoin.
+                const bool thisCall = m_keySendOps.remove(op);
                 if (ok) {
                     qCInfo(lcSfuCall) << "media key sent index=" << keyIndex
-                                      << "delivered=" << delivered;
+                                      << "delivered=" << delivered
+                                      << "thisCall=" << thisCall;
                     // Somebody holds this key; see rotateAndDistributeKey().
-                    if (delivered > 0)
+                    if (thisCall && delivered > 0)
                         m_deliveredKeyIndex = keyIndex;
                     return;
                 }
                 qCWarning(lcSfuCall)
                     << "media key NOT sent index=" << keyIndex
-                    << "category=" << category << "delivered=" << delivered;
+                    << "category=" << category << "delivered=" << delivered
+                    << "thisCall=" << thisCall;
                 // The recorded set means "who holds this key"; after a failed
                 // send nobody does, so clear it or the retry sees "unchanged".
-                m_lastKeyTargets.clear();
+                if (thisCall)
+                    m_lastKeyTargets.clear();
             });
     connect(m_client, &MatrixClient::loggedOut, this,
             [this] { teardown(State::Ended); });
@@ -348,6 +359,8 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
                 // Per-tile marks read mediaBlockedFor(), re-evaluated on this.
                 Q_EMIT participantsChanged();
             });
+    connect(m_engine, &SfuMediaEngine::remotePlaybackFailed, this,
+            &SfuCallController::onRemotePlaybackFailed);
     // The engine reports a capture delivering nothing audible; the UI tells
     // the user, the only one who can fix it.
     connect(m_engine, &SfuMediaEngine::localAudioSilent, this,
@@ -956,8 +969,10 @@ void SfuCallController::setState(State state, const QString &error)
     m_lastError = error;
     // A state with a reason was announced to the user: every
     // teardown(State::Failed, ...) is followed by callFailed(m_lastError).
-    if (!error.isEmpty())
+    if (!error.isEmpty()) {
         m_failureAnnounced = true;
+        m_announcedFailure = error;
+    }
     Q_EMIT stateChanged();
 
     // Withdraw an announced failure once a later attempt gets past the gate
@@ -972,7 +987,9 @@ void SfuCallController::setState(State state, const QString &error)
         m_failureAnnounced = false;
         qCInfo(lcSfuCall) << "the previous call failure no longer applies; "
                              "withdrawing it";
-        Q_EMIT callFailed(QString());
+        // Only if it is still the notice showing: a later one (the
+        // microphone's, say) is not this one to clear.
+        withdrawNotice(m_announcedFailure);
         return;
     }
     // Idle (account/session reset): forget the failure rather than withdraw
@@ -1108,6 +1125,19 @@ QString SfuCallController::userFacingError(const QString &category) const
         return tr("Your camera stopped.");
     if (category == QLatin1String("camera_failed"))
         return tr("Your camera isn't available.");
+    // Never replaced by another camera; see CaptureDeviceSelection.h.
+    if (category == QLatin1String("camera_unavailable"))
+        return tr("The camera you chose isn't available, so no camera was "
+                  "turned on. Choose a camera in Settings.");
+    // The device list did not answer (a hung provider), which says nothing
+    // about the camera itself.
+    if (category == QLatin1String("camera_list_unavailable"))
+        // Not "try again": a device list that hung once is not asked again
+        // this session (see monitorCandidates), so only a restart, or no
+        // stored choice at all, gets past it.
+        return tr("Lightning couldn't read the list of cameras, so no camera "
+                  "was turned on. Restart Lightning, or choose the system "
+                  "default camera in Settings.");
     if (category == QLatin1String("audio_source_failed"))
         return tr("Your microphone isn't available.");
     return tr("The call ended unexpectedly.");
@@ -1155,26 +1185,56 @@ bool SfuCallController::startsCallForAnnouncement(
     return true;
 }
 
+void SfuCallController::refuseJoin(const QString &message, bool announce)
+{
+    // A call already running stays as it is: Failed would read as inactive
+    // while its engine and membership live on, and the next join would then
+    // skip tearing it down. The refusal is still reported.
+    if (active()) {
+        qCWarning(lcSfuCall) << "join refused while a call is active; "
+                                "keeping that call";
+        // Announced, as setState() would record it, so a later join that
+        // gets past the gate withdraws it.
+        m_failureAnnounced = true;
+        m_announcedFailure = message;
+        Q_EMIT callFailed(message);
+        return;
+    }
+    setState(State::Failed, message);
+    if (announce)
+        Q_EMIT callFailed(m_lastError);
+}
+
+void SfuCallController::resetKeyLane()
+{
+    // Per call. A delivered index left over from the last call would stop
+    // this call's first key being adopted; see rotateAndDistributeKey().
+    m_keyIndex = 0;
+    m_deliveredKeyIndex = -1;
+    m_lastKeyTargets.clear();
+    m_keySendOps.clear();
+}
+
 bool SfuCallController::join(const QString &roomId, bool withVideo)
 {
     if (roomId.isEmpty())
         return false;
     if (!m_client || !m_client->supportsSfu()) {
-        setState(State::Failed, tr("This build can't join Matrix calls."));
+        refuseJoin(tr("This build can't join Matrix calls."), false);
         return false;
     }
 #ifndef HAVE_LIGHTNING_WEBRTC
-    setState(State::Failed, tr("This build has no calling media support."));
+    refuseJoin(tr("This build has no calling media support."), false);
     return false;
 #else
     if (m_engine.isNull()) {
         qCWarning(lcSfuCall) << "join refused: no media engine";
-        setState(State::Failed, tr("This build has no calling media support."));
+        refuseJoin(tr("This build has no calling media support."), false);
         return false;
     }
     if (!m_rtc) {
         qCWarning(lcSfuCall) << "join refused: no rtc controller";
-        setState(State::Failed, tr("Calling isn't ready yet."));
+        refuseJoin(tr("Calling isn't ready yet."), false);
         return false;
     }
 
@@ -1184,8 +1244,7 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     const QString block = m_rtc->joinBlockReason(roomId);
     if (!block.isEmpty()) {
         qCWarning(lcSfuCall) << "join refused: block=" << block;
-        setState(State::Failed, joinRefusalMessage(block));
-        Q_EMIT callFailed(m_lastError);
+        refuseJoin(joinRefusalMessage(block), true);
         return false;
     }
 
@@ -1257,9 +1316,9 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_delayedCategory.clear();
     m_ownIdentity.clear();
     m_mediaEncrypted = false;
-    m_keyIndex = 0;
+    resetKeyLane();
+    m_playbackLostAnnounced = false;
     m_candidatesSent = 0;
-    m_lastKeyTargets.clear();
     m_lastPublishMs = 0;
     m_refreshOp = 0;
     m_delayedRestartOp = 0;
@@ -1903,6 +1962,38 @@ void SfuCallController::onEngineFailed(const QString &category)
     Q_EMIT callFailed(m_lastError);
 }
 
+void SfuCallController::onRemotePlaybackFailed(bool failed)
+{
+    if (!active())
+        return;
+    if (failed == m_playbackLostAnnounced)
+        return;
+    m_playbackLostAnnounced = failed;
+    qCWarning(lcSfuCall) << "received audio output failed=" << failed;
+    const QString notice = playbackLostNotice();
+    // callFailed reports without ending the call; the withdrawal once the
+    // engine got the output back clears only this notice.
+    if (failed)
+        Q_EMIT callFailed(notice);
+    else
+        withdrawNotice(notice);
+}
+
+QString SfuCallController::playbackLostNotice()
+{
+    return tr("Call audio stopped: this computer's sound output disconnected "
+              "and could not be reopened. Leave and rejoin the call to hear "
+              "it again.");
+}
+
+bool SfuCallController::withdrawNotice(const QString &notice)
+{
+    if (notice.isEmpty() || m_shownNotice != notice)
+        return false;
+    Q_EMIT callFailed(QString());
+    return true;
+}
+
 void SfuCallController::onEnginePublishFailed(const QString &cid,
                                               const QString &category)
 {
@@ -1923,6 +2014,11 @@ void SfuCallController::onEnginePublishFailed(const QString &cid,
         if (m_portal)
             m_portal->cancel();
         clearLocalVideoSurface(SfuMediaEngine::localScreenStreamId());
+    } else if (cid == m_audioCid) {
+        // The engine gave up restarting the microphone. The track stays: the
+        // user can still hear everyone, and is told nobody hears them.
+        Q_EMIT callFailed(userFacingError(category));
+        return;
     } else {
         // A track we no longer own; nothing to do.
         return;
@@ -2442,6 +2538,8 @@ void SfuCallController::rotateAndDistributeKey()
     const quint64 op =
         m_client->rtcSendMediaKey(m_roomId, QString::fromUtf8(key.toBase64()),
                                   index, targets);
+    if (op != 0)
+        m_keySendOps.insert(op);
     // op 0: the Rust side refused to dispatch and no result callback will
     // come. Forget the set so the next membership read retries.
     if (op == 0) {
@@ -2628,6 +2726,12 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_refreshOp = 0;
     m_delayedRestartOp = 0;
     m_lastPublishMs = 0;
+    resetKeyLane();
+    // "Leave and rejoin" is advice about this call; once it has ended the
+    // notice is withdrawn (only if it is still the one showing).
+    if (m_playbackLostAnnounced)
+        withdrawNotice(playbackLostNotice());
+    m_playbackLostAnnounced = false;
 
 #ifdef HAVE_LIGHTNING_WEBRTC
     // Media first: release devices before anything that can fail or block.

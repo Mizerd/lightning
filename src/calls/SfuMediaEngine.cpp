@@ -54,11 +54,23 @@ Q_LOGGING_CATEGORY(lcSfuMedia, "lightning.calls.sfu")
 // receiver, so anything already in flight dies with the QObject.
 QMutex g_aliveMutex;
 QSet<SfuMediaEngine *> g_aliveEngines;
+/// g_aliveMutex is not recursive. Held only inside marshal() and the
+/// engine's constructor and destructor, never across a call that could
+/// marshal: a rebuild job once did, and every marshal() in the process then
+/// waited forever (the engine suite timed out).
+thread_local bool t_holdingAliveMutex = false;
 
 template <typename Fn>
 void marshal(SfuMediaEngine *engine, Fn &&fn)
 {
+    Q_ASSERT_X(!t_holdingAliveMutex, "marshal",
+               "g_aliveMutex is already held on this thread; it is not "
+               "recursive");
     QMutexLocker lock(&g_aliveMutex);
+    t_holdingAliveMutex = true;
+    struct Release {
+        ~Release() { t_holdingAliveMutex = false; }
+    } release;
     if (!g_aliveEngines.contains(engine))
         return;
     QMetaObject::invokeMethod(engine, std::forward<Fn>(fn),
@@ -907,10 +919,13 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     }
     memcpy(out.data, output.constData(), static_cast<size_t>(output.size()));
     gst_buffer_unmap(replacement, &out);
+    // Metas too: the microphone's GstAudioLevelMeta rides on this buffer
+    // to the payloader, which writes it into the audio-level extension.
     gst_buffer_copy_into(replacement, buffer,
                          static_cast<GstBufferCopyFlags>(
                              GST_BUFFER_COPY_TIMESTAMPS
-                             | GST_BUFFER_COPY_FLAGS),
+                             | GST_BUFFER_COPY_FLAGS
+                             | GST_BUFFER_COPY_META),
                          0, static_cast<gsize>(-1));
 
     gst_buffer_unref(buffer);
@@ -1028,6 +1043,9 @@ void SfuMediaEngine::teardown(bool endOfCall)
     if (!m_active && !m_publisher.pipeline && !m_subscriber.pipeline)
         return;
     m_generation.fetch_add(1);
+    // Rebuild jobs still out belong to the session that is ending.
+    m_sessionLive->store(false);
+    m_sessionLive = std::make_shared<std::atomic<bool>>(true);
     m_active = false;
     m_publishedBins.clear();
     m_shareKeepAliveTimer.stop();
@@ -1054,6 +1072,22 @@ void SfuMediaEngine::teardown(bool endOfCall)
     m_shareAudioSources.stop();
     destroyPeer(m_publisher);
     destroyPeer(m_subscriber);
+    {
+        // Went down with the subscriber pipeline; the pad keys would dangle.
+        QMutexLocker lock(&m_receiveBinMutex);
+        m_receiveBins.clear();
+    }
+    // Per call; the controller forgets its notice with the call.
+    m_playbackFailureAnnounced = false;
+    {
+        // The fresh Pulse connection was this call's.
+        QMutexLocker lock(&m_receiveBinMutex);
+        m_freshPulseClient.clear();
+    }
+    m_micCid.clear();
+    m_micRestarts = 0;
+    m_micRestartPending = false;
+    m_micFailureReported = false;
     // Engine state is per session; the controller re-applies user intent.
     m_microphoneMuted = false;
     m_outputMuted.store(false);
@@ -1243,6 +1277,11 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                 gchar *name = gst_object_get_name(walk);
                 publishCid = QString::fromUtf8(name ? name : "");
                 g_free(name);
+                // A receive bin's own error must stay in that bin; see
+                // isolateFailedReceiveBin(). Checked here, synchronously, before
+                // the failing element's flow return reaches webrtcbin.
+                if (GST_IS_ELEMENT(walk))
+                    engine->isolateFailedReceiveBin(GST_ELEMENT(walk));
                 gst_object_unref(parent);
                 gst_object_unref(walk);
                 break;
@@ -1251,7 +1290,13 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
             walk = parent;
         }
         if (!publishCid.isEmpty()) {
-            marshal(engine, [engine, publishCid] {
+            // `micsrc` and anything autoaudiosrc names under it
+            // (`micsrc-actual-src-puls`).
+            const bool captureSource =
+                element.startsWith(QLatin1String("micsrc"));
+            marshal(engine, [engine, publishCid, captureSource] {
+                if (captureSource)
+                    engine->handleCaptureError(publishCid);
                 engine->handlePublishError(publishCid);
             });
         }
@@ -1313,6 +1358,21 @@ bool SfuMediaEngine::ensurePeer(Target target)
     }
     g_object_set(webrtc, "bundle-policy", 3 /* max-bundle */, "latency", 100,
                  nullptr);
+    if (target == Target::Subscriber) {
+        // Every new SSRC gets a jitterbuffer and its threads (two per
+        // stream, measured), and rtpbin keeps a timed-out one for good unless
+        // told otherwise: each remote rejoin or re-share grew the process by
+        // two threads that never went. autoremove drops a source once it
+        // times out. A source that comes back after that (a long mute) gets a
+        // new pad, which onPadAdded handles like any new stream.
+        if (GstElement *rtpbin =
+                gst_bin_get_by_name(GST_BIN(webrtc), "rtpbin")) {
+            if (g_object_class_find_property(G_OBJECT_GET_CLASS(rtpbin),
+                                             "autoremove"))
+                g_object_set(rtpbin, "autoremove", TRUE, nullptr);
+            gst_object_unref(rtpbin);
+        }
+    }
     if (!gst_bin_add(GST_BIN(pipeline), webrtc)) {
         // gst_bin_add sinks-and-drops on failure: webrtc may be FINALIZED.
         gst_object_unref(pipeline);
@@ -1557,6 +1617,36 @@ QList<lightning::calls::GstDeviceCandidate> enumerateDevices(const char *klass)
             }
             gst_structure_free(props);
         }
+        // Two providers keep the handle on the device object, not in its
+        // properties: ksvideosrc's `path` (Windows) and avfvideosrc's
+        // `device-index` (macOS). Copied under the keys CaptureDeviceSelection
+        // reads, or a camera choice there can never bind.
+        GObjectClass *deviceClass = G_OBJECT_GET_CLASS(device);
+        if (!candidate.properties.contains(QStringLiteral("device.path"))) {
+            if (GParamSpec *spec =
+                    g_object_class_find_property(deviceClass, "path");
+                spec && spec->value_type == G_TYPE_STRING) {
+                gchar *path = nullptr;
+                g_object_get(device, "path", &path, nullptr);
+                if (path && *path) {
+                    candidate.properties.insert(QStringLiteral("device.path"),
+                                                QString::fromUtf8(path));
+                }
+                g_free(path);
+            }
+        }
+        if (!candidate.properties.contains(QStringLiteral("device.index"))) {
+            if (GParamSpec *spec =
+                    g_object_class_find_property(deviceClass, "device-index");
+                spec && spec->value_type == G_TYPE_INT) {
+                gint index = -1;
+                g_object_get(device, "device-index", &index, nullptr);
+                if (index >= 0) {
+                    candidate.properties.insert(QStringLiteral("device.index"),
+                                                QString::number(index));
+                }
+            }
+        }
         out.append(candidate);
         gst_object_unref(device);
     }
@@ -1578,8 +1668,13 @@ constexpr int kDeviceEnumerationBudgetMs = 2500;
 /// A blocked enumeration cannot be cancelled, so the worker is abandoned and
 /// the klass latched: a provider that hung once is not asked again this
 /// session. The fallback is the platform default device.
-QList<lightning::calls::GstDeviceCandidate> monitorCandidates(const char *klass)
+QList<lightning::calls::GstDeviceCandidate> monitorCandidates(
+    const char *klass, bool *answered = nullptr)
 {
+    // False until the monitor actually answered: an empty list from a hung or
+    // unavailable provider is not "no such device".
+    if (answered)
+        *answered = false;
     static QMutex latchMutex;
     static QSet<QString> hung;
     const QString key = QString::fromLatin1(klass);
@@ -1613,6 +1708,8 @@ QList<lightning::calls::GstDeviceCandidate> monitorCandidates(const char *klass)
 
     if (answer.wait_for(std::chrono::milliseconds(kDeviceEnumerationBudgetMs))
         == std::future_status::ready) {
+        if (answered)
+            *answered = true;
         return answer.get();
     }
 
@@ -1676,33 +1773,93 @@ QStringList availableElements(const QStringList &names)
 
 // Sets the resolved property on an already-parsed bin. Never interpolated into
 // a description: a quote in a device name would be parsed as syntax.
-void applyBindingTo(GstElement *bin, const char *elementName,
+//
+// Converted to the property's own type: avfvideosrc `device-index` and
+// osxaudiosrc `device` are ints, and handing g_object_set a char* for them is
+// undefined behaviour. Returns false when nothing was set (no such element or
+// property, or a value the property does not accept); the caller decides
+// whether that means the default device (audio) or no device (camera).
+bool applyBindingTo(GstElement *bin, const char *elementName,
                     const lightning::calls::DeviceBinding &binding)
 {
     if (binding.isEmpty())
-        return;
+        return true;
     GstElement *element = gst_bin_get_by_name(GST_BIN(bin), elementName);
     if (!element)
-        return;
-    // Check the property exists; plugin versions differ and g_object_set on an
-    // absent property only warns.
-    if (g_object_class_find_property(G_OBJECT_GET_CLASS(element),
-                                     binding.property.toUtf8().constData())) {
-        g_object_set(element, binding.property.toUtf8().constData(),
-                     binding.value.toUtf8().constData(), nullptr);
+        return false;
+    const QByteArray property = binding.property.toUtf8();
+    const QByteArray value = binding.value.toUtf8();
+    GParamSpec *spec = g_object_class_find_property(G_OBJECT_GET_CLASS(element),
+                                                    property.constData());
+    bool set = false;
+    // Construct-only properties ignore a set after construction.
+    if (spec && (spec->flags & G_PARAM_WRITABLE)
+        && !(spec->flags & G_PARAM_CONSTRUCT_ONLY)) {
+        if (spec->value_type == G_TYPE_STRING) {
+            g_object_set(element, property.constData(), value.constData(),
+                         nullptr);
+            set = true;
+        } else {
+            GValue typed = G_VALUE_INIT;
+            g_value_init(&typed, spec->value_type);
+            // g_param_value_validate() is true when it had to CHANGE the value,
+            // i.e. it was out of the property's range.
+            set = gst_value_deserialize(&typed, value.constData())
+                && !g_param_value_validate(spec, &typed);
+            if (set)
+                g_object_set_property(G_OBJECT(element), property.constData(),
+                                      &typed);
+            g_value_unset(&typed);
+        }
+    }
+    if (set) {
         qCInfo(lcSfuMedia) << "capture device bound element=" << elementName
                            << "property=" << binding.property
                            << "value=" << binding.value
                            << "matched-by=" << binding.reason;
     } else {
         qCWarning(lcSfuMedia)
-            << "capture element has no" << binding.property
-            << "property; using the platform default device instead";
+            << "capture element" << elementName << "did not accept"
+            << binding.property << "=" << binding.value;
     }
     gst_object_unref(element);
+    return set;
 }
 
 } // namespace
+
+QString SfuMediaEngine::applyDevicePropertyForTest(const QString &factory,
+                                                  const QString &property,
+                                                  const QString &value)
+{
+    if (!lightning::gst::ensureInitialised())
+        return {};
+    GstElement *element =
+        gst_element_factory_make(factory.toUtf8().constData(), "capsrc");
+    if (!element)
+        return {};
+    GstElement *bin = gst_bin_new(nullptr);
+    gst_bin_add(GST_BIN(bin), element);
+    lightning::calls::DeviceBinding binding;
+    binding.property = property;
+    binding.value = value;
+    binding.reason = QStringLiteral("test");
+    QString out;
+    if (applyBindingTo(bin, "capsrc", binding)) {
+        const QByteArray name = property.toUtf8();
+        GParamSpec *spec = g_object_class_find_property(
+            G_OBJECT_GET_CLASS(element), name.constData());
+        GValue read = G_VALUE_INIT;
+        g_value_init(&read, spec->value_type);
+        g_object_get_property(G_OBJECT(element), name.constData(), &read);
+        gchar *text = gst_value_serialize(&read);
+        out = QString::fromUtf8(text ? text : "");
+        g_free(text);
+        g_value_unset(&read);
+    }
+    gst_object_unref(bin);
+    return out;
+}
 
 void SfuMediaEngine::setPreferredDevices(const DeviceChoice &camera,
                                          const DeviceChoice &microphone,
@@ -2223,9 +2380,11 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                   mic.id, mic.description,
                   monitorCandidates("Audio/Source"));
     const QString source = m_testSources
-        ? QStringLiteral(
-              "audiotestsrc is-live=true wave=sine freq=440 volume=0.05 "
-              "name=micsrc")
+        ? (!m_testMicSource.isEmpty()
+               ? QStringLiteral("%1 name=micsrc").arg(m_testMicSource)
+               : QStringLiteral(
+                     "audiotestsrc is-live=true wave=sine freq=440 "
+                     "volume=0.05 name=micsrc"))
         : (micChoice.isEmpty() ? QStringLiteral("autoaudiosrc name=micsrc")
                                : QStringLiteral("%1 name=micsrc")
                                      .arg(micChoice.element));
@@ -2319,7 +2478,8 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                        // m= section from these caps: the ssrc produces
                        // `a=ssrc`/`a=msid`, and clock-rate plus encoding-params
                        // give the RFC 7587 rtpmap `opus/48000/2`.
-                       "! capsfilter caps=\"application/x-rtp,media=audio,"
+                       "! capsfilter name=micrtpcaps "
+                       "caps=\"application/x-rtp,media=audio,"
                        "encoding-name=OPUS,payload=111,clock-rate=(int)48000,"
                        "encoding-params=(string)2,ssrc=(uint)%3\"")
             .arg(source,
@@ -2360,6 +2520,78 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     m_publishedBins.insert(cid, bin);
     applyBindingTo(bin, "micsrc", micChoice.binding);
     resetMicLevelState();
+    // Before the bin starts, so an error from its first state change is
+    // already this microphone's.
+    m_micCid = cid;
+    m_micRestarts = 0;
+    m_micRestartPending = false;
+    m_micFailureReported = false;
+    // A failed source pushes EOS; reaching webrtcbin it would end the track
+    // (RTCP BYE) for good. The source is restarted instead; see
+    // handleCaptureError().
+    if (GstElement *micsrc = gst_bin_get_by_name(GST_BIN(bin), "micsrc")) {
+        if (GstPad *out = gst_element_get_static_pad(micsrc, "src")) {
+            gst_pad_add_probe(
+                out, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
+                [](GstPad *, GstPadProbeInfo *info, gpointer) {
+                    GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
+                    return event && GST_EVENT_TYPE(event) == GST_EVENT_EOS
+                        ? GST_PAD_PROBE_DROP
+                        : GST_PAD_PROBE_OK;
+                },
+                nullptr, nullptr);
+            gst_object_unref(out);
+        }
+        gst_object_unref(micsrc);
+    }
+    // The speaking indicator: LiveKit decides who is speaking from the RFC
+    // 6464 audio level each packet carries. `level` attaches it as a meta,
+    // opusenc and the encrypt probe keep it, and the payloader writes it for
+    // the extmap in its caps, which webrtcbin also puts in the offer.
+    bool levelExtension = false;
+    if (levelAvailable && audioLevelExtensionAvailable()) {
+        GstElement *meter = gst_bin_get_by_name(GST_BIN(bin), "miclevel");
+        GstElement *rtpCaps = gst_bin_get_by_name(GST_BIN(bin), "micrtpcaps");
+        if (meter && rtpCaps) {
+            g_object_set(meter, "audio-level-meta", TRUE, nullptr);
+            GstCaps *caps = nullptr;
+            g_object_get(rtpCaps, "caps", &caps, nullptr);
+            if (caps) {
+                caps = gst_caps_make_writable(caps);
+                // The array form, as the extension writes it back: a plain
+                // string would not intersect and fail negotiation. vad=on is
+                // declared while `level` always leaves the V bit 0; LiveKit's
+                // speaker detection reads the level (accepted, review #10;
+                // "Element shows Lightning speaking" is not yet live-tested).
+                GValue entry = G_VALUE_INIT;
+                GValue text = G_VALUE_INIT;
+                gst_value_array_init(&entry, 3);
+                g_value_init(&text, G_TYPE_STRING);
+                for (const char *part :
+                     {"", "urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+                      "vad=on"}) {
+                    g_value_set_string(&text, part);
+                    gst_value_array_append_value(&entry, &text);
+                }
+                g_value_unset(&text);
+                gst_structure_take_value(
+                    gst_caps_get_structure(caps, 0),
+                    QByteArray("extmap-")
+                        .append(QByteArray::number(kAudioLevelExtId))
+                        .constData(),
+                    &entry);
+                g_object_set(rtpCaps, "caps", caps, nullptr);
+                gst_caps_unref(caps);
+                levelExtension = true;
+            }
+        }
+        if (meter)
+            gst_object_unref(meter);
+        if (rtpCaps)
+            gst_object_unref(rtpCaps);
+    }
+    qCInfo(lcSfuMedia) << "microphone audio level extension=" << levelExtension
+                       << "(the SFU's speaking indicator)";
     // Encrypt on the encoder's src pad: one whole encoded frame.
     if (GstElement *encoder = gst_bin_get_by_name(GST_BIN(bin), "audioenc")) {
         if (GstPad *encoded = gst_element_get_static_pad(encoder, "src")) {
@@ -3036,6 +3268,25 @@ bool SfuMediaEngine::BlockedRunPolicy::note(bool failed, bool *raise)
     return false;
 }
 
+QString SfuMediaEngine::selfViewBranch()
+{
+    // Tee'd after the scaler so it costs one convert of the downscaled frame.
+    // For a share it is the only way to see what is sent; for a camera, our
+    // own track is never received, so there would be no preview otherwise.
+    // `max-buffers=1 drop=true` keeps a slow preview from adding latency to
+    // the published branch.
+    //
+    // `async=false`: this sink joins a publisher pipeline that is already
+    // PLAYING. Waiting for a preroll frame, a capture that never delivers one
+    // held the whole pipeline in PAUSED, and every bin published after it (a
+    // share, share audio, the microphone again) produced nothing. It does
+    // not sync, so it needs no latency either.
+    return QStringLiteral("t. ! queue max-size-buffers=2 leaky=downstream "
+                          "! videoconvert ! video/x-raw,format=RGBA "
+                          "! appsink name=selfvidsink emit-signals=true "
+                          "sync=false async=false max-buffers=1 drop=true ");
+}
+
 QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                                                 const QString &rateStage,
                                                 const QString &limits,
@@ -3270,8 +3521,13 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         return;
 
     QString source;
+    // The user's camera choice, resolved before anything is built. See
+    // CaptureDeviceSelection.h.
+    lightning::calls::DeviceBinding cameraBinding;
     if (m_testSources) {
-        source = QStringLiteral("videotestsrc is-live=true pattern=smpte");
+        source = m_testVideoSource.isEmpty()
+            ? QStringLiteral("videotestsrc is-live=true pattern=smpte")
+            : m_testVideoSource;
     } else if (screenShare) {
         // Screen capture goes through PipeWire with the node id from the
         // portal ScreenCast session; a negative id would publish whatever
@@ -3298,6 +3554,45 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                            << (pipewireFd >= 0 ? "xdg camera portal "
                                                  "(pipewiresrc)"
                                                : "direct device");
+        // Not for portal cameras: the stored choice names host devices, while
+        // the portal's pipewiresrc is on a different remote where those ids
+        // do not exist.
+        const DeviceChoice camera = cameraChoice();
+        // Never another camera in place of the chosen one: the default is a
+        // different device, and opening it is a privacy failure. Queued: the
+        // caller is still inside the camera toggle.
+        const auto refuseCamera = [this, cid](const QString &category) {
+            QMetaObject::invokeMethod(
+                this,
+                [this, cid, category] { Q_EMIT publishFailed(cid, category); },
+                Qt::QueuedConnection);
+        };
+        if (pipewireFd < 0 && camera.id.isEmpty() && camera.preferredMissing) {
+            // Unplugged, or its node now belongs to another camera.
+            qCWarning(lcSfuMedia)
+                << "the chosen camera is not connected; opening no camera "
+                   "rather than the default";
+            refuseCamera(QStringLiteral("camera_unavailable"));
+            return;
+        }
+        if (pipewireFd < 0 && !camera.id.isEmpty()) {
+            bool listed = false;
+            const auto candidates = monitorCandidates("Video/Source", &listed);
+            cameraBinding = lightning::calls::resolveDeviceBinding(
+                lightning::calls::CaptureKind::Camera, source, camera.id,
+                camera.description, candidates);
+            if (cameraBinding.refused) {
+                qCWarning(lcSfuMedia)
+                    << (listed ? "the chosen camera is not among the devices "
+                                 "GStreamer lists"
+                               : "the camera list could not be read")
+                    << "- opening no camera rather than the default";
+                refuseCamera(listed
+                                 ? QStringLiteral("camera_unavailable")
+                                 : QStringLiteral("camera_list_unavailable"));
+                return;
+            }
+        }
     }
 
     // Ceilings matching livekit-client's presets: screen share h1080fps30
@@ -3323,17 +3618,8 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                          "cpu-used=2 static-threshold=0 "
                          "keyframe-max-dist=30 "
                          "end-usage=cbr target-bitrate=1700000");
-    // Self-view branch, tee'd after the scaler so it costs one convert of the
-    // downscaled frame. For a share it is the only way to see what is sent;
-    // for a camera, our own track is never received, so there would be no
-    // preview otherwise. `max-buffers=1 drop=true` keeps a slow preview from
-    // adding latency to the published branch.
-    const QString selfView = !m_testSources
-        ? QStringLiteral("t. ! queue max-size-buffers=2 leaky=downstream "
-                         "! videoconvert ! video/x-raw,format=RGBA "
-                         "! appsink name=selfvidsink emit-signals=true "
-                         "sync=false max-buffers=1 drop=true ")
-        : QString();
+    const QString selfView =
+        (!m_testSources || m_testSelfView) ? selfViewBranch() : QString();
     const QString scaleStage = screenShare
         ? shareScaleStage(m_shareMaxHeight, shareGpuScalingRequested())
         : QStringLiteral("videoconvert ! videoscale");
@@ -3453,6 +3739,21 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         qCInfo(lcSfuMedia) << "screen share scaling on"
                            << (useGpu ? "the GPU" : "the CPU");
     }
+    // The user's camera choice, resolved above, applied before the bin joins
+    // the pipeline. Unset, v4l2src/ksvideosrc/avfvideosrc would open the
+    // default camera, so a value the element refuses means no camera.
+    if (!screenShare && !cameraBinding.isEmpty()
+        && !applyBindingTo(bin, "capsrc", cameraBinding)) {
+        gst_object_unref(bin);
+        QMetaObject::invokeMethod(
+            this,
+            [this, cid] {
+                Q_EMIT publishFailed(cid,
+                                     QStringLiteral("camera_unavailable"));
+            },
+            Qt::QueuedConnection);
+        return;
+    }
     gst_element_set_name(bin, cid.toUtf8().constData());
     if (!gst_bin_add(GST_BIN(m_publisher.pipeline), bin)) {
         Q_EMIT failed(QStringLiteral("camera_failed"));
@@ -3473,19 +3774,6 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     // of the rate stage, which manufactures frames. handlePublishError() also
     // keys on it (zero plus a bus error means the publish never prerolled).
     //
-    // Apply the user's camera choice, resolved against GStreamer's device
-    // monitor (see CaptureDeviceSelection.h), before the bin plays. Not for
-    // shares (the portal dialog chooses) and not for portal cameras: the
-    // stored choice names host devices, while the portal's pipewiresrc is on
-    // a different remote where those ids do not exist.
-    if (const DeviceChoice camera = cameraChoice();
-        !screenShare && pipewireFd < 0 && !camera.id.isEmpty()) {
-        applyBindingTo(bin, "capsrc",
-                       lightning::calls::resolveDeviceBinding(
-                           lightning::calls::CaptureKind::Camera,
-                           cameraSource(), camera.id, camera.description,
-                           monitorCandidates("Video/Source")));
-    }
     if (GstElement *capture = gst_bin_get_by_name(GST_BIN(bin), "capsrc")) {
         if (GstPad *srcPad = gst_element_get_static_pad(capture, "src")) {
             auto *held = new std::shared_ptr<PublishProbeState>(probeState);
@@ -3756,6 +4044,32 @@ void receiveTeardownAsync(GstElement *bin, gpointer data)
     gst_element_set_state(bin, GST_STATE_NULL);
 }
 
+/// Drops what still reaches a webrtcbin src pad whose bin was retired.
+/// webrtcbin never removes its src pads, and a push into an unlinked pad
+/// returns NOT_LINKED, which the jitterbuffer reports as a stream error.
+GstPadProbeReturn dropRetiredPadProbe(GstPad *, GstPadProbeInfo *, gpointer)
+{
+    return GST_PAD_PROBE_DROP;
+}
+
+/// The mid of the transceiver a webrtcbin pad belongs to, or empty.
+QString transceiverMidOf(GstPad *pad)
+{
+    QString sectionMid;
+    GstWebRTCRTPTransceiver *transceiver = nullptr;
+    g_object_get(pad, "transceiver", &transceiver, nullptr);
+    if (transceiver) {
+        gchar *mid = nullptr;
+        g_object_get(transceiver, "mid", &mid, nullptr);
+        if (mid) {
+            sectionMid = QString::fromUtf8(mid);
+            g_free(mid);
+        }
+        gst_object_unref(transceiver);
+    }
+    return sectionMid;
+}
+
 void publishTeardownFree(gpointer data)
 {
     auto *ctx = static_cast<PublishTeardown *>(data);
@@ -3824,6 +4138,8 @@ void SfuMediaEngine::unpublish(const QString &cid)
     if (const auto dead = m_publishWatch.take(cid); dead.state)
         releaseKeepAlive(dead.state);
     updateShareKeepAliveTimer();
+    if (cid == m_micCid)
+        m_micCid.clear();
     if (cid == m_shareAudioCid) {
         // Stop the device scan and release the monitor's PipeWire connection.
         m_shareAudioScanTimer.stop();
@@ -4026,6 +4342,10 @@ void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
         QString streamId;
         QString mid;
         QString trackSid;
+        // `a=ssrc:<n> msid:<stream> <track>`, used only when the section has
+        // no `a=msid`: LiveKit sends `a=msid`, webrtcbin as the offerer writes
+        // the msid only here, and webrtcbin reads either (_get_msid_from_media).
+        QString ssrcMsid;
         const guint attributes = gst_sdp_media_attributes_len(media);
         for (guint a = 0; a < attributes; ++a) {
             const GstSDPAttribute *attribute =
@@ -4045,7 +4365,15 @@ void streamIdsFromSdp(GstSDPMessage *message, QHash<int, QString> *streams,
             } else if (key == QLatin1String("mid")) {
                 // The section's mid, which LiveKit also states on TrackInfo.
                 mid = value.trimmed();
+            } else if (key == QLatin1String("ssrc") && ssrcMsid.isEmpty()) {
+                const qsizetype at = value.indexOf(QLatin1String(" msid:"));
+                if (at >= 0)
+                    ssrcMsid = value.mid(at + 6).trimmed();
             }
+        }
+        if (streamId.isEmpty() && trackSid.isEmpty() && !ssrcMsid.isEmpty()) {
+            streamId = SfuMediaEngine::participantIdFromMsid(ssrcMsid);
+            trackSid = SfuMediaEngine::trackSidFromMsid(ssrcMsid);
         }
         if (streams)
             streams->insert(static_cast<int>(index), streamId);
@@ -5175,9 +5503,19 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, quint64 generation,
                                      : QStringLiteral("REJECTED-port0"));
             mid.clear(); kind.clear(); direction.clear(); portOpen = false;
         };
+        // Sections that carry nothing any more: their bins are retired below.
+        QSet<QString> ended;
+        auto noteEnded = [&] {
+            if ((kind == QLatin1String("audio") || kind == QLatin1String("video"))
+                && !mid.isEmpty()
+                && (!portOpen || direction == QLatin1String("inactive"))) {
+                ended.insert(mid);
+            }
+        };
         for (const QString &raw : lines) {
             const QString line = raw.trimmed();
             if (line.startsWith(QLatin1String("m="))) {
+                noteEnded();
                 flush();
                 // Port 0 in field 1 rejects the section.
                 const QStringList f = line.mid(2).split(QLatin1Char(' '));
@@ -5192,9 +5530,14 @@ void SfuMediaEngine::handleLocalDescription(quintptr token, quint64 generation,
                 direction = line.mid(2);
             }
         }
+        noteEnded();
         flush();
         qCInfo(lcSfuMedia) << "subscriber answer sections="
                            << sections.join(QLatin1Char(' '));
+        // webrtcbin keeps the pad and sends it no end-of-stream we can rely
+        // on (only a transceiver's first pad gets one), so the answer is the
+        // signal that a track ended.
+        retireReceiveBins(ended, nullptr, "its section went inactive");
     }
     Q_EMIT localDescription(static_cast<int>(target),
                             offer ? QStringLiteral("offer")
@@ -5337,6 +5680,122 @@ void SfuMediaEngine::handleMicLevelAt(double peakDb, qint64 nowMs)
                            << qRound(peakDb) << "dBFS";
     }
     Q_EMIT localAudioSilent(silent, peakDb);
+}
+
+namespace {
+std::atomic<bool> g_audioLevelExtensionDisabled{false};
+
+/// Runs on a GStreamer thread-pool thread: a source's state change may block
+/// (a stalled sound server holds pulsesrc's connect for 30 s). Known narrow
+/// case (review #13): a hang-up during that connect waits on micsrc's state
+/// lock in destroyPeer's set_state(NULL) until libpulse gives up. A bin whose
+/// first start failed (the source refused at once) is started whole;
+/// otherwise only the source, which leaves the rest of the chain running.
+void restartSourceAsync(GstElement *bin, gpointer)
+{
+    GstElement *source = gst_bin_get_by_name(GST_BIN(bin), "micsrc");
+    if (source)
+        gst_element_set_state(source, GST_STATE_NULL);
+    GstState state = GST_STATE_VOID_PENDING;
+    gst_element_get_state(bin, &state, nullptr, 0);
+    if (state != GST_STATE_PLAYING)
+        gst_element_sync_state_with_parent(bin);
+    else if (source)
+        gst_element_sync_state_with_parent(source);
+    if (source)
+        gst_object_unref(source);
+}
+} // namespace
+
+int SfuMediaEngine::subscriberAutoremoveForTest() const
+{
+    if (!m_subscriber.webrtc)
+        return -1;
+    GstElement *rtpbin =
+        gst_bin_get_by_name(GST_BIN(m_subscriber.webrtc), "rtpbin");
+    if (!rtpbin)
+        return -1;
+    gboolean on = FALSE;
+    g_object_get(rtpbin, "autoremove", &on, nullptr);
+    gst_object_unref(rtpbin);
+    return on ? 1 : 0;
+}
+
+void SfuMediaEngine::disableAudioLevelExtensionForTest(bool disabled)
+{
+    g_audioLevelExtensionDisabled.store(disabled);
+}
+
+bool SfuMediaEngine::audioLevelExtensionAvailable()
+{
+    if (g_audioLevelExtensionDisabled.load())
+        return false;
+    static const bool available = [] {
+        GstElementFactory *ext =
+            gst_element_factory_find("rtphdrextclientaudiolevel");
+        if (!ext)
+            return false;
+        gst_object_unref(ext);
+        GstElement *meter = gst_element_factory_make("level", nullptr);
+        if (!meter)
+            return false;
+        const bool meta = g_object_class_find_property(
+                              G_OBJECT_GET_CLASS(meter), "audio-level-meta")
+            != nullptr;
+        gst_object_unref(meter);
+        return meta;
+    }();
+    return available;
+}
+
+void SfuMediaEngine::handleCaptureError(const QString &cid)
+{
+    if (!m_active || cid.isEmpty() || cid != m_micCid)
+        return;
+    // One failure posts several errors (the source's own, then "Internal
+    // data stream error"); one restart answers them all.
+    if (m_micRestartPending || m_micFailureReported)
+        return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // A failure long after the last restart starts a fresh run.
+    if (m_micRestarts > 0 && now - m_micLastRestartMs > 60000)
+        m_micRestarts = 0;
+    if (m_micRestarts >= kMaxMicRestarts) {
+        m_micFailureReported = true;
+        qCWarning(lcSfuMedia)
+            << "call diagnosis: gave up restarting the microphone after"
+            << m_micRestarts << "attempts; this device cannot be heard";
+        // Not failed(): the call goes on, and the controller says so.
+        Q_EMIT publishFailed(cid, QStringLiteral("audio_source_failed"));
+        return;
+    }
+    m_micRestartPending = true;
+    // 0.5, 1, 2, 4, 8 s: a restarting sound server comes back within this.
+    const int delay = m_micRestartBaseDelayMs * (1 << m_micRestarts);
+    qCWarning(lcSfuMedia)
+        << "call diagnosis: the microphone capture FAILED; restarting it in"
+        << delay << "ms (attempt" << (m_micRestarts + 1) << "of"
+        << kMaxMicRestarts << ")";
+    const quint64 generation = m_generation.load();
+    QTimer::singleShot(delay, this, [this, cid, generation] {
+        restartMicrophone(cid, generation);
+    });
+}
+
+void SfuMediaEngine::restartMicrophone(const QString &cid, quint64 generation)
+{
+    m_micRestartPending = false;
+    if (!m_active || generation != m_generation.load() || cid != m_micCid)
+        return;
+    GstElement *bin = m_publishedBins.value(cid);
+    if (!bin)
+        return;
+    ++m_micRestarts;
+    m_micLastRestartMs = QDateTime::currentMSecsSinceEpoch();
+    // The valve, level meter, encoder, payloader (its sequence numbers and
+    // SSRC) and the webrtcbin pad all stay, so the published track is the
+    // same track. The state change runs off this thread.
+    gst_element_call_async(bin, restartSourceAsync, nullptr, nullptr);
 }
 
 void SfuMediaEngine::handlePublishError(const QString &cid)
@@ -5544,26 +6003,759 @@ void SfuMediaEngine::onPadRemoved(GstElement *webrtc, void *pad,
         // No bin was built for this pad; that failure was already logged.
         return;
     }
-        // Whether webrtcbin raises pad-removed for a track LiveKit retires is
-        // unverified, so log it.
+    // webrtcbin 1.28 never removes a src pad (only released request pads),
+    // so this is not how a retired track normally ends; see
+    // retireReceiveBins().
     qCInfo(lcSfuMedia) << "a remote track's pad was removed; retiring its "
                           "receive bin";
-    GstElement *pipeline = engine->m_subscriber.pipeline;
-    if (!pipeline) {
-        // stop() already set everything to NULL.
+    engine->teardownReceiveBin(entry);
+}
+
+void SfuMediaEngine::teardownReceiveBin(const ReceiveBin &entry,
+                                        bool announce)
+{
+    GstElement *pipeline = m_subscriber.pipeline;
+    if (!pipeline || !entry.bin) {
+        // stop() already set everything to NULL, or a given-up rebuild left
+        // no bin. No remoteTrackRemoved then either; it has no consumer
+        // today (accepted follow-up, review 2026-09-26 #7).
         return;
     }
     auto *ctx = new ReceiveTeardown{
-        GST_ELEMENT(gst_object_ref(pipeline)), engine->m_pendingTeardowns};
+        GST_ELEMENT(gst_object_ref(pipeline)), m_pendingTeardowns};
     // Count before queueing, so stop()'s wait cannot see zero too early.
-    engine->m_pendingTeardowns->fetch_add(1);
-    gst_element_call_async(bin, receiveTeardownAsync, ctx, receiveTeardownFree);
-    // Marshalled: this runs on a streaming thread.
+    m_pendingTeardowns->fetch_add(1);
+    gst_element_call_async(entry.bin, receiveTeardownAsync, ctx,
+                           receiveTeardownFree);
+    if (!announce)
+        return;
+    // Marshalled: this may run on a streaming thread.
     const QString streamId = entry.streamId;
     const QString kind = entry.kind;
-    marshal(engine, [engine, streamId, kind] {
+    marshal(this, [engine = this, streamId, kind] {
         Q_EMIT engine->remoteTrackRemoved(streamId, kind);
     });
+}
+
+int SfuMediaEngine::retireReceiveBins(const QSet<QString> &transceiverMids,
+                                      GstPad *keep, const char *reason)
+{
+    if (transceiverMids.isEmpty())
+        return 0;
+    struct Retired {
+        GstPad *pad;
+        ReceiveBin entry;
+    };
+    QList<Retired> retired;
+    {
+        QMutexLocker lock(&m_receiveBinMutex);
+        for (auto it = m_receiveBins.begin(); it != m_receiveBins.end();) {
+            if (it.key() != keep && !it.value().transceiverMid.isEmpty()
+                && transceiverMids.contains(it.value().transceiverMid)) {
+                retired.append({it.key(), it.value()});
+                it = m_receiveBins.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    for (const Retired &r : std::as_const(retired)) {
+        // Before the bin goes: the pad stays on webrtcbin for good.
+        gst_pad_add_probe(r.pad,
+                          static_cast<GstPadProbeType>(
+                              GST_PAD_PROBE_TYPE_BUFFER
+                              | GST_PAD_PROBE_TYPE_BUFFER_LIST),
+                          dropRetiredPadProbe, nullptr, nullptr);
+        qCInfo(lcSfuMedia) << "retiring a receive bin: stream="
+                           << r.entry.streamId << "kind=" << r.entry.kind
+                           << "transceiver mid=" << r.entry.transceiverMid
+                           << "reason=" << reason;
+        teardownReceiveBin(r.entry);
+    }
+    return static_cast<int>(retired.size());
+}
+
+void SfuMediaEngine::isolateFailedReceiveBin(GstElement *pipelineChild)
+{
+    // A sink that fails (measured: pulsesink's "Connection terminated" when
+    // the sound server drops the client) returns an error upstream. Its bin's
+    // queue then refuses the next buffer, the refusal reaches the ICE source
+    // that feeds every track, and the whole subscriber pipeline stops: no
+    // audio or video from anyone, for good. Dropping at the webrtcbin pad
+    // from this moment keeps the failure inside the bin.
+    GstPad *pad = nullptr;
+    QString streamId;
+    {
+        QMutexLocker lock(&m_receiveBinMutex);
+        for (auto it = m_receiveBins.begin(); it != m_receiveBins.end(); ++it) {
+            if (it->bin != pipelineChild)
+                continue;
+            if (it->isolateProbe != 0)
+                return; // already isolated; this is the same failure
+            // The first failure of a run: its rebuilds get a fresh Pulse
+            // connection; see rebuildReceiveBin().
+            bool runStarted = true;
+            for (const ReceiveBin &other : std::as_const(m_receiveBins))
+                runStarted = runStarted && other.isolateProbe == 0;
+            if (runStarted)
+                m_receiveSinkEpoch.fetch_add(1);
+            it->isolateProbe = gst_pad_add_probe(
+                it.key(),
+                static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER
+                                             | GST_PAD_PROBE_TYPE_BUFFER_LIST),
+                dropRetiredPadProbe, nullptr, nullptr);
+            pad = it.key();
+            streamId = it->streamId;
+            break;
+        }
+    }
+    if (!pad)
+        return;
+    qCWarning(lcSfuMedia)
+        << "call diagnosis: the output of the receive chain for stream="
+        << streamId << "FAILED; isolated so the other tracks keep playing, "
+                       "and it will be rebuilt";
+    const quint64 generation = m_generation.load();
+    marshal(this, [engine = this, pad, generation] {
+        engine->scheduleReceiveRebuild(pad, generation);
+    });
+}
+
+void SfuMediaEngine::scheduleReceiveRebuild(GstPad *pad, quint64 generation)
+{
+    if (!m_active || generation != m_generation.load())
+        return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    int attempt = 0;
+    {
+        QMutexLocker lock(&m_receiveBinMutex);
+        auto it = m_receiveBins.find(pad);
+        if (it == m_receiveBins.end() || it->isolateProbe == 0
+            || it->rebuilding)
+            return;
+        // A failure long after the last rebuild starts a fresh run.
+        if (it->rebuilds > 0 && now - it->lastRebuildMs > 60000)
+            it->rebuilds = 0;
+        attempt = it->rebuilds;
+    }
+    if (attempt >= kMaxReceiveRebuilds) {
+        // No slow retry after this (review #14, accepted): the notice asks
+        // for a rejoin, which rebuilds everything.
+        qCWarning(lcSfuMedia)
+            << "call diagnosis: gave up rebuilding a receive chain after"
+            << attempt << "attempts; that track stays silent";
+        if (!m_playbackFailureAnnounced) {
+            m_playbackFailureAnnounced = true;
+            Q_EMIT remotePlaybackFailed(true);
+        }
+        return;
+    }
+    // 0.5, 1, 2, 4, 8 s: a restarting sound server comes back within this.
+    const int delay = m_rebuildBaseDelayMs * (1 << attempt);
+    QTimer::singleShot(delay, this, [this, pad, generation] {
+        rebuildReceiveBin(pad, generation);
+    });
+}
+
+namespace {
+/// The start of one rebuilt receive chain, run on a GStreamer pool thread.
+/// The bin is already built, probed and added (on the GUI thread); only the
+/// part that may block is here, and it touches no engine state.
+struct RebuildJob {
+    SfuMediaEngine *engine = nullptr; // compared, never dereferenced here
+    GstElement *pipeline = nullptr;   // owns a ref: the bin's parent
+    GstElement *bin = nullptr;        // owns a ref
+    GstPad *pad = nullptr;            // owns a ref
+    quint64 generation = 0;
+    double level = -1.0;
+    bool testMode = false;
+    int delayMs = 0;
+    /// False once the session this job belongs to has ended.
+    std::shared_ptr<std::atomic<bool>> sessionLive;
+};
+
+void rebuildJobFree(gpointer data)
+{
+    auto *job = static_cast<RebuildJob *>(data);
+    if (job->bin)
+        gst_object_unref(job->bin);
+    if (job->pad)
+        gst_object_unref(job->pad);
+    if (job->pipeline)
+        gst_object_unref(job->pipeline);
+    delete job;
+}
+
+/// The element factory of the bin's (non-bin) sink, or "?".
+QString sinkFactoryOf(GstElement *bin)
+{
+    QString name = QStringLiteral("?");
+    GstIterator *it = gst_bin_iterate_recurse(GST_BIN(bin));
+    GValue item = G_VALUE_INIT;
+    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+        auto *element = GST_ELEMENT(g_value_get_object(&item));
+        GstElementFactory *factory = gst_element_get_factory(element);
+        if (factory && !GST_IS_BIN(element)
+            && GST_OBJECT_FLAG_IS_SET(element, GST_ELEMENT_FLAG_SINK))
+            name = QString::fromUtf8(GST_OBJECT_NAME(factory));
+        g_value_reset(&item);
+    }
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    return name;
+}
+
+/// Unlink `bin` from `pad`, take it out of whatever it is in now (not a
+/// remembered pipeline: after a teardown or in a new session that is gone or
+/// another one) and stop it. Not on a streaming thread.
+void stopDetachedBin(GstElement *bin, GstPad *pad)
+{
+    if (pad) {
+        if (GstPad *peer = gst_pad_get_peer(pad)) {
+            gst_pad_unlink(pad, peer);
+            gst_object_unref(peer);
+        }
+    }
+    gst_object_ref(bin);
+    if (GstObject *parent = gst_object_get_parent(GST_OBJECT(bin))) {
+        gst_bin_remove(GST_BIN(parent), bin);
+        gst_object_unref(parent);
+    }
+    gst_element_set_state(bin, GST_STATE_NULL);
+    gst_object_unref(bin);
+}
+
+/// stopDetachedBin() on a pool thread, for a bin the GUI thread lets go of.
+void stopDetachedBinAsync(GstElement *bin)
+{
+    gst_element_call_async(
+        bin, [](GstElement *element, gpointer) {
+            stopDetachedBin(element, nullptr);
+        },
+        nullptr, nullptr);
+}
+} // namespace
+
+void SfuMediaEngine::runRebuildJob(GstElement *, void *data)
+{
+    auto *job = static_cast<RebuildJob *>(data);
+    if (job->delayMs > 0)
+        QThread::msleep(static_cast<unsigned long>(job->delayMs));
+    // The call moved on before this ran: nothing to start.
+    if (!job->sessionLive->load()) {
+        stopDetachedBin(job->bin, job->pad);
+        return;
+    }
+    // May block: a pulsesink opening against a hung server waits for
+    // libpulse's 30 s timeout. While it does it holds the bin's state lock,
+    // so a teardown's set_state(NULL) on the pipeline waits for it too
+    // (known and accepted, with review #13).
+    QString why;
+    bool ok = startReceiveChain(job->pad, job->bin, &why);
+    if (ok && gst_element_get_state(job->bin, nullptr, nullptr, 0)
+                  == GST_STATE_CHANGE_FAILURE) {
+        ok = false;
+        why = QStringLiteral("would not start");
+    }
+    const QString outputName = sinkFactoryOf(job->bin);
+    // autoaudiosink falls back to a fakesink when no output opens: that is
+    // silence, not recovery.
+    if (ok && !job->testMode && outputName == QLatin1String("fakesink")) {
+        ok = false;
+        why = QStringLiteral("no audio output would open");
+    }
+    // Checked again after the (possibly long) start: a bin for a session that
+    // has ended is this job's to remove.
+    if (!ok || !job->sessionLive->load()) {
+        stopDetachedBin(job->bin, job->pad);
+        if (!job->sessionLive->load())
+            return;
+    }
+    // Handed to the GUI thread with refs that go with the lambda, whether or
+    // not it ever runs (an engine that is gone never runs it);
+    // finishReceiveRebuild() decides.
+    const std::shared_ptr<GstElement> bin(
+        ok ? GST_ELEMENT(gst_object_ref(job->bin)) : nullptr,
+        [](GstElement *element) {
+            if (element)
+                gst_object_unref(element);
+        });
+    const std::shared_ptr<GstPad> pad(GST_PAD(gst_object_ref(job->pad)),
+                                      [](GstPad *p) { gst_object_unref(p); });
+    const quint64 generation = job->generation;
+    const double level = job->level;
+    SfuMediaEngine *engine = job->engine;
+    // marshal() checks the engine is alive; no lock is held here.
+    marshal(engine, [engine, pad, generation, bin, ok, why, level,
+                     outputName] {
+        engine->finishReceiveRebuild(pad.get(), generation, bin.get(), ok, why,
+                                     level, outputName);
+    });
+}
+
+void SfuMediaEngine::rebuildReceiveBin(GstPad *pad, quint64 generation)
+{
+    if (!m_active || generation != m_generation.load()
+        || !m_subscriber.pipeline)
+        return;
+    ReceiveBin entry;
+    {
+        QMutexLocker lock(&m_receiveBinMutex);
+        auto it = m_receiveBins.find(pad);
+        if (it == m_receiveBins.end() || it->isolateProbe == 0
+            || it->rebuilding)
+            return; // retired meanwhile, or a rebuild is already out
+        // Kept in the map, marked: a retire while the job runs removes it,
+        // and the job's bin is then discarded rather than re-inserted.
+        it->rebuilding = true;
+        it->rebuilds += 1;
+        it->lastRebuildMs = QDateTime::currentMSecsSinceEpoch();
+        entry = it.value();
+        it->bin = nullptr;
+    }
+    const QString volumeName =
+        outputVolumeElementName(volumeKeyFor(entry.streamId, entry.trackKey));
+    // Which output failed. pulsesink shares one server connection per client
+    // name across the whole process, and it outlives this bin while the
+    // other failed bins still hold it: a rebuilt autoaudiosink then gets the
+    // dead connection back, gives up on Pulse and falls back to alsasink,
+    // which plays to nothing (measured: "REBUILT" and zero playback
+    // streams). So a Pulse output is rebuilt as a pulsesink under a client
+    // name of its own, which opens a new connection; later new bins join it.
+    QString clientName;
+    if (entry.bin && !testSourceMode()) {
+        GstIterator *it = gst_bin_iterate_recurse(GST_BIN(entry.bin));
+        GValue item = G_VALUE_INIT;
+        while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            GstElementFactory *factory = gst_element_get_factory(element);
+            if (factory
+                && g_strcmp0(GST_OBJECT_NAME(factory), "pulsesink") == 0) {
+                gchar *client = nullptr;
+                g_object_get(element, "client-name", &client, nullptr);
+                const QString base =
+                    QString::fromUtf8(client && *client ? client : "Lightning")
+                        .section(QStringLiteral(" (reconnected"), 0, 0);
+                g_free(client);
+                clientName = QStringLiteral("%1 (reconnected %2)")
+                                 .arg(base)
+                                 .arg(m_receiveSinkEpoch.load());
+            }
+            g_value_reset(&item);
+        }
+        g_value_unset(&item);
+        gst_iterator_free(it);
+    }
+    if (!clientName.isEmpty()) {
+        QMutexLocker lock(&m_receiveBinMutex);
+        m_freshPulseClient = clientName;
+        auto it = m_receiveBins.find(pad);
+        if (it != m_receiveBins.end())
+            it->rebuildClientName = clientName;
+    } else {
+        clientName = entry.rebuildClientName;
+    }
+    // Keep the level the user set: read from the old element once, and kept
+    // in the entry, so a failed attempt does not lose it for the next one.
+    double level = entry.level;
+    if (entry.bin) {
+        if (GstElement *volume = gst_bin_get_by_name(
+                GST_BIN(entry.bin), volumeName.toUtf8().constData())) {
+            g_object_get(volume, "volume", &level, nullptr);
+            gst_object_unref(volume);
+        }
+        {
+            QMutexLocker lock(&m_receiveBinMutex);
+            auto it = m_receiveBins.find(pad);
+            if (it != m_receiveBins.end())
+                it->level = level;
+        }
+        // The isolate probe drops before the peer is read, so nothing is
+        // pushing into the old bin while it is unlinked here.
+        if (GstPad *peer = gst_pad_get_peer(pad)) {
+            gst_pad_unlink(pad, peer);
+            gst_object_unref(peer);
+        }
+        teardownReceiveBin(entry, /*announce=*/false);
+    }
+    if (m_failReceiveRebuilds) {
+        finishReceiveRebuild(pad, generation, nullptr, false,
+                             QStringLiteral("rebuilds disabled for the test"),
+                             level, QString());
+        return;
+    }
+    // Built, probed and added here: quick, and building a pulsesink or an
+    // autoaudiosink opens nothing (that happens at NULL->READY). Only the
+    // start, which can wait on a hung sound server, runs off this thread.
+    GstElement *bin = nullptr;
+    QString why;
+    if (!prepareReceiveChain(m_subscriber.pipeline, entry.streamId,
+                             entry.trackKey, entry.kind, &bin, &why,
+                             clientName)) {
+        if (bin)
+            stopDetachedBinAsync(bin);
+        finishReceiveRebuild(pad, generation, nullptr, false, why, level,
+                             QString());
+        return;
+    }
+    auto *job = new RebuildJob;
+    job->engine = this;
+    job->pipeline = GST_ELEMENT(gst_object_ref(m_subscriber.pipeline));
+    job->bin = GST_ELEMENT(gst_object_ref(bin));
+    job->pad = GST_PAD(gst_object_ref(pad));
+    job->generation = generation;
+    job->level = level;
+    job->testMode = testSourceMode();
+    job->delayMs = m_rebuildJobDelayMs.load();
+    job->sessionLive = m_sessionLive;
+    // Not counted in m_pendingTeardowns: the job touches no engine state, and
+    // it removes its own bin if the session ends first.
+    gst_element_call_async(m_subscriber.pipeline, runRebuildJob, job,
+                           rebuildJobFree);
+}
+
+void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
+                                          GstElement *bin, bool ok,
+                                          const QString &why, double level,
+                                          const QString &outputName)
+{
+    // A bin nobody takes is stopped off this thread, out of whatever it is
+    // in now: after a teardown or in a new session the remembered pipeline
+    // is gone or another one.
+    const auto discard = [](GstElement *orphan) {
+        if (orphan)
+            stopDetachedBinAsync(orphan);
+    };
+    if (!m_active || generation != m_generation.load()) {
+        discard(bin);
+        return;
+    }
+    ReceiveBin entry;
+    gulong probe = 0;
+    {
+        QMutexLocker lock(&m_receiveBinMutex);
+        auto it = m_receiveBins.find(pad);
+        if (it == m_receiveBins.end() || !it->rebuilding) {
+            // Retired while the job ran: the stream was replaced or ended.
+            lock.unlock();
+            if (bin) {
+                if (GstPad *peer = gst_pad_get_peer(pad)) {
+                    gst_pad_unlink(pad, peer);
+                    gst_object_unref(peer);
+                }
+            }
+            qCInfo(lcSfuMedia) << "a receive chain rebuild finished for a "
+                                  "track retired meanwhile; discarded";
+            discard(bin);
+            return;
+        }
+        it->rebuilding = false;
+        if (ok) {
+            it->bin = bin;
+            probe = it->isolateProbe;
+            it->isolateProbe = 0;
+        }
+        entry = it.value();
+    }
+    if (!ok) {
+        qCWarning(lcSfuMedia) << "receive chain rebuild" << entry.rebuilds
+                              << "for stream=" << entry.streamId
+                              << "failed:" << why;
+        scheduleReceiveRebuild(pad, generation);
+        return;
+    }
+    const QString volumeName =
+        outputVolumeElementName(volumeKeyFor(entry.streamId, entry.trackKey));
+    if (level >= 0.0) {
+        if (GstElement *volume = gst_bin_get_by_name(
+                GST_BIN(bin), volumeName.toUtf8().constData())) {
+            g_object_set(volume, "volume", level, nullptr);
+            gst_object_unref(volume);
+        }
+    }
+    gst_pad_remove_probe(pad, probe);
+    // Say which output it got, and say again when that output actually
+    // takes audio: a rebuilt chain that never renders is not a recovery.
+    if (GstIterator *it = gst_bin_iterate_recurse(GST_BIN(bin))) {
+        GValue item = G_VALUE_INIT;
+        while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            GstElementFactory *factory = gst_element_get_factory(element);
+            if (factory && !GST_IS_BIN(element)
+                && GST_OBJECT_FLAG_IS_SET(element, GST_ELEMENT_FLAG_SINK)) {
+                if (GstPad *in = gst_element_get_static_pad(element, "sink")) {
+                    auto *label = new QString(entry.streamId);
+                    gst_pad_add_probe(
+                        in, GST_PAD_PROBE_TYPE_BUFFER,
+                        [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                            qCInfo(lcSfuMedia)
+                                << "call diagnosis: the rebuilt receive chain "
+                                   "for stream="
+                                << *static_cast<QString *>(data)
+                                << "is RENDERING again";
+                            return GST_PAD_PROBE_REMOVE;
+                        },
+                        label,
+                        [](gpointer data) { delete static_cast<QString *>(data); });
+                    gst_object_unref(in);
+                }
+            }
+            g_value_reset(&item);
+        }
+        g_value_unset(&item);
+        gst_iterator_free(it);
+    }
+    qCInfo(lcSfuMedia) << "call diagnosis: the receive chain for stream="
+                       << entry.streamId << "was REBUILT (attempt"
+                       << entry.rebuilds << "output=" << outputName
+                       << (entry.rebuildClientName.isEmpty()
+                               ? QStringLiteral("")
+                               : QStringLiteral("on a new Pulse connection"))
+                       << "); waiting for it to render";
+    if (m_playbackFailureAnnounced) {
+        bool anyStillFailed = false;
+        {
+            QMutexLocker lock(&m_receiveBinMutex);
+            for (const ReceiveBin &other : std::as_const(m_receiveBins))
+                anyStillFailed = anyStillFailed || other.isolateProbe != 0;
+        }
+        if (!anyStillFailed) {
+            m_playbackFailureAnnounced = false;
+            Q_EMIT remotePlaybackFailed(false);
+        }
+    }
+}
+
+int SfuMediaEngine::retireAllReceiveBinsForTest()
+{
+    QSet<QString> mids;
+    {
+        QMutexLocker lock(&m_receiveBinMutex);
+        for (const ReceiveBin &entry : std::as_const(m_receiveBins))
+            mids.insert(entry.transceiverMid);
+    }
+    return retireReceiveBins(mids, nullptr, "retired by the test");
+}
+
+int SfuMediaEngine::receiveVolumeElementsForTest() const
+{
+    if (!m_subscriber.pipeline)
+        return 0;
+    int count = 0;
+    GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_subscriber.pipeline));
+    GValue item = G_VALUE_INIT;
+    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+        auto *element = GST_ELEMENT(g_value_get_object(&item));
+        if (g_str_has_prefix(GST_OBJECT_NAME(element), "outvol_"))
+            ++count;
+        g_value_reset(&item);
+    }
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    return count;
+}
+
+GstElement *SfuMediaEngine::buildReceiveBin(bool video,
+                                            const QString &volumeElementName,
+                                            bool testSink, QString *error,
+                                            const QString &pulseClientName)
+{
+    // Audio volume elements keep the `outvol` prefix (deafen matches it) and a
+    // per-track suffix (per-participant volume).
+    //
+    // Video goes to an RGBA appsink (a plain row copy into a QVideoFrame).
+    // max-buffers=1 drop=true: a late video frame is worthless. The video
+    // chain is the same in test-source mode, since an appsink needs no
+    // display; only audio ends in a fakesink there.
+    const QString description = video
+        // Bounded but not leaky: this queue carries RTP into the depayloader,
+        // and dropping a packet corrupts the VP8 bitstream downstream of
+        // webrtcbin, which then sends no PLI. Latency is bounded by the
+        // appsink's drop=true instead.
+        ? QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
+                         "max-size-time=200000000 "
+                         "! rtpvp8depay name=recvdepay ! vp8dec "
+                         "! videoconvert ! video/x-raw,format=RGBA "
+                         "! appsink name=vidsink emit-signals=true "
+                         "sync=false max-buffers=1 drop=true")
+        : (testSink
+               // Leaky is safe for audio: Opus frames are independent and the
+               // decoder conceals a loss.
+               ? QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
+                                "max-size-time=200000000 leaky=downstream "
+                                "! rtpopusdepay name=recvdepay "
+                                "! opusdec ! audioconvert "
+                                "! audioresample ! volume name=%1 "
+                                "! fakesink sync=false")
+                     .arg(volumeElementName)
+               : QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
+                                "max-size-time=200000000 leaky=downstream "
+                                "! rtpopusdepay name=recvdepay "
+                                "! opusdec ! audioconvert "
+                                "! audioresample ! volume name=%1 ! %2")
+                     .arg(volumeElementName,
+                          pulseClientName.isEmpty()
+                              ? QStringLiteral("autoaudiosink")
+                              : QStringLiteral("pulsesink name=recvsink")));
+
+    GError *parseError = nullptr;
+    GstElement *bin = gst_parse_bin_from_description(
+        description.toUtf8().constData(), TRUE, &parseError);
+    if (parseError) {
+        if (error)
+            *error = QString::fromUtf8(parseError->message ? parseError->message
+                                                           : "?");
+        g_error_free(parseError);
+        if (bin)
+            gst_object_unref(bin);
+        return nullptr;
+    }
+    if (!bin) {
+        if (error)
+            *error = QStringLiteral("no bin");
+        return nullptr;
+    }
+    // A Pulse output on a connection of its own; see rebuildReceiveBin().
+    // Set as properties, never parsed from text. application.name stays the
+    // app's own, so the desktop keeps its routing and volume for this stream.
+    if (!pulseClientName.isEmpty() && !video && !testSink) {
+        if (GstElement *sink = gst_bin_get_by_name(GST_BIN(bin), "recvsink")) {
+            const QByteArray client = pulseClientName.toUtf8();
+            const QByteArray app =
+                pulseClientName.section(QStringLiteral(" (reconnected"), 0, 0)
+                    .toUtf8();
+            GstStructure *props = gst_structure_new(
+                "props", "application.name", G_TYPE_STRING, app.constData(),
+                nullptr);
+            g_object_set(sink, "client-name", client.constData(),
+                         "stream-properties", props, nullptr);
+            gst_structure_free(props);
+            gst_object_unref(sink);
+        }
+    }
+    // The bin settles its own sink's preroll. Otherwise a sink that never
+    // gets a buffer (a sender with no key, whose frames the decrypt probe
+    // drops) holds the whole subscriber pipeline in PAUSED, and every bin
+    // added after it syncs to PAUSED too: one prerolled frame, then silence
+    // for everyone until that key arrives.
+    //
+    // Not `async=false` on the sink instead: this bin going to PLAYING is what
+    // gives its sink the jitterbuffer's latency, and without it a syncing
+    // sink was measured at 0 ms rather than 161 ms.
+    g_object_set(bin, "async-handling", TRUE, nullptr);
+    return bin;
+}
+
+bool SfuMediaEngine::attachReceiveChain(GstElement *pipeline, GstPad *srcPad,
+                                        const QString &streamId,
+                                        const QString &trackKey,
+                                        const QString &mediaKind,
+                                        GstElement **binOut, QString *why,
+                                        const QString &pulseClientName)
+{
+    return prepareReceiveChain(pipeline, streamId, trackKey, mediaKind,
+                               binOut, why, pulseClientName)
+        && startReceiveChain(srcPad, *binOut, why);
+}
+
+bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
+                                         const QString &streamId,
+                                         const QString &trackKey,
+                                         const QString &mediaKind,
+                                         GstElement **binOut, QString *why,
+                                         const QString &pulseClientName)
+{
+    *binOut = nullptr;
+    const bool video = mediaKind == QLatin1String("video");
+    const QString volumeName =
+        outputVolumeElementName(volumeKeyFor(streamId, trackKey));
+    // After a sound-server drop every new audio bin joins the fresh Pulse
+    // connection too: an autoaudiosink would get the dead shared one back
+    // while any old bin still holds it, and fall back to a sink that plays
+    // to nothing.
+    QString client = pulseClientName;
+    if (client.isEmpty() && !video && !testSourceMode()) {
+        QMutexLocker lock(&m_receiveBinMutex);
+        client = m_freshPulseClient;
+    }
+    QString buildError;
+    GstElement *bin =
+        buildReceiveBin(video, volumeName, testSourceMode(), &buildError,
+                        client);
+    if (!bin) {
+        *why = QStringLiteral("could not be BUILT: %1").arg(buildError);
+        return false;
+    }
+    if (!gst_bin_add(GST_BIN(pipeline), bin)) {
+        *why = QStringLiteral("could not be ADDED to the subscriber pipeline");
+        return false;
+    }
+    *binOut = bin;
+    // Decrypt on the depayloader's src pad, where the encoded frame is whole.
+    // Installed before the bin plays so no frame reaches the decoder
+    // unexamined.
+    bool decryptProbeInstalled = false;
+    if (GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay")) {
+        if (GstPad *framePad = gst_element_get_static_pad(depay, "src")) {
+            installDecryptProbe(framePad, video, streamId);
+            decryptProbeInstalled = true;
+            gst_object_unref(framePad);
+        }
+        gst_object_unref(depay);
+    }
+    if (!decryptProbeInstalled) {
+        // Without the probe, ciphertext goes straight into the decoder and
+        // every counter stays at zero.
+        qCWarning(lcSfuMedia)
+            << "call diagnosis: no decrypt probe could be installed for "
+               "stream=" << streamId << "kind=" << mediaKind
+            << "— its frames will not be decrypted or counted";
+    }
+    // Route decoded video; installed before the bin plays.
+    if (GstElement *appsink = gst_bin_get_by_name(GST_BIN(bin), "vidsink")) {
+        auto *ctx = new VideoSinkCtx{this, trackKey, streamId};
+        g_signal_connect_data(appsink, "new-sample",
+                              G_CALLBACK(onVideoSample), ctx,
+                              videoSinkCtxFree, GConnectFlags(0));
+        gst_object_unref(appsink);
+    }
+    // Apply any volume chosen before this bin existed, on the GUI thread.
+    const quint64 generation = m_generation.load();
+    marshal(this, [engine = this, streamId, trackKey, generation] {
+        engine->applyPendingTrackVolume(streamId, trackKey, generation);
+    });
+    // Apply the current deafen state before the bin plays, so a new track is
+    // never briefly audible. Uses the same name derivation as the bin
+    // (per-track), since gst_bin_get_by_name matches exactly.
+    if (GstElement *volume = gst_bin_get_by_name(
+            GST_BIN(bin), volumeName.toUtf8().constData())) {
+        g_object_set(volume, "mute", m_outputMuted.load() ? TRUE : FALSE,
+                     nullptr);
+        // Per-person levels are re-applied by SfuCallController on the
+        // participant change that brings this track; this thread has no
+        // settings access. Deafen must be applied here.
+        gst_object_unref(volume);
+    }
+    return true;
+}
+
+bool SfuMediaEngine::startReceiveChain(GstPad *srcPad, GstElement *bin,
+                                       QString *why)
+{
+    // A sink that cannot open fails here and posts its own error; the bin is
+    // still linked, and the bus handler takes it from there. May block: a
+    // pulsesink opening against a hung server waits for libpulse's timeout.
+    gst_element_sync_state_with_parent(bin);
+    GstPad *sinkPad = gst_element_get_static_pad(bin, "sink");
+    const GstPadLinkReturn linked = gst_pad_link(srcPad, sinkPad);
+    if (sinkPad)
+        gst_object_unref(sinkPad);
+    if (linked != GST_PAD_LINK_OK) {
+        *why = QStringLiteral("would not LINK to its pad, code=%1")
+                   .arg(static_cast<int>(linked));
+        return false;
+    }
+    return true;
 }
 
 void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
@@ -5575,6 +6767,11 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
     GstElement *pipeline = GST_ELEMENT(gst_element_get_parent(webrtc));
     if (!pipeline)
         return;
+
+    // The section this pad belongs to. Also what retires its bin: webrtcbin
+    // gives a transceiver a NEW src pad for every new SSRC and never removes
+    // the old one.
+    const QString padTransceiverMid = transceiverMidOf(srcPad);
 
     // The decrypt ring is keyed by sender (`streamId`); the track sid picks
     // the surface. Getting either wrong is silent. Sources in order: the
@@ -5621,18 +6818,7 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
             streamId.clear();
         }
         if (streamId.isEmpty() || trackMid.isEmpty()) {
-            QString sectionMid;
-            GstWebRTCRTPTransceiver *transceiver = nullptr;
-            g_object_get(srcPad, "transceiver", &transceiver, nullptr);
-            if (transceiver) {
-                gchar *mid = nullptr;
-                g_object_get(transceiver, "mid", &mid, nullptr);
-                if (mid) {
-                    sectionMid = QString::fromUtf8(mid);
-                    g_free(mid);
-                }
-                gst_object_unref(transceiver);
-            }
+            const QString sectionMid = padTransceiverMid;
             if (!sectionMid.isEmpty()) {
                 // Match on the section's own mid, never a positional index.
                 QMutexLocker lock(&engine->m_recvMutex);
@@ -5691,148 +6877,38 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
 
     const quintptr token = reinterpret_cast<quintptr>(webrtc);
     const quint64 generation = engine->m_generation.load();
-    // Audio volume elements keep the `outvol` prefix (deafen matches it) and a
-    // per-track suffix (per-participant volume).
-    //
-    // Video goes to an RGBA appsink (a plain row copy into a QVideoFrame).
-    // max-buffers=1 drop=true: a late video frame is worthless. The video
-    // chain is the same in test-source mode, since an appsink needs no
-    // display; only audio ends in a fakesink there.
-    const QString description = mediaKind == QLatin1String("video")
-        // Bounded but not leaky: this queue carries RTP into the depayloader,
-        // and dropping a packet corrupts the VP8 bitstream downstream of
-        // webrtcbin, which then sends no PLI. Latency is bounded by the
-        // appsink's drop=true instead.
-        ? QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
-                         "max-size-time=200000000 "
-                         "! rtpvp8depay name=recvdepay ! vp8dec "
-                         "! videoconvert ! video/x-raw,format=RGBA "
-                         "! appsink name=vidsink emit-signals=true "
-                         "sync=false max-buffers=1 drop=true")
-        : (engine->testSourceMode()
-               // Leaky is safe for audio: Opus frames are independent and the
-               // decoder conceals a loss.
-               ? QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
-                                "max-size-time=200000000 leaky=downstream "
-                                "! rtpopusdepay name=recvdepay "
-                                "! opusdec ! audioconvert "
-                                "! audioresample ! volume name=%1 "
-                                "! fakesink sync=false")
-                     .arg(outputVolumeElementName(
-                         volumeKeyFor(streamId, trackMid)))
-               : QStringLiteral("queue max-size-buffers=0 max-size-bytes=0 "
-                                "max-size-time=200000000 leaky=downstream "
-                                "! rtpopusdepay name=recvdepay "
-                                "! opusdec ! audioconvert "
-                                "! audioresample ! volume name=%1 "
-                                "! autoaudiosink")
-                     .arg(outputVolumeElementName(
-                         volumeKeyFor(streamId, trackMid))));
-
-    GError *error = nullptr;
-    GstElement *bin = gst_parse_bin_from_description(
-        description.toUtf8().constData(), TRUE, &error);
-    if (error) {
-        // Log GStreamer's message: it names the element that failed.
-        qCWarning(lcSfuMedia)
-            << "call diagnosis: the receive bin for stream=" << streamId
-            << "kind=" << mediaKind << "could not be BUILT:"
-            << (error->message ? error->message : "?")
-            << "— this participant will never be heard or seen";
-        g_error_free(error);
-        if (bin)
-            gst_object_unref(bin);
-        gst_object_unref(pipeline);
-        marshal(engine, [engine, token, generation] {
-            engine->handleFailure(token, generation,
-                                  QStringLiteral("media_receive"));
-        });
-        return;
-    }
-    if (!gst_bin_add(GST_BIN(pipeline), bin)) {
-        qCWarning(lcSfuMedia)
-            << "call diagnosis: the receive bin for stream=" << streamId
-            << "kind=" << mediaKind
-            << "could not be ADDED to the subscriber pipeline";
-        gst_object_unref(pipeline);
-        marshal(engine, [engine, token, generation] {
-            engine->handleFailure(token, generation,
-                                  QStringLiteral("media_receive"));
-        });
-        return;
-    }
-    // Decrypt on the depayloader's src pad, where the encoded frame is whole.
-    // Installed before the bin plays so no frame reaches the decoder
-    // unexamined.
-    bool decryptProbeInstalled = false;
-    if (GstElement *depay = gst_bin_get_by_name(GST_BIN(bin), "recvdepay")) {
-        if (GstPad *framePad = gst_element_get_static_pad(depay, "src")) {
-            engine->installDecryptProbe(framePad,
-                                        mediaKind == QLatin1String("video"),
-                                        streamId);
-            decryptProbeInstalled = true;
-            gst_object_unref(framePad);
-        }
-        gst_object_unref(depay);
-    }
-    if (!decryptProbeInstalled) {
-        // Without the probe, ciphertext goes straight into the decoder and
-        // every counter stays at zero.
-        qCWarning(lcSfuMedia)
-            << "call diagnosis: no decrypt probe could be installed for "
-               "stream=" << streamId << "kind=" << mediaKind
-            << "— its frames will not be decrypted or counted";
-    }
-    // Route decoded video; installed before the bin plays.
-    if (GstElement *appsink = gst_bin_get_by_name(GST_BIN(bin), "vidsink")) {
-        auto *ctx = new VideoSinkCtx{engine, trackMid, streamId};
-        g_signal_connect_data(appsink, "new-sample",
-                              G_CALLBACK(onVideoSample), ctx,
-                              videoSinkCtxFree, GConnectFlags(0));
-        gst_object_unref(appsink);
-    }
-    // Apply any volume chosen before this bin existed, on the GUI thread.
-    marshal(engine, [engine, streamId, trackMid, generation] {
-        engine->applyPendingTrackVolume(streamId, trackMid, generation);
-    });
-    // Apply the current deafen state before the bin plays, so a new track is
-    // never briefly audible. Uses the same name derivation as the bin
-    // (per-track), since gst_bin_get_by_name matches exactly.
-    if (GstElement *volume = gst_bin_get_by_name(
-            GST_BIN(bin),
-            outputVolumeElementName(volumeKeyFor(streamId, trackMid))
-                .toUtf8().constData())) {
-        g_object_set(volume, "mute",
-                     engine->m_outputMuted.load() ? TRUE : FALSE, nullptr);
-        // Per-person levels are re-applied by SfuCallController on the
-        // participant change that brings this track; this thread has no
-        // settings access. Deafen must be applied here.
-        gst_object_unref(volume);
-    }
-    gst_element_sync_state_with_parent(bin);
-    GstPad *sinkPad = gst_element_get_static_pad(bin, "sink");
-    const GstPadLinkReturn linked = gst_pad_link(srcPad, sinkPad);
-    if (sinkPad)
-        gst_object_unref(sinkPad);
+    GstElement *bin = nullptr;
+    QString why;
+    const bool attached = engine->attachReceiveChain(
+        pipeline, srcPad, streamId, trackMid, mediaKind, &bin, &why);
     gst_object_unref(pipeline);
-    if (linked != GST_PAD_LINK_OK) {
+    if (!attached) {
+        // GStreamer's message names the element that failed.
         qCWarning(lcSfuMedia)
             << "call diagnosis: the receive bin for stream=" << streamId
-            << "kind=" << mediaKind << "would not LINK to its pad, code="
-            << linked;
+            << "kind=" << mediaKind << "failed:" << why
+            << "— this participant will never be heard or seen";
         marshal(engine, [engine, token, generation] {
             engine->handleFailure(token, generation,
                                   QStringLiteral("media_receive"));
         });
         return;
     }
-        // Remember which bin this pad feeds so pad-removed can retire it;
-        // otherwise every toggle leaves a playing bin behind, and a stale
-        // `outvol_*` can shadow the live one.
+    // Remember which bin this pad feeds, so it can be retired; otherwise
+    // every toggle leaves a playing bin behind, and a stale `outvol_*` can
+    // shadow the live one.
     {
         QMutexLocker lock(&engine->m_receiveBinMutex);
-        engine->m_receiveBins.insert(static_cast<GstPad *>(pad),
-                                     ReceiveBin{bin, streamId, mediaKind});
+        engine->m_receiveBins.insert(
+            static_cast<GstPad *>(pad),
+            ReceiveBin{bin, streamId, mediaKind, padTransceiverMid, trackMid});
+    }
+    // A new pad on a transceiver replaces the stream its older pads carried
+    // (LiveKit reuses a transceiver for the next track, with a new SSRC).
+    if (!padTransceiverMid.isEmpty()) {
+        engine->retireReceiveBins({padTransceiverMid},
+                                  static_cast<GstPad *>(pad),
+                                  "its transceiver has a newer stream");
     }
     // A synthetic stream id here plus `attributed=false` above marks a track
     // nobody can key.

@@ -70,8 +70,11 @@ AppMenu {
             var _ = root.refreshTick
             if (root.kind === "speaker")
                 return app.callDevices.activeSpeakerId === ""
+            // A missing chosen camera also reads as "", but no camera opens
+            // then, so "System default" is not what the call uses.
             if (root.kind === "camera")
                 return app.callDevices.activeCameraId === ""
+                       && !app.callDevices.preferredCameraMissing
             return app.callDevices.activeMicrophoneId === ""
         }
         onTriggered: root.selectDevice("")
@@ -99,6 +102,18 @@ AppMenu {
         visible: active
         sourceComponent: AppMenuItem {
             text: qsTr("Your chosen microphone isn't connected")
+            enabled: false
+        }
+    }
+    // The camera has no fallback: none opens until it is back or another is
+    // chosen, and no radio above is selected meanwhile.
+    Loader {
+        objectName: "callMenuCameraMissing"
+        active: root.kind === "camera"
+                && app.callDevices.preferredCameraMissing
+        visible: active
+        sourceComponent: AppMenuItem {
+            text: qsTr("Your chosen camera isn't connected")
             enabled: false
         }
     }

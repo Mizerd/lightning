@@ -1700,7 +1700,9 @@ int main(int argc, char *argv[])
                 pump(bar ? 3600 : 1500);
             }
         }
-        return loaded == sounds.size() ? 0 : 1;
+        const int status = loaded == sounds.size() ? 0 : 1;
+        CallSoundPlayer::setExitStatus(status);
+        return status;
     }
     if (pf.action == PreflightResult::RunImageFormatStatus) {
         // QImageReader needs only a QCoreApplication. Not an offscreen
@@ -2209,5 +2211,9 @@ int main(int argc, char *argv[])
 
     engine.loadFromModule("MatrixClient", "Main");
 
-    return app.exec();
+    const int status = app.exec();
+    // Kept for the one exit that bypasses the normal return: see
+    // CallSoundPlayer::soundThreadStuck().
+    CallSoundPlayer::setExitStatus(status);
+    return status;
 }

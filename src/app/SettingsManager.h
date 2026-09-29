@@ -421,6 +421,12 @@ public:
     void setPreferredSpeakerId(const QString &id);
     QString preferredCameraId() const;
     void setPreferredCameraId(const QString &id);
+    /// The chosen camera's description when it was chosen. A Linux camera id
+    /// is /dev/videoN, which renumbers on replug; a different description
+    /// under the same id is another camera and is refused
+    /// (CaptureDeviceSelection.h). Set before the id, which announces.
+    QString preferredCameraDescription() const;
+    void setPreferredCameraDescription(const QString &description);
     void setRingForCalls(bool enabled);
     void setNotificationPreview(int mode);
     // Per-room notification mode: 0 = all messages, 1 = mentions & keywords, 2

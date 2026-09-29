@@ -3037,6 +3037,18 @@ if(BUILD_TESTING)
     target_link_libraries(room-closure-controller-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME room-closure-controller COMMAND room-closure-controller-test)
 
+    # CallSoundPlayer's liveness (a sound thread stuck on the sound server
+    # reports nothing playable). Creates no sound effect, opens no device.
+    qt_add_executable(call-sound-player-test
+        tests/CallSoundPlayerTest.cpp
+        src/calls/CallSoundPlayer.h
+        src/calls/CallSoundPlayer.cpp
+    )
+    target_include_directories(call-sound-player-test PRIVATE src)
+    target_link_libraries(call-sound-player-test PRIVATE
+        Qt6::Core Qt6::Multimedia Qt6::Qml Qt6::Test)
+    add_test(NAME call-sound-player COMMAND call-sound-player-test)
+
     # Call sounds wired to AppController / SfuCallController / CallController
     # through a recording sink; never opens an audio device.
     qt_add_executable(call-sounds-wiring-test
@@ -4600,6 +4612,21 @@ if(BUILD_TESTING)
     target_include_directories(call-lane-policy-test PRIVATE src)
     target_link_libraries(call-lane-policy-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME call-lane-policy COMMAND call-lane-policy-test)
+
+    # The camera choice handed to the media engine: a chosen camera that is
+    # not connected must say so, not read as "system default".
+    qt_add_executable(call-device-controller-test
+        tests/CallDeviceControllerTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(call-device-controller-test)
+    target_link_libraries(call-device-controller-test PRIVATE Qt6::Test)
+    # Reads the two camera pickers to check what they select while missing.
+    target_compile_definitions(call-device-controller-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME call-device-controller COMMAND call-device-controller-test)
+    set_tests_properties(call-device-controller PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     qt_add_executable(updater-relaunch-environment-test
         tests/RelaunchEnvironmentTest.cpp src/updater/RelaunchEnvironment.cpp)

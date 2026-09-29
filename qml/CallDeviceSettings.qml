@@ -37,6 +37,9 @@ ColumnLayout {
         property var entries: []
         property string activeId: ""
         property string emptyText: ""
+        /// The chosen device is gone and nothing replaces it (the camera):
+        /// no row is selected, and the field says why.
+        property bool missing: false
 
         Layout.fillWidth: true
         spacing: 4
@@ -56,6 +59,8 @@ ColumnLayout {
             enabled: picker.entries.length > 0
             // "System default" (index 0) follows the system default as it
             // changes, rather than pinning today's default device.
+            displayText: picker.missing ? qsTr("Chosen camera not connected")
+                                        : currentText
             model: {
                 var names = [qsTr("System default")];
                 for (var i = 0; i < picker.entries.length; ++i) {
@@ -66,6 +71,8 @@ ColumnLayout {
             }
             currentIndex: {
                 var _ = root.refreshTick;
+                if (picker.missing)
+                    return -1;
                 if (picker.activeId === "")
                     return 0;
                 for (var i = 0; i < picker.entries.length; ++i) {
@@ -278,11 +285,31 @@ ColumnLayout {
             var _ = root.refreshTick;
             return app.callDevices.activeCameraId;
         }
+        missing: {
+            var _ = root.refreshTick;
+            return root.activated && app.callDevices.preferredCameraMissing;
+        }
         // In a Flatpak nothing can be listed: the camera portal supplies a
         // camera when it's turned on.
         emptyText: app.callDevices.camerasChosenByDesktop
                    ? qsTr("Your desktop chooses the camera when you turn it on in a call.")
                    : qsTr("No camera was found.")
+    }
+
+    // The camera has no fallback, unlike the microphone: another camera is
+    // never opened in its place.
+    Loader {
+        objectName: "callDeviceCameraMissing"
+        active: root.activated && app.callDevices.preferredCameraMissing
+        visible: active
+        Layout.fillWidth: true
+        sourceComponent: Label {
+            wrapMode: Text.WordWrap
+            color: AppTheme.warning
+            font.pixelSize: AppTheme.textMeta
+            text: qsTr("Your chosen camera isn't connected, so calls turn on "
+                       + "no camera until it's back or you choose another.")
+        }
     }
 
     // The floating call window.

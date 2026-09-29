@@ -530,6 +530,20 @@ EXISTS, so nobody rebuilds it:
   speaker. `--call-sounds-status` asks a package whether the sounds load.
   Live: loading and playback measured on the laptop; in-call triggering in a
   real call and audibility are NOT TESTED.
+- **The speaking indicator uses RFC 6464 audio levels** (2026-09-26): the
+  microphone track carries the `ssrc-audio-level` RTP header extension, which
+  is what LiveKit's active-speaker detection reads. The level travels in the
+  clear, even in an encrypted room: SRTP does not encrypt header extensions and
+  LiveKit terminates SRTP, so the SFU learns each sender's per-packet level.
+  Element Call and livekit-client expose exactly the same, and Opus packet
+  sizes already leak similar activity. Nothing is sent while muted, and share
+  audio carries no level.
+- **A failed capture or playback device never ends the call** (2026-09-26): a
+  receive sink that fails (a sound-server drop) is isolated and rebuilt on a
+  fresh sound-server connection; a microphone that fails is restarted in place;
+  a failed or refused camera never blocks a later video publish; a chosen camera
+  that is missing is refused, never replaced by the default one (a portal camera
+  is exempt: the portal picks it). Each gives a notice when it gives up.
 
 Live status, and do not inflate it: **audio, camera and screen share are
 live-confirmed** — against Element on Linux, and on a packaged Windows build

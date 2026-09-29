@@ -47,6 +47,11 @@ class CallDeviceController : public QObject
     /// instead of implying the fallback was chosen.
     Q_PROPERTY(bool preferredMicrophoneMissing READ preferredMicrophoneMissing
                    NOTIFY selectionChanged)
+    /// The chosen camera is not usable now (unplugged, or its node belongs to
+    /// another camera). Unlike the microphone there is no fallback: no
+    /// camera opens, so the UI must not show "System default" as selected.
+    Q_PROPERTY(bool preferredCameraMissing READ preferredCameraMissing
+                   NOTIFY selectionChanged)
     Q_PROPERTY(bool hasMicrophone READ hasMicrophone NOTIFY devicesChanged)
     Q_PROPERTY(bool hasCamera READ hasCamera NOTIFY devicesChanged)
 
@@ -65,6 +70,7 @@ public:
     QString activeSpeakerId() const;
     QString activeCameraId() const;
     bool preferredMicrophoneMissing() const;
+    bool preferredCameraMissing() const;
     /// Without a microphone the app still joins, receive-only.
     bool hasMicrophone() const;
     bool hasCamera() const;
@@ -86,6 +92,10 @@ public:
     struct Selection {
         QString id;
         QString description;
+        /// Camera only: a camera was chosen and is not usable now (unplugged,
+        /// or its node renumbered to another camera). The engine opens no
+        /// camera then: the default is a different device.
+        bool preferredMissing = false;
     };
     Selection cameraSelection() const;
     Selection microphoneSelection() const;
@@ -114,4 +124,7 @@ private:
     QString m_lastActiveMic;
     QString m_lastActiveSpeaker;
     QString m_lastActiveCamera;
+    // A missing chosen camera and "system default" share an empty id, and the
+    // engine opens a camera for one and not the other.
+    bool m_lastCameraMissing = false;
 };

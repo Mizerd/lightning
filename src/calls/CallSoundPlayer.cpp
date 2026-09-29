@@ -1,13 +1,21 @@
 #include "calls/CallSoundPlayer.h"
 
 #include <QAudioDevice>
+#include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QLoggingCategory>
 #include <QMediaDevices>
+#include <QMutex>
+#include <QSet>
 #include <QSoundEffect>
+#include <QThread>
 #include <QUrl>
 
+#include <atomic>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 Q_DECLARE_LOGGING_CATEGORY(lcCallSound)
 
@@ -36,18 +44,191 @@ float linearGain(qreal perceptual)
     return float(std::pow(10.0, -40.0 * (1.0 - perceptual) / 20.0));
 }
 
+// See the header: before 6.10 an open on a stalled server blocks the thread
+// that plays; from 6.10 QSoundEffect's engine must be created on the GUI
+// thread.
+constexpr bool kEffectsOffTheGuiThread =
+    QT_VERSION < QT_VERSION_CHECK(6, 10, 0);
+
+std::atomic<bool> g_soundThreadStuck{false};
+std::atomic<int> g_exitStatus{0};
+
+/// A QCoreApplication post routine, added last, so it runs before Qt
+/// Multimedia's own teardown: everything of ours is already destroyed (and
+/// flushed) by the time the application object goes.
+void endWithoutTeardown()
+{
+    std::fflush(nullptr);
+    std::_Exit(g_exitStatus.load());
+}
+
 } // namespace
+
+/// Which sounds reached QSoundEffect::Ready; read on the GUI thread, written
+/// where the effects live.
+struct CallSoundReadiness {
+    mutable QMutex mutex;
+    QSet<QString> ready;
+    /// Liveness of the effects' thread: jobs posted and jobs finished, and
+    /// since when the oldest unfinished one has waited (-1: none). A thread
+    /// stuck on the sound server finishes nothing, and then no sound can be
+    /// relied on however "ready" it once was.
+    QElapsedTimer clock;
+    quint64 posted = 0;
+    quint64 done = 0;
+    qint64 waitingSinceMs = -1;
+    bool saidStuck = false;
+};
+
+namespace {
+/// How long a job may wait before the effects' thread counts as stuck.
+constexpr qint64 kStuckAfterMs = 2000;
+} // namespace
+
+/// Owns the QSoundEffects. Lives on the effects' thread and is only ever
+/// called there.
+class CallSoundEffects : public QObject
+{
+public:
+    explicit CallSoundEffects(std::shared_ptr<CallSoundReadiness> readiness)
+        : m_readiness(std::move(readiness))
+    {
+    }
+
+    void preload()
+    {
+        QElapsedTimer timer;
+        timer.start();
+        for (const QString &sound : kSounds)
+            effect(sound);
+        qCInfo(lcCallSound) << "call sounds preloading ms=" << timer.elapsed();
+    }
+
+    void play(const QString &sound, float gain, const QString &device)
+    {
+        // A one-shot of the looping sound would cut the loop short.
+        if (sound == m_loopSound)
+            return;
+        QSoundEffect *e = effect(sound);
+        if (!e)
+            return;
+        route(e, device);
+        e->setLoopCount(1);
+        e->setVolume(gain);
+        e->play();
+    }
+
+    void loop(const QString &sound, float gain, const QString &device)
+    {
+        if (sound == m_loopSound) {
+            // The controller re-asserts the loop on every state change:
+            // adjust the volume, never restart.
+            if (QSoundEffect *e = m_effects.value(sound))
+                e->setVolume(gain);
+            return;
+        }
+        if (QSoundEffect *old = m_effects.value(m_loopSound))
+            old->stop();
+        m_loopSound.clear();
+        if (sound.isEmpty())
+            return;
+        QSoundEffect *e = effect(sound);
+        if (!e)
+            return;
+        m_loopSound = sound;
+        route(e, device);
+        e->setLoopCount(QSoundEffect::Infinite);
+        e->setVolume(gain);
+        e->play();
+    }
+
+    void stopAll()
+    {
+        for (QSoundEffect *e : std::as_const(m_effects))
+            e->stop();
+    }
+
+private:
+    QSoundEffect *effect(const QString &sound)
+    {
+        if (QSoundEffect *existing = m_effects.value(sound))
+            return existing;
+        if (!kSounds.contains(sound))
+            return nullptr;
+        auto *e = new QSoundEffect(this);
+        m_effects.insert(sound, e);
+        std::shared_ptr<CallSoundReadiness> readiness = m_readiness;
+        connect(e, &QSoundEffect::statusChanged, this, [e, sound, readiness] {
+            {
+                QMutexLocker lock(&readiness->mutex);
+                if (e->status() == QSoundEffect::Ready)
+                    readiness->ready.insert(sound);
+                else
+                    readiness->ready.remove(sound);
+            }
+            // Loud once: an unusable sound is otherwise silent, and the
+            // ringer then falls back to the desktop's call sound. (Worded so
+            // package validators' "failed to load" scan does not read it as
+            // a missing library.)
+            if (e->status() == QSoundEffect::Error)
+                qCWarning(lcCallSound) << "call sound unusable sound=" << sound;
+        });
+        e->setSource(QUrl(QStringLiteral("qrc:/sounds/%1.wav").arg(sound)));
+        return e;
+    }
+
+    /// The call's chosen speaker (`wanted`, an output id) or the default.
+    /// Re-resolved on every cue so a device plugged in mid-session is used;
+    /// resolved here rather than on the GUI thread, since asking the audio
+    /// backend is exactly what can hang.
+    static void route(QSoundEffect *e, const QString &wanted)
+    {
+        QAudioDevice target = QMediaDevices::defaultAudioOutput();
+        if (!wanted.isEmpty()) {
+            const QList<QAudioDevice> outputs = QMediaDevices::audioOutputs();
+            for (const QAudioDevice &device : outputs) {
+                if (QString::fromUtf8(device.id()) == wanted) {
+                    target = device;
+                    break;
+                }
+            }
+        }
+        if (!target.isNull() && e->audioDevice() != target)
+            e->setAudioDevice(target);
+    }
+
+    std::shared_ptr<CallSoundReadiness> m_readiness;
+    QHash<QString, QSoundEffect *> m_effects;
+    QString m_loopSound;
+};
 
 const QStringList &CallSoundPlayer::knownSounds()
 {
     return kSounds;
 }
 
+bool CallSoundPlayer::playsOffTheGuiThread()
+{
+    return kEffectsOffTheGuiThread;
+}
+
+bool CallSoundPlayer::soundThreadStuck()
+{
+    return g_soundThreadStuck.load();
+}
+
+void CallSoundPlayer::setExitStatus(int status)
+{
+    g_exitStatus.store(status);
+}
+
 CallSoundPlayer::CallSoundPlayer(std::function<QString()> callSpeakerId,
                                  QObject *parent)
     : QObject(parent)
     , m_callSpeakerId(std::move(callSpeakerId))
+    , m_readiness(std::make_shared<CallSoundReadiness>())
 {
+    startEffects(kEffectsOffTheGuiThread);
     // No output device (a headless session, a CI container): nothing can
     // play, so skip the preload. canPlay() stays false and the ringer falls
     // back to the desktop's sound; a later play() creates its effect lazily.
@@ -55,100 +236,146 @@ CallSoundPlayer::CallSoundPlayer(std::function<QString()> callSpeakerId,
         qCInfo(lcCallSound) << "call sounds unavailable: no audio output device";
         return;
     }
-    QElapsedTimer timer;
-    timer.start();
-    for (const QString &sound : kSounds)
-        effect(sound);
-    qCInfo(lcCallSound) << "call sounds preloading ms=" << timer.elapsed();
+    post([](CallSoundEffects *effects) { effects->preload(); });
 }
 
 CallSoundPlayer::~CallSoundPlayer()
 {
-    for (QSoundEffect *e : std::as_const(m_effects))
-        e->stop();
-}
-
-QSoundEffect *CallSoundPlayer::effect(const QString &sound)
-{
-    if (QSoundEffect *existing = m_effects.value(sound))
-        return existing;
-    if (!kSounds.contains(sound))
-        return nullptr;
-    auto *e = new QSoundEffect(this);
-    m_effects.insert(sound, e);
-    connect(e, &QSoundEffect::statusChanged, this, [e, sound] {
-        // Loud once: an unusable sound is otherwise silent, and the ringer
-        // then falls back to the desktop's call sound. (Worded so package
-        // validators' "failed to load" scan does not read it as a missing
-        // library.)
-        if (e->status() == QSoundEffect::Error)
-            qCWarning(lcCallSound) << "call sound unusable sound=" << sound;
-    });
-    e->setSource(QUrl(QStringLiteral("qrc:/sounds/%1.wav").arg(sound)));
-    return e;
-}
-
-void CallSoundPlayer::route(QSoundEffect *e, bool inCall)
-{
-    // Re-resolved on every play so a device plugged in mid-session is used.
-    QAudioDevice target = QMediaDevices::defaultAudioOutput();
-    const QString wanted = inCall && m_callSpeakerId ? m_callSpeakerId()
-                                                     : QString();
-    if (!wanted.isEmpty()) {
-        const QList<QAudioDevice> outputs = QMediaDevices::audioOutputs();
-        for (const QAudioDevice &device : outputs) {
-            if (QString::fromUtf8(device.id()) == wanted) {
-                target = device;
-                break;
-            }
-        }
+    if (!m_thread) {
+        m_effects->stopAll();
+        delete m_effects;
+        return;
     }
-    if (!target.isNull() && e->audioDevice() != target)
-        e->setAudioDevice(target);
+    post([](CallSoundEffects *effects) { effects->stopAll(); });
+    // Deleted on its own thread: a finishing QThread still runs the deferred
+    // deletes posted to it.
+    m_effects->deleteLater();
+    m_thread->quit();
+    // Bounded: a sound server that stopped answering can hold the effects'
+    // thread for its 30 s timeout, and quitting the app must not wait for
+    // it. A running QThread must not be destroyed, so it is left behind.
+    if (!m_thread->wait(2000)) {
+        qCWarning(lcCallSound)
+            << "call sounds: the sound thread is stuck on the sound server; "
+               "leaving it behind, and the process will end without Qt's "
+               "audio teardown";
+        g_soundThreadStuck.store(true);
+        if (QCoreApplication::instance())
+            qAddPostRoutine(endWithoutTeardown);
+        return;
+    }
+    delete m_thread;
 }
+
+CallSoundPlayer::CallSoundPlayer(ForTest, bool offTheGuiThread)
+    : QObject(nullptr)
+    , m_readiness(std::make_shared<CallSoundReadiness>())
+{
+    // No preload: a test must never create a sound effect on a thread Qt
+    // 6.10+ does not allow; see the header.
+    startEffects(offTheGuiThread);
+}
+
+void CallSoundPlayer::startEffects(bool offTheGuiThread)
+{
+    m_readiness->clock.start();
+    m_effects = new CallSoundEffects(m_readiness);
+    if (offTheGuiThread) {
+        m_thread = new QThread();
+        m_thread->setObjectName(QStringLiteral("call-sounds"));
+        m_effects->moveToThread(m_thread);
+        m_thread->start();
+    }
+}
+
+void CallSoundPlayer::post(std::function<void(CallSoundEffects *)> job)
+{
+    CallSoundEffects *effects = m_effects;
+    if (!m_thread) {
+        job(effects);
+        return;
+    }
+    std::shared_ptr<CallSoundReadiness> readiness = m_readiness;
+    {
+        QMutexLocker lock(&readiness->mutex);
+        if (readiness->posted == readiness->done)
+            readiness->waitingSinceMs = readiness->clock.elapsed();
+        ++readiness->posted;
+    }
+    QMetaObject::invokeMethod(
+        effects,
+        [effects, readiness, job = std::move(job)] {
+            job(effects);
+            // Acknowledged: the next job, if any, starts waiting now.
+            QMutexLocker lock(&readiness->mutex);
+            ++readiness->done;
+            readiness->waitingSinceMs = readiness->posted == readiness->done
+                ? -1
+                : readiness->clock.elapsed();
+        },
+        Qt::QueuedConnection);
+}
+
+void CallSoundPlayer::postForTest(std::function<void()> job)
+{
+    post([job = std::move(job)](CallSoundEffects *) { job(); });
+}
+
+void CallSoundPlayer::markReadyForTest(const QString &sound)
+{
+    QMutexLocker lock(&m_readiness->mutex);
+    m_readiness->ready.insert(sound);
+}
+
+namespace {
+/// The call's chosen speaker id while in a call, else "" for the default.
+/// Read here, on the GUI thread, where the settings live.
+QString cueDevice(const std::function<QString()> &callSpeakerId, bool inCall)
+{
+    return inCall && callSpeakerId ? callSpeakerId() : QString();
+}
+} // namespace
 
 void CallSoundPlayer::play(const QString &sound, qreal volume, bool inCall)
 {
-    // A one-shot of the looping sound would cut the loop short.
-    if (sound == m_loopSound)
+    if (sound == m_loopSound || !kSounds.contains(sound))
         return;
-    QSoundEffect *e = effect(sound);
-    if (!e)
-        return;
-    route(e, inCall);
-    e->setLoopCount(1);
-    e->setVolume(linearGain(volume));
-    e->play();
+    const float gain = linearGain(volume);
+    const QString device = cueDevice(m_callSpeakerId, inCall);
+    post([sound, gain, device](CallSoundEffects *effects) {
+        effects->play(sound, gain, device);
+    });
 }
 
 void CallSoundPlayer::loop(const QString &sound, qreal volume, bool inCall)
 {
     if (!sound.isEmpty() && !kSounds.contains(sound))
         return;
-    if (sound == m_loopSound) {
-        // The controller re-asserts the loop on every state change: adjust
-        // the volume, never restart.
-        if (QSoundEffect *e = m_effects.value(sound))
-            e->setVolume(linearGain(volume));
-        return;
-    }
-    if (QSoundEffect *old = m_effects.value(m_loopSound))
-        old->stop();
-    m_loopSound.clear();
-    if (sound.isEmpty())
-        return;
-    QSoundEffect *e = effect(sound);
-    if (!e)
-        return;
     m_loopSound = sound;
-    route(e, inCall);
-    e->setLoopCount(QSoundEffect::Infinite);
-    e->setVolume(linearGain(volume));
-    e->play();
+    const float gain = linearGain(volume);
+    const QString device = cueDevice(m_callSpeakerId, inCall);
+    post([sound, gain, device](CallSoundEffects *effects) {
+        effects->loop(sound, gain, device);
+    });
 }
 
 bool CallSoundPlayer::canPlay(const QString &sound) const
 {
-    const QSoundEffect *e = m_effects.value(sound);
-    return e && e->status() == QSoundEffect::Ready;
+    QMutexLocker lock(&m_readiness->mutex);
+    // A thread that has not finished a job for a while cannot play anything,
+    // loaded or not. Saying so lets the caller fall back: the ringer then
+    // uses the desktop's call sound instead of ringing silently.
+    const qint64 waiting = m_readiness->waitingSinceMs;
+    if (waiting >= 0 && m_readiness->clock.elapsed() - waiting > kStuckAfterMs) {
+        if (!m_readiness->saidStuck) {
+            m_readiness->saidStuck = true;
+            qCWarning(lcCallSound)
+                << "call sounds: the sound thread has not answered for"
+                << kStuckAfterMs << "ms (a stalled sound server); reporting "
+                   "no sound playable, so the desktop's call sound is used";
+        }
+        return false;
+    }
+    m_readiness->saidStuck = false;
+    return m_readiness->ready.contains(sound);
 }

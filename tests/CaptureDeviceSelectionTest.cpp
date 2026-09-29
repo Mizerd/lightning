@@ -22,6 +22,23 @@ GstDeviceCandidate v4l2(const QString &name, const QString &path)
                                      {QStringLiteral("api.v4l2.path"), path}}};
 }
 
+// A camera as the PipeWire device provider lists it (it outranks the v4l2
+// provider on a PipeWire desktop): the node path only under
+// `api.v4l2.path`, no `device.path`, and " (V4L2)" on the name. Keys and
+// values as `gst-device-monitor-1.0 Video/Source` printed them for
+// call-matrix's v4l2loopback camera.
+GstDeviceCandidate pipewireCamera(const QString &name, const QString &path,
+                                  const QString &serial)
+{
+    return GstDeviceCandidate{
+        name + QStringLiteral(" (V4L2)"),
+        {{QStringLiteral("api.v4l2.path"), path},
+         {QStringLiteral("object.path"), QStringLiteral("v4l2:") + path},
+         {QStringLiteral("object.serial"), serial},
+         {QStringLiteral("device.api"), QStringLiteral("v4l2")},
+         {QStringLiteral("media.class"), QStringLiteral("Video/Source")}}};
+}
+
 GstDeviceCandidate pipewire(const QString &name, const QString &serial,
                             const QString &nodeName)
 {
@@ -203,8 +220,9 @@ private Q_SLOTS:
         QCOMPARE(binding.reason, QStringLiteral("identity"));
     }
 
-    // Ambiguity is refused: with two identical names and no identity match,
-    // opening the wrong camera is worse than the default.
+    // Ambiguity binds nothing: with two identical names and no identity
+    // match, either could be the wrong camera. For a camera that means no
+    // camera at all (see aChosenCameraThatCannotBeBoundIsRefused...).
     void twoDevicesSharingANameBindNothing()
     {
         const auto candidates = QList<GstDeviceCandidate>{
@@ -216,11 +234,10 @@ private Q_SLOTS:
                                       QStringLiteral("USB Camera"), candidates)
                      .isEmpty(),
                  "an ambiguous display name was resolved to one of the two "
-                 "devices instead of falling back to the platform default");
+                 "devices");
     }
 
-    // A device the monitor no longer lists binds nothing: the default, not a
-    // stale path.
+    // A device the monitor no longer lists binds nothing, never a stale path.
     void aDeviceThatIsNoLongerPresentBindsNothing()
     {
         const auto candidates = QList<GstDeviceCandidate>{
@@ -317,6 +334,192 @@ private Q_SLOTS:
             QStringLiteral("FaceTime HD Camera"), avf);
         QCOMPARE(mac.property, QStringLiteral("device-index"));
         QCOMPARE(mac.value, QStringLiteral("0"));
+    }
+
+    // DEFECT 5, reported live on a PipeWire host: the choice was a
+    // v4l2loopback camera, the monitor listed it the PipeWire way, nothing
+    // bound, and v4l2src opened /dev/video0 — the laptop's own webcam.
+    void aPipeWireListedCameraBindsByItsV4l2Path()
+    {
+        const auto candidates = QList<GstDeviceCandidate>{
+            pipewireCamera(QStringLiteral("Integrated Camera"),
+                           QStringLiteral("/dev/video0"),
+                           QStringLiteral("51")),
+            pipewireCamera(QStringLiteral("cm-cam2"),
+                           QStringLiteral("/dev/video61"),
+                           QStringLiteral("88"))};
+        const DeviceBinding binding = resolveDeviceBinding(
+            CaptureKind::Camera, QStringLiteral("v4l2src"),
+            QStringLiteral("/dev/video61"), QStringLiteral("cm-cam2"),
+            candidates);
+        QCOMPARE(binding.property, QStringLiteral("device"));
+        QCOMPARE(binding.value, QStringLiteral("/dev/video61"));
+        QCOMPARE(binding.reason, QStringLiteral("identity"));
+        QVERIFY(!binding.refused);
+    }
+
+    // When a chosen camera cannot be bound, the camera is refused: "the
+    // default" is another camera, and opening it is a privacy failure. Audio
+    // keeps the default, deliberately.
+    void aChosenCameraThatCannotBeBoundIsRefusedNotReplaced()
+    {
+        const auto onlyTheLaptopCamera = QList<GstDeviceCandidate>{
+            pipewireCamera(QStringLiteral("Integrated Camera"),
+                           QStringLiteral("/dev/video0"),
+                           QStringLiteral("51"))};
+        const DeviceBinding gone = resolveDeviceBinding(
+            CaptureKind::Camera, QStringLiteral("v4l2src"),
+            QStringLiteral("/dev/video61"), QStringLiteral("cm-cam2"),
+            onlyTheLaptopCamera);
+        QVERIFY(gone.isEmpty());
+        QVERIFY2(gone.refused,
+                 "an unbindable camera choice would open the default camera");
+
+        // An element this table does not know cannot bind a camera either.
+        QVERIFY(resolveDeviceBinding(CaptureKind::Camera,
+                                     QStringLiteral("autovideosrc"),
+                                     QStringLiteral("/dev/video61"),
+                                     QStringLiteral("cm-cam2"),
+                                     onlyTheLaptopCamera)
+                    .refused);
+
+        // "System default" is not a choice, so nothing is refused.
+        QVERIFY(!resolveDeviceBinding(CaptureKind::Camera,
+                                      QStringLiteral("v4l2src"), QString(),
+                                      QString(), onlyTheLaptopCamera)
+                     .refused);
+
+        // A microphone keeps the platform default rather than going silent.
+        const DeviceBinding mic = resolveDeviceBinding(
+            CaptureKind::Microphone, QStringLiteral("pulsesrc"),
+            QStringLiteral("a-device-that-vanished"), QStringLiteral("Gone"),
+            {pipewire(QStringLiteral("Other"), QStringLiteral("5"),
+                      QStringLiteral("other"))});
+        QVERIFY(mic.isEmpty());
+        QVERIFY(!mic.refused);
+    }
+
+    // gst_value_serialize() quotes and backslash-escapes a string with
+    // characters outside [A-Za-z0-9_+-/:.] (measured on 1.26.11): a WASAPI
+    // id and a Windows device path both come back that way, and would match
+    // no Qt id or be set as a garbage `device=`.
+    void aSerialisedWindowsIdIsUnwrappedBeforeItIsCompared()
+    {
+        const auto wasapi = QList<GstDeviceCandidate>{GstDeviceCandidate{
+            QStringLiteral("Microphone (USB Audio)"),
+            {{QStringLiteral("device.strid"),
+              QStringLiteral("\"\\{0.0.1.00000000\\}.\\{a1b2\\}\"")}}}};
+        const DeviceBinding mic = resolveDeviceBinding(
+            CaptureKind::Microphone, QStringLiteral("wasapisrc"),
+            QStringLiteral("{0.0.1.00000000}.{a1b2}"),
+            QStringLiteral("Microphone (USB Audio)"), wasapi);
+        QCOMPARE(mic.value, QStringLiteral("{0.0.1.00000000}.{a1b2}"));
+        QCOMPARE(mic.reason, QStringLiteral("identity"));
+
+        // A Windows device path, spelt in another case by Qt: the ks
+        // provider compares these without case, and so does this.
+        const auto ks = QList<GstDeviceCandidate>{GstDeviceCandidate{
+            QStringLiteral("Integrated Webcam"),
+            {{QStringLiteral("device.path"),
+              QStringLiteral("\"\\\\\\\\\\?\\\\usb\\#vid_0c45\\&pid_6a10\"")}}}};
+        const DeviceBinding cam = resolveDeviceBinding(
+            CaptureKind::Camera, QStringLiteral("ksvideosrc"),
+            QStringLiteral("\\\\?\\USB#VID_0C45&PID_6A10"),
+            QStringLiteral("Integrated Webcam"), ks);
+        QCOMPARE(cam.property, QStringLiteral("device-path"));
+        QCOMPARE(cam.value, QStringLiteral("\\\\?\\usb#vid_0c45&pid_6a10"));
+        QCOMPARE(cam.reason, QStringLiteral("identity"));
+    }
+
+    // The avf provider publishes the camera's unique id as `avf.unique_id`
+    // (gst-plugins-bad avfdeviceprovider.m); the index is copied from the
+    // device's `device-index` property by the enumeration.
+    void theMacProviderUniqueIdBindsTheIndex()
+    {
+        const auto avf = QList<GstDeviceCandidate>{
+            GstDeviceCandidate{QStringLiteral("FaceTime HD Camera"),
+                               {{QStringLiteral("avf.unique_id"),
+                                 QStringLiteral("0x8020000005ac8514")},
+                                {QStringLiteral("device.index"),
+                                 QStringLiteral("0")}}},
+            GstDeviceCandidate{QStringLiteral("Continuity Camera"),
+                               {{QStringLiteral("avf.unique_id"),
+                                 QStringLiteral("A1B2-C3")},
+                                {QStringLiteral("device.index"),
+                                 QStringLiteral("1")}}}};
+        const DeviceBinding mac = resolveDeviceBinding(
+            CaptureKind::Camera, QStringLiteral("avfvideosrc"),
+            QStringLiteral("A1B2-C3"), QStringLiteral("Continuity Camera"),
+            avf);
+        QCOMPARE(mac.property, QStringLiteral("device-index"));
+        QCOMPARE(mac.value, QStringLiteral("1"));
+        QCOMPARE(mac.reason, QStringLiteral("identity"));
+    }
+
+    // Review M1: an UNPLUGGED chosen camera used to resolve to "" (system
+    // default) before the engine saw it, so the refusal never ran and the
+    // laptop's own camera opened. The preference must reach the engine as
+    // "chosen and missing". Review S7: /dev/videoN renumbers on replug, so
+    // the same id with another description is another camera.
+    void aMissingOrRenumberedCameraIsReportedNotDefaulted()
+    {
+        using lightning::calls::PresentCamera;
+        using lightning::calls::resolveCameraPreference;
+        const QList<PresentCamera> present{
+            {QStringLiteral("/dev/video0"), QStringLiteral("Integrated Camera")},
+            {QStringLiteral("/dev/video2"), QStringLiteral("HD Pro Webcam C920")}};
+
+        // No preference: the system default, nothing missing.
+        auto none = resolveCameraPreference(QString(), QString(), present);
+        QVERIFY(none.id.isEmpty());
+        QVERIFY(!none.preferredMissing);
+
+        // Present, and the description matches (or was never recorded).
+        auto here = resolveCameraPreference(QStringLiteral("/dev/video2"),
+                                            QStringLiteral("HD Pro Webcam C920"),
+                                            present);
+        QCOMPARE(here.id, QStringLiteral("/dev/video2"));
+        QCOMPARE(here.description, QStringLiteral("HD Pro Webcam C920"));
+        QVERIFY(!here.preferredMissing);
+        QCOMPARE(resolveCameraPreference(QStringLiteral("/dev/video2"),
+                                         QString(), present)
+                     .id,
+                 QStringLiteral("/dev/video2"));
+
+        // Unplugged.
+        auto gone = resolveCameraPreference(QStringLiteral("/dev/video61"),
+                                            QStringLiteral("cm-cam2"), present);
+        QVERIFY(gone.id.isEmpty());
+        QVERIFY2(gone.preferredMissing,
+                 "an unplugged camera read as 'system default'");
+
+        // Replugged into another node: /dev/video0 is now a different camera.
+        auto moved = resolveCameraPreference(QStringLiteral("/dev/video0"),
+                                             QStringLiteral("cm-cam2"), present);
+        QVERIFY(moved.id.isEmpty());
+        QVERIFY(moved.preferredMissing);
+    }
+
+    // Final review S5: a Windows or macOS id names one device for good, so a
+    // renamed description (a driver or Qt update) must not refuse it.
+    void aStableIdIsNotRefusedForARenamedDescription()
+    {
+        using lightning::calls::PresentCamera;
+        using lightning::calls::resolveCameraPreference;
+        const QString windowsId =
+            QStringLiteral("\\\\?\\usb#vid_0c45&pid_6a10");
+        const QString macId = QStringLiteral("0x8020000005ac8514");
+        const QList<PresentCamera> present{
+            {windowsId, QStringLiteral("Integrated Webcam (2)")},
+            {macId, QStringLiteral("FaceTime HD Camera (Built-in)")}};
+        auto win = resolveCameraPreference(
+            windowsId, QStringLiteral("Integrated Webcam"), present);
+        QCOMPARE(win.id, windowsId);
+        QVERIFY(!win.preferredMissing);
+        auto mac = resolveCameraPreference(
+            macId, QStringLiteral("FaceTime HD Camera"), present);
+        QCOMPARE(mac.id, macId);
+        QVERIFY(!mac.preferredMissing);
     }
 
     // Honouring a microphone choice means picking a concrete element instead
