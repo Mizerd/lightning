@@ -15,6 +15,7 @@ using matrix::rust_timeline::TimelineGenerationTracker;
 using matrix::rust_timeline::applyTimelineDiff;
 using matrix::rust_timeline::eventFromItemJson;
 using matrix::rust_timeline::eventsFromItemArray;
+using matrix::rust_timeline::readPushVerdict;
 
 namespace {
 
@@ -64,6 +65,9 @@ private Q_SLOTS:
     // Item conversion.
     void parsesEventItem();
     void parsesFormattedBody();
+    // Issue #15: the account's push-rule verdict rides on both producers.
+    void readsThePushVerdictOnlyFromARealBoolean();
+    void aLiveAppendCarriesItsPushVerdict();
     void parsesUndecryptableItem();
     void parsesLocalEchoStates();
     void parsesMediaUploadProgress();
@@ -201,6 +205,86 @@ void RustTimelineIngestTest::parsesFormattedBody()
         itemJson(QStringLiteral("uid2"), QStringLiteral("$ev2"),
                  QStringLiteral("plain")), kRoom);
     QVERIFY(plain.formattedBody.isEmpty());
+}
+
+void RustTimelineIngestTest::readsThePushVerdictOnlyFromARealBoolean()
+{
+    using Verdict = TimelineEvent::PushVerdict;
+    const auto read = [](const QJsonObject &payload) {
+        TimelineEvent e;
+        readPushVerdict(payload, e);
+        return e;
+    };
+
+    // No verdict: an older bridge, a local echo, or no push context yet.
+    const TimelineEvent absent = read(QJsonObject{});
+    QCOMPARE(absent.pushVerdict, Verdict::Unknown);
+    QVERIFY(!absent.pushHighlight);
+
+    const TimelineEvent quiet = read(QJsonObject{
+        {QStringLiteral("push_notify"), false},
+        {QStringLiteral("push_highlight"), false}});
+    QCOMPARE(quiet.pushVerdict, Verdict::Quiet);
+    QVERIFY(!quiet.pushHighlight);
+
+    const TimelineEvent loud = read(QJsonObject{
+        {QStringLiteral("push_notify"), true},
+        {QStringLiteral("push_highlight"), true}});
+    QCOMPARE(loud.pushVerdict, Verdict::Notify);
+    QVERIFY(loud.pushHighlight);
+
+    // A missing highlight is no highlight.
+    const TimelineEvent noHighlight =
+        read(QJsonObject{{QStringLiteral("push_notify"), true}});
+    QCOMPARE(noHighlight.pushVerdict, Verdict::Notify);
+    QVERIFY(!noHighlight.pushHighlight);
+
+    // Anything but a boolean is not a verdict, and a highlight without one
+    // is ignored.
+    const TimelineEvent stringy = read(QJsonObject{
+        {QStringLiteral("push_notify"), QStringLiteral("false")},
+        {QStringLiteral("push_highlight"), true}});
+    QCOMPARE(stringy.pushVerdict, Verdict::Unknown);
+    QVERIFY(!stringy.pushHighlight);
+    const TimelineEvent numeric =
+        read(QJsonObject{{QStringLiteral("push_notify"), 0}});
+    QCOMPARE(numeric.pushVerdict, Verdict::Unknown);
+}
+
+void RustTimelineIngestTest::aLiveAppendCarriesItsPushVerdict()
+{
+    // The open room's live appends are what reach notifications; the verdict
+    // must survive the diff path, not just eventFromItemJson.
+    auto mirror = mirrorOf(1);
+    QJsonObject item = itemJson(QStringLiteral("a"), QStringLiteral("$a"),
+                                QStringLiteral("plain"));
+    item.insert(QStringLiteral("push_notify"), false);
+    item.insert(QStringLiteral("push_highlight"), false);
+    QJsonObject pushBack = diffJson(QStringLiteral("push_back"));
+    pushBack.insert(QStringLiteral("item"), item);
+    auto outcome = applyTimelineDiff(mirror, pushBack, kRoom);
+    QCOMPARE(outcome.kind, DiffOutcome::Appended);
+    QCOMPARE(outcome.items.size(), 1);
+    QCOMPARE(outcome.items.first().pushVerdict,
+             TimelineEvent::PushVerdict::Quiet);
+
+    QJsonObject keyword = itemJson(QStringLiteral("b"), QStringLiteral("$b"),
+                                   QStringLiteral("banana"));
+    keyword.insert(QStringLiteral("push_notify"), true);
+    keyword.insert(QStringLiteral("push_highlight"), true);
+    QJsonObject append = diffJson(QStringLiteral("append"));
+    append.insert(QStringLiteral("items"),
+                  QJsonArray{keyword,
+                             itemJson(QStringLiteral("c"), QStringLiteral("$c"),
+                                      QStringLiteral("no verdict"))});
+    outcome = applyTimelineDiff(mirror, append, kRoom);
+    QCOMPARE(outcome.kind, DiffOutcome::Appended);
+    QCOMPARE(outcome.items.size(), 2);
+    QCOMPARE(outcome.items.at(0).pushVerdict,
+             TimelineEvent::PushVerdict::Notify);
+    QVERIFY(outcome.items.at(0).pushHighlight);
+    QCOMPARE(outcome.items.at(1).pushVerdict,
+             TimelineEvent::PushVerdict::Unknown);
 }
 
 void RustTimelineIngestTest::parsesUndecryptableItem()

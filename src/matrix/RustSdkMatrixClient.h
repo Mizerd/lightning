@@ -923,6 +923,7 @@ private:
         handleRustEvent(event, m_lifecycle.activeGeneration());
     }
     friend class OfflineRestoreStateTest;
+    friend class RoomNotificationModeTest;
     friend class RtcBridgePayloadTest;
     friend class SyncMessageRowTest;
 

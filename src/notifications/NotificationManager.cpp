@@ -224,9 +224,23 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
         return decision;
     if (!context.selfUserId.isEmpty() && event.sender == context.selfUserId)
         return decision;
-    const bool mention = event.mentionsMe || event.mentionsRoom;
-    if (context.roomMode == MentionsOnly && !mention)
+    // A highlight also covers keywords and mentions without m.mentions.
+    const bool mention =
+        event.mentionsMe || event.mentionsRoom || event.pushHighlight;
+    // The account's push rules, as the SDK evaluated them, decide when they
+    // came with the event: they carry a mode set on any client, the account
+    // default, keywords (with or without a highlight) and the suppress rules
+    // for notices and edits, where the local mode knows only what this device
+    // chose (issue #15). Muted, above, still silences first.
+    const bool rulesKnown =
+        event.pushVerdict != TimelineEvent::PushVerdict::Unknown
+        && !context.localModeUnsynced;
+    if (rulesKnown) {
+        if (event.pushVerdict == TimelineEvent::PushVerdict::Quiet)
+            return decision;
+    } else if (context.roomMode == MentionsOnly && !mention) {
         return decision;
+    }
     // A room on screen, focused and at the latest message needs no
     // notification.
     if (context.roomVisibleAtLatest)
@@ -359,9 +373,10 @@ void NotificationManager::processEvent(const TimelineEvent &event,
                    routableThreadRootId(event.roomId, event.threadRootId));
     // The owning account; actions taken after a switch are checked against it.
     payload.insert(QStringLiteral("accountUserId"), m_accountUserId);
-    // Mentions raise the urgency.
+    // Mentions and other highlights raise the urgency.
     payload.insert(QStringLiteral("mention"),
-                   event.mentionsMe || event.mentionsRoom);
+                   event.mentionsMe || event.mentionsRoom
+                       || event.pushHighlight);
     // Private preview keeps the generic app identity: a room avatar or initials
     // disc would disclose the conversation.
     if (context.previewMode == Private) {

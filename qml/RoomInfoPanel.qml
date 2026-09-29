@@ -511,14 +511,12 @@ Rectangle {
                                         + "kept on this device. "
                                         + "Retried when you reconnect.")
                                  : (notificationModeCombo.displayedMode === 3
-                                    // The server applies the account default to
-                                    // pushes, but this device does not know
-                                    // what it resolves to and notifies for
-                                    // everything.
+                                    // Desktop notifications follow the
+                                    // account's push rules too, so the default
+                                    // applies here as on the server.
                                     ? qsTr("This room has no override — your "
-                                           + "account's settings apply on the "
-                                           + "server. This device notifies "
-                                           + "for all messages.")
+                                           + "account's notification settings "
+                                           + "apply.")
                                     : qsTr("Saved to your account's notification "
                                            + "settings (server push rules).")))
                               : qsTr("Local setting: it does not change this "

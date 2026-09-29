@@ -6,6 +6,8 @@
 //
 // `everyNewRowKindStillProducesAPreviewLine` checks the string each consumer
 // builds from the row, which is what the user actually reads.
+// `aSyncedMessageCarriesItsPushVerdict` covers the push-rule verdict the
+// notification policy follows (issue #15).
 
 #include "app/SettingsManager.h"
 #include "matrix/EventPreview.h"
@@ -306,6 +308,58 @@ private slots:
         QCOMPARE(row.type, TimelineEvent::Notice);
         QVERIFY(row.undecryptable);
         QVERIFY(!row.body.isEmpty());
+#endif
+    }
+
+    /// Issue #15: an unopened room's message carries the account's push-rule
+    /// verdict to the notification policy. This is the producer behind a room
+    /// set to "Mentions & keywords" on another client, which notified for
+    /// every message while the verdict was not read here.
+    void aSyncedMessageCarriesItsPushVerdict()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        Appended sink;
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        watch(client, sink);
+
+        const auto sendWith = [&](const QString &eventId,
+                                  const QJsonObject &verdict) {
+            QJsonObject out = syncedMessage(QStringLiteral("text"),
+                                            QStringLiteral("hello"), QString(),
+                                            eventId);
+            QJsonObject event = out.value(QStringLiteral("event")).toObject();
+            for (auto it = verdict.constBegin(); it != verdict.constEnd(); ++it)
+                event.insert(it.key(), it.value());
+            out.insert(QStringLiteral("event"), event);
+            sink.rows.clear();
+            client.handleRustEventForTest(out);
+        };
+
+        sendWith(QStringLiteral("$pv1"),
+                 QJsonObject{{QStringLiteral("push_notify"), false},
+                             {QStringLiteral("push_highlight"), false}});
+        QCOMPARE(sink.rows.size(), 1);
+        QVERIFY2(sink.rows.constFirst().pushVerdict
+                     == TimelineEvent::PushVerdict::Quiet,
+                 "a quiet verdict was lost on the unopened-room path");
+
+        sendWith(QStringLiteral("$pv2"),
+                 QJsonObject{{QStringLiteral("push_notify"), true},
+                             {QStringLiteral("push_highlight"), true}});
+        QCOMPARE(sink.rows.size(), 1);
+        QVERIFY(sink.rows.constFirst().pushVerdict
+                == TimelineEvent::PushVerdict::Notify);
+        QVERIFY(sink.rows.constFirst().pushHighlight);
+
+        // No verdict on the wire (no push context yet): Unknown, so the local
+        // mode decides as before.
+        sendWith(QStringLiteral("$pv3"), QJsonObject{});
+        QCOMPARE(sink.rows.size(), 1);
+        QVERIFY(sink.rows.constFirst().pushVerdict
+                == TimelineEvent::PushVerdict::Unknown);
 #endif
     }
 };

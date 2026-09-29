@@ -95,6 +95,7 @@ mod policy;
 mod presence;
 mod qrlogin;
 mod profile;
+mod push_verdict;
 mod rooms;
 mod rtc;
 mod serveradmin;
@@ -9540,12 +9541,18 @@ fn install_event_handlers(
     // `encryption_info` is Some only when the SDK decrypted the payload, which
     // gives C++ its (is_encrypted, is_decrypted) pair. Ciphertext is never
     // forwarded; the encrypted handler below sends an empty body instead.
+    // `push_actions` are the account's push rules for the event as the SDK
+    // evaluated them during this sync; see push_verdict::SyncVerdicts.
+    let sync_verdicts = push_verdict::SyncVerdicts::default();
     let plaintext_events = Arc::clone(&events);
+    let plaintext_verdicts = sync_verdicts.clone();
     client.add_event_handler(
         move |ev: OriginalSyncRoomMessageEvent,
               room: Room,
-              encryption_info: Option<matrix_sdk::deserialized_responses::EncryptionInfo>| {
+              encryption_info: Option<matrix_sdk::deserialized_responses::EncryptionInfo>,
+              push_actions: Vec<matrix_sdk::ruma::push::Action>| {
             let events = Arc::clone(&plaintext_events);
+            let verdicts = plaintext_verdicts.clone();
             async move {
                 // See typed_message_row_kind: a msgtype with no typed row is dropped.
                 //
@@ -9603,27 +9610,32 @@ fn install_event_handlers(
                     )) => thread.event_id.to_string(),
                     _ => String::new(),
                 };
+                let mut event = json!({
+                    "event_id": ev.event_id.to_string(),
+                    "sender": ev.sender.to_string(),
+                    "body": body,
+                    "media_filename": media_filename,
+                    "msgtype": kind,
+                    "timestamp_ms": u64::from(ev.origin_server_ts.get()),
+                    "is_encrypted": is_encrypted,
+                    "is_decrypted": is_encrypted,
+                    "undecryptable": false,
+                    "mentions_me": mentions_me,
+                    "mentions_room": mentions_room,
+                    "thread_root_id": thread_root_id,
+                    // Legacy field for C++ builds that still read `decrypted`.
+                    "decrypted": is_encrypted,
+                });
+                push_verdict::PushVerdict::write(
+                    verdicts.verdict(&room, &push_actions).await,
+                    &mut event,
+                );
                 enqueue(
                     &events,
                     json!({
                         "type": "timeline_event",
                         "room_id": room.room_id().to_string(),
-                        "event": {
-                            "event_id": ev.event_id.to_string(),
-                            "sender": ev.sender.to_string(),
-                            "body": body,
-                            "media_filename": media_filename,
-                            "msgtype": kind,
-                            "timestamp_ms": u64::from(ev.origin_server_ts.get()),
-                            "is_encrypted": is_encrypted,
-                            "is_decrypted": is_encrypted,
-                            "undecryptable": false,
-                            "mentions_me": mentions_me,
-                            "mentions_room": mentions_room,
-                            "thread_root_id": thread_root_id,
-                            // Legacy field for C++ builds that still read `decrypted`.
-                            "decrypted": is_encrypted,
-                        },
+                        "event": event,
                     }),
                 );
             }
@@ -9660,32 +9672,43 @@ fn install_event_handlers(
     // `undecryptable = true` and no ciphertext. `error_kind` is always
     // "no_key": this path exposes no finer reason in 0.18.
     let encrypted_events = Arc::clone(&events);
-    client.add_event_handler(move |ev: OriginalSyncRoomEncryptedEvent, room: Room| {
-        let events = Arc::clone(&encrypted_events);
-        async move {
-            enqueue(
-                &events,
-                json!({
-                    "type": "timeline_event",
-                    "room_id": room.room_id().to_string(),
-                    "event": {
-                        "event_id": ev.event_id.to_string(),
-                        "sender": ev.sender.to_string(),
-                        // Empty body triggers the placeholder in C++.
-                        "body": "",
-                        "msgtype": "encrypted",
-                        "timestamp_ms": u64::from(ev.origin_server_ts.get()),
-                        "is_encrypted": true,
-                        "is_decrypted": false,
-                        "undecryptable": true,
-                        "error_kind": "no_key",
-                        // Legacy field for older C++ builds.
-                        "decrypted": false,
-                    },
-                }),
-            );
-        }
-    });
+    client.add_event_handler(
+        move |ev: OriginalSyncRoomEncryptedEvent,
+              room: Room,
+              push_actions: Vec<matrix_sdk::ruma::push::Action>| {
+            let events = Arc::clone(&encrypted_events);
+            let verdicts = sync_verdicts.clone();
+            async move {
+                let mut event = json!({
+                    "event_id": ev.event_id.to_string(),
+                    "sender": ev.sender.to_string(),
+                    // Empty body triggers the placeholder in C++.
+                    "body": "",
+                    "msgtype": "encrypted",
+                    "timestamp_ms": u64::from(ev.origin_server_ts.get()),
+                    "is_encrypted": true,
+                    "is_decrypted": false,
+                    "undecryptable": true,
+                    "error_kind": "no_key",
+                    // Legacy field for older C++ builds.
+                    "decrypted": false,
+                });
+                // Undecryptable, so the rules saw the encrypted event.
+                push_verdict::PushVerdict::write(
+                    verdicts.verdict(&room, &push_actions).await,
+                    &mut event,
+                );
+                enqueue(
+                    &events,
+                    json!({
+                        "type": "timeline_event",
+                        "room_id": room.room_id().to_string(),
+                        "event": event,
+                    }),
+                );
+            }
+        },
+    );
 }
 
 async fn run_authoritative_sync(

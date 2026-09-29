@@ -579,6 +579,52 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   cache that keeps policy working offline, and a failed write is disclosed
   in the UI as kept-on-this-device). Non-Rust backends remain device-local.
   Live homeserver/Element interoperability of the rules: NOT TESTED
+- **Desktop notifications follow the account's push rules as matrix-sdk
+  evaluates them (GitHub issue #15, 2026-09-29).** That cache is written only
+  by this device's picker and by a report that arrives when a picker OPENS,
+  so a room set to "Mentions & keywords" on another client, and an account
+  default of mentions-and-keywords, notified for every message — measured
+  live, and opening the room's Notifications flyout was enough to make the
+  same room go quiet. Every event payload now carries `push_notify` /
+  `push_highlight` (`rust/src/push_verdict.rs`: the sync handlers' own
+  actions — an empty list is a verdict only in a room whose own member the
+  store holds, because that is exactly when the SDK builds a push context,
+  looked up once per room and never re-evaluated per event — and one
+  `PushContext` per batch of live-timeline appends), and
+  `NotificationManager::decide` follows a known verdict: a local Muted still
+  silences first, so a mute applies before the server echoes it; a local
+  Mentions-only does NOT narrow a notifying verdict, because matrix-sdk
+  writes keyword rules without a highlight; and while the server does not
+  have a room's choice (`localModeUnsynced`) the local mode decides alone:
+  a FAILED WRITE, persisted per account (SettingsManager
+  `roomNotificationModeUnsynced`, with the mode the server held before it)
+  so it survives a restart or an account switch, or a DEVICE-ONLY legacy
+  mode — a 1 or 2 held only in the pre-0.6.6 device-global key, chosen as
+  "Local setting: it does not change this room's server push rules". A
+  device-only mode is NEVER sent to any account's rules and is not on the
+  retry list (a first draft sent them, which made a laptop-only mute silence
+  the phone and wrote one account's choice into another's rules). The retry
+  READS before it writes: the server still holding the rule the failed
+  choice replaced means send again; any other rule, or a replaced rule now
+  gone, was set elsewhere since and is adopted. Reports keep the cache on the
+  server's side once the account's rules are known (after the first sync): a
+  user-defined rule is adopted, and "no rule" becomes "Follow account
+  default", so the picker tells the truth; a refresh after each first sync
+  asks about every room this account stored a mode for (reads only), which
+  also ends a stale local mute. No verdict (another backend, a local echo, no
+  push context yet) keeps the old local policy. `m.notice` and edits now stay
+  quiet where the account's ruleset has `.m.rule.suppress_notices` /
+  `.m.rule.suppress_edits` (the spec defaults do); both notified before —
+  a release-notes item. A highlight counts as a mention for sound and
+  urgency. Known gaps: the picker's disclaimer still says "Saved to your
+  account's notification settings" for a device-only room (needs a new
+  string), and CallController's ring gate reads the local mode. Live: the
+  defect is measured (FAIL, pre-fix build, 2026-09-29), and the fix PASSED
+  live the same day in 10 cases: a room rule and an account default set
+  elsewhere, keywords, notices and edits, and an open unfocused room
+  (unencrypted rooms, one account). Still NOT TESTED live: encrypted rooms,
+  Element X interop, the failed-write retry paths, and legacy keys across
+  several accounts.
 - **"Follow account default" and retry on reconnect.** Matrix has no
   follow-default rule — it has the ABSENCE of a room override — so mode 3
   routes to `clearRoomNotificationMode` →
@@ -593,10 +639,10 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   missing key — an absent key already reads back as 0, so absence cannot
   distinguish "following the default" from "never configured". Clamps are
   0..3 in `SettingsManager` only; other mode settings stay 0..2.
-  `NotificationManager` branches only on Muted/MentionsOnly, so mode 3
-  notifies locally, and the UI discloses that the SERVER applies the account
-  default while THIS DEVICE notifies for all messages — the resolved default
-  is not known here and is not fabricated. Offered only on a backend that
+  On the Rust backend mode 3 follows the account's rules through the push
+  verdict above; without a verdict `NotificationManager` branches only on
+  Muted/MentionsOnly and mode 3 notifies for everything. Offered only on a
+  backend that
   owns server push rules. A failed offline write is retried on the EDGE into
   Syncing (not on every status change), and a room leaves the failed set
   ONLY when the server acknowledges it, never merely because a retry was

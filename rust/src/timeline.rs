@@ -2513,6 +2513,7 @@ send queue owes nothing for them: {in_flight:?}"
                 if !registry.is_current(room_gen, lifecycle) {
                     break;
                 }
+                let mut push_context = None;
                 for diff in diffs {
                     let changed = diff_items(&diff);
                     // Newly arrived replies with an unresolved target get one fetch; the
@@ -2527,9 +2528,11 @@ send queue owes nothing for them: {in_flight:?}"
                         utd_sessions_in(changed.iter()),
                         RecoveryScope::Room(room_gen), lifecycle,
                     );
-                    let value = diff_to_json(
+                    let mut value = diff_to_json(
                         &room_id, room_gen, lifecycle, &diff, &own_user, &registry,
                     );
+                    annotate_push_verdicts(&room, &mut push_context, &diff, &mut value)
+                        .await;
                     enqueue(&events, value);
                 }
             }
@@ -2730,6 +2733,7 @@ async fn open_thread_task(
                 if !registry.thread_current(thread_gen, lifecycle) {
                     break;
                 }
+                let mut push_context = None;
                 for diff in diffs {
                     let changed = diff_items(&diff);
                     fetch_missing_reply_details(
@@ -2747,7 +2751,9 @@ async fn open_thread_task(
                         "thread_generation": thread_gen,
                         "lifecycle": lifecycle,
                     });
-                    let value = fill_diff_json(base, &diff, &own_user, &registry);
+                    let mut value = fill_diff_json(base, &diff, &own_user, &registry);
+                    annotate_push_verdicts(&room, &mut push_context, &diff, &mut value)
+                        .await;
                     enqueue(&events, value);
                 }
             }
@@ -2969,6 +2975,32 @@ fn diff_to_json(
         base["trace_sdk_ms"] = stamp.into();
     }
     fill_diff_json(base, diff, own_user, registry)
+}
+
+/// Adds the account's push-rule verdict to the remote events of a live append,
+/// the diffs C++ notifies for (see push_verdict). `context` holds one push
+/// context per batch of diffs, fetched on first need; `Some(None)` means the
+/// SDK could not build one, and the events then carry no verdict.
+async fn annotate_push_verdicts(
+    room: &matrix_sdk::Room,
+    context: &mut Option<Option<matrix_sdk::room::PushContext>>,
+    diff: &VectorDiff<Arc<TimelineItem>>,
+    value: &mut serde_json::Value,
+) {
+    for (item, slot) in crate::push_verdict::live_append_slots(diff, value) {
+        let Some(event) = item.as_event() else { continue };
+        if event.original_json().is_none() {
+            continue; // a local echo
+        }
+        if context.is_none() {
+            *context = Some(room.push_context().await.ok().flatten());
+        }
+        let Some(Some(push_context)) = context.as_ref() else { return };
+        crate::push_verdict::PushVerdict::write(
+            crate::push_verdict::for_timeline_item(push_context, event).await,
+            slot,
+        );
+    }
 }
 
 /// Fill a diff envelope's `op`/`items`/`index`. The base carries the stream

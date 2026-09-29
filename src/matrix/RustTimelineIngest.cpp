@@ -101,6 +101,19 @@ TimelineEvent::Type rowTypeForMsgtype(const QString &msgtype)
     return TimelineEvent::Unknown;
 }
 
+void readPushVerdict(const QJsonObject &payload, TimelineEvent &event)
+{
+    // Only a real boolean is a verdict; anything else stays Unknown and the
+    // local mode decides alone.
+    const QJsonValue notify = payload.value(QStringLiteral("push_notify"));
+    if (!notify.isBool())
+        return;
+    event.pushVerdict = notify.toBool() ? TimelineEvent::PushVerdict::Notify
+                                        : TimelineEvent::PushVerdict::Quiet;
+    event.pushHighlight =
+        payload.value(QStringLiteral("push_highlight")).toBool(false);
+}
+
 TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
 {
     TimelineEvent e;
@@ -256,6 +269,7 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.threadUnread = item.value(QStringLiteral("thread_unread")).toBool(false);
     e.mentionsMe = item.value(QStringLiteral("mentions_me")).toBool(false);
     e.mentionsRoom = item.value(QStringLiteral("mentions_room")).toBool(false);
+    readPushVerdict(item, e);
 
     e.mediaMxcUrl = item.value(QStringLiteral("media_mxc")).toString();
     e.mediaMimetype =

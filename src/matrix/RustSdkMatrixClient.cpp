@@ -2501,8 +2501,11 @@ void RustSdkMatrixClient::setRoomNotificationMode(const QString &roomId, int mod
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(mx_rust_set_room_notification_mode(
         m_rustHandle, room.constData(), mode));
-    if (!result.isEmpty())
+    if (!result.isEmpty()) {
         qCWarning(lcRust) << "notification-mode command rejected";
+        // Nothing was sent: the same outcome as a failed write.
+        Q_EMIT roomNotificationModeWriteFailed(roomId);
+    }
 }
 
 void RustSdkMatrixClient::requestThreadParticipants(const QString &roomId,
@@ -2942,8 +2945,11 @@ void RustSdkMatrixClient::clearRoomNotificationMode(const QString &roomId)
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(
         mx_rust_clear_room_notification_mode(m_rustHandle, room.constData()));
-    if (!result.isEmpty())
+    if (!result.isEmpty()) {
         qCWarning(lcRust) << "notification-mode clear rejected";
+        // Nothing was sent: the same outcome as a failed write.
+        Q_EMIT roomNotificationModeWriteFailed(roomId);
+    }
 }
 
 void RustSdkMatrixClient::requestRoomNotificationMode(const QString &roomId)
@@ -5017,12 +5023,13 @@ void RustSdkMatrixClient::handleTimelineEvent(const QJsonObject &event)
     timelineEvent.undecryptable = undecryptable;
     timelineEvent.errorKind     =
         obj.value(QStringLiteral("error_kind")).toString();
-    // Mention/thread metadata for notification policy in rooms without a live
-    // timeline.
+    // Mention/thread metadata and the push-rule verdict for notification
+    // policy in rooms without a live timeline.
     timelineEvent.mentionsMe =
         obj.value(QStringLiteral("mentions_me")).toBool(false);
     timelineEvent.mentionsRoom =
         obj.value(QStringLiteral("mentions_room")).toBool(false);
+    matrix::rust_timeline::readPushVerdict(obj, timelineEvent);
     timelineEvent.threadRootId =
         obj.value(QStringLiteral("thread_root_id")).toString();
 

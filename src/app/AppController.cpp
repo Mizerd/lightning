@@ -553,6 +553,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         context.themeId = int(m_settings->theme());
         context.roomMode = static_cast<NotificationManager::RoomMode>(
             m_settings->roomNotificationMode(roomId));
+        // The server does not have this device's choice (a failed write, or a
+        // device-only legacy mode); the local mode then decides alone.
+        context.localModeUnsynced = roomNotificationModeDecidesLocally(roomId);
         // Encrypted rooms may withhold more. `encryptionKnown` is a real third
         // state during hydration; see effectiveNotificationPreview.
         context.previewMode = static_cast<NotificationManager::PreviewMode>(
@@ -622,36 +625,91 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         qCInfo(lcApp) << "notification reply sent"
                       << "thread=" << !threadRootId.isEmpty();
     });
-    // Server-reported per-room notification mode. Only an explicit
-    // user-defined rule reconciles the device-local cache; a resolved account
-    // default is never persisted, since it could overwrite a local choice with
-    // a guess. Server writes are issued only from setRoomNotificationMode(),
-    // so an echo cannot loop back into another write. Stale-generation events
-    // are already rejected in RustSdkMatrixClient.
+    // Server-reported per-room notification mode, from a picker opening, the
+    // refresh after the first sync, or the retry's read. The server's state
+    // wins for the local cache (desktop notifications follow the server's
+    // rules anyway), except where this device holds something the server
+    // does not: a failed write (unsynced), a device-only legacy mode, or its
+    // own write still in flight. Server writes are issued only from
+    // setRoomNotificationMode() and the retry, never from a report.
+    // Stale-generation events are already rejected in RustSdkMatrixClient.
     connect(m_client.get(), &MatrixClient::roomNotificationModeChanged, this,
             [this](const QString &roomId, int mode, bool userDefined) {
+        const bool retrying = m_notificationModeRetryReads.remove(roomId);
+        const bool writing = m_notificationModeWritesInFlight.contains(roomId);
+        const bool unsynced = m_settings->roomNotificationModeUnsynced(roomId);
+        const int local = m_settings->roomNotificationMode(roomId);
+        // Before the first sync the SDK may still hold its fallback rule set,
+        // which reads as "no rule" everywhere.
+        const bool rulesKnown = m_client->initialSyncDone();
+        // What the server holds, for the base of a later write. A read racing
+        // this device's own write says nothing new unless it is the ack.
+        if (userDefined && mode >= 0 && mode <= 2 && (!writing || mode == local))
+            m_notificationModeServerSeen.insert(roomId, mode);
+        else if (!userDefined && rulesKnown && !writing)
+            m_notificationModeServerSeen.insert(roomId, 3);
         if (!userDefined) {
-            qCDebug(lcApp) << "room notification default report (not persisted)";
+            if (unsynced) {
+                if (!retrying || !rulesKnown)
+                    return;
+                if (local == 3) {
+                    // "No rule" is what this device asked for.
+                    m_settings->setRoomNotificationModeUnsynced(roomId, false);
+                    Q_EMIT roomNotificationModeSyncStateChanged(roomId);
+                    return;
+                }
+                const int base = m_settings->roomNotificationModeUnsyncedBase(roomId);
+                if (base == 1 || base == 2) {
+                    // The rule this device's choice replaced is gone: removed
+                    // on another client since, which is newer.
+                    adoptServerNotificationMode(roomId, 3);
+                    return;
+                }
+                sendRoomNotificationMode(roomId, local);
+                return;
+            }
+            if (writing || !rulesKnown
+                || m_settings->roomNotificationModeDeviceOnly(roomId))
+                return;
+            // No rule: the account default applies, and the picker says so.
+            m_settings->setRoomNotificationMode(roomId, 3);
             return;
         }
         // Also reachable directly from tests/backends; drop rather than let
         // SettingsManager clamp to the least conservative mode.
         if (mode < 0 || mode > 2)
             return;
-        // While a room has a failed write pending, the local value is
-        // authoritative: a poll can still report the old rule. Only a report
-        // equal to the cached value acknowledges the write.
-        if (m_notificationModeSyncFailures.contains(roomId)) {
-            if (mode != m_settings->roomNotificationMode(roomId)) {
+        if (mode == local) {
+            // This device's value, acknowledged.
+            m_notificationModeWritesInFlight.remove(roomId);
+            if (unsynced) {
+                m_settings->setRoomNotificationModeUnsynced(roomId, false);
+                Q_EMIT roomNotificationModeSyncStateChanged(roomId);
+            }
+            return;
+        }
+        if (unsynced) {
+            // Outside the retry's own read this is the room's old rule
+            // surfacing through a poll; the local value stays.
+            if (!retrying || !rulesKnown) {
                 qCDebug(lcApp) << "room notification report differs while"
                                << "unsynced (kept local value)";
                 return;
             }
-            m_settings->setRoomNotificationMode(roomId, mode);
-            m_notificationModeSyncFailures.remove(roomId);
-            Q_EMIT roomNotificationModeSyncStateChanged(roomId);
+            const int base = m_settings->roomNotificationModeUnsyncedBase(roomId);
+            if (base < 0 || mode == base) {
+                // The server still holds the rule this device's choice
+                // replaces: send the choice again.
+                sendRoomNotificationMode(roomId, local);
+                return;
+            }
+            // A rule set on another client since the failed write: newer.
+            adoptServerNotificationMode(roomId, mode);
             return;
         }
+        // A read that started before this device's own write, landing after.
+        if (writing)
+            return;
         m_settings->setRoomNotificationMode(roomId, mode);
     });
     // A successful rule removal is the only acknowledgement a "follow account
@@ -661,15 +719,22 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         // Ignore a clear acknowledged after the user chose an explicit mode.
         if (m_settings->roomNotificationMode(roomId) != 3)
             return;
-        if (!m_notificationModeSyncFailures.remove(roomId))
+        m_notificationModeServerSeen.insert(roomId, 3);
+        m_notificationModeWritesInFlight.remove(roomId);
+        if (!m_settings->roomNotificationModeUnsynced(roomId))
             return;
+        m_settings->setRoomNotificationModeUnsynced(roomId, false);
         Q_EMIT roomNotificationModeSyncStateChanged(roomId);
     });
     connect(m_client.get(), &MatrixClient::roomNotificationModeWriteFailed,
             this, [this](const QString &roomId) {
-        if (m_notificationModeSyncFailures.contains(roomId))
+        // What the server held before this device's first unacknowledged
+        // write; the retry compares with it.
+        const int base = m_notificationModeWritesInFlight.value(roomId, -1);
+        m_notificationModeWritesInFlight.remove(roomId);
+        if (m_settings->roomNotificationModeUnsynced(roomId))
             return;
-        m_notificationModeSyncFailures.insert(roomId);
+        m_settings->setRoomNotificationModeUnsynced(roomId, true, base);
         Q_EMIT roomNotificationModeSyncStateChanged(roomId);
     });
     connect(m_client.get(), &MatrixClient::loggedOut, this,
@@ -682,8 +747,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 m_gif->closeStarredStore();
                 m_notifications->clearPending();
                 m_knownInvites.clear();
-                // Session-scoped failure state; the pickers re-query on open.
-                m_notificationModeSyncFailures.clear();
+                // Unsynced rooms are kept per account in settings and survive
+                // this; the session's reads and writes do not.
+                m_notificationModeRetryReads.clear();
+                m_notificationModeWritesInFlight.clear();
+                m_notificationModeServerSeen.clear();
+                m_retryNotificationModesWhenSynced = false;
                 // A rename in flight must not lock renaming for the next
                 // account.
                 if (m_sessionDeviceRenameOp != 0
@@ -1642,6 +1711,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_client.get(), &MatrixClient::initialSyncDoneChanged, this, [this, refreshConnectionStatus] {
         refreshConnectionStatus();
         Q_EMIT initialSyncDoneChanged();
+        // After the first sync, when the account's push rules are known.
+        if (m_client->initialSyncDone()) {
+            refreshStoredNotificationModes();
+            if (m_retryNotificationModesWhenSynced)
+                retryFailedNotificationModes();
+        }
     });
     connect(m_client.get(), &MatrixClient::syncModeChanged,
             this, &AppController::syncModeChanged);
@@ -2239,32 +2314,59 @@ void AppController::setRoomNotificationMode(const QString &roomId, int mode)
     // caches the push-rule mode.
     m_settings->setRoomNotificationMode(roomId, mode);
     if (m_client && m_client->supportsServerNotificationModes()) {
-        // Mode 3 removes the room override; Matrix has no follow-default rule.
-        if (mode == 3)
-            m_client->clearRoomNotificationMode(roomId);
-        else
-            m_client->setRoomNotificationMode(roomId, mode);
+        // What the server holds until this write lands, for a retry to
+        // compare with: a failed write's recorded base, else the server's last
+        // answer this session, else unknown (a retry then sends again). Never
+        // the local value: a device-only legacy mode was never on the server.
+        if (!m_notificationModeWritesInFlight.contains(roomId)) {
+            m_notificationModeWritesInFlight.insert(
+                roomId, m_settings->roomNotificationModeUnsynced(roomId)
+                            ? m_settings->roomNotificationModeUnsyncedBase(roomId)
+                            : m_notificationModeServerSeen.value(roomId, -1));
+        }
+        sendRoomNotificationMode(roomId, mode);
     }
+}
+
+void AppController::sendRoomNotificationMode(const QString &roomId, int mode)
+{
+    // Mode 3 removes the room override; Matrix has no follow-default rule.
+    if (mode == 3)
+        m_client->clearRoomNotificationMode(roomId);
+    else
+        m_client->setRoomNotificationMode(roomId, mode);
+    Q_EMIT roomNotificationModeSent(roomId, mode);
+}
+
+void AppController::adoptServerNotificationMode(const QString &roomId, int mode)
+{
+    m_settings->setRoomNotificationMode(roomId, mode);
+    m_settings->setRoomNotificationModeUnsynced(roomId, false);
+    Q_EMIT roomNotificationModeSyncStateChanged(roomId);
+    qCInfo(lcApp) << "room notification mode changed elsewhere since a failed"
+                  << "write; adopted mode=" << mode;
 }
 
 void AppController::retryFailedNotificationModes()
 {
-    if (!m_client || !m_client->supportsServerNotificationModes()
-        || m_notificationModeSyncFailures.isEmpty())
+    if (!m_client || !m_client->supportsServerNotificationModes())
         return;
-    // Re-issue the persisted choice for every room whose write failed; the
-    // local value is authoritative because nothing on the server has
-    // contradicted it. Entries are cleared only when the server acknowledges
-    // the value (roomNotificationModeChanged), never on attempt.
-    const QList<QString> pending = m_notificationModeSyncFailures.values();
-    for (const QString &roomId : pending) {
-        const int mode = m_settings->roomNotificationMode(roomId);
-        if (mode == 3)
-            m_client->clearRoomNotificationMode(roomId);
-        else
-            m_client->setRoomNotificationMode(roomId, mode);
+    const QStringList pending = m_settings->unsyncedRoomNotificationModes();
+    if (pending.isEmpty())
+        return;
+    // Read before writing: the report decides whether the choice is sent
+    // again or a newer one made elsewhere is adopted. Only once the account's
+    // rules are known, or every room would read as having no rule.
+    if (!m_client->initialSyncDone()) {
+        m_retryNotificationModesWhenSynced = true;
+        return;
     }
-    qCDebug(lcApp) << "retried room notification rules:" << pending.size();
+    m_retryNotificationModesWhenSynced = false;
+    for (const QString &roomId : pending) {
+        m_notificationModeRetryReads.insert(roomId);
+        m_client->requestRoomNotificationMode(roomId);
+    }
+    qCDebug(lcApp) << "retrying room notification rules:" << pending.size();
     Q_EMIT roomNotificationModesRetried(static_cast<int>(pending.size()));
 }
 
@@ -2299,7 +2401,35 @@ void AppController::requestRoomBridgeInfo(const QString &roomId,
 
 bool AppController::roomNotificationModeSyncFailed(const QString &roomId) const
 {
-    return m_notificationModeSyncFailures.contains(roomId);
+    return m_settings->roomNotificationModeUnsynced(roomId);
+}
+
+bool AppController::roomNotificationModeDecidesLocally(const QString &roomId) const
+{
+    return m_settings->roomNotificationModeUnsynced(roomId)
+        || m_settings->roomNotificationModeDeviceOnly(roomId);
+}
+
+void AppController::refreshStoredNotificationModes()
+{
+    if (!m_client || !m_client->supportsServerNotificationModes()
+        || !m_client->initialSyncDone())
+        return;
+    // Read-only: each answer updates the local cache (see the report handler),
+    // so a mute lifted on another client stops silencing this device. Only
+    // this account's own keys; the legacy device-global ones are device-only
+    // choices and never asked about or sent.
+    int asked = 0;
+    const QStringList rooms = m_settings->accountRoomNotificationModeRooms();
+    for (const QString &roomId : rooms) {
+        // The retry owns an unsynced room.
+        if (m_settings->roomNotificationModeUnsynced(roomId))
+            continue;
+        m_client->requestRoomNotificationMode(roomId);
+        ++asked;
+    }
+    qCDebug(lcApp) << "room notification modes refreshed rooms=" << asked;
+    Q_EMIT roomNotificationModesRefreshed(asked);
 }
 
 bool AppController::startVoiceRecording(const QString &owner)

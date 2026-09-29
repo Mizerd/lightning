@@ -175,6 +175,15 @@ struct TimelineEvent {
     bool mentionsMe = false;
     bool mentionsRoom = false;
 
+    // The account's push rules for this event, as the SDK evaluated them (Rust
+    // backend). Unknown when none came with it: another backend, a local
+    // echo, or no push context yet. Notifications follow it when known.
+    enum class PushVerdict : quint8 { Unknown, Quiet, Notify };
+    PushVerdict pushVerdict = PushVerdict::Unknown;
+    // The rules' highlight tweak: a mention, a keyword, or @room from someone
+    // allowed to use it. False without a verdict.
+    bool pushHighlight = false;
+
     // Media. Non-empty only for media rows (Image/File/Video/Audio/Sticker).
     QString mediaMxcUrl;
     QString mediaMimetype;

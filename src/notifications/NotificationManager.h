@@ -28,9 +28,10 @@ public:
     // SettingsManager's notificationPreview values.
     enum PreviewMode { SenderAndMessage = 0, SenderOnly = 1, Private = 2 };
     Q_ENUM(PreviewMode)
-    // Local per-room notification mode. FollowDefault means the account's push
-    // rules decide; this device does not resolve that default, so locally it
-    // behaves like AllMessages.
+    // Local per-room notification mode. Muted always silences, so a mute
+    // applies before the server echoes it. Otherwise the account's push rules
+    // decide when the event carries them (TimelineEvent::pushVerdict); without
+    // them the local mode decides alone, FollowDefault as AllMessages.
     enum RoomMode {
         AllMessages = 0, MentionsOnly = 1, Muted = 2, FollowDefault = 3
     };
@@ -61,6 +62,10 @@ public:
         // The sender is on m.ignored_user_list. Covers the window before the
         // server stops delivering their events.
         bool senderIsIgnored = false;
+        // The server does not have this room's mode: a failed write, or a
+        // device-only mode from before modes were saved to the server. The
+        // local mode then decides alone.
+        bool localModeUnsynced = false;
         // Effective room avatar: explicit room avatar, or the unambiguous
         // other user's profile avatar for a strict 1:1 DM.
         QString avatarMxc;

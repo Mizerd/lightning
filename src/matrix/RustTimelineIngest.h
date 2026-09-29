@@ -46,6 +46,11 @@ struct DiffOutcome {
 // producers cannot disagree.
 TimelineEvent::Type rowTypeForMsgtype(const QString &msgtype);
 
+// The account's push-rule verdict from an event payload (`push_notify`,
+// `push_highlight`), shared by both producers like rowTypeForMsgtype. A
+// payload without `push_notify` leaves the event's verdict Unknown.
+void readPushVerdict(const QJsonObject &payload, TimelineEvent &event);
+
 // Convert one Rust item payload into a TimelineEvent. Virtual rows
 // (date_divider / read_marker / timeline_start) map to the corresponding
 // TimelineEvent virtual types. Undecryptable rows get the localized

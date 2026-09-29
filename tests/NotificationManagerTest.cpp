@@ -34,6 +34,15 @@ TimelineEvent incomingText(const QString &body = QStringLiteral("hello"))
     return event;
 }
 
+TimelineEvent withVerdict(TimelineEvent event,
+                          TimelineEvent::PushVerdict verdict,
+                          bool highlight = false)
+{
+    event.pushVerdict = verdict;
+    event.pushHighlight = highlight;
+    return event;
+}
+
 NotificationManager::Context baseContext()
 {
     NotificationManager::Context context;
@@ -171,6 +180,134 @@ private Q_SLOTS:
         TimelineEvent mention = incomingText();
         mention.mentionsMe = true;
         QVERIFY(!NotificationManager::decide(mention, context).notify);
+    }
+
+    // Issue #15: "Mentions & keywords" chosen on another client, or as the
+    // account default, never reaches this device's local mode. The SDK's
+    // push-rule verdict carries it, and a quiet verdict is final.
+    void aQuietVerdictSilencesWhatTheLocalModeWouldAllow()
+    {
+        using Verdict = TimelineEvent::PushVerdict;
+        for (const auto mode : {NotificationManager::AllMessages,
+                                NotificationManager::FollowDefault}) {
+            auto context = baseContext();
+            context.roomMode = mode;
+            QVERIFY2(!NotificationManager::decide(
+                          withVerdict(incomingText(), Verdict::Quiet), context)
+                          .notify,
+                     "a room the account's rules keep quiet notified");
+            QVERIFY(NotificationManager::decide(
+                        withVerdict(incomingText(), Verdict::Notify), context)
+                        .notify);
+        }
+        // The same for a thread reply and a DM.
+        auto dm = baseContext();
+        dm.roomIsDirect = true;
+        TimelineEvent reply = incomingText();
+        reply.threadRootId = QStringLiteral("$root:example.org");
+        QVERIFY(!NotificationManager::decide(
+                     withVerdict(reply, Verdict::Quiet), dm).notify);
+    }
+
+    // The rules already decided a mention or keyword notifies; the local
+    // mentions-only filter must not second-guess them. matrix-sdk writes a
+    // keyword rule without a highlight, so there is nothing else to go on.
+    void aKeywordTheRulesNotifyForPassesALocalMentionsOnlyRoom()
+    {
+        using Verdict = TimelineEvent::PushVerdict;
+        auto context = baseContext();
+        context.roomMode = NotificationManager::MentionsOnly;
+        const TimelineEvent keyword =
+            withVerdict(incomingText(QStringLiteral("banana bread")),
+                        Verdict::Notify);
+        QVERIFY2(NotificationManager::decide(keyword, context).notify,
+                 "a keyword the account's rules notify for was dropped");
+        // A quiet verdict stays quiet there too.
+        QVERIFY(!NotificationManager::decide(
+                     withVerdict(incomingText(), Verdict::Quiet), context)
+                     .notify);
+    }
+
+    // A highlight is a mention for sound: keywords and mentions without
+    // m.mentions sound like one.
+    void aHighlightSoundsLikeAMention()
+    {
+        using Verdict = TimelineEvent::PushVerdict;
+        auto context = baseContext();
+        context.soundMode = NotificationManager::SoundMentionsAndDirect;
+        const auto plain = NotificationManager::decide(
+            withVerdict(incomingText(), Verdict::Notify), context);
+        QVERIFY(plain.notify);
+        QVERIFY(!plain.playSound);
+        const auto highlighted = NotificationManager::decide(
+            withVerdict(incomingText(), Verdict::Notify, true), context);
+        QVERIFY(highlighted.notify);
+        QVERIFY(highlighted.playSound);
+    }
+
+    // A local mute applies at once, before the server echoes the rule, and a
+    // mute is what people notice failing.
+    void aLocalMuteSilencesWhateverTheRulesSay()
+    {
+        using Verdict = TimelineEvent::PushVerdict;
+        auto context = baseContext();
+        context.roomMode = NotificationManager::Muted;
+        TimelineEvent mention =
+            withVerdict(incomingText(), Verdict::Notify, true);
+        mention.mentionsMe = true;
+        QVERIFY(!NotificationManager::decide(mention, context).notify);
+    }
+
+    // A failed write left the server on the old rules, and the UI promises
+    // the choice is kept on this device: the local mode decides alone.
+    void anUnsyncedLocalModeDecidesAlone()
+    {
+        using Verdict = TimelineEvent::PushVerdict;
+        auto context = baseContext();
+        context.localModeUnsynced = true;
+        context.roomMode = NotificationManager::AllMessages;
+        QVERIFY(NotificationManager::decide(
+                    withVerdict(incomingText(), Verdict::Quiet), context)
+                    .notify);
+        context.roomMode = NotificationManager::MentionsOnly;
+        QVERIFY(!NotificationManager::decide(
+                     withVerdict(incomingText(), Verdict::Notify), context)
+                     .notify);
+        TimelineEvent mention = withVerdict(incomingText(), Verdict::Quiet);
+        mention.mentionsMe = true;
+        QVERIFY(NotificationManager::decide(mention, context).notify);
+    }
+
+    // A notifying verdict opens no other gate.
+    void aNotifyVerdictBypassesNoOtherGate()
+    {
+        using Verdict = TimelineEvent::PushVerdict;
+        const TimelineEvent loud =
+            withVerdict(incomingText(), Verdict::Notify, true);
+
+        auto visible = baseContext();
+        visible.roomVisibleAtLatest = true;
+        QVERIFY(!NotificationManager::decide(loud, visible).notify);
+
+        auto hydrating = baseContext();
+        hydrating.roomHydrating = true;
+        QVERIFY(!NotificationManager::decide(loud, hydrating).notify);
+
+        auto backlog = baseContext();
+        backlog.initialSyncComplete = false;
+        QVERIFY(!NotificationManager::decide(loud, backlog).notify);
+
+        auto ignored = baseContext();
+        ignored.senderIsIgnored = true;
+        QVERIFY(!NotificationManager::decide(loud, ignored).notify);
+
+        auto disabled = baseContext();
+        disabled.notificationsEnabled = false;
+        QVERIFY(!NotificationManager::decide(loud, disabled).notify);
+
+        TimelineEvent own = loud;
+        own.sender = baseContext().selfUserId;
+        QVERIFY(!NotificationManager::decide(own, baseContext()).notify);
     }
 
     void activeRoomAtLatestSuppresses()

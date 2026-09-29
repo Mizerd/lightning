@@ -724,8 +724,13 @@ public:
                                            bool allowNetwork);
     // True while the room's last server push-rule write is known to have
     // failed (the local mode still applies). Retried on reconnection; cleared
-    // only when the server acknowledges the value. Session-scoped.
+    // when the server acknowledges the value or holds a newer one. Kept per
+    // account across restarts.
     Q_INVOKABLE bool roomNotificationModeSyncFailed(const QString &roomId) const;
+    // Whether the local mode decides this room's notifications alone rather
+    // than the account's push rules: a failed write, or a device-only legacy
+    // mode (SettingsManager::roomNotificationModeDeviceOnly).
+    bool roomNotificationModeDecidesLocally(const QString &roomId) const;
 
     // Switch the whole Matrix context to another saved account. The previous
     // account stays signed in; only its runtime is detached. No-op when
@@ -933,6 +938,11 @@ Q_SIGNALS:
     // Emitted when a reconnect retry batch is issued, with the room count,
     // so tests can observe the retry without a live session.
     void roomNotificationModesRetried(int roomCount);
+    // The refresh after the first sync asked about this many rooms.
+    void roomNotificationModesRefreshed(int roomCount);
+    // A per-room mode was written to the server's push rules (every write
+    // goes through here), so tests can see what is and is not sent.
+    void roomNotificationModeSent(const QString &roomId, int mode);
     void currentScreenChanged();
     // From showSettingsSection(), for the kept-alive settings screen.
     void settingsSectionRequested(const QString &section);
@@ -1181,9 +1191,17 @@ private:
     bool m_activeRoomAtLatest = false;
     bool m_activeRoomHydrating = false;
     QSet<QString> m_knownInvites;
-    // Rooms whose last server push-rule write failed ("kept on this
-    // device"). Cleared on logout/account switch.
-    QSet<QString> m_notificationModeSyncFailures;
+    // Rooms whose write failed live in SettingsManager
+    // (roomNotificationModeUnsynced), per account and across restarts. These
+    // are the session's: the retry's pending reads, and this device's writes
+    // not yet acknowledged, each with the mode the server held before it.
+    QSet<QString> m_notificationModeRetryReads;
+    QHash<QString, int> m_notificationModeWritesInFlight;
+    // The mode the server last reported per room this session (3 = no rule),
+    // the base a new write records.
+    QHash<QString, int> m_notificationModeServerSeen;
+    // A retry arrived before the first sync; run it then.
+    bool m_retryNotificationModesWhenSynced = false;
     std::unique_ptr<SpaceManager> m_spaces;
     std::unique_ptr<ThreadManager> m_threads;
     std::unique_ptr<PresenceManager> m_presence;
@@ -1226,9 +1244,17 @@ private:
     std::unique_ptr<MediaVisibilityStore> m_mediaVisibility;
     std::unique_ptr<VoiceRecorder> m_voiceRecorder; // lazy — see getter
     QString m_voiceOwner;                           // "", "room", "thread"
-    // Re-issue push-rule writes that failed offline, once per genuine
-    // transition into Syncing. Never clears the failure set itself.
+    // For each push-rule write that failed, read the server's rule, then
+    // send the choice again or adopt a newer one (see the report handler).
+    // Once per genuine transition into Syncing, after the first sync.
     void retryFailedNotificationModes();
+    // After each first sync: ask about every room this account stored a mode
+    // for, so the local cache follows the server. Never writes.
+    void refreshStoredNotificationModes();
+    // The one path to the server's push rules for a per-room mode.
+    void sendRoomNotificationMode(const QString &roomId, int mode);
+    // A newer rule made elsewhere replaces a failed write's choice.
+    void adoptServerNotificationMode(const QString &roomId, int mode);
     // MatrixClient::ConnectionState as an int (forward-declared here); -1 =
     // none seen yet, so the first transition into Syncing counts.
     int m_lastConnectionState = -1;

@@ -14,6 +14,7 @@
 #include <QSet>
 
 #include <algorithm>
+#include <utility>
 
 Q_LOGGING_CATEGORY(lcSettings, "matrix.settings")
 
@@ -1011,6 +1012,7 @@ void SettingsManager::forgetDeviceGlobalAccountResidue()
     m_store->remove(QLatin1String(kChannelCollapsedKey));
     // Raw room ids; with no accounts left there is nothing to fall back for.
     m_store->remove(QStringLiteral("notifications/room-mode"));
+    m_store->remove(QStringLiteral("notifications/room-mode-unsynced"));
     m_store->sync();
 }
 
@@ -1602,6 +1604,85 @@ QString SettingsManager::roomNotificationModeScopedKey(const QString &roomId) co
         + QLatin1Char('/') + roomNotificationModeGlobalKey(roomId);
 }
 
+QString SettingsManager::roomNotificationScopePrefix() const
+{
+    const QString slug = activeAccountSlugCached();
+    if (slug.isEmpty())
+        return {};
+    return QLatin1String(kAccountsGroup) + QLatin1Char('/') + slug
+        + QLatin1Char('/');
+}
+
+bool SettingsManager::roomNotificationModeUnsynced(const QString &roomId) const
+{
+    if (roomId.isEmpty())
+        return false;
+    return m_store->contains(
+        roomNotificationScopePrefix()
+        + QStringLiteral("notifications/room-mode-unsynced/") + roomId);
+}
+
+int SettingsManager::roomNotificationModeUnsyncedBase(const QString &roomId) const
+{
+    if (roomId.isEmpty())
+        return -1;
+    bool ok = false;
+    const int base = m_store
+        ->value(roomNotificationScopePrefix()
+                    + QStringLiteral("notifications/room-mode-unsynced/")
+                    + roomId)
+        .toInt(&ok);
+    return (ok && base >= 0 && base <= 3) ? base : -1;
+}
+
+void SettingsManager::setRoomNotificationModeUnsynced(const QString &roomId,
+                                                      bool unsynced,
+                                                      int serverBase)
+{
+    if (roomId.isEmpty())
+        return;
+    const QString key = roomNotificationScopePrefix()
+        + QStringLiteral("notifications/room-mode-unsynced/") + roomId;
+    if (unsynced)
+        m_store->setValue(key, (serverBase >= 0 && serverBase <= 3) ? serverBase : -1);
+    else
+        m_store->remove(key);
+}
+
+QStringList SettingsManager::unsyncedRoomNotificationModes() const
+{
+    m_store->beginGroup(roomNotificationScopePrefix()
+                        + QStringLiteral("notifications/room-mode-unsynced"));
+    const QStringList rooms = m_store->childKeys();
+    m_store->endGroup();
+    return rooms;
+}
+
+bool SettingsManager::roomNotificationModeDeviceOnly(const QString &roomId) const
+{
+    if (roomId.isEmpty())
+        return false;
+    // The account's own key, even mode 0 shadowing a legacy value, is a
+    // choice made since modes were saved to the server.
+    const QString scopedKey = roomNotificationModeScopedKey(roomId);
+    if (!scopedKey.isEmpty() && m_store->contains(scopedKey))
+        return false;
+    const int legacy =
+        m_store->value(roomNotificationModeGlobalKey(roomId), 0).toInt();
+    return legacy == 1 || legacy == 2;
+}
+
+QStringList SettingsManager::accountRoomNotificationModeRooms() const
+{
+    const QString prefix = roomNotificationScopePrefix();
+    if (prefix.isEmpty())
+        return {};
+    m_store->beginGroup(prefix + QStringLiteral("notifications/room-mode"));
+    const QStringList rooms = m_store->childKeys();
+    m_store->endGroup();
+    return rooms;
+}
+
 int SettingsManager::roomNotificationMode(const QString &roomId) const
 {
     if (roomId.isEmpty())
@@ -1823,10 +1904,14 @@ void SettingsManager::setRoomNotificationMode(const QString &roomId, int mode)
     // reads as 0 (all messages).
     if (mode < 0 || mode > 3)
         mode = 0;
-    if (roomNotificationMode(roomId) == mode)
-        return;
     const QString globalKey = roomNotificationModeGlobalKey(roomId);
     const QString scopedKey = roomNotificationModeScopedKey(roomId);
+    // A value equal to a legacy device-global one still gets the account's
+    // own key, or the room would stay device-only after an explicit choice.
+    const bool onlyLegacyHoldsIt = !scopedKey.isEmpty()
+        && !m_store->contains(scopedKey) && m_store->contains(globalKey);
+    if (roomNotificationMode(roomId) == mode && !onlyLegacyHoldsIt)
+        return;
     if (scopedKey.isEmpty()) {
         // No active account: device-local semantics.
         if (mode == 0)

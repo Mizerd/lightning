@@ -2,11 +2,13 @@
 
 #include "storage/AppDataPaths.h"
 
+#include <QHash>
 #include <QObject>
 #include <QRect>
 #include <QSettings>
 #include <QSize>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 #include <memory>
@@ -435,6 +437,24 @@ public:
     // read-fallback to the legacy device-global key.
     Q_INVOKABLE int roomNotificationMode(const QString &roomId) const;
     Q_INVOKABLE void setRoomNotificationMode(const QString &roomId, int mode);
+    // Rooms whose mode was chosen here and whose write failed, so the server
+    // does not have it. Kept per account and across restarts: while a room is
+    // listed its local mode decides alone and the retry keeps going.
+    // `serverBase` is the mode the server held before that choice (-1 if
+    // unknown), which the retry compares with before sending again.
+    bool roomNotificationModeUnsynced(const QString &roomId) const;
+    int roomNotificationModeUnsyncedBase(const QString &roomId) const;
+    void setRoomNotificationModeUnsynced(const QString &roomId, bool unsynced,
+                                         int serverBase = -1);
+    QStringList unsyncedRoomNotificationModes() const;
+    // A mode 1 or 2 this device holds only in the legacy device-global key,
+    // with no key of the active account's own: chosen before modes were saved
+    // to the server ("Local setting: it does not change this room's server
+    // push rules"). It decides on this device and is never sent.
+    bool roomNotificationModeDeviceOnly(const QString &roomId) const;
+    // Rooms with a mode stored under the active account's own key (never the
+    // legacy device-global ones). Empty without an account.
+    QStringList accountRoomNotificationModeRooms() const;
     // The account's own status message {emoji, text, expiresAtMs}, so it can be
     // re-published or cleared after a restart. Strictly account-scoped.
     QVariantMap ownPresenceStatus() const;
@@ -883,6 +903,9 @@ private:
     // no account is active) and the legacy device-global fallback key.
     static QString roomNotificationModeGlobalKey(const QString &roomId);
     QString roomNotificationModeScopedKey(const QString &roomId) const;
+    // "accounts/<slug>/" for the active account, or empty for the signed-out
+    // device scope, as setRoomNotificationMode writes.
+    QString roomNotificationScopePrefix() const;
     // Learned-media store: one LRU index covers dimension and size keys.
     static QString mediaInfoIndexKeyForSlug(const QString &slug);
     void touchMediaInfoIndex(const QString &slug, const QString &hash);
