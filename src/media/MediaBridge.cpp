@@ -1804,8 +1804,12 @@ QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
     if (extension.isEmpty() || bytes.size() > maxAnimatedBytes
         || !m_animatedDir || !m_animatedDir->isValid())
         return {};
+    // A new name for every write (see m_animatedWriteSerial): the same bytes
+    // written again after an eviction must be a new URL, or an item still
+    // showing the old one never reloads.
     const QString name = QString::fromLatin1(
         QCryptographicHash::hash(cacheKey.toUtf8(), QCryptographicHash::Sha256).toHex())
+        + QLatin1Char('-') + QString::number(++m_animatedWriteSerial)
         + QLatin1Char('.') + extension;
     const QString path = m_animatedDir->filePath(name);
     QSaveFile file(path);
@@ -1816,6 +1820,11 @@ QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
     file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
     if (file.write(bytes) != bytes.size() || !file.commit())
         return {};
+    // The key's previous file, if it is still there: gone unless something is
+    // showing it (the session's directory removal takes it then).
+    const QString previous = m_animatedFiles.value(cacheKey);
+    if (!previous.isEmpty() && previous != path && !isAnimationHeld(cacheKey))
+        QFile::remove(previous);
     m_animatedFiles.insert(cacheKey, path);
     m_animatedSizes.insert(cacheKey, bytes.size());
     m_animatedLru.removeOne(cacheKey);
@@ -1823,14 +1832,85 @@ QString MediaBridge::writeAnimatedFile(const QString &cacheKey,
     qint64 total = 0;
     for (qint64 size : std::as_const(m_animatedSizes))
         total += size;
-    while ((total > kAnimatedCacheBytes
-            || m_animatedFiles.size() > kAnimatedCacheEntries)
-           && m_animatedLru.size() > 1) {
-        const QString victim = m_animatedLru.takeLast();
+    // Oldest first, never the newest and never a held file: deleting a file
+    // an AnimatedImage is playing freezes it for good.
+    for (qsizetype i = m_animatedLru.size() - 1;
+         i > 0
+         && (total > kAnimatedCacheBytes
+             || m_animatedFiles.size() > kAnimatedCacheEntries);
+         --i) {
+        const QString victim = m_animatedLru.at(i);
+        if (isAnimationHeld(victim))
+            continue;
+        m_animatedLru.removeAt(i);
+        total -= m_animatedSizes.take(victim);
+        QFile::remove(m_animatedFiles.take(victim));
+    }
+    // A hard ceiling over held files too: a timeline keeps every animated row
+    // it has loaded, so holds alone are bounded only by history. Past it the
+    // oldest held file goes as well; its viewer stops at its next loop, and
+    // Avatar and BannerMotion notice that and ask again.
+    for (qsizetype i = m_animatedLru.size() - 1;
+         i > 0
+         && (total > kAnimatedHardCapBytes
+             || m_animatedFiles.size() > kAnimatedHardCapEntries);
+         --i) {
+        const QString victim = m_animatedLru.takeAt(i);
         total -= m_animatedSizes.take(victim);
         QFile::remove(m_animatedFiles.take(victim));
     }
     return path;
+}
+
+bool MediaBridge::isAnimationHeld(const QString &cacheKey) const
+{
+    for (const AnimationHold &hold : m_animationHolds) {
+        if (hold.cacheKey == cacheKey)
+            return true;
+    }
+    return false;
+}
+
+bool MediaBridge::holdAnimation(QObject *owner, const QString &fileUrl)
+{
+    if (!owner)
+        return false;
+    const QString path = QUrl(fileUrl).toLocalFile();
+    QString cacheKey;
+    if (!path.isEmpty()) {
+        for (auto it = m_animatedFiles.cbegin(); it != m_animatedFiles.cend();
+             ++it) {
+            if (it.value() == path) {
+                cacheKey = it.key();
+                break;
+            }
+        }
+    }
+    if (cacheKey.isEmpty()) {
+        releaseAnimation(owner);
+        return false;
+    }
+    const auto held = m_animationHolds.find(owner);
+    if (held != m_animationHolds.end()) {
+        held->cacheKey = cacheKey;
+        return true;
+    }
+    AnimationHold hold;
+    hold.cacheKey = cacheKey;
+    // The pointer is only a key here; it is never dereferenced after this.
+    hold.destroyed = connect(owner, &QObject::destroyed, this,
+                             [this, owner] { releaseAnimation(owner); });
+    m_animationHolds.insert(owner, hold);
+    return true;
+}
+
+void MediaBridge::releaseAnimation(QObject *owner)
+{
+    const auto it = m_animationHolds.find(owner);
+    if (it == m_animationHolds.end())
+        return;
+    disconnect(it->destroyed);
+    m_animationHolds.erase(it);
 }
 
 void MediaBridge::dropInterestSets(const QString &cacheKey)
@@ -2105,6 +2185,10 @@ void MediaBridge::clear()
     m_animatedFiles.clear();
     m_animatedSizes.clear();
     m_animatedLru.clear();
+    // The files are going with the directory below; a hold names nothing now.
+    for (const AnimationHold &hold : std::as_const(m_animationHolds))
+        disconnect(hold.destroyed);
+    m_animationHolds.clear();
     m_animatedWanted.clear();
     m_animatedDemanded.clear();
     m_motionVerdict.clear();

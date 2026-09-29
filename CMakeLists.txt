@@ -850,6 +850,7 @@ set(APP_QML_FILES
     qml/MemberProfilePopover.qml
     qml/Avatar.qml
     qml/BannerMotion.qml
+    qml/AnimationFileHold.qml
     qml/Skeleton.qml
     qml/AppMenu.qml
     qml/AppMenuItem.qml

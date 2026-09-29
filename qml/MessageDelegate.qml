@@ -3986,6 +3986,8 @@ Item {
                 playing: visible
                 asynchronous: true
                 cache: false
+                // Keeps the bridge from evicting the file mid-play.
+                AnimationFileHold {}
             }
             Rectangle {
                 visible: directMedia.p.isGif === true
@@ -4407,6 +4409,8 @@ Item {
                             playing: visible
                             asynchronous: true
                             cache: false
+                            // Keeps the bridge from evicting the file mid-play.
+                            AnimationFileHold {}
                         }
                         // GIF badge.
                         Rectangle {
@@ -5013,6 +5017,8 @@ Item {
                 asynchronous: true
                 cache: true
                 playing: imageBox.animateGif && root.rowOnScreen
+                // Keeps the bridge from evicting the file mid-play.
+                AnimationFileHold {}
             }
 
             MediaHiddenPlaceholder {
@@ -5355,6 +5361,8 @@ Item {
                 playing: animating && root.rowOnScreen
                 asynchronous: true
                 cache: true
+                // Keeps the bridge from evicting the file mid-play.
+                AnimationFileHold {}
             }
             MediaHiddenPlaceholder {
                 anchors.fill: parent

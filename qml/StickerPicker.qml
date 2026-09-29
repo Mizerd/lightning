@@ -489,6 +489,8 @@ AnchoredPopup {
                     playing: animating
                     asynchronous: true
                     cache: true
+                    // Keeps the bridge from evicting the file mid-play.
+                    AnimationFileHold {}
                 }
                 Connections {
                     target: app.mediaBridge

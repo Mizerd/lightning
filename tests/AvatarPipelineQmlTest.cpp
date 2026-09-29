@@ -10,6 +10,7 @@
 #include <QtTest/QtTest>
 
 #include <QBuffer>
+#include <QDir>
 #include <QFile>
 #include <QImage>
 #include <QPainter>
@@ -594,9 +595,12 @@ private Q_SLOTS:
 
         // 1. Evicted while off screen: coming back asks the bridge again.
         h.avatar->setProperty("onScreen", false);
+        QTRY_VERIFY_WITH_TIMEOUT(!h.avatar->property("motionShown").toBool(),
+                                 5000);
         QVERIFY(QFile::remove(filePath()));
         h.avatar->setProperty("onScreen", true);
-        QCOMPARE(h.avatar->property("_motionSrc").toString(), QString());
+        QTRY_COMPARE_WITH_TIMEOUT(h.avatar->property("_motionSrc").toString(),
+                                  QString(), 5000);
         const int refetch = originalFetchIndex(h, mxc);
         QVERIFY2(refetch > original, "coming back on screen reused a URL "
                                      "whose file is gone");
@@ -604,8 +608,8 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
                                  5000);
 
-        // 2. Evicted while waiting for a slot: the stale URL fails to load
-        // once, and the retry fetches it back.
+        // 2. Evicted while waiting for a slot: the bridge is asked again
+        // before the freed slot is taken, so the file is fetched back.
         QObject holders;
         for (int i = h.bridge->motionSlotsInUseForTest();
              i < MediaBridge::kMaxMotionSlots; ++i)
@@ -632,6 +636,426 @@ private Q_SLOTS:
                                  5000);
         QVERIFY(!second->property("_motionFailed").toBool());
         delete second;
+    }
+
+    // A URL that fails to load is asked for once more: it may name a file
+    // that is gone. A second failure leaves the avatar still.
+    void aUrlThatFailsToLoadIsAskedForAgainOnce()
+    {
+        Harness h;
+        const QString mxc = QStringLiteral("mxc://x/stale-url");
+        QVERIFY(readyAnimatedCandidate(h, 40, mxc, 0, solidPng(64, Qt::gray)));
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        h.client->succeed(h.client->fetches.at(original).opId,
+                          solidFramesGif(16, { Qt::red, Qt::blue }));
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        const QString good = h.avatar->property("_motionSrc").toString();
+        // A stale URL, as a delegate could hold across an eviction.
+        h.avatar->setProperty(
+            "_motionSrc",
+            QUrl::fromLocalFile(QDir::tempPath()
+                                + QStringLiteral("/lightning-gone.gif"))
+                .toString());
+        QTRY_COMPARE_WITH_TIMEOUT(h.avatar->property("_motionSrc").toString(),
+                                  good, 5000);
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        QVERIFY(!h.avatar->property("_motionFailed").toBool());
+    }
+
+    // Playing through an eviction: the bridge must not delete a file an
+    // AnimatedImage is showing. A decoder whose file vanishes stops at its
+    // next loop without an error, frozen on its last frame for good.
+    void aPlayingAnimationSurvivesEviction()
+    {
+        Harness h;
+        const QString mxc = QStringLiteral("mxc://x/playing");
+        QVERIFY(readyAnimatedCandidate(h, 40, mxc, 0, solidPng(64, Qt::gray)));
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        h.client->succeed(h.client->fetches.at(original).opId,
+                          solidFramesGif(16, { Qt::red, Qt::blue }));
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        const QString playing =
+            QUrl(h.avatar->property("_motionSrc").toString()).toLocalFile();
+        QVERIFY(QFile::exists(playing));
+        QTRY_COMPARE_WITH_TIMEOUT(h.bridge->animationHoldsForTest(), 1, 5000);
+
+        // More animations than the scratch cache keeps, the playing one the
+        // least recently asked for (animated thumbnails: no second fetch).
+        QString firstChurned;
+        for (int i = 0; i < 70; ++i) {
+            const QString other = QStringLiteral("mxc://x/churn%1").arg(i);
+            h.bridge->avatarSource(other, 40);
+            const int index = finalEdgeFetchIndex(h, other, 40);
+            QVERIFY(index >= 0);
+            h.client->succeed(h.client->fetches.at(index).opId,
+                              solidFramesGif(8, { Qt::green, Qt::yellow }));
+            const QString url = h.bridge->avatarAnimationSource(other, false);
+            QVERIFY2(!url.isEmpty(), qPrintable(other));
+            if (i == 0)
+                firstChurned = QUrl(url).toLocalFile();
+        }
+        // The churn really evicted, and the playing file was spared.
+        QVERIFY(!QFile::exists(firstChurned));
+        QVERIFY2(QFile::exists(playing), "a playing animation's file was "
+                                         "evicted from under it");
+        // And it still plays: frames keep advancing past loop boundaries.
+        auto *movie = h.avatar->findChild<QQuickItem *>(
+            QStringLiteral("avatarAnimatedImage"));
+        QVERIFY(movie);
+        QSet<int> frames;
+        for (int i = 0; i < 20 && frames.size() < 2; ++i) {
+            frames.insert(movie->property("currentFrame").toInt());
+            QTest::qWait(60);
+        }
+        QCOMPARE(frames.size(), 2);
+    }
+
+    // A file written again is a new URL, so an avatar still showing the old
+    // one reloads instead of staying frozen on a file that is gone.
+    void aRewrittenAnimationIsANewUrlAndReloads()
+    {
+        Harness h;
+        const QString mxc = QStringLiteral("mxc://x/rewritten");
+        QVERIFY(readyAnimatedCandidate(h, 40, mxc, 0, solidPng(64, Qt::gray)));
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        const QByteArray gif = solidFramesGif(16, { Qt::red, Qt::blue });
+        h.client->succeed(h.client->fetches.at(original).opId, gif);
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        const QString before = h.avatar->property("_motionSrc").toString();
+        // The file goes while it plays (not by eviction, which a hold now
+        // prevents), and the decoder stops at its next loop.
+        QVERIFY(QFile::remove(QUrl(before).toLocalFile()));
+        QTest::qWait(500);
+        // Someone asks for it: fetched and written again.
+        QCOMPARE(h.bridge->avatarAnimationSource(mxc, true), QString());
+        const int refetch = originalFetchIndex(h, mxc);
+        QVERIFY(refetch > original);
+        h.client->succeed(h.client->fetches.at(refetch).opId, gif);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            h.avatar->property("_motionSrc").toString() != before, 5000);
+        QVERIFY(QFile::exists(
+            QUrl(h.avatar->property("_motionSrc").toString()).toLocalFile()));
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        auto *movie = h.avatar->findChild<QQuickItem *>(
+            QStringLiteral("avatarAnimatedImage"));
+        QVERIFY(movie);
+        QSet<int> frames;
+        for (int i = 0; i < 30 && frames.size() < 2; ++i) {
+            frames.insert(movie->property("currentFrame").toInt());
+            QTest::qWait(60);
+        }
+        QCOMPARE(frames.size(), 2);
+    }
+
+    // The shared hold: it follows its AnimatedImage's source, keeps the file
+    // through an eviction, and goes with the image.
+    void anAnimationFileHoldFollowsItsImage()
+    {
+        Harness h;
+        QVERIFY(prepareCore(h, true));
+        // A bridge file, written through the avatar path.
+        const QString mxc = QStringLiteral("mxc://x/held-by-image");
+        h.bridge->avatarSource(mxc, 40);
+        h.client->succeed(h.client->fetches.last().opId,
+                          solidFramesGif(8, { Qt::red, Qt::blue }));
+        const QString url = h.bridge->avatarAnimationSource(mxc, false);
+        QVERIFY(!url.isEmpty());
+        QQmlComponent component(h.engine.get());
+        component.setData(QByteArrayLiteral(
+            "import QtQuick\n"
+            "import MatrixClient\n"
+            "AnimatedImage {\n"
+            "    width: 16; height: 16\n"
+            "    cache: false\n"
+            "    AnimationFileHold {}\n"
+            "}\n"), QUrl(QStringLiteral("qrc:/test/HoldProbe.qml")));
+        QObject *image = component.createWithInitialProperties(
+            { { QStringLiteral("source"), url } }, h.engine->rootContext());
+        QVERIFY2(image, qPrintable(component.errorString()));
+        QCOMPARE(h.bridge->animationHoldsForTest(), 1);
+
+        for (int i = 0; i < 70; ++i) {
+            const QString other = QStringLiteral("mxc://x/c%1").arg(i);
+            h.bridge->avatarSource(other, 40);
+            h.client->succeed(h.client->fetches.last().opId,
+                              solidFramesGif(8, { Qt::green, Qt::yellow }));
+            QVERIFY(!h.bridge->avatarAnimationSource(other, false).isEmpty());
+        }
+        QVERIFY2(QFile::exists(QUrl(url).toLocalFile()),
+                 "a held file was evicted");
+
+        image->setProperty("source", QString());
+        QCOMPARE(h.bridge->animationHoldsForTest(), 0);
+        image->setProperty("source", url);
+        QCOMPARE(h.bridge->animationHoldsForTest(), 1);
+        delete image;
+        QCOMPARE(h.bridge->animationHoldsForTest(), 0);
+    }
+
+    // Every AnimatedImage that shows a bridge scratch file declares the hold.
+    // Read from the compiled module, which is what runs.
+    void everyBridgeAnimationDeclaresItsHold()
+    {
+        const QStringList files = {
+            QStringLiteral("Avatar.qml"),
+            QStringLiteral("BannerMotion.qml"),
+            QStringLiteral("StickerPicker.qml"),
+            QStringLiteral("MessageDelegate.qml"),
+            QStringLiteral("ImageViewerOverlay.qml"),
+        };
+        int sites = 0;
+        for (const QString &name : files) {
+            QFile file(QStringLiteral(":/qt/qml/MatrixClient/") + name);
+            QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(name));
+            const QString src = QString::fromUtf8(file.readAll());
+            const int images = int(src.count(QStringLiteral("AnimatedImage {")));
+            const int holds = int(src.count(QStringLiteral("AnimationFileHold {}")));
+            QVERIFY2(images > 0, qPrintable(name + QStringLiteral(
+                                                "has no AnimatedImage: this "
+                                                "row tests nothing")));
+            QVERIFY2(holds == images,
+                     qPrintable(QStringLiteral("%1: %2 AnimatedImage, %3 holds")
+                                    .arg(name).arg(images).arg(holds)));
+            sites += images;
+        }
+        QCOMPARE(sites, 8);
+    }
+
+    // A decoder whose file vanishes stops at its next loop with no error. The
+    // avatar notices the stop by itself and asks again, which fetches the
+    // animation back under a new URL.
+    void aStalledDecoderAsksForItsFileAgain()
+    {
+        Harness h;
+        const QString mxc = QStringLiteral("mxc://x/stalled");
+        QVERIFY(readyAnimatedCandidate(h, 40, mxc, 0, solidPng(64, Qt::gray)));
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        const QByteArray gif = solidFramesGif(16, { Qt::red, Qt::blue });
+        h.client->succeed(h.client->fetches.at(original).opId, gif);
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        const QString before = h.avatar->property("_motionSrc").toString();
+        QVERIFY(QFile::remove(QUrl(before).toLocalFile()));
+        // Nothing else asks: the avatar's own stall handling must.
+        int refetch = -1;
+        QTRY_VERIFY_WITH_TIMEOUT(
+            (refetch = originalFetchIndex(h, mxc)) > original, 5000);
+        h.client->succeed(h.client->fetches.at(refetch).opId, gif);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            h.avatar->property("_motionSrc").toString() != before
+                && h.avatar->property("motionShown").toBool(), 5000);
+        auto *movie = h.avatar->findChild<QQuickItem *>(
+            QStringLiteral("avatarAnimatedImage"));
+        QVERIFY(movie);
+        QSet<int> frames;
+        for (int i = 0; i < 30 && frames.size() < 2; ++i) {
+            frames.insert(movie->property("currentFrame").toInt());
+            QTest::qWait(60);
+        }
+        QCOMPARE(frames.size(), 2);
+    }
+
+    // A new URL on an item whose decoder had stopped still plays:
+    // AnimatedImage clears `playing` when its movie stops, and would load the
+    // new source paused on its first frame.
+    void aNewSourceOnAStoppedDecoderPlays()
+    {
+        Harness h;
+        const QString mxc = QStringLiteral("mxc://x/swapped");
+        QVERIFY(readyAnimatedCandidate(h, 40, mxc, 0, solidPng(64, Qt::gray)));
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        const QByteArray gif = solidFramesGif(16, { Qt::red, Qt::blue });
+        h.client->succeed(h.client->fetches.at(original).opId, gif);
+        QTRY_VERIFY_WITH_TIMEOUT(h.avatar->property("motionShown").toBool(),
+                                 5000);
+        auto *movie = h.avatar->findChild<QQuickItem *>(
+            QStringLiteral("avatarAnimatedImage"));
+        QVERIFY(movie);
+        const QString before = h.avatar->property("_motionSrc").toString();
+        // The decoder stops (as it does when its file goes); its file is
+        // still there, so asking changes nothing yet.
+        movie->setProperty("playing", false);
+        QTest::qWait(100);
+        QCOMPARE(h.avatar->property("_motionSrc").toString(), before);
+        // Then the file goes and is fetched back: the SAME item gets the new
+        // URL.
+        QVERIFY(QFile::remove(QUrl(before).toLocalFile()));
+        QCOMPARE(h.bridge->avatarAnimationSource(mxc, true), QString());
+        const int refetch = originalFetchIndex(h, mxc);
+        QVERIFY(refetch > original);
+        h.client->succeed(h.client->fetches.at(refetch).opId, gif);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            h.avatar->property("_motionSrc").toString() != before, 5000);
+        QCOMPARE(h.avatar->findChild<QQuickItem *>(
+                     QStringLiteral("avatarAnimatedImage")),
+                 movie);
+        QSet<int> frames;
+        for (int i = 0; i < 30 && frames.size() < 2; ++i) {
+            frames.insert(movie->property("currentFrame").toInt());
+            QTest::qWait(60);
+        }
+        QCOMPARE(frames.size(), 2);
+    }
+
+    // An avatar outside its Flickable's viewport (a list's cache delegate, a
+    // lobby row scrolled away): no binding loop, no probe, nothing playing;
+    // scrolled into view, it asks.
+    //
+    // The loop fires only when the viewport check FLIPS `_inViewport` from
+    // inside `_wantsMotion`'s own change: a ListView lays a delegate out after
+    // creating it, so the avatar is checked while it still sits in view and
+    // has moved out by the time its picture is ready. The fixture reproduces
+    // exactly that, and first proves the warning capture sees a binding loop.
+    void anAvatarOutsideItsViewportStaysStillWithoutABindingLoop()
+    {
+        Harness h;
+        QVERIFY(prepareCore(h, true));
+        {
+            // The capture works: a deliberate loop is seen.
+            QQmlComponent loop(h.engine.get());
+            loop.setData(QByteArrayLiteral(
+                "import QtQuick\n"
+                "Item {\n"
+                "    property int a: b + 1\n"
+                "    property int b: a + 1\n"
+                "}\n"), QUrl(QStringLiteral("qrc:/test/LoopProbe.qml")));
+            std::unique_ptr<QObject> looping(loop.create());
+            QVERIFY(looping);
+            QCoreApplication::processEvents();
+            bool seen = false;
+            for (const QString &w : std::as_const(h.warnings))
+                seen = seen || w.contains(QStringLiteral("Binding loop"));
+            QVERIFY2(seen, "the warning capture cannot see a binding loop, "
+                           "so this case could not see one either");
+            h.warnings.clear();
+        }
+        const QString mxc = QStringLiteral("mxc://x/deep");
+        QQmlComponent component(h.engine.get());
+        component.setData(QByteArrayLiteral(
+            "import QtQuick\n"
+            "import MatrixClient\n"
+            "Flickable {\n"
+            "    width: 200; height: 100\n"
+            "    contentWidth: 200; contentHeight: 1000\n"
+            "    property alias probe: deep\n"
+            "    Avatar {\n"
+            "        id: deep\n"
+            "        y: 10; size: 48\n"
+            "        mxc: \"mxc://x/deep\"; name: \"Deep\"; colorKey: \"@d:x\"\n"
+            "        motionMaskable: true\n"
+            "    }\n"
+            "}\n"), QUrl(QStringLiteral("qrc:/test/ViewportProbe.qml")));
+        QObject *root = component.create(h.engine->rootContext());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *flick = qobject_cast<QQuickItem *>(root);
+        QVERIFY(flick);
+        flick->setParentItem(h.window->contentItem());
+        h.window->resize(240, 140);
+        h.window->show();
+        auto *deep = qvariant_cast<QQuickItem *>(root->property("probe"));
+        QVERIFY(deep);
+        QCoreApplication::processEvents();
+        // Laid out away after it was checked, as a list delegate is: nothing
+        // re-checks yet (the avatar is not ready), so the answer is stale.
+        deep->setY(600);
+        QCoreApplication::processEvents();
+        QVERIFY2(deep->property("_inViewport").toBool(),
+                 "the fixture no longer reaches readiness with a stale "
+                 "in-view answer, so it cannot hit the loop");
+        const int thumb = finalEdgeFetchIndex(h, mxc, 48);
+        QVERIFY(thumb >= 0);
+        h.client->succeed(h.client->fetches.at(thumb).opId,
+                          solidPng(64, Qt::gray));
+        QTRY_COMPARE_WITH_TIMEOUT(
+            deep->property("presentationState").toString(),
+            QStringLiteral("ready"), 5000);
+        QTest::qWait(300);
+        QVERIFY(!deep->property("_inViewport").toBool());
+        QCOMPARE(originalFetchIndex(h, mxc), -1); // not probed off screen
+        for (const QString &w : std::as_const(h.warnings))
+            QVERIFY2(!w.contains(QStringLiteral("Binding loop")),
+                     qPrintable(w));
+
+        flick->setProperty("contentY", 560);
+        int original = -1;
+        QTRY_VERIFY_WITH_TIMEOUT((original = originalFetchIndex(h, mxc)) >= 0,
+                                 5000);
+        QVERIFY(deep->property("_inViewport").toBool());
+        h.client->succeed(h.client->fetches.at(original).opId,
+                          solidFramesGif(16, { Qt::red, Qt::blue }));
+        QTRY_VERIFY_WITH_TIMEOUT(deep->property("motionShown").toBool(), 5000);
+        // Scrolled away again: torn down, slot returned.
+        flick->setProperty("contentY", 0);
+        QTRY_VERIFY_WITH_TIMEOUT(!deep->property("motionShown").toBool(),
+                                 5000);
+        QCOMPARE(h.bridge->motionSlotsInUseForTest(), 0);
+        for (const QString &w : std::as_const(h.warnings))
+            QVERIFY2(!w.contains(QStringLiteral("Binding loop")),
+                     qPrintable(w));
+        delete root;
+    }
+
+    // A banner inside a Flickable stops when scrolled out, and holds its file
+    // while it plays.
+    void aBannerStopsOutOfViewAndHoldsItsFile()
+    {
+        Harness h;
+        QVERIFY(prepareCore(h, true));
+        const QString mxc = QStringLiteral("mxc://x/banner");
+        // The still picture's full payload, as wideImageSource() fetches it.
+        h.bridge->wideImageSource(mxc);
+        QVERIFY(!h.client->fetches.isEmpty());
+        h.client->succeed(h.client->fetches.last().opId,
+                          solidFramesGif(30, { Qt::red, Qt::blue }));
+        QQmlComponent component(h.engine.get());
+        component.setData(QByteArrayLiteral(
+            "import QtQuick\n"
+            "import MatrixClient\n"
+            "Flickable {\n"
+            "    width: 200; height: 100\n"
+            "    contentWidth: 200; contentHeight: 1000\n"
+            "    property alias probe: motion\n"
+            "    BannerMotion {\n"
+            "        id: motion\n"
+            "        y: 20; width: 150; height: 50\n"
+            "        mxc: \"mxc://x/banner\"; stillReady: true\n"
+            "    }\n"
+            "}\n"), QUrl(QStringLiteral("qrc:/test/BannerProbe.qml")));
+        QObject *root = component.create(h.engine->rootContext());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *flick = qobject_cast<QQuickItem *>(root);
+        flick->setParentItem(h.window->contentItem());
+        h.window->resize(240, 140);
+        h.window->show();
+        auto *motion = qvariant_cast<QQuickItem *>(root->property("probe"));
+        QVERIFY(motion);
+        QTRY_VERIFY_WITH_TIMEOUT(motion->property("shown").toBool(), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(h.bridge->animationHoldsForTest(), 1, 5000);
+
+        flick->setProperty("contentY", 500); // banner fully out
+        QTRY_VERIFY_WITH_TIMEOUT(!motion->property("shown").toBool(), 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(h.bridge->animationHoldsForTest(), 0, 5000);
+        flick->setProperty("contentY", 0);
+        QTRY_VERIFY_WITH_TIMEOUT(motion->property("shown").toBool(), 5000);
+        for (const QString &w : std::as_const(h.warnings))
+            QVERIFY2(!w.contains(QStringLiteral("Binding loop")),
+                     qPrintable(w));
+        delete root;
     }
 
     // Two avatars of one identity share one probe; with every slot taken a

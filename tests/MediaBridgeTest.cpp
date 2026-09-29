@@ -270,6 +270,17 @@ QByteArray jpegBytes()
     return jpg;
 }
 
+// Writes the animation for `mxc` through the avatar path (an animated
+// thumbnail, so no second fetch) and returns its file path.
+QString writeAnimation(FakeClient &client, MediaBridge &bridge,
+                       const QString &mxc)
+{
+    bridge.avatarSource(mxc, 40);
+    client.succeed(client.fetches.last().opId, makeGif(8, 8, 2),
+                   QStringLiteral("image/gif"));
+    return QUrl(bridge.avatarAnimationSource(mxc, false)).toLocalFile();
+}
+
 } // namespace
 
 class MediaBridgeTest : public QObject
@@ -2884,6 +2895,116 @@ private Q_SLOTS:
         QVERIFY(sniff::stripAnimationMetadata(pngBytes()).isEmpty());
         QVERIFY(sniff::stripAnimationMetadata(
                     QByteArrayLiteral("<svg xmlns=\"x\"/>")).isEmpty());
+    }
+
+    // ---- Animation files in use ----
+
+    // A held file is never evicted, however far past the caps the cache goes;
+    // released (its owner destroyed), it is evictable again.
+    void aHeldAnimationIsNeverEvicted()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const QString heldPath =
+            writeAnimation(client, bridge, QStringLiteral("mxc://x/held"));
+        QVERIFY(QFile::exists(heldPath));
+        auto *owner = new QObject;
+        QVERIFY(bridge.holdAnimation(owner, QUrl::fromLocalFile(heldPath)
+                                                .toString()));
+        QCOMPARE(bridge.animationHoldsForTest(), 1);
+        QString firstOther;
+        for (int i = 0; i < 70; ++i) {
+            const QString path = writeAnimation(
+                client, bridge, QStringLiteral("mxc://x/other%1").arg(i));
+            QVERIFY(!path.isEmpty());
+            if (i == 0)
+                firstOther = path;
+        }
+        QVERIFY(!QFile::exists(firstOther)); // the churn did evict
+        QVERIFY2(QFile::exists(heldPath), "a held animation was evicted");
+
+        delete owner; // the AnimatedImage showing it goes
+        QCOMPARE(bridge.animationHoldsForTest(), 0);
+        writeAnimation(client, bridge, QStringLiteral("mxc://x/last"));
+        QVERIFY(!QFile::exists(heldPath));
+    }
+
+    // Holds bend the soft caps, not the hard ones: a timeline keeps every
+    // animated row it has loaded, so past the hard caps the oldest held file
+    // goes too.
+    void heldFilesStillMeetTheHardCeiling()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QObject owners;
+        QStringList paths;
+        const int total = MediaBridge::kAnimatedHardCapEntries + 2;
+        for (int i = 0; i < total; ++i) {
+            const QString path = writeAnimation(
+                client, bridge, QStringLiteral("mxc://x/row%1").arg(i));
+            QVERIFY(!path.isEmpty());
+            QVERIFY(bridge.holdAnimation(new QObject(&owners),
+                                         QUrl::fromLocalFile(path).toString()));
+            paths.append(path);
+        }
+        int existing = 0;
+        for (const QString &path : std::as_const(paths))
+            existing += QFile::exists(path) ? 1 : 0;
+        // Past the soft cap of 64: holds kept them...
+        QVERIFY(existing > 64);
+        // ...up to the hard cap, the oldest going first.
+        QCOMPARE(existing, MediaBridge::kAnimatedHardCapEntries);
+        QVERIFY(!QFile::exists(paths.first()));
+        QVERIFY(QFile::exists(paths.last()));
+    }
+
+    // Only a file this bridge wrote can be held; anything else (or "") drops
+    // the owner's hold. A session change drops every hold.
+    void onlyTheBridgesOwnFilesCanBeHeld()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const QString path =
+            writeAnimation(client, bridge, QStringLiteral("mxc://x/own"));
+        QObject owner;
+        QVERIFY(bridge.holdAnimation(&owner,
+                                     QUrl::fromLocalFile(path).toString()));
+        QVERIFY(!bridge.holdAnimation(&owner, QStringLiteral(
+                                                  "file:///etc/passwd")));
+        QCOMPARE(bridge.animationHoldsForTest(), 0);
+        QVERIFY(bridge.holdAnimation(&owner,
+                                     QUrl::fromLocalFile(path).toString()));
+        QVERIFY(!bridge.holdAnimation(&owner, QString()));
+        QCOMPARE(bridge.animationHoldsForTest(), 0);
+        QVERIFY(!bridge.holdAnimation(nullptr,
+                                      QUrl::fromLocalFile(path).toString()));
+        QVERIFY(bridge.holdAnimation(&owner,
+                                     QUrl::fromLocalFile(path).toString()));
+        client.logout();
+        QCOMPARE(bridge.animationHoldsForTest(), 0);
+    }
+
+    // The same animation written again (its file evicted) is a new URL, so an
+    // item still showing the old one reloads rather than staying frozen.
+    void anAnimationWrittenAgainIsANewUrl()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const QString mxc = QStringLiteral("mxc://x/again");
+        const QString first = writeAnimation(client, bridge, mxc);
+        QVERIFY(QFile::remove(first));
+        const QString second =
+            QUrl(bridge.avatarAnimationSource(mxc, false)).toLocalFile();
+        QVERIFY(!second.isEmpty());
+        QVERIFY(second != first);
+        QVERIFY(QFile::exists(second));
+        // Asking again without a write keeps the URL.
+        QCOMPARE(QUrl(bridge.avatarAnimationSource(mxc, false)).toLocalFile(),
+                 second);
     }
 };
 

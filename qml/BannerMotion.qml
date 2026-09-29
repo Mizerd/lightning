@@ -13,7 +13,8 @@ import MatrixClient
 //
 // Policy is the GIF autoplay setting, like every other passive animation:
 // Always plays, On hover plays while the pointer is over the banner, Never and
-// reduced motion keep the still picture.
+// reduced motion keep the still picture. A banner scrolled out of its
+// Flickable (Space Home) stops too.
 Item {
     id: root
 
@@ -38,8 +39,45 @@ Item {
         root.Window.visibility !== Window.Minimized
         && root.Window.visibility !== Window.Hidden
     readonly property bool _wants: _allowed && stillReady && visible
-                                   && _windowShown
+                                   && _windowShown && _inViewport
                                    && (_mode === 0 || _hovered)
+
+    // The nearest Flickable's viewport, checked on every activation and once
+    // scrolling pauses.
+    property Item _viewport: null
+    property bool _inViewport: true
+    function _findViewport() {
+        for (var p = root.parent; p; p = p.parent) {
+            if (p.contentY !== undefined && p.flickableDirection !== undefined)
+                return p
+        }
+        return null
+    }
+    function _checkViewport() {
+        var f = _viewport
+        if (!f || width <= 0 || height <= 0) {
+            _inViewport = true
+            return
+        }
+        var r = root.mapToItem(f, 0, 0, width, height)
+        _inViewport = r.x + r.width > 0 && r.x < f.width
+                      && r.y + r.height > 0 && r.y < f.height
+    }
+    Component.onCompleted: _viewport = _findViewport()
+    onParentChanged: _viewport = _findViewport()
+    Connections {
+        target: root._viewport
+        enabled: root._allowed && root.stillReady
+        function onContentYChanged() { viewportSettle.restart() }
+        function onContentXChanged() { viewportSettle.restart() }
+        function onHeightChanged() { viewportSettle.restart() }
+        function onWidthChanged() { viewportSettle.restart() }
+    }
+    Timer {
+        id: viewportSettle
+        interval: 120
+        onTriggered: root._checkViewport()
+    }
     property string _src: ""
     property bool _failed: false
     // One reload after an error: the scratch file may have been evicted.
@@ -61,7 +99,13 @@ Item {
         }
         _failed = true
     }
-    on_WantsChanged: _ask()
+    // Deferred: this runs inside _wants' own evaluation, and the viewport check
+    // writes _inViewport, which _wants reads.
+    on_WantsChanged: Qt.callLater(root._apply)
+    function _apply() {
+        _checkViewport()
+        _ask()
+    }
     onMxcChanged: {
         _src = ""
         _failed = false
@@ -82,8 +126,21 @@ Item {
         // decoder.
         active: root._wants && root._src !== "" && !root._failed
         sourceComponent: AnimatedImage {
+            id: bannerImage
             objectName: "bannerAnimatedImage"
             source: root._src
+            // Keeps the bridge from evicting the file mid-play.
+            AnimationFileHold {}
+            // A decoder that stopped on its own leaves `playing` false, and a
+            // new source would then load paused on its first frame.
+            onSourceChanged: bannerImage.playing = true
+            // Stopped on its own: a finite animation ended, or its file is
+            // gone. Only the second changes anything when the bridge is asked.
+            onPlayingChanged: {
+                if (!bannerImage.playing
+                    && bannerImage.status === AnimatedImage.Ready)
+                    Qt.callLater(root._ask)
+            }
             fillMode: root.fillMode
             asynchronous: true
             cache: false

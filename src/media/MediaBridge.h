@@ -155,6 +155,24 @@ public:
     // fetchMxcThumbnail(mxc, 0, kMotionProbeHeight) asks Rust for the original
     // under the motion-probe size class (rust/src/rooms.rs mxc_fetch_cap).
     static constexpr int kMotionProbeHeight = 1;
+    // An AnimatedImage showing one of this bridge's scratch files holds it
+    // (qml/AnimationFileHold.qml), so eviction does not delete a file mid-play:
+    // a decoder whose file vanishes stops at its next loop without ever
+    // reporting an error, frozen on its last frame. Keyed by owner and dropped
+    // when the owner is destroyed; a URL this bridge did not write (or "") only
+    // drops the owner's hold and returns false. Held files may take the cache
+    // over its caps, up to the hard caps below.
+    Q_INVOKABLE bool holdAnimation(QObject *owner, const QString &fileUrl);
+    Q_INVOKABLE void releaseAnimation(QObject *owner);
+    // Holds bend the scratch caps (64 files, 64 MiB), not these: a timeline
+    // keeps every animated row it has loaded, so past them the oldest held
+    // file is evicted too.
+    static constexpr int kAnimatedHardCapEntries = 128;
+    static constexpr qint64 kAnimatedHardCapBytes = 256 * 1024 * 1024;
+    int animationHoldsForTest() const
+    {
+        return static_cast<int>(m_animationHolds.size());
+    }
     // Inline video/audio playback. Same contract as animatedSource (validated
     // by container magic, 0600 file with an unguessable name, separate LRU,
     // wiped on sign-out), but returns a file:// URL for the in-process
@@ -494,6 +512,15 @@ private:
     QHash<QString, QString> m_animatedFiles;
     QHash<QString, qint64> m_animatedSizes;
     QList<QString> m_animatedLru;
+    struct AnimationHold {
+        QString cacheKey;
+        QMetaObject::Connection destroyed;
+    };
+    QHash<QObject *, AnimationHold> m_animationHolds;
+    bool isAnimationHeld(const QString &cacheKey) const;
+    // Every write gets a new file name, so a file written again (after an
+    // eviction) is a new URL and a consumer showing the old one reloads.
+    quint64 m_animatedWriteSerial = 0;
     QSet<QString> m_animatedWanted;
     // Keys with at least one non-speculative asker; only these report
     // mediaFetchFailed("invalid_gif").

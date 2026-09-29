@@ -219,6 +219,10 @@ Rectangle {
         _motionSrc = bridge.avatarAnimationSource(mxc, prominent || _hovered)
         _syncSlot()
     }
+    function _motionStalled() {
+        if (_wantsMotion && !_motionFailed)
+            _requestMotion()
+    }
     function _motionError() {
         if (!_motionRetried) {
             _motionRetried = true
@@ -240,7 +244,12 @@ Rectangle {
                 bridge.releaseMotionSlot(root)
         }
     }
-    on_WantsMotionChanged: {
+    // Deferred: this runs inside _wantsMotion's own evaluation, and
+    // _requestMotion() re-checks the viewport, writing _inViewport, which
+    // _wantsMotion reads (Qt reports that as a binding loop and abandons the
+    // update).
+    on_WantsMotionChanged: Qt.callLater(root._applyWantsMotion)
+    function _applyWantsMotion() {
         if (_wantsMotion)
             _requestMotion()
         else
@@ -343,14 +352,18 @@ Rectangle {
                 && !cacheKey.startsWith("motion:"))
                 root.refresh()
         }
+        // The file was written (again): every write is a new URL, so an item
+        // still showing an older one reloads rather than staying frozen.
         function onAnimatedMediaReady(cacheKey) {
             if (cacheKey === "motion:" + root.mxc)
                 root._requestMotion()
         }
         function onMotionSlotFreed() {
+            // Asks the bridge again before claiming: the file behind a URL
+            // held while waiting may have been evicted meanwhile.
             if (root._wantsMotion && root._motionSrc !== ""
                 && !root._slotHeld)
-                root._syncSlot()
+                root._requestMotion()
         }
     }
 
@@ -446,8 +459,21 @@ Rectangle {
         anchors.fill: parent
         active: root._playing
         sourceComponent: AnimatedImage {
+            id: motionImage
             objectName: "avatarAnimatedImage"
             source: root._motionSrc
+            // Keeps the bridge from evicting the file mid-play.
+            AnimationFileHold {}
+            // A decoder that stopped on its own leaves `playing` false, and a
+            // new source would then load paused on its first frame.
+            onSourceChanged: motionImage.playing = true
+            // Stopped on its own: a finite animation ended, or its file is
+            // gone. Only the second changes anything when the bridge is asked.
+            onPlayingChanged: {
+                if (!motionImage.playing
+                    && motionImage.status === AnimatedImage.Ready)
+                    Qt.callLater(root._motionStalled)
+            }
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             // One frame at a time; a cached animation holds every frame.

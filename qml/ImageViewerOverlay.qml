@@ -522,6 +522,8 @@ Popup {
                         // Not gated on `visible`, which waits for Ready: that
                         // would never load.
                         source: viewer.animateGifs ? viewer.animatedSource : ""
+                        // Keeps the bridge from evicting the file mid-play.
+                        AnimationFileHold {}
                         onStatusChanged: {
                             if (status === Image.Ready && viewer.baseWidth === 0)
                                 viewer.fitImage(implicitWidth, implicitHeight)
