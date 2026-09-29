@@ -388,12 +388,15 @@ private Q_SLOTS:
         }
     }
 
-    // --log-file's message handler must serialize its write: Qt calls handlers
-    // from arbitrary threads (the GUI-stall watchdog's std::thread,
-    // PlayableWriteWorker's QThread), and QFile/QTextStream are not
-    // thread-safe. A source scan, since main.cpp cannot be linked into a
-    // test; every step self-checks its needles.
-    void theLogFileHandlerSerializesItsWrite()
+    // --log-file's message handler must never write on the calling thread.
+    // Qt calls handlers on arbitrary threads, GStreamer streaming threads
+    // among them (pad probes log the call counters), and a log file that
+    // stopped accepting writes while the handler wrote it under a global lock
+    // silenced call audio both ways. The handler and the stdout mirror only
+    // queue into AsyncLogSink, whose writer thread owns the file (that class
+    // is tested on its own, async-log-sink). A source scan, since main.cpp
+    // cannot be linked into a test; every step self-checks its needles.
+    void theLogFileHandlerOnlyQueues()
     {
         const QString main =
             readAll(QStringLiteral(SOURCE_DIR "/src/main.cpp"));
@@ -421,54 +424,69 @@ private Q_SLOTS:
         };
 
         const QString handler = bodyOf(QStringLiteral("void logFileHandler("));
-        // Self-check: missing needles mean the handler changed and the
-        // assertions below would measure nothing.
-        QVERIFY2(handler.contains(QStringLiteral("QTextStream(g_logFile)")),
-                 "the scan did not find the log-file stream write; the "
-                 "derivation is broken, not the code");
-        QVERIFY2(handler.contains(QStringLiteral("g_logFile->flush()")),
-                 "the scan did not find the log-file flush; the derivation "
-                 "is broken, not the code");
-
-        static const QRegularExpression locker(
-            QStringLiteral("QMutexLocker\\s+\\w+\\(&(\\w+)\\)"));
-        const QRegularExpressionMatch held = locker.match(handler);
-        QVERIFY2(held.hasMatch(),
-                 "src/main.cpp's --log-file handler writes a shared QFile "
-                 "with no lock. Qt calls message handlers from arbitrary "
-                 "threads and this app logs from at least two non-GUI ones.");
-
-        const QString mutexName = held.captured(1);
-        QVERIFY2(main.contains(QStringLiteral("QMutex %1;").arg(mutexName)),
-                 qPrintable(QStringLiteral("the handler locks %1, which is "
-                                           "not declared as a file-scope "
-                                           "QMutex").arg(mutexName)));
-
-        // The lock covers both the stream write and the flush.
-        const int lockAt = held.capturedStart(0);
-        const int writeAt = handler.indexOf(QStringLiteral("QTextStream(g_logFile)"));
-        const int flushAt = handler.indexOf(QStringLiteral("g_logFile->flush()"));
-        QVERIFY2(lockAt < writeAt && lockAt < flushAt,
-                 "the --log-file lock is taken after part of the write; it "
-                 "must be held across the stream AND the flush");
-
-        // The pointer is published under the same lock, or a thread already
-        // running reads it unsynchronized.
+        const QString mirror = bodyOf(QStringLiteral("void mirrorToLogFile("));
         const QString install = bodyOf(QStringLiteral("void installLogFile("));
-        const int assignAt = install.indexOf(QStringLiteral("g_logFile = file;"));
-        QVERIFY2(assignAt > 0,
-                 "the scan did not find where g_logFile is published; the "
+        QVERIFY2(!handler.isEmpty() && !mirror.isEmpty() && !install.isEmpty(),
+                 "the scan did not find the --log-file functions; the "
                  "derivation is broken, not the code");
-        const int publishLockAt = install.lastIndexOf(
-            QStringLiteral("QMutexLocker"), assignAt);
-        QVERIFY2(publishLockAt >= 0,
-                 "g_logFile is published without taking the lock that guards "
-                 "every read of it");
-        QVERIFY2(install.mid(publishLockAt, assignAt - publishLockAt)
-                     .contains(mutexName),
-                 qPrintable(QStringLiteral("g_logFile is published under a "
-                                           "different lock than %1")
-                                .arg(mutexName)));
+
+        // Self-check: each body queues where the scan expects it to.
+        QVERIFY2(handler.contains(QStringLiteral("->log(")),
+                 "logFileHandler no longer queues through the sink's log()");
+        QVERIFY2(handler.contains(QStringLiteral("->logFatal(")),
+                 "logFileHandler no longer drains the sink on QtFatalMsg: a "
+                 "fatal line would be lost to the abort");
+        QVERIFY2(mirror.contains(QStringLiteral("->writeVerbatim(")),
+                 "mirrorToLogFile no longer queues through the sink");
+
+        // Neither body writes, flushes or locks anything itself: that is what
+        // blocked a streaming thread behind a stalled log file.
+        const QStringList forbidden = {
+            QStringLiteral("QTextStream"), QStringLiteral("QMutexLocker"),
+            QStringLiteral("QFile"),       QStringLiteral("->write("),
+            QStringLiteral("flush()"),
+        };
+        for (const QString &needle : forbidden) {
+            QVERIFY2(!handler.contains(needle),
+                     qPrintable(QStringLiteral("logFileHandler uses %1: it "
+                                               "must only queue").arg(needle)));
+            QVERIFY2(!mirror.contains(needle),
+                     qPrintable(QStringLiteral("mirrorToLogFile uses %1: it "
+                                               "must only queue").arg(needle)));
+        }
+
+        // The writer owns the file; a return from main() or an exit() drains
+        // it; and the sink exists before the handler that reads it.
+        const int sinkAt = install.indexOf(QStringLiteral("setProcessLogSink("));
+        const int handlerAt =
+            install.indexOf(QStringLiteral("qInstallMessageHandler("));
+        QVERIFY2(install.contains(QStringLiteral("new AsyncLogSink(")),
+                 "installLogFile does not hand the file to an AsyncLogSink");
+        QVERIFY2(install.contains(QStringLiteral("std::atexit(")),
+                 "installLogFile registers no exit drain: the status "
+                 "commands' output would not reach the file");
+        QVERIFY2(sinkAt >= 0 && handlerAt > sinkAt,
+                 "the handler is installed before the sink it reads is "
+                 "published");
+    }
+
+    // CallSoundPlayer ends a stuck process with std::_Exit, which skips the
+    // at-exit drain; the lines queued just before it are the ones explaining
+    // why, so it drains the sink itself first.
+    void anExitThatSkipsTeardownDrainsTheLogFirst()
+    {
+        const QString player = readAll(
+            QStringLiteral(SOURCE_DIR "/src/calls/CallSoundPlayer.cpp"));
+        QVERIFY(!player.isEmpty());
+        const int exitAt = player.indexOf(QStringLiteral("std::_Exit("));
+        QVERIFY2(exitAt >= 0, "CallSoundPlayer no longer calls std::_Exit");
+        const int drainAt = player.lastIndexOf(
+            QStringLiteral("flushProcessLog("), exitAt);
+        const int bodyAt = player.lastIndexOf(
+            QStringLiteral("void endWithoutTeardown()"), exitAt);
+        QVERIFY2(bodyAt >= 0 && drainAt > bodyAt,
+                 "endWithoutTeardown() reaches std::_Exit without draining "
+                 "the --log-file sink");
     }
 
     // Every loader variable the AppRun hook overrides (saving the session

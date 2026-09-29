@@ -21,6 +21,7 @@
 #include "media/ImageFormatSupport.h"
 #include "media/MediaImageProvider.h"
 #include "media/StagedImageProvider.h"
+#include "app/AsyncLogSink.h"
 #include "app/GuiStallTracer.h"
 #include "media/VaapiLogGate.h"
 #include "text/SpellChecker.h"
@@ -65,8 +66,6 @@
 #include <QStringList>
 #include <QDateTime>
 #include <QFile>
-#include <QMutex>
-#include <QMutexLocker>
 #include <QTextStream>
 
 #include <atomic>
@@ -133,38 +132,45 @@ void configureWindowsConsole(bool forceAlloc)
 // carries exactly what the console does (no tokens, keys or message bodies)
 // and is appended to.
 namespace {
-// Qt calls message handlers from arbitrary threads (the GUI-stall watchdog and
-// PlayableWriteWorker both log off the GUI thread), and neither QFile nor
-// QTextStream is thread-safe. The lock covers the stream write and the flush.
-// The previous handler is called outside it to avoid imposing a lock order.
-QMutex g_logMutex;
-QFile *g_logFile = nullptr;             // guarded by g_logMutex
+using lightning::logging::AsyncLogSink;
+using lightning::logging::processLogSink;
+
+// Qt calls message handlers on arbitrary threads, including GStreamer
+// streaming threads (pad probes log the call counters) and the GUI thread.
+// The handler only queues: a writer thread owns the file (AsyncLogSink), so
+// a log file that stops accepting writes costs dropped lines, never a
+// blocked caller. It used to write and flush here under one global mutex,
+// and a stalled log pipe silenced call audio both ways.
+//
+// The previous handler (Qt's stderr or journald output) is still called
+// synchronously, after the line is queued, and that is deliberate: it is
+// where a crash is read when no --log-file was asked for, and a queue would
+// lose exactly the lines before the crash; Qt formats QT_MESSAGE_PATTERN
+// (%{threadid}, %{backtrace}) on the calling thread. It can still block if
+// whatever reads stderr stops reading: a throttled journald, `2> file` on a
+// throttled disk, or a Windows console with text selected in QuickEdit.
+//
 // Atomic: it is written after logFileHandler is already installed and may be
-// running on other threads, and it is read outside g_logMutex.
+// running on other threads.
 std::atomic<QtMessageHandler> g_previousHandler{nullptr};
 
 void logFileHandler(QtMsgType type, const QMessageLogContext &context,
                     const QString &message)
 {
+    // First: it never blocks and stamps the line now, so a stalled stderr
+    // can neither hold it back nor re-date it.
+    if (AsyncLogSink *sink = processLogSink()) {
+        if (type == QtFatalMsg) {
+            // Qt aborts when the handlers return: the line is queued past
+            // the bound and the writer is waited for, bounded.
+            sink->logFatal(context.category, message,
+                           AsyncLogSink::kFatalDrainMs);
+        } else {
+            sink->log(type, context.category, message);
+        }
+    }
     if (const QtMessageHandler previous = g_previousHandler.load())
         previous(type, context, message);
-    const char *level = "info";
-    switch (type) {
-    case QtDebugMsg:    level = "debug"; break;
-    case QtInfoMsg:     level = "info"; break;
-    case QtWarningMsg:  level = "warning"; break;
-    case QtCriticalMsg: level = "critical"; break;
-    case QtFatalMsg:    level = "fatal"; break;
-    }
-    QMutexLocker locker(&g_logMutex);
-    if (!g_logFile)
-        return;
-    QTextStream(g_logFile)
-        << QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs) << ' '
-        << level << ' '
-        << (context.category ? context.category : "default") << ": "
-        << message << '\n';
-    g_logFile->flush();   // a crash must not lose the lines that explain it
 }
 
 // Append program output verbatim to the --log-file, if one is open. The
@@ -174,11 +180,18 @@ void mirrorToLogFile(const QString &text)
 {
     if (text.isEmpty())
         return;
-    QMutexLocker locker(&g_logMutex);
-    if (!g_logFile)
-        return;
-    QTextStream(g_logFile) << text;
-    g_logFile->flush();
+    if (AsyncLogSink *sink = processLogSink())
+        sink->writeVerbatim(text);
+}
+
+// Registered with atexit, so it runs on a return from main() and on exit()
+// alike (QCommandLineParser exits directly): what is queued reaches the
+// file before the process ends, the status commands' output included.
+// Bounded, so a stalled file delays the exit by kShutdownMs at most.
+void flushLogFileAtExit()
+{
+    if (AsyncLogSink *sink = processLogSink())
+        sink->shutdown(AsyncLogSink::kShutdownMs);
 }
 } // namespace
 
@@ -251,17 +264,16 @@ void installLogFile(const QString &path)
         return;
     }
     file->setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+    // The writer owns the file from here, so not even the header can block
+    // this thread. Never freed; see processLogSink().
+    auto *sink = new AsyncLogSink(std::unique_ptr<QIODevice>(file));
     // Local logs carry account slugs and store paths; say so up front.
-    QTextStream(file)
-        << "# Lightning debug log. Contains Matrix user ids and local file "
-           "paths; never message content, keys or tokens. Review before "
-           "sharing.\n";
-    file->flush();
-    {
-        // Publish under the write lock so other threads see it safely.
-        QMutexLocker locker(&g_logMutex);
-        g_logFile = file;
-    }
+    sink->writeVerbatim(QStringLiteral(
+        "# Lightning debug log. Contains Matrix user ids and local file "
+        "paths; never message content, keys or tokens. Review before "
+        "sharing.\n"));
+    lightning::logging::setProcessLogSink(sink);
+    std::atexit(flushLogFileAtExit);
     g_previousHandler.store(qInstallMessageHandler(logFileHandler));
 }
 

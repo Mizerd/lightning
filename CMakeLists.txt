@@ -382,6 +382,8 @@ set(APP_SOURCES
     src/app/SessionDiagnostics.cpp
     src/app/GuiStallTracer.h
     src/app/GuiStallTracer.cpp
+    src/app/AsyncLogSink.h
+    src/app/AsyncLogSink.cpp
     src/app/ShortcutRegistry.h
     src/app/ShortcutRegistry.cpp
     src/app/SyncLatencyTracer.h
@@ -1559,6 +1561,18 @@ if(BUILD_TESTING)
     target_include_directories(vaapi-log-gate-test PRIVATE src)
     target_link_libraries(vaapi-log-gate-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME vaapi-log-gate COMMAND vaapi-log-gate-test)
+
+    # The --log-file writer: a caller never waits for the file (a blocked
+    # device, a full queue), drops are counted and reported in place, order
+    # and call-time stamps are kept, fatal and shutdown drains are bounded.
+    qt_add_executable(async-log-sink-test
+        tests/AsyncLogSinkTest.cpp
+        src/app/AsyncLogSink.h
+        src/app/AsyncLogSink.cpp
+    )
+    target_include_directories(async-log-sink-test PRIVATE src)
+    target_link_libraries(async-log-sink-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME async-log-sink COMMAND async-log-sink-test)
 
     # Storm Band tile painter: deterministic procedural pixel-art layers,
     # palette derivation from theme inputs, defensive id parsing.
@@ -3059,6 +3073,8 @@ if(BUILD_TESTING)
         tests/CallSoundPlayerTest.cpp
         src/calls/CallSoundPlayer.h
         src/calls/CallSoundPlayer.cpp
+        src/app/AsyncLogSink.h
+        src/app/AsyncLogSink.cpp
     )
     target_include_directories(call-sound-player-test PRIVATE src)
     target_link_libraries(call-sound-player-test PRIVATE

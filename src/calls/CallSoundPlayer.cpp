@@ -1,5 +1,7 @@
 #include "calls/CallSoundPlayer.h"
 
+#include "app/AsyncLogSink.h"
+
 #include <QAudioDevice>
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -58,6 +60,10 @@ std::atomic<int> g_exitStatus{0};
 /// flushed) by the time the application object goes.
 void endWithoutTeardown()
 {
+    // _Exit skips the at-exit drain, and the lines just queued are the ones
+    // saying why the sound thread is stuck.
+    lightning::logging::flushProcessLog(
+        lightning::logging::AsyncLogSink::kFatalDrainMs);
     std::fflush(nullptr);
     std::_Exit(g_exitStatus.load());
 }
