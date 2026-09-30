@@ -1,5 +1,58 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-09-30 — OPEN after the overnight live-test campaign
+
+**Decisions for Rokas.**
+- The server-admin "Delete from server" path was NOT TESTED: it needs a
+  server-admin grant on the production homeserver, which was not given.
+- `validate-rpm-opensuse` is a HARD gate installing from live Tumbleweed
+  repositories: a Tumbleweed transition can block a release (the remedy is to
+  retry the one job). The alternative is `allow_failure`.
+- The COPR project (mizerd/lightning) needs its one-time setup, webhook and
+  first build (`packaging-ci/docs/copr.md`); the `dnf copr enable` lines join
+  `docs/install.md` only after a green COPR build.
+
+**Found live, NOT fixed.**
+- A SOFT logout (the device still exists) still loops through "Open it"; the
+  fix is a password sign-in that reuses the saved device id.
+- The DM row avatar stays stale for the whole session after the peer changes
+  it (`DirectAvatarResolver` fetches once per session).
+- An "[unsupported event]" row for an empty `m.space.parent`.
+- A paragraph written entirely in Arabic is left-aligned.
+- The room-list preview of an edit shows the raw fallback ("* ...markdown").
+- One invite raised two notifications, the first titled "Empty Room".
+- A Mentions-only encrypted room shows a numbered badge.
+- "People in this Space" lists a banned member.
+- Tray options are missing from the settings search; `trayAvailable` is
+  CONSTANT.
+- `ScreenSharePicker.qml:462` fails to load its thumbnail (cosmetic); the Qt
+  Quick file dialog sometimes opens at `/` on a fresh profile.
+- Once each, not reproduced: a 14 s quit after using the tray, and a 6.7 s GUI
+  stall inside the sign-out handlers of a local session end (the same step as
+  an account switch; the open account-switch freeze?).
+- A teardown warning per session end: `TimelinePane.qml:4317
+  recomputePresentationReady is not a function` (a `Qt.callLater` after the
+  timeline is destroyed).
+- Nits: "Add another account" heading on the repair page; "1 members"; the
+  status bar still says "Error" after a removal; Ctrl+, does not focus the
+  settings search; an ended video shows a black card; a redirected sign-in
+  says nothing.
+
+**Test harness.** `LoginScreenQmlTest::theFieldsStayPutWhenTheWaysChange`
+fails ONLY under a parallel ctest (rounds o, p, x, y; userField at y 328
+instead of 117, identical every time) and never when run directly: alone
+under a 16-process CPU load 0/8, the full suite under load 0/5, beside
+login-repair-qml 0/4. Suspect state shared between concurrently running test
+processes, not timing. The behaviour it guards passed live.
+
+**NOT TESTED after the campaign.** The portal ScreenCast (Flatpak, snap,
+Wayland) with the pipewiresrc copy fix (no backend on the rig); a real webcam,
+audibility and a two-party call INSIDE the packages; libsecret on Fedora
+(gnome-keyring aborts as root in a container); the Fedora 44 GUI; macOS; the
+admin delete; the HomePane "can't sync" wording live (cannot force a
+non-revocation sync error); a Sable-sent gallery (Sable cannot send one; the
+render was tested with a hand-built event); a real SNI tray host.
+
 ## 2026-09-29 — OPEN and accepted follow-ups from the 2026-09-29 round
 
 Everything below was found or left open by that round's live testing and its

@@ -1,5 +1,59 @@
 # Live validation: what Rokas has actually confirmed
 
+## 2026-09-30 — the overnight campaign: every Linux package, the features since 0.9.9, X11 and Wayland
+
+Private Xvfb, nested kwin_wayland 6.6.6, private buses and PipeWire; the
+project homeserver; Element Web and Sable as the other side. Throwaway
+accounts only.
+
+- **Packages (pipeline 275 + rebuilds), each installed on a clean system:**
+  Flatpak (Ubuntu 26.04 VM), snap (real snapd, strict), deb (Debian 13.6 and
+  Ubuntu 26.04), the portable rpm (openSUSE Tumbleweed 20260924 AND Fedora
+  44/45; 0 private Qt symbols, zypper resolves it), AppImage (Ubuntu 26.04):
+  install, sign in, send and receive text and images. PASS. The deb decrypted
+  a message the Flatpak sent.
+- **Camera in the Flatpak and the snap:** 15 and 11 starts, 0 crashes, frames
+  and a live self-view, after `71d16aea` / `3d5cc9df`. PASS (was a crash, and
+  no frames at all in the snap). Virtual camera; a real webcam inside the
+  packages is NOT TESTED.
+- **Snap attach and send:** the portal's file chooser, and a picture arrives as
+  m.image. PASS after `5f77b607`.
+- **Keyring scoping with the REAL Flatpak and a native deb** on one
+  gnome-keyring: separate items, each token its own device, one install's
+  sign-out leaves the other signed in. PASS.
+- **Notifications:** the first open of a backlog room raises 0 popups (was
+  20); new messages after a forced gap all notify; a silent daemon neither
+  crashes nor freezes the app. PASS.
+- **Middle-click autoscroll:** X11 39/39, nested Wayland every item. PASS.
+- **Features since 0.9.9, X11:**
+  - the sign-in page (typed forms, "Not encrypted", repair and retry cards);
+  - change password (both device choices, verified server-side);
+  - video length and Retry;
+  - the read receipt after a notification click;
+  - the presence dot and the DM header profile;
+  - Spaces close, delete (non-admin), kick and ban cascade, lobby and rail
+    badges;
+  - link media, over-cap media, Open in browser, SVG thumbnails and
+    animated-avatar churn;
+  - Sable image-only messages and gallery rendering;
+  - edited HTML;
+  - #15 in an ENCRYPTED room.
+
+  PASS.
+- **Revoked session (device deleted server-side; change password "sign out
+  others" from a second session):** the card, the store kept, and signing in
+  again lands as a new device with the old store moved aside. PASS on the
+  fixed builds.
+- **OS matrix, Linux X11 AND Wayland:**
+  - wheel, keys, pagination, scrollbar and jump;
+  - notification plus click;
+  - clipboard text and image, paste, drag and drop, the file dialog;
+  - Ctrl+K, colour emoji;
+  - maximise, fullscreen video, geometry restore;
+  - Ctrl+Q and the tray.
+
+  PASS. Physical wheel and touchpad FEEL: NOT TESTED (needs a human).
+
 ## 2026-09-25 (night) — three-party encrypted calls with Element, measured by tone
 
 Laptop rig, all audio on null sinks: Flathub 0.9.9, current `main`, and

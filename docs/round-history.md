@@ -1,5 +1,58 @@
 # Round history
 
+## 2026-09-30 — the overnight live-test campaign, and what it found in the packages
+
+Rokas asked for everything marked NOT TESTED to be tested live overnight, OS-
+dependent behaviour on Linux AND Windows, and every failure fixed. Three lanes
+ran on the pushed main: features (private Xvfb and nested kwin_wayland against
+the project homeserver, Element Web and Sable as the other side), Linux
+packages (each format installed on a clean system: Flatpak, snap under real
+snapd, deb, the new portable rpm on Fedora 44/45 AND openSUSE Tumbleweed,
+AppImage), and calls plus the Windows guest. Findings, most serious first:
+
+- **The Flatpak and the snap crashed when the camera started in a call**
+  (SIGSEGV in orcexec, 2 of 4 starts). webrtcbin's RECONFIGURE on the SFU
+  answer makes pipewiresrc reconnect and free its PipeWire buffers while a
+  frame made from one is still queued. Harness inside the Flatpak: shipped
+  chain 8/8 crash, `always-copy=true` 0/5; the system pipewiresrc 1.6.2 crashes
+  the same, so it is not fixed upstream (`71d16aea`). Live after: 15 starts,
+  0 crashes. The screen share uses the same element and is NOT TESTED (no
+  ScreenCast backend on the rig).
+- **The snap had no camera at all** (libpipewire could not find its SPA
+  plugins: the launcher lacked the three variables the AppImage's hook sets,
+  `3d5cc9df`), **could not attach any file** (no portal platform theme, so
+  Qt Quick's dialog on an empty home) and **sent pictures as plain files** (no
+  MIME database on core24) (`5f77b607`). All three live PASS on the rebuilt
+  snap.
+- **A session revoked by the server left Lightning on Main saying "You appear
+  to be offline", with no way out**: since the 2026-09-14 offline-first
+  restore the rejection arrives after Main, and the signed-out card was shown
+  only from Boot. This is exactly what "Change password → sign out other
+  devices" does to every other session. And **"Sign in again" could never
+  succeed after a hard revocation**: the policy sent it to "Open it", which
+  restored the dead store and was revoked again; the only exit deleted the
+  keys. The darkcoffee "stuck" family. Both fixed live (see the commit that
+  lands them); the old store is moved ASIDE, never deleted.
+- Smaller: Escape never closed the member card (a focus race with the
+  timeline's TapHandler, `3dbfa698`); every Space Home member chip elided its
+  name by 2 px (`5a1531c4`); a copr-srpm job that failed on its first run for a
+  missing `jq` (`0997568c`); deb and rpm recommended no colour emoji font
+  (`de47b064`).
+
+**Harness lessons.** A test that clicks before the first polish clicks
+nothing (`aa6fe93c`: the press reached no item, visible only with
+`qt.pointer.grab`). A content-height clamp added to "fix" a flaky login test
+caused the flake it was meant to cure, and was removed; a separate login case
+(`theFieldsStayPutWhenTheWaysChange`) still fails only under a parallel ctest,
+with identical coordinates every time, and never when run directly, even
+under heavy CPU load — an open item. Earlier the same night: the dev shell
+had been compiling ~2% of the QML ahead of time (`d4d703cd`), and
+`-Werror=return-type` now stops the missing-return class that crashed a
+notification build.
+
+Full per-lane records: the vault's `Lightning/Tasks/2026-09-30-campaign-*.md`.
+Open items: `docs/open-items.md`, 2026-09-30.
+
 ## 2026-09-29 — a live call matrix on the desktop rig, #15, #3, browser sign-in, link media, and a log file that could silence a call
 
 The laptop was offline, so the test rig moved to the external SSD on the
