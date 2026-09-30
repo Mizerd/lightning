@@ -54,6 +54,9 @@ Requires:       %{qml_module QtMultimedia}
 # Recommends; missing formats are reported by --image-format-status.
 Requires:       (qt6-qtimageformats or qt6-imageformats)
 Recommends:     kf6-kimageformats
+# A colour emoji font (Fedora's name, then openSUSE's): without one a minimal
+# install draws emoji monochrome or as tofu.
+Recommends:     (google-noto-color-emoji-fonts or noto-coloremoji-fonts)
 
 %description
 A native C++ and Qt Matrix desktop client with the Matrix Rust SDK backend.

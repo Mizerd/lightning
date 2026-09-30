@@ -1509,6 +1509,12 @@ check(_deb_recommends is not None
       "deb recommends kimageformat6-plugins, the only Qt JPEG XL decoder")
 check("Recommends: %s" in deb_src,
       "build-deb writes a Recommends field into the control file")
+check("fonts-noto-color-emoji" in deb_src,
+      "deb recommends a colour emoji font (a minimal install otherwise draws emoji monochrome)")
+for _spec_name in ("lightning.spec", "lightning-copr.spec.in"):
+    with open(os.path.join(HERE, "..", "packaging", "rpm", _spec_name)) as _fh:
+        check("Recommends:     (google-noto-color-emoji-fonts or noto-coloremoji-fonts)" in _fh.read(),
+              f"{_spec_name} recommends a colour emoji font under Fedora's or openSUSE's name")
 
 check("(qt6-qtimageformats or qt6-imageformats)" in _rpm_requires,
       "rpm requires the Qt image-format plugins (webp) under Fedora's or openSUSE's name")

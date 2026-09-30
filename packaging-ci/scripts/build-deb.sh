@@ -80,8 +80,9 @@ IMAGE_RECOMMENDS="kimageformat6-plugins"
     printf 'Version: %s\n' "$DEB_VERSION"
     printf 'Depends: %s, %s, %s, %s\n' \
         "$SHLIBS" "$QML_DEPENDS" "$CALL_DEPENDS" "$IMAGE_DEPENDS"
-    # libenchant-2-2 is dlopen'd for spell checking; optional.
-    printf 'Recommends: %s, libenchant-2-2\n' "$IMAGE_RECOMMENDS"
+    # libenchant-2-2 is dlopen'd for spell checking; optional. A colour emoji
+    # font: without one a minimal install draws emoji monochrome or as tofu.
+    printf 'Recommends: %s, libenchant-2-2, fonts-noto-color-emoji\n' "$IMAGE_RECOMMENDS"
 } >"$CONTROL/control"
 install -m0755 "$ROOT/packaging-ci/packaging/deb/postinst" "$CONTROL/postinst"
 install -m0755 "$ROOT/packaging-ci/packaging/deb/postrm" "$CONTROL/postrm"
