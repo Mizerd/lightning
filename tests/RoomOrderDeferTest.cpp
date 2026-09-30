@@ -419,6 +419,22 @@ private Q_SLOTS:
     }
 
     // Old code: the stamp lands on the open room and it climbs to the top.
+    // Clicking another room is looking away from the list: the held order
+    // applies then, as in Element.
+    void classicSwitchingRoomsAppliesTheHeldOrder()
+    {
+        Classic c;
+        c.build();
+        c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
+        c.client.announce();
+        QCOMPARE(idsOf(c.model), kStill);
+
+        c.model.setPinnedRoomId(kR1);
+
+        QCOMPARE(idsOf(c.model), kLive);
+        QVERIFY(!c.model.orderHeld());
+    }
+
     void classicOpeningARoomDoesNotMoveItOnAStaleStamp()
     {
         Classic c;
@@ -624,10 +640,10 @@ private Q_SLOTS:
                      QStringLiteral(" "));
         QVERIFY2(flat.contains(QStringLiteral("Qt.application.state === Qt.ApplicationActive")),
                  "returning to the window no longer releases a held order");
-        QVERIFY2(flat.contains(QStringLiteral("interval: 3000")),
-                 "the idle-at-top release is gone");
-        QVERIFY2(flat.contains(QStringLiteral("running: root.orderHeld && listBody.listAtRest")),
-                 "the idle release is not gated on a held order and a list at rest");
+        // Nothing may reorder the list on its own while the user looks at it:
+        // live, an idle-at-top release fired while the reader was in the chat.
+        QVERIFY2(!flat.contains(QStringLiteral("roomOrderIdleTimer")),
+                 "an idle timer releases the held order while the list is on screen");
         QVERIFY2(flat.contains(QStringLiteral("app.roomList.releaseOrder()"))
                      && flat.contains(QStringLiteral("app.spaceChannels.releaseOrder()")),
                  "a release must reach both layouts' models");

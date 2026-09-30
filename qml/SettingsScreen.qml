@@ -3387,9 +3387,9 @@ Item {
                                     font.pixelSize: AppTheme.textMeta
                                     text: qsTr("New messages still update a room's preview "
                                                + "and badge at once, but it only moves up "
-                                               + "when you switch Space, tab or search, "
-                                               + "come back to the window, or leave the "
-                                               + "list alone for a few seconds.")
+                                               + "when you open another room, switch "
+                                               + "Space, tab or search, or come back to "
+                                               + "the window.")
                                 }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8

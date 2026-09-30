@@ -437,13 +437,17 @@ void RoomListModel::setPinnedRoomId(const QString &roomId)
             }
         }
     }
+    // Moving to another room is the user looking away from the list, which is
+    // when a held order is applied (Element does the same).
+    const bool hadHold = m_hold.enabled();
+    m_hold.release();
     m_hold.setOpenRoom(roomId, liveNow);
-    // Only the Unreads view depends on the pin; skip the reconcile otherwise.
     if (m_filterMode == 3) {
         ++m_filterGeneration;
         Q_EMIT filterGenerationChanged();
-        reconcileRooms();
     }
+    if (hadHold || m_filterMode == 3)
+        reconcileRooms();
 }
 
 void RoomListModel::setDeferReordering(bool defer)
@@ -471,7 +475,7 @@ void RoomListModel::setOrderHeld(bool held)
 {
     if (held) {
         // Armed once per stale spell, not restarted by every message.
-        if (!m_holdCap.isActive())
+        if (m_holdCap.interval() > 0 && !m_holdCap.isActive())
             m_holdCap.start();
     } else {
         m_holdCap.stop();

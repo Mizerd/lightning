@@ -159,7 +159,7 @@ public:
     Q_INVOKABLE void releaseOrder();
     /// How long a held order may stay stale, in ms. A cap, so a list nobody
     /// looks away from still catches up. Test seam; 60 s in use.
-    static constexpr int kHoldCapMs = 60000;
+    static constexpr int kHoldCapMs = 0; // 0 = no cap; tests set one
     void setHoldCapMs(int ms);
 
     // Account switch: drop DM profile lookups made under the previous account,

@@ -179,7 +179,7 @@ public:
     /// The open room, which an old stamp must not move (RecencyHold).
     void setOpenRoomId(const QString &roomId);
     /// How long a held order may stay stale, in ms (60 s in use).
-    static constexpr int kHoldCapMs = 60000;
+    static constexpr int kHoldCapMs = 0; // 0 = no cap; tests set one
     void setHoldCapMs(int ms);
     /// How many times rebuild() has run. Test seam for the coalescing; counting
     /// the client's rooms() calls would include SpaceManager's own rebuilds.

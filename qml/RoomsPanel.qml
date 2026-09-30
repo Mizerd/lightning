@@ -30,9 +30,9 @@ Rectangle {
     }
 
     // Room order is held still while the list is in use (Settings, Panels);
-    // the models apply a new order on a Space, tab or search change by
-    // themselves. These are the other ways out: the user looked away, or the
-    // list has been left alone. The models also cap how long an order is held.
+    // the models apply a new order on a Space, tab, search or room change by
+    // themselves. Coming back to the window is the other way out. Nothing
+    // reorders the list while the user is looking at it.
     function releaseHeldOrder() {
         if (app.roomList)
             app.roomList.releaseOrder()
@@ -671,22 +671,6 @@ Rectangle {
                 app.settings && app.settings.roomNavigationLayout === 1
             readonly property bool channelsUsable: channelsChosen
 
-            // A held order is applied once the list has sat scrolled to the
-            // top, with the pointer elsewhere, for three seconds: nothing is
-            // under the user's hand to move. Any scroll or hover restarts the
-            // wait, because the binding goes false and true again.
-            readonly property Item activePresenter:
-                channelsUsable ? channelsLoader.item : classicLoader.item
-            readonly property bool listAtRest:
-                activePresenter !== null && activePresenter.atRest
-                && !listHover.hovered
-            HoverHandler { id: listHover }
-            Timer {
-                objectName: "roomOrderIdleTimer"
-                interval: 3000
-                running: root.orderHeld && listBody.listAtRest
-                onTriggered: root.releaseHeldOrder()
-            }
 
             Loader {
                 id: classicLoader

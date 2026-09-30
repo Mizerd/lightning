@@ -118,14 +118,19 @@ void SpaceChannelModel::setOpenRoomId(const QString &roomId)
             }
         }
     }
+    // Moving to another room applies a held order, as on the classic list.
+    const bool hadHold = m_hold.enabled();
+    m_hold.release();
     m_hold.setOpenRoom(roomId, liveNow);
+    if (hadHold)
+        scheduleRebuild();
 }
 
 void SpaceChannelModel::setOrderHeld(bool held)
 {
     if (held) {
         // Armed once per stale spell, not restarted by every message.
-        if (!m_holdCap.isActive())
+        if (m_holdCap.interval() > 0 && !m_holdCap.isActive())
             m_holdCap.start();
     } else {
         m_holdCap.stop();
