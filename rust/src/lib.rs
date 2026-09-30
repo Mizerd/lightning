@@ -81,9 +81,12 @@ mod gifs;
 mod ignore;
 mod imagesend;
 mod linkmedia;
+mod indexall;
 mod localsearch;
 mod location;
+mod mediafiles;
 mod mediahistory;
+mod mediastore;
 mod namecolor;
 mod widgets;
 mod oauth;
@@ -156,6 +159,10 @@ struct RustClient {
     /// Cooperative stop for the background indexer, checked between rooms, so
     /// a sweep does not keep the store open while sign-out deletes it.
     index_shutdown: Arc<AtomicBool>,
+    /// "Index all rooms": the queue, its persisted position (a file in this
+    /// store directory) and its pause/cancel/hold controls. Per bridge, so a
+    /// run can only write this account's index.
+    index_all: Arc<indexall::Control>,
     /// Per-room cursor of the independent media-history walk, so reopening
     /// the panel continues. Holds only a `/messages` token and counters.
     media_history: Arc<Mutex<HashMap<String, mediahistory::Cursor>>>,
@@ -278,10 +285,12 @@ impl RustClient {
             .enable_all()
             .build()
             .map_err(|err| format!("failed to create shared Tokio runtime: {err}"))?;
+        let index_all = Arc::new(indexall::Control::new(&store_path));
         Ok(Self {
             store_path,
             search_index: Arc::new(Mutex::new(None)),
             index_shutdown: Arc::new(AtomicBool::new(false)),
+            index_all,
             media_history: Arc::new(Mutex::new(HashMap::new())),
             session_file: Arc::new(Mutex::new(None)),
             client: Arc::new(Mutex::new(None)),
@@ -880,6 +889,9 @@ struct PersistentSessionFile {
 impl Drop for RustClient {
     fn drop(&mut self) {
         let _ = self.shutdown_managed_tasks();
+        // This handle's media-store key, and only this handle's: a handle
+        // being retired must not take its successor's.
+        mediastore::forget(self as *const RustClient as usize, &self.store_path);
     }
 }
 
@@ -1094,18 +1106,23 @@ pub unsafe extern "C" fn mx_rust_destroy(ptr: *mut c_void) {
     }));
 }
 
+/// `device_id` empty: the server creates a new device. Non-empty: sign in
+/// again as that device, which the store at this handle's path must already
+/// hold (C++ passes it only after the SDK reported a soft logout for it).
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_login(
     ptr: *mut c_void,
     homeserver: *const c_char,
     user: *const c_char,
     password: *const c_char,
+    device_id: *const c_char,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let homeserver = unsafe { cstr_arg(homeserver) }?;
         let user = unsafe { cstr_arg(user) }?;
         let password = unsafe { cstr_arg(password) }?;
+        let device_id = unsafe { cstr_arg(device_id) }?;
 
         bridge.stop_sync_and_wait();
         bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
@@ -1133,12 +1150,14 @@ pub unsafe extern "C" fn mx_rust_login(
                             Arc::clone(&active_sas),
                             Arc::clone(&active_qr),
                         );
-                        let login = client
+                        let mut builder = client
                             .matrix_auth()
                             .login_username(&user, &password)
-                            .initial_device_display_name("Lightning")
-                            .send()
-                            .await;
+                            .initial_device_display_name("Lightning");
+                        if !device_id.is_empty() {
+                            builder = builder.device_id(&device_id);
+                        }
+                        let login = builder.send().await;
                         match login {
                             Ok(response) => {
                                 let session = MatrixSession::from(&response);
@@ -4590,6 +4609,116 @@ async fn own_identity_key_agreement(client: &Client) -> Option<bool> {
     identity_key_agreement(Some(local.as_str()), published.as_deref())
 }
 
+/// What the server says about a RESUMED device (a password sign-in that asked
+/// for the soft-logged-out device again): "matches" when it publishes this
+/// store's key, "missing" when it answered and publishes no keys for the
+/// device, "different" when it publishes another key, "unknown" when it did
+/// not answer or the answer could not be read. `answer` is None for no
+/// answer, Some(None) for "answered, nothing for this device".
+///
+/// Unlike identity_key_agreement, "answered, nothing published" is a verdict
+/// here: a resumed device's keys went up with its earlier session, and a
+/// device removed and re-created under the same id has none, which this
+/// store (keys already marked uploaded) would never send again. Pure and
+/// unit-tested.
+pub(crate) fn resumed_device_key_state(
+    local_base64: Option<&str>,
+    answer: Option<Option<&str>>,
+) -> &'static str {
+    let Some(local) = local_base64.filter(|local| !local.is_empty()) else {
+        return "unknown";
+    };
+    match answer {
+        None => "unknown",
+        Some(None) => "missing",
+        Some(Some(published)) => match identity_key_agreement(Some(local), Some(published)) {
+            Some(true) => "matches",
+            Some(false) => "different",
+            None => "unknown",
+        },
+    }
+}
+
+/// The server's answer for this device's curve25519 key: None when it did
+/// not answer (or reported a failure, or the entry could not be read),
+/// Some(None) when it answered with no keys for the device.
+async fn published_curve25519_key(client: &Client) -> Option<Option<String>> {
+    use matrix_sdk::ruma::api::client::keys::get_keys;
+
+    let user = client.user_id().map(|u| u.to_owned())?;
+    let this_device = client.device_id().map(|d| d.to_owned())?;
+    let mut request = get_keys::v3::Request::new();
+    request.device_keys.insert(user.clone(), vec![this_device.clone()]);
+    let response = client.send(request).await.ok()?;
+    if !response.failures.is_empty() {
+        return None;
+    }
+    let Some(raw) = response
+        .device_keys
+        .get(&user)
+        .and_then(|devices| devices.get(&this_device))
+    else {
+        return Some(None);
+    };
+    let keys = raw.deserialize().ok()?;
+    // An entry without a curve25519 key is not an answer that can be read.
+    keys.keys
+        .iter()
+        .find(|(id, _)| id.as_str().starts_with("curve25519:"))
+        .map(|(_, value)| Some(value.to_owned()))
+}
+
+/// For a resumed device, after its sync has started: whether the server still
+/// publishes this store's key for it. On "missing" or "different" the session
+/// is also logged out on the server: that device is the one the resume
+/// re-created under the old id, without keys, and removing it leaves the
+/// server as the other client left it, so every later restore (a restart
+/// included) meets a hard M_UNKNOWN_TOKEN rather than a silent keyless
+/// session. The store is untouched. Answers on the poll queue as
+///   { "type": "resumed_device_key", "user_id", "device_id",
+///     "state": "matches"|"missing"|"different"|"unknown",
+///     "ended_on_server": bool }
+/// Public identifiers and the verdict only; no key material crosses the FFI.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_check_resumed_device_key(
+    ptr: *mut c_void,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Ok("error: Rust SDK session is not logged in.".to_owned());
+        };
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            let user = client.user_id().map(ToString::to_string).unwrap_or_default();
+            let device = client.device_id().map(ToString::to_string).unwrap_or_default();
+            let local = client
+                .encryption()
+                .curve25519_key()
+                .await
+                .map(|key| key.to_base64());
+            let answer = published_curve25519_key(&client).await;
+            let state = resumed_device_key_state(
+                local.as_deref(),
+                answer.as_ref().map(|published| published.as_deref()),
+            );
+            let ended_on_server = if state == "missing" || state == "different" {
+                client.matrix_auth().logout().await.is_ok()
+            } else {
+                false
+            };
+            enqueue(&events, json!({
+                "type": "resumed_device_key",
+                "user_id": user,
+                "device_id": device,
+                "state": state,
+                "ended_on_server": ended_on_server,
+            }));
+        });
+        Ok(String::new())
+    })
+}
+
 /// Async form of the check above, answering on the poll queue as
 ///   { "type": "own_identity_key", "matches_server": true|false|null }
 /// so the GUI thread never blocks on `/keys/query`. One check per call;
@@ -7083,6 +7212,8 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
         let cursors = Arc::clone(&bridge.media_history);
         let timelines = Arc::clone(&bridge.timelines);
         let encrypted_room = room.encryption_state().is_encrypted();
+        // For the kept-file cache: an unknown state counts as encrypted.
+        let private_room = encrypted_room || room.encryption_state().is_unknown();
         // Clamped: an unbounded limit can stall the walk.
         let want: u64 = match limit {
             0 => 50,
@@ -7144,6 +7275,9 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                                 value.get("event_id").and_then(|v| v.as_str()),
                             ) {
                                 timelines.remember_media(event_id.to_owned(), media);
+                                if private_room {
+                                    timelines.mark_media_from_encrypted_room(event_id);
+                                }
                             }
                         }
                         for entry in found.entries {
@@ -7533,6 +7667,11 @@ pub unsafe extern "C" fn mx_rust_search_index_forget_room(
                 index.remove_room(&room_id)?;
             }
         }
+        // Forgotten rows mean the room is no longer indexed to its bound. Not
+        // once teardown began: the store directory may be being deleted.
+        if !bridge.index_shutdown.load(Ordering::Relaxed) {
+            bridge.index_all.forget_room(&room_id);
+        }
         Ok(String::new())
     })
 }
@@ -7542,11 +7681,259 @@ pub unsafe extern "C" fn mx_rust_search_index_clear(ptr: *mut c_void) -> *mut c_
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         ensure_search_index(bridge)?;
+        // An empty index has no complete rooms: forget the index-all record and
+        // cancel a running pass, whose late results the epoch bump discards.
+        bridge.index_all.reset();
         if let Ok(guard) = bridge.search_index.lock() {
             if let Some(index) = guard.as_ref() {
                 index.clear()?;
             }
         }
+        Ok(String::new())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// "Index all rooms". See rust/src/indexall.rs.
+// ---------------------------------------------------------------------------
+
+/// Minimum spacing of the index totals on progress events: counting the
+/// index takes its mutex, and a search keystroke must not queue behind it
+/// every page.
+const INDEX_ALL_STATS_EVERY_MS: u64 = 5_000;
+
+/// The `search_index_all` event. Room ids and counters only, never text.
+/// `index` carries the index totals when given.
+fn index_all_event(
+    op_id: u64,
+    lifecycle: u64,
+    status: &indexall::Status,
+    index: Option<&Arc<Mutex<Option<localsearch::SearchIndex>>>>,
+) -> serde_json::Value {
+    let mut event = json!({
+        "type": "search_index_all", "op_id": op_id, "lifecycle": lifecycle,
+        "state": status.state,
+        "total": status.total, "position": status.position,
+        "current_room": status.current_room,
+        "written": status.written, "skipped": status.skipped,
+        "undecryptable": status.undecryptable,
+        "undecryptable_rooms": status.undecryptable_rooms,
+        "failed_rooms": status.failed_rooms,
+        "complete_rooms": status.complete_rooms,
+        "retry_in_ms": status.retry_in_ms, "elapsed_ms": status.elapsed_ms,
+    });
+    let stats = index.and_then(|index| {
+        index.lock().ok().and_then(|g| g.as_ref().and_then(|ix| ix.stats().ok()))
+    });
+    if let Some(stats) = stats {
+        event["messages"] = json!(stats.messages);
+        event["indexed_rooms"] = json!(stats.rooms);
+    }
+    event
+}
+
+/// Index one room of an index-all run with the per-room walk.
+async fn index_all_walk(
+    client: &Client,
+    index: &Arc<Mutex<Option<localsearch::SearchIndex>>>,
+    room_id: &str,
+    gate: &indexall::RunGate,
+) -> indexall::RoomResult {
+    let Ok(parsed) = RoomId::parse(room_id) else {
+        return indexall::RoomResult::Gone;
+    };
+    let Some(room) = client.get_room(&parsed) else {
+        return indexall::RoomResult::Gone;
+    };
+    // Left or banned since the queue was planned: nothing to index for it.
+    if !matches!(room.state(), matrix_sdk::RoomState::Joined) {
+        return indexall::RoomResult::Gone;
+    }
+    match localsearch::deep_index_room_gated(&room, index, gate, localsearch::DEEP_MAX_PAGES)
+        .await
+    {
+        Ok(outcome) if outcome.interrupted => indexall::RoomResult::Interrupted {
+            written: outcome.written,
+        },
+        Ok(outcome) => indexall::RoomResult::Done {
+            written: outcome.written,
+            undecryptable: outcome.undecryptable,
+        },
+        Err(error) => indexall::RoomResult::Failed {
+            rate_limited: error.rate_limited,
+            retry_after_ms: error.retry_after_ms,
+        },
+    }
+}
+
+/// Start "index all rooms", or continue the pending run. `resume_only`
+/// continues a run the last session left unfinished and unpaused, and
+/// otherwise only reports. Answers on `search_index_all`, then keeps reporting
+/// progress until the run ends.
+///
+/// One room at a time on the tracked room-action pool; sign-out, an account
+/// switch and teardown stop it through `index_shutdown` and the lifecycle
+/// generation, and it never emits into a session that is over.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_all_start(
+    ptr: *mut c_void,
+    resume_only: c_uint,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let client = require_client_for_search(bridge)?;
+        ensure_search_index(bridge)?;
+        let control = Arc::clone(&bridge.index_all);
+        let index = Arc::clone(&bridge.search_index);
+        let events = Arc::clone(&bridge.events);
+        let timelines = Arc::clone(&bridge.timelines);
+        let lifecycle = timelines.lifecycle();
+
+        let listing = client.clone();
+        let begin = control.begin(resume_only != 0, move || {
+            listing
+                .joined_rooms()
+                .into_iter()
+                .map(|room| {
+                    let stamp = room
+                        .latest_event_timestamp()
+                        .map(|ts| u64::from(ts.get()))
+                        .unwrap_or(0);
+                    (room.room_id().to_string(), stamp)
+                })
+                .collect()
+        });
+        if begin != indexall::Begin::Started {
+            let state = match begin {
+                indexall::Begin::NothingToDo => Some("done"),
+                _ => None,
+            };
+            enqueue(&events, index_all_event(
+                op_id, lifecycle, &control.status(state), Some(&index)));
+            return Ok(String::new());
+        }
+
+        let stop = Arc::clone(&bridge.index_shutdown);
+        let alive_timelines = Arc::clone(&timelines);
+        let alive: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
+            !stop.load(Ordering::Relaxed) && alive_timelines.lifecycle_current(lifecycle)
+        });
+        let emit_alive = Arc::clone(&alive);
+        let emit_events = Arc::clone(&events);
+        let emit_index = Arc::clone(&index);
+        let last_stats: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+        let emit: Arc<dyn Fn(indexall::Status) + Send + Sync> =
+            Arc::new(move |status: indexall::Status| {
+                // Never into a session that is over.
+                if !emit_alive() {
+                    return;
+                }
+                let settled = status.state != "running" && status.state != "held"
+                    && status.state != "backoff";
+                let with_stats = match last_stats.lock() {
+                    Ok(mut last) => {
+                        let due = settled || last.map_or(true, |at| {
+                            at.elapsed()
+                                >= std::time::Duration::from_millis(INDEX_ALL_STATS_EVERY_MS)
+                        });
+                        if due {
+                            *last = Some(std::time::Instant::now());
+                        }
+                        due
+                    }
+                    Err(_) => settled,
+                };
+                enqueue(&emit_events, index_all_event(
+                    op_id, lifecycle, &status, with_stats.then_some(&emit_index)));
+            });
+        let gate = indexall::RunGate { control: Arc::clone(&control), alive, emit };
+
+        bridge.spawn_room_action(async move {
+            let walk = move |room_id: String, gate: indexall::RunGate| {
+                let client = client.clone();
+                let index = Arc::clone(&index);
+                async move { index_all_walk(&client, &index, &room_id, &gate).await }
+            };
+            let _ = indexall::drive(gate, walk, tokio::time::sleep).await;
+        });
+        Ok(String::new())
+    })
+}
+
+/// Pause and cancel write the progress record in the store directory; once
+/// teardown began that directory may be being deleted, and a file created
+/// inside it would make the deletion fail.
+fn refuse_index_all_after_teardown(bridge: &RustClient) -> Result<(), String> {
+    if bridge.index_shutdown.load(Ordering::Relaxed) {
+        return Err("the local index is closed for this session".to_owned());
+    }
+    Ok(())
+}
+
+/// Pause "index all rooms". A running pass stops at its next check and then
+/// reports "paused"; an idle one reports now.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_all_pause(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        refuse_index_all_after_teardown(bridge)?;
+        bridge.index_all.pause();
+        if !bridge.index_all.running() {
+            enqueue(&bridge.events, index_all_event(
+                op_id, bridge.timelines.lifecycle(), &bridge.index_all.status(None), None));
+        }
+        Ok(String::new())
+    })
+}
+
+/// Cancel "index all rooms": the queue is dropped, rooms already indexed stay
+/// recorded as such. A running pass reports "cancelled" when it stops.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_all_cancel(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        refuse_index_all_after_teardown(bridge)?;
+        bridge.index_all.cancel();
+        if !bridge.index_all.running() {
+            enqueue(&bridge.events, index_all_event(
+                op_id, bridge.timelines.lifecycle(), &bridge.index_all.status(None), None));
+        }
+        Ok(String::new())
+    })
+}
+
+/// Automatic holds (bit 1: a call is active, bit 2: a timeline is scrolling).
+/// A held pass waits between pages and loses nothing.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_all_hold(
+    ptr: *mut c_void,
+    bits: c_uint,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        bridge.index_all.set_hold(bits & (indexall::HOLD_CALL | indexall::HOLD_SCROLL));
+        Ok(String::new())
+    })
+}
+
+/// Report where "index all rooms" stands. Answers on `search_index_all`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_search_index_all_status(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let status = bridge.index_all.status(None);
+        enqueue(&bridge.events, index_all_event(
+            op_id, bridge.timelines.lifecycle(), &status, Some(&bridge.search_index)));
         Ok(String::new())
     })
 }
@@ -8922,6 +9309,82 @@ pub unsafe extern "C" fn mx_rust_set_strict_device_trust(enabled: c_int) -> *mut
     })
 }
 
+/// This handle's media-store key, set right after `mx_rust_create` and before
+/// any sign-in or restore builds a client. `key_len` 32: the account's key
+/// from the OS keyring, and the media store is opened encrypted with it.
+/// Anything else (0 when the keyring cannot answer, or for an account that is
+/// not saved yet): the media store is in memory for this session.
+/// `admit_encrypted`: the keyring holding the key is a secure one, so
+/// encrypted-room media may be cached. The key is never logged or echoed.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_media_store_key(
+    ptr: *mut c_void,
+    key: *const u8,
+    key_len: u64,
+    admit_encrypted: c_int,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let key = if key.is_null() || key_len != 32 {
+            None
+        } else {
+            let mut bytes = mediastore::KeyBytes([0u8; 32]);
+            unsafe { std::ptr::copy_nonoverlapping(key, bytes.0.as_mut_ptr(), 32) };
+            Some(bytes)
+        };
+        mediastore::set_key(ptr as usize, &bridge.store_path, key, admit_encrypted != 0);
+        Ok(String::new())
+    })
+}
+
+/// Whether media the user opens is kept between sessions: the SDK media store
+/// (encrypted, mediastore.rs; encrypted-room media only under a key a secure
+/// keyring holds) and plain kept files for what it refuses by size, never from
+/// an encrypted room (rooms::media_persistence). Process-wide and read on every
+/// fetch, so it applies from the next fetch; what is already kept stays until
+/// `mx_rust_media_cache_clear`. Sent attachments are the send queue's, and
+/// are kept whatever this says.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_keep_media(enabled: c_int) -> *mut c_char {
+    ffi_string(|| {
+        rooms::set_keep_media(enabled != 0);
+        Ok(String::new())
+    })
+}
+
+/// Remove the media this account keeps on disk: the kept-file directory and
+/// what the SDK media store may drop. Answers on
+/// `media_cache_cleared {op_id, ok, files, bytes}`, where files/bytes count
+/// the kept files only (the SDK store reports no count).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_media_cache_clear(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let client = rooms::require_client(bridge)?;
+        let kept_dir = if bridge.store_path.as_os_str().is_empty() {
+            None
+        } else {
+            Some(mediafiles::dir_in(&bridge.store_path))
+        };
+        let events = Arc::clone(&bridge.events);
+        bridge.spawn_room_action(async move {
+            let outcome = rooms::clear_kept_media(&client, kept_dir).await;
+            let (ok, files, bytes) = match outcome {
+                Some((files, bytes)) => (true, files, bytes),
+                None => (false, 0, 0),
+            };
+            enqueue(&events, json!({
+                "type": "media_cache_cleared", "op_id": op_id,
+                "ok": ok, "files": files, "bytes": bytes,
+            }));
+        });
+        Ok(String::new())
+    })
+}
+
 /// Resume what the last session left queued but unsent
 /// (`respawn_tasks_for_rooms_with_unsent_requests`), which the SDK
 /// recommends at startup; otherwise a room's queue only resumes when the
@@ -9085,8 +9548,11 @@ async fn build_client_with(
                     matrix_sdk_base::crypto::TrustRequirement::CrossSignedOrLegacy,
             });
     }
+    // The state, event-cache and crypto stores exactly as
+    // `sqlite_store(path, None)` opened them; the media store encrypted with
+    // the account's key, or in memory without one (mediastore.rs).
     if !store_path.as_os_str().is_empty() {
-        builder = builder.sqlite_store(store_path, None);
+        builder = builder.store_config(mediastore::open_account_stores(store_path).await?);
     }
     let client = builder
         .build()
@@ -9112,10 +9578,10 @@ async fn build_client_with(
     // and because it serializes all access on one write connection, a huge
     // blob INSERT stalls every other media fetch. The policy skips oversized
     // payloads before the write (rooms::media_fetch also skips the cache for
-    // declared-oversize fetches). SDK defaults otherwise; max_file_size is
-    // raised to keep 20 MiB animated GIFs cacheable.
-    let policy = matrix_sdk::media::MediaRetentionPolicy::new()
-        .with_max_file_size(Some(rooms::MEDIA_STORE_MAX_FILE_BYTES));
+    // declared-oversize fetches, and keeps those as files instead). SDK
+    // defaults otherwise; max_file_size is raised to keep 20 MiB animated GIFs
+    // cacheable.
+    let policy = rooms::media_retention_policy();
     // Best effort; the error may contain the store path, so it is not logged.
     if client.media().set_media_retention_policy(policy).await.is_ok() {
         // Sweep blobs cached before the policy existed. Runs once per client build;
@@ -9540,6 +10006,24 @@ fn install_event_handlers(
         }
     });
 
+    // A DM peer's own member event: the avatar that conversation wears now,
+    // so its row follows a changed face (DirectAvatarResolver asks the
+    // profile once per session). Only the m.direct target's own join
+    // crosses; human-paced, so not throttled like the poke above.
+    let peer_avatar_events = Arc::clone(&events);
+    client.add_event_handler(move |ev: SyncRoomMemberEvent, room: Room| {
+        let events = Arc::clone(&peer_avatar_events);
+        async move {
+            let targets: Vec<String> =
+                room.direct_targets().iter().map(ToString::to_string).collect();
+            if let Some(payload) =
+                direct_peer_avatar_payload(room.room_id().as_str(), &ev, &targets)
+            {
+                enqueue(&events, payload);
+            }
+        }
+    });
+
     // m.room.tombstone: the room was replaced, and the "continue in successor"
     // banner must appear immediately. Not rate-limited (once per room
     // lifetime). Carries the successor id, taken from the SDK's
@@ -9646,6 +10130,16 @@ fn install_event_handlers(
                     )) => thread.event_id.to_string(),
                     _ => String::new(),
                 };
+                // An edit is not a new message: its body is the "* " fallback.
+                // C++ keeps it out of the room's preview, order and mirror, and
+                // still notifies (an edit that newly mentions you notifies:
+                // .m.rule.is_user_mention precedes .m.rule.suppress_edits).
+                let replaces_event_id = match &ev.content.relates_to {
+                    Some(matrix_sdk::ruma::events::room::message::Relation::Replacement(
+                        replacement,
+                    )) => replacement.event_id.to_string(),
+                    _ => String::new(),
+                };
                 let mut event = json!({
                     "event_id": ev.event_id.to_string(),
                     "sender": ev.sender.to_string(),
@@ -9659,6 +10153,7 @@ fn install_event_handlers(
                     "mentions_me": mentions_me,
                     "mentions_room": mentions_room,
                     "thread_root_id": thread_root_id,
+                    "replaces_event_id": replaces_event_id,
                     // Legacy field for C++ builds that still read `decrypted`.
                     "decrypted": is_encrypted,
                 });
@@ -9715,6 +10210,14 @@ fn install_event_handlers(
             let events = Arc::clone(&encrypted_events);
             let verdicts = sync_verdicts.clone();
             async move {
+                // m.relates_to is outside the ciphertext: an edit that cannot be
+                // decrypted yet is still not a new message.
+                let replaces_event_id = match &ev.content.relates_to {
+                    Some(matrix_sdk::ruma::events::room::encrypted::Relation::Replacement(
+                        replacement,
+                    )) => replacement.event_id.to_string(),
+                    _ => String::new(),
+                };
                 let mut event = json!({
                     "event_id": ev.event_id.to_string(),
                     "sender": ev.sender.to_string(),
@@ -9726,6 +10229,7 @@ fn install_event_handlers(
                     "is_decrypted": false,
                     "undecryptable": true,
                     "error_kind": "no_key",
+                    "replaces_event_id": replaces_event_id,
                     // Legacy field for older C++ builds.
                     "decrypted": false,
                 });
@@ -10751,10 +11255,51 @@ async fn enqueue_spaces(
 /// same value. 0 means unknown and crosses as an invalid QDateTime that
 /// `RoomInfo::raiseActivity` ignores. The real backstop is
 /// `harvest_room_activity`.
+///
+/// An edit never moves a room. When the latest message was edited, the SDK's
+/// latest event is the EDIT (latest_events builder), stamped with when it was
+/// edited; the stamp is then `edited_ts`, the edited event's own, or 0 (the
+/// room stays where it is) when that is not known. Pure for tests.
 fn room_ordering_timestamp_ms(
     latest: &matrix_sdk_base::latest_event::LatestEventValue,
+    edited_ts: Option<u64>,
 ) -> u64 {
-    latest.timestamp().map(|ts| u64::from(ts.get())).unwrap_or(0)
+    use matrix_sdk_base::latest_event::LatestEventValue;
+    if let LatestEventValue::Remote(event) = latest {
+        if replaced_event_id(event.raw()).is_some() {
+            return edited_ts.unwrap_or(0);
+        }
+    }
+    latest
+        .timestamp()
+        .map(|ts| u64::from(ts.get()))
+        .unwrap_or(0)
+}
+
+/// The event an `m.replace` edit replaces, or `None` when `raw` is not an
+/// edit. `m.relates_to` is outside the ciphertext, so this reads encrypted
+/// events too.
+fn replaced_event_id(
+    raw: &matrix_sdk::ruma::serde::Raw<matrix_sdk::ruma::events::AnySyncTimelineEvent>,
+) -> Option<OwnedEventId> {
+    let content = raw
+        .get_field::<serde_json::Value>("content")
+        .ok()
+        .flatten()?;
+    let relation = content.get("m.relates_to")?;
+    if relation.get("rel_type")?.as_str()? != "m.replace" {
+        return None;
+    }
+    EventId::parse(relation.get("event_id")?.as_str()?).ok()
+}
+
+/// When the edited event was sent, from the event cache (memory, then the
+/// store; never a request). The SDK found it there to accept the edit.
+async fn edited_event_timestamp_ms(room: &Room, event_id: &EventId) -> Option<u64> {
+    let (cache, _drop_handles) = room.event_cache().await.ok()?;
+    let event = cache.find_event(event_id).await.ok()??;
+    let ts = u64::from(event.raw().get_field::<UInt>("origin_server_ts").ok()??);
+    if ts == 0 { None } else { Some(ts) }
 }
 
 /// Event types whose arrival means somebody said something. An allow-list,
@@ -10795,6 +11340,10 @@ pub(crate) fn conversation_timestamp_ms(
     if !CONVERSATION_EVENT_TYPES.contains(&kind.as_str()) {
         return None;
     }
+    // An edit is not something new said; it must not move the room.
+    if replaced_event_id(raw).is_some() {
+        return None;
+    }
     let ts = raw.get_field::<UInt>("origin_server_ts").ok().flatten()?;
     let ts = u64::from(ts);
     if ts == 0 { None } else { Some(ts) }
@@ -10832,6 +11381,77 @@ fn harvest_room_activity(
     moved
 }
 
+/// What a DM peer's member event says about the face of that conversation,
+/// as the `direct_peer_avatar` event: only a join by one of the room's
+/// m.direct targets (a leave or a ban carries no profile), never anyone
+/// else's. The avatar is empty when the event names none. Pure and
+/// unit-tested.
+fn direct_peer_avatar_payload(
+    room_id: &str,
+    event: &SyncRoomMemberEvent,
+    direct_targets: &[String],
+) -> Option<serde_json::Value> {
+    use matrix_sdk::ruma::events::room::member::MembershipState;
+    let original = event.as_original()?;
+    if original.content.membership != MembershipState::Join {
+        return None;
+    }
+    let user = original.state_key.as_str();
+    if !direct_targets.iter().any(|target| target == user) {
+        return None;
+    }
+    Some(json!({
+        "type": "direct_peer_avatar",
+        "room_id": room_id,
+        "user_id": user,
+        "avatar_url": original
+            .content
+            .avatar_url
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default(),
+    }))
+}
+
+/// Combine the client's own event-cache counts (`num_unread_notifications`,
+/// `num_unread_mentions`) with the ones the server sent this sync
+/// (`UnreadNotificationsCount`).
+///
+/// For an UNENCRYPTED room the server evaluates every push rule, including
+/// content and `m.mentions` conditions, so its count is at least as
+/// trustworthy as our own and the higher of the two only protects against
+/// either side under-counting while the other catches up.
+///
+/// For a definitely ENCRYPTED room that trade is backwards. matrix-sdk-base's
+/// own doc comment on `Room::unread_notification_counts()` says outright:
+/// "these might be incorrect for encrypted rooms, since the server doesn't
+/// know which events are relevant standalone messages or not, nor can it
+/// inspect mentions... consider using the client-side computed counts". A
+/// room set to "Mentions & keywords only" writes a `room`-kind push rule with
+/// no actions; the client's own counters apply that SAME ruleset to the
+/// DECRYPTED body, so an ordinary message correctly does not raise them. The
+/// server-reported count has no such guarantee for ciphertext it cannot
+/// evaluate content conditions against, and `.max()` with it is exactly what
+/// let a plain, non-mention message in a Mentions-only encrypted room paint a
+/// numbered badge instead of the dot the room list means to show. Trust the
+/// client-computed counts alone once encryption is definitely known.
+fn unread_and_highlight_counts(
+    is_encrypted: bool,
+    client_notifications: u64,
+    client_mentions: u64,
+    server_notification_count: u64,
+    server_highlight_count: u64,
+) -> (u64, u64) {
+    if is_encrypted {
+        (client_notifications, client_mentions)
+    } else {
+        (
+            client_notifications.max(server_notification_count),
+            client_mentions.max(server_highlight_count),
+        )
+    }
+}
+
 async fn room_payload(room: &Room) -> serde_json::Value {
     let membership = match room.state() {
         matrix_sdk::RoomState::Joined => "joined",
@@ -10841,6 +11461,17 @@ async fn room_payload(room: &Room) -> serde_json::Value {
     };
     let direct_targets: Vec<String> = room.direct_targets().iter().map(ToString::to_string).collect();
     let notifications = room.unread_notification_counts();
+    // `encryption_state()` is tri-state; only a definite "encrypted" answer
+    // takes the client-only path. Unknown falls back to the unencrypted
+    // (max-of-both) behaviour, the existing, safer default for a room whose
+    // state has not settled yet.
+    let (unread_count, highlight_count) = unread_and_highlight_counts(
+        room.encryption_state().is_encrypted(),
+        room.num_unread_notifications(),
+        room.num_unread_mentions(),
+        notifications.notification_count,
+        notifications.highlight_count,
+    );
     let (inviter_user_id, inviter_display_name) = if membership == "invited" {
         match room.invite_details().await {
             Ok(invite) => (
@@ -10854,6 +11485,16 @@ async fn room_payload(room: &Room) -> serde_json::Value {
     // Read once: the preview text and the ordering stamp must describe the
     // same event.
     let latest_event = room.latest_event();
+    // An edit must not move the room: order by the edited event's own time.
+    let edited_ts = match &latest_event {
+        matrix_sdk_base::latest_event::LatestEventValue::Remote(event) => {
+            match replaced_event_id(event.raw()) {
+                Some(original) => edited_event_timestamp_ms(room, &original).await,
+                None => None,
+            }
+        }
+        _ => None,
+    };
 
     json!({
         "id": room.room_id().to_string(),
@@ -10863,9 +11504,9 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "topic": room.topic().unwrap_or_default(),
         "avatar_url": room.avatar_url().map(|url| url.to_string()).unwrap_or_default(),
         "last_message_preview": latest_event_preview_text(&latest_event),
-        "last_activity_ms": room_ordering_timestamp_ms(&latest_event),
-        "unread_count": room.num_unread_notifications().max(notifications.notification_count),
-        "highlight_count": room.num_unread_mentions().max(notifications.highlight_count),
+        "last_activity_ms": room_ordering_timestamp_ms(&latest_event, edited_ts),
+        "unread_count": unread_count,
+        "highlight_count": highlight_count,
         "marked_unread": room.is_marked_unread(),
         // The `m.favourite` tag itself, via the SDK's notable-tag bit, so favourites
         // set in other clients show here.
@@ -10952,7 +11593,8 @@ pub(crate) fn latest_event_preview_text(
     value: &matrix_sdk_base::latest_event::LatestEventValue,
 ) -> String {
     use matrix_sdk::ruma::events::{
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+        room::message::Relation, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        SyncMessageLikeEvent,
     };
     use matrix_sdk_base::latest_event::LatestEventValue;
 
@@ -10976,7 +11618,14 @@ pub(crate) fn latest_event_preview_text(
     };
     match message_like {
         AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(message)) => {
-            match message.content.msgtype {
+            // When the latest message was edited, the SDK's latest event IS the
+            // edit (latest_events builder), whose own body is the "* " fallback.
+            // Preview its m.new_content, as a plain message would read.
+            let msgtype = match message.content.relates_to {
+                Some(Relation::Replacement(replacement)) => replacement.new_content.msgtype,
+                _ => message.content.msgtype,
+            };
+            match msgtype {
                 MessageType::Text(content) => one_line(&content.body),
                 MessageType::Notice(content) => one_line(&content.body),
                 MessageType::Emote(content) => one_line(&content.body),
@@ -11887,6 +12536,40 @@ mod tests {
         assert_eq!(super::notification_mode_from_int(i32::MAX), None);
     }
 
+    // Regression for a Mentions-only encrypted room showing a numbered badge:
+    // the server's own count cannot evaluate content/mention conditions on
+    // ciphertext, and `.max()`-ing it with the client's correct, decrypted-
+    // content count let its number win.
+    #[test]
+    fn an_encrypted_room_trusts_only_the_client_computed_counts() {
+        // The client's own ruleset evaluation (against the decrypted body)
+        // found nothing but the one real mention; the server's raw count
+        // disagrees. Only the client's answer may reach the badge.
+        assert_eq!(
+            super::unread_and_highlight_counts(true, 0, 1, 12, 3),
+            (0, 1)
+        );
+    }
+
+    #[test]
+    fn an_unencrypted_room_still_takes_the_larger_of_the_two_counts() {
+        // Unchanged behaviour: the server can evaluate every rule for a
+        // plaintext room, so a count it has seen that the client's own cache
+        // has not caught up to yet must not be thrown away.
+        assert_eq!(
+            super::unread_and_highlight_counts(false, 0, 0, 5, 1),
+            (5, 1)
+        );
+    }
+
+    #[test]
+    fn an_encrypted_room_with_a_real_mention_still_shows_it() {
+        // The fix must not silence a genuine mention just because it is
+        // encrypted; the client-computed mention count is exactly what
+        // should reach the badge.
+        assert_eq!(super::unread_and_highlight_counts(true, 3, 2, 3, 0), (3, 2));
+    }
+
     // Marker discipline for notification-mode writes: a superseded task
     // neither writes nor reports, the winner consumes the marker once, and the
     // read path pends only while a write is unreported.
@@ -12553,7 +13236,7 @@ mod latest_event_preview_tests {
     use matrix_sdk_base::latest_event::{LatestEventValue, RemoteLatestEventValue};
     use serde_json::json;
 
-    use super::latest_event_preview_text;
+    use super::{latest_event_preview_text, room_ordering_timestamp_ms};
 
     fn remote(content: serde_json::Value, event_type: &str) -> LatestEventValue {
         LatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
@@ -12583,6 +13266,58 @@ mod latest_event_preview_tests {
             "m.room.message",
         );
         assert_eq!(latest_event_preview_text(&value), "hello rooms");
+    }
+
+    // When the latest message was edited, the SDK's latest event is the edit,
+    // whose own body is the "* " fallback (a Sable edit read
+    // "* edited: **bold words** ..." in the room list, 2026-09-30).
+    #[test]
+    fn an_edit_previews_its_new_content_not_the_fallback() {
+        let new_body = "edited: **bold words** and `inline code`";
+        let edit = remote(
+            json!({
+                "msgtype": "m.text",
+                "body": format!("* {new_body}"),
+                "m.new_content": { "msgtype": "m.text", "body": new_body },
+                "m.relates_to": { "rel_type": "m.replace", "event_id": "$original" },
+            }),
+            "m.room.message",
+        );
+        let plain = remote(
+            json!({ "msgtype": "m.text", "body": new_body }),
+            "m.room.message",
+        );
+        assert_eq!(latest_event_preview_text(&edit), new_body);
+        assert_eq!(
+            latest_event_preview_text(&edit),
+            latest_event_preview_text(&plain)
+        );
+    }
+
+    // An edit never moves a room: an edited latest message is stamped with
+    // the edited event's time, never the edit's (`remote` stamps 42). Editing
+    // the latest message in a room lower in the list moved it to the top
+    // (live, 2026-09-30).
+    #[test]
+    fn an_edited_latest_message_keeps_the_edited_events_stamp() {
+        let edit = remote(
+            json!({
+                "msgtype": "m.text",
+                "body": "* new words",
+                "m.new_content": { "msgtype": "m.text", "body": "new words" },
+                "m.relates_to": { "rel_type": "m.replace", "event_id": "$original" },
+            }),
+            "m.room.message",
+        );
+        assert_eq!(room_ordering_timestamp_ms(&edit, Some(7)), 7);
+        // Not known: 0, which C++ ignores, so the room stays where it is.
+        assert_eq!(room_ordering_timestamp_ms(&edit, None), 0);
+        // Control: a message that is not an edit keeps its own stamp.
+        let plain = remote(
+            json!({ "msgtype": "m.text", "body": "new words" }),
+            "m.room.message",
+        );
+        assert_eq!(room_ordering_timestamp_ms(&plain, Some(7)), 42);
     }
 
     #[test]
@@ -12952,8 +13687,10 @@ mod live_e2ee_interop_tests {
             let hs = CString::new(homeserver.as_bytes()).unwrap();
             let us = CString::new(user.as_bytes()).unwrap();
             let pw = CString::new(password.as_bytes()).unwrap();
+            // A new device.
+            let device = CString::new("").unwrap();
             let r = take(super::mx_rust_login(
-                handle, hs.as_ptr(), us.as_ptr(), pw.as_ptr(),
+                handle, hs.as_ptr(), us.as_ptr(), pw.as_ptr(), device.as_ptr(),
             ));
             assert!(r.is_empty(), "login dispatch");
             wait_for(handle, "bridge login", Duration::from_secs(45), |ev| {
@@ -13257,8 +13994,10 @@ mod live_e2ee_interop_tests {
             let hs = CString::new(homeserver.clone()).unwrap();
             let u = CString::new(user.clone()).unwrap();
             let p = CString::new(password).unwrap();
+            // A new device.
+            let device = CString::new("").unwrap();
             let err = take(super::mx_rust_login(
-                handle, hs.as_ptr(), u.as_ptr(), p.as_ptr()));
+                handle, hs.as_ptr(), u.as_ptr(), p.as_ptr(), device.as_ptr()));
             assert!(err.is_empty(), "login dispatch: {err}");
             wait_for(handle, "login", Duration::from_secs(60), |ev| {
                 ev["type"] == "login_ok"
@@ -14117,6 +14856,54 @@ mod conversation_recency_tests {
         Raw::from_json_string(value.to_string()).expect("valid raw event")
     }
 
+    // An edit, plain or still encrypted (m.relates_to is outside the
+    // ciphertext), is not something new said and must not raise a room. A
+    // reply still is.
+    #[test]
+    fn an_edit_is_not_a_conversation() {
+        let relates = json!({ "rel_type": "m.replace", "event_id": "$original" });
+        let plain_edit = raw(json!({
+            "type": "m.room.message",
+            "event_id": "$edit",
+            "sender": "@a:example.org",
+            "origin_server_ts": 1_700_000_000_000u64,
+            "content": {
+                "msgtype": "m.text",
+                "body": "* new words",
+                "m.new_content": { "msgtype": "m.text", "body": "new words" },
+                "m.relates_to": relates.clone(),
+            },
+        }));
+        assert_eq!(conversation_timestamp_ms(&plain_edit), None);
+        let encrypted_edit = raw(json!({
+            "type": "m.room.encrypted",
+            "event_id": "$edit2",
+            "sender": "@a:example.org",
+            "origin_server_ts": 1_700_000_000_000u64,
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "ciphertext": "AwgAEnAC",
+                "sender_key": "k",
+                "device_id": "D",
+                "session_id": "s",
+                "m.relates_to": relates,
+            },
+        }));
+        assert_eq!(conversation_timestamp_ms(&encrypted_edit), None);
+        let reply = raw(json!({
+            "type": "m.room.message",
+            "event_id": "$reply",
+            "sender": "@a:example.org",
+            "origin_server_ts": 1_700_000_000_003u64,
+            "content": {
+                "msgtype": "m.text",
+                "body": "a reply",
+                "m.relates_to": { "m.in_reply_to": { "event_id": "$original" } },
+            },
+        }));
+        assert_eq!(conversation_timestamp_ms(&reply), Some(1_700_000_000_003));
+    }
+
     #[test]
     fn a_plain_message_is_a_conversation() {
         let event = raw(json!({
@@ -14351,5 +15138,107 @@ mod message_row_kind_tests {
                 "{kind}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod direct_peer_avatar_tests {
+    use super::direct_peer_avatar_payload;
+    use matrix_sdk::ruma::events::room::member::SyncRoomMemberEvent;
+    use serde_json::json;
+
+    fn member(user: &str, membership: &str, avatar: Option<&str>) -> SyncRoomMemberEvent {
+        let mut content = json!({ "membership": membership, "displayname": "Sam" });
+        if let Some(avatar) = avatar {
+            content["avatar_url"] = json!(avatar);
+        }
+        serde_json::from_value(json!({
+            "type": "m.room.member",
+            "state_key": user,
+            "sender": user,
+            "event_id": "$member:example.org",
+            "origin_server_ts": 1,
+            "content": content,
+        }))
+        .expect("member event")
+    }
+
+    fn targets() -> Vec<String> {
+        vec!["@sam:example.org".to_owned()]
+    }
+
+    #[test]
+    fn a_peers_join_carries_the_face_it_names() {
+        let payload = direct_peer_avatar_payload(
+            "!dm:example.org",
+            &member("@sam:example.org", "join", Some("mxc://example.org/new")),
+            &targets(),
+        )
+        .expect("a payload");
+        assert_eq!(payload["type"], "direct_peer_avatar");
+        assert_eq!(payload["room_id"], "!dm:example.org");
+        assert_eq!(payload["user_id"], "@sam:example.org");
+        assert_eq!(payload["avatar_url"], "mxc://example.org/new");
+    }
+
+    // A removed avatar is news too: the row must drop the old face.
+    #[test]
+    fn a_join_without_an_avatar_says_none() {
+        let payload = direct_peer_avatar_payload(
+            "!dm:example.org",
+            &member("@sam:example.org", "join", None),
+            &targets(),
+        )
+        .expect("a payload");
+        assert_eq!(payload["avatar_url"], "");
+    }
+
+    #[test]
+    fn only_the_direct_targets_own_join_counts() {
+        // A leave or a ban carries no profile.
+        for membership in ["leave", "ban", "invite"] {
+            assert!(direct_peer_avatar_payload(
+                "!dm:example.org",
+                &member("@sam:example.org", membership, Some("mxc://example.org/x")),
+                &targets(),
+            )
+            .is_none(), "{membership}");
+        }
+        // Somebody else in the room (our own join included).
+        assert!(direct_peer_avatar_payload(
+            "!dm:example.org",
+            &member("@me:example.org", "join", Some("mxc://example.org/me")),
+            &targets(),
+        )
+        .is_none());
+        // Not a DM at all.
+        assert!(direct_peer_avatar_payload(
+            "!room:example.org",
+            &member("@sam:example.org", "join", Some("mxc://example.org/x")),
+            &[],
+        )
+        .is_none());
+    }
+}
+
+#[cfg(test)]
+mod resumed_device_key_tests {
+    use super::resumed_device_key_state as state;
+
+    // A resumed device is judged on the server's answer: its own key, none at
+    // all (removed and re-created under the same id), another key, or no
+    // answer, which proves nothing.
+    #[test]
+    fn a_resumed_device_is_judged_on_the_servers_answer() {
+        assert_eq!(state(Some("AAAA"), Some(Some("AAAA"))), "matches");
+        // A server may re-pad what we uploaded.
+        assert_eq!(state(Some("AAAA="), Some(Some("AAAA"))), "matches");
+        assert_eq!(state(Some("AAAA"), Some(Some("BBBB"))), "different");
+        assert_eq!(state(Some("AAAA"), Some(None)), "missing");
+        // Every way of not knowing is "unknown", never a verdict.
+        assert_eq!(state(Some("AAAA"), None), "unknown");
+        assert_eq!(state(None, Some(None)), "unknown");
+        assert_eq!(state(Some(""), Some(None)), "unknown");
+        assert_eq!(state(Some("AAAA"), Some(Some(""))), "unknown");
     }
 }

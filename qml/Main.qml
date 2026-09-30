@@ -848,11 +848,21 @@ ApplicationWindow {
             onDetailsRequested: updateAvailableDialog.open()
         }
         VerifySessionPrompt {
+            id: verifySessionPromptCard
             objectName: "verifySessionPromptHost"
+        }
+        // The one-time "index all messages now?" offer. It waits while a
+        // prompt about this session's keys is showing, so it never competes
+        // with verification or recovery.
+        IndexAllPrompt {
+            objectName: "indexAllPromptHost"
+            blocked: verifySessionPromptCard.shouldShow
+                     || encryptionBrokenPromptCard.shouldShow
         }
         // Nearest the corner: a session whose published identity key does not
         // match its account cannot decrypt anything it receives.
         EncryptionBrokenPrompt {
+            id: encryptionBrokenPromptCard
             objectName: "encryptionBrokenPromptHost"
         }
     }

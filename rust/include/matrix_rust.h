@@ -34,10 +34,14 @@ void  mx_rust_destroy(void *client);
  */
 char *mx_rust_set_session_file(void *client, const char *session_file_path);
 
+/* device_id "" asks the server for a new device; otherwise the sign-in
+ * resumes that device, whose store this client must already hold (used only
+ * after the SDK reported a soft logout for it). */
 char *mx_rust_login(void *client,
                     const char *homeserver,
                     const char *user,
-                    const char *password);
+                    const char *password,
+                    const char *device_id);
 char *mx_rust_restore_from_file(void *client,
                                 const char *homeserver,
                                 const char *expected_user_id);
@@ -386,6 +390,21 @@ char *mx_rust_query_own_device_status(void *client);
  * Performs exactly one check per call; rate limiting belongs to the caller.
  */
 char *mx_rust_check_own_identity_key(void *client);
+
+/*
+ * For a resumed device (a password sign-in that asked for the soft-logged-out
+ * device again), once its sync has started: whether the server still
+ * publishes this store's key for it. Answers asynchronously on the poll queue:
+ *   { "type": "resumed_device_key", "user_id", "device_id",
+ *     "state": "matches"|"missing"|"different"|"unknown",
+ *     "ended_on_server": bool }
+ * "missing" means the server answered and publishes no keys for the device
+ * (removed and re-created under the same id); "unknown" proves nothing. On
+ * "missing"/"different" the session is logged out on the server (that
+ * re-created device, never the store), so a later restore meets a hard
+ * M_UNKNOWN_TOKEN. No key material crosses. One check per call.
+ */
+char *mx_rust_check_resumed_device_key(void *client);
 
 /*
  * v0.6.0 checkpoint 7: async E2EE health snapshot from official SDK state
@@ -927,6 +946,27 @@ char *mx_rust_stickers_upload_to_user_pack(void *client,
  * either half — so a change takes effect at the next sign-in, not now. Takes
  * no client handle for that reason. */
 char *mx_rust_set_strict_device_trust(int enabled);
+/* Whether media the user opens is kept between sessions: the SDK media
+ * store (encrypted with the account's key; encrypted-room media only when
+ * that key is in a secure keyring), plus plain kept files inside the
+ * account's store directory for payloads over the store's size cap, never
+ * from an encrypted room. Attachments the user sends are kept by matrix-sdk's
+ * send queue regardless. Process-wide and read on every fetch. Takes no
+ * client handle. */
+char *mx_rust_set_keep_media(int enabled);
+/* The media store's key for this handle, right after mx_rust_create and
+ * before any sign-in or restore. `key_len` 32: the account's key from the OS
+ * keyring, and the SDK media store is opened encrypted with it
+ * (rust/src/mediastore.rs). Anything else: in memory for this session.
+ * `admit_encrypted` non-zero: the keyring is a secure one, so encrypted-room
+ * media may be cached. Only the media store gets the key. */
+char *mx_rust_set_media_store_key(void *client, const unsigned char *key,
+                                  unsigned long long key_len,
+                                  int admit_encrypted);
+/* Remove the media this account keeps: the kept files and what the SDK media
+ * store may drop. Answers with `media_cache_cleared {op_id, ok, files,
+ * bytes}`; files/bytes count the kept files only. */
+char *mx_rust_media_cache_clear(void *client, unsigned long long op_id);
 /* Add or remove a room widget (`im.vector.modular.widgets` state under
  * `widget_id`). `content_json` is the full event content; an empty object
  * removes. Power-level gated on the Rust side; a non-https `url` is refused
@@ -1327,6 +1367,26 @@ char *mx_rust_search_index_deep(void *client,
 char *mx_rust_search_index_forget_event(void *client, const char *event_id);
 char *mx_rust_search_index_forget_room(void *client, const char *room_id);
 char *mx_rust_search_index_clear(void *client);
+/* "Index all rooms": every joined room walked with the SAME bounded per-room
+   walk as mx_rust_search_index_deep, strictly one room and one page at a time,
+   paced, backing off on the server's retry_after_ms. The queue and its
+   position persist in the account's store directory, so a restart continues.
+   `resume_only` != 0 continues an interrupted, unpaused run and otherwise only
+   reports. Every call answers on `search_index_all {op_id, lifecycle, state,
+   total, position, current_room, written, skipped, undecryptable,
+   undecryptable_rooms, failed_rooms, complete_rooms, retry_in_ms,
+   elapsed_ms[, messages, indexed_rooms]}`; a running pass keeps reporting on
+   the same op id. `state`: idle | running | held | backoff | paused | done |
+   cancelled | stopped. Room ids and counters only, never message text. */
+char *mx_rust_search_index_all_start(void *client,
+                                     unsigned int resume_only,
+                                     unsigned long long op_id);
+char *mx_rust_search_index_all_pause(void *client, unsigned long long op_id);
+char *mx_rust_search_index_all_cancel(void *client, unsigned long long op_id);
+/* Automatic holds, a bit set: 1 a call is active, 2 a timeline is scrolling.
+   A held pass waits between pages. No event. */
+char *mx_rust_search_index_all_hold(void *client, unsigned int bits);
+char *mx_rust_search_index_all_status(void *client, unsigned long long op_id);
 
 /* MSC3030 "jump to date" (stable since Matrix 1.6): the event closest to
    `timestamp_ms`, searching FORWARD, so a chosen day lands on its FIRST

@@ -9,6 +9,7 @@
 
 #include <QHash>
 #include <QPair>
+#include <QSet>
 #include <QStringList>
 #include <QTimer>
 #include <QVariantList>
@@ -280,6 +281,9 @@ public:
     /// when a client is built (matrix-sdk has no runtime setter), so it must be
     /// set before sign-in.
     static void setStrictDeviceTrust(bool enabled);
+    /// Whether unencrypted-room media is kept between sessions. Process-wide
+    /// and read by Rust on every fetch.
+    static void setKeepMediaOnDevice(bool enabled);
     void setRoomMarkedUnread(const QString &roomId, bool unread) override;
     bool supportsRoomFavourites() const override { return true; }
     void setRoomFavourite(const QString &roomId, bool favourite) override;
@@ -478,12 +482,18 @@ public:
     quint64 eventAtTimestamp(const QString &roomId, qint64 timestampMs) override;
     quint64 localSearch(const QString &query, const QString &roomId,
                         int limit, int offset) override;
+    quint64 clearStoredMedia() override;
     quint64 searchIndexStats() override;
     quint64 sweepSearchIndex() override;
     quint64 deepenSearchIndex(const QString &roomId) override;
     void forgetIndexedEvent(const QString &eventId) override;
     void forgetIndexedRoom(const QString &roomId) override;
     void clearSearchIndex() override;
+    quint64 indexAllRooms(bool resumeOnly) override;
+    quint64 pauseIndexAll() override;
+    quint64 cancelIndexAll() override;
+    quint64 requestIndexAllStatus() override;
+    void setIndexAllHold(unsigned bits) override;
     bool supportsLocalSearch() const override { return m_rustHandle != nullptr; }
     quint64 writeRoomWidget(const QString &roomId, const QString &widgetId,
                             const QString &contentJson) override;
@@ -846,6 +856,10 @@ private:
         const matrix::app_data::AccountIdentity &identity);
     bool ensureRustHandleForStorePath(const QString &storePath,
                                       const QString &slug);
+    // Hand the new handle its media-store key (MediaStoreKey.h): the saved
+    // account's key from the SecretStore, or none (an in-memory media store).
+    // Before any sign-in or restore builds the client.
+    void applyMediaStoreKey(const QString &slug);
     void releaseRustHandle();
 
 
@@ -876,6 +890,47 @@ private:
     // match only). True when nothing it created is left behind.
     bool rollBackFailedAttempt(const matrix::app_data::AccountIdentity &store,
                                const matrix::app_data::AccountIdentity &record);
+    // A sign-in for an account whose recorded device the server provably
+    // ended (m_revokedUserId/m_revokedDeviceId): moves that device's store
+    // aside, never deleting it, so the sign-in can start a new device in a
+    // fresh store. False when the store could not be moved.
+    bool moveRevokedDeviceStoreAside(const matrix::app_data::AccountIdentity &identity);
+    // The device the server provably ended in this process: the SDK's hard
+    // logout (soft_logout false) for the session that ran as it. Survives the
+    // local detach that follows; never persisted, so a restart asks the
+    // server again. Used once: a successful move, or a login_ok as that
+    // account, clears it.
+    QString m_revokedUserId;
+    QString m_revokedDeviceId;
+    // The device the SDK reported a SOFT logout for in this process (the
+    // server keeps the device), with the homeserver it ran against
+    // (normalized): a password sign-in as that account on that homeserver
+    // asks for it again and keeps its store. Same lifetime as the hard proof
+    // above. Never recorded for an OAuth account.
+    QString m_softLogoutUserId;
+    QString m_softLogoutHomeserver;
+    QString m_softLogoutDeviceId;
+    // The device the password sign-in in flight asked to resume; empty for a
+    // new device. Cleared by its terminal event.
+    QString m_resumeDeviceId;
+    // A resumed device is asked once more, after its sync has started, whether
+    // the server still publishes this store's key for it: a device deleted and
+    // re-created under the same id since the soft logout has none, and this
+    // store would never upload them again. Then Rust logs that re-created
+    // device out on the server and the session ends with the hard proof.
+    // Armed by the resumed login_ok for exactly that account and device; any
+    // other session or a detach disarms.
+    static constexpr int kResumedDeviceCheckDelayMs = 15000;
+    static constexpr int kResumedDeviceCheckAttempts = 3;
+    QString m_resumedCheckUserId;
+    QString m_resumedCheckDeviceId;
+    int m_resumedCheckAttempts = 0;
+    quint64 m_resumedCheckGeneration = 0;
+    void armResumedDeviceCheck();
+    void scheduleResumedDeviceCheck();
+    void disarmResumedDeviceCheck();
+    bool resumedDeviceCheckIsFor(const QString &userId,
+                                 const QString &deviceId) const;
     // Plain words after a browser sign-in whose restore failed, honest about
     // whether the rollback completed.
     QString browserRestoreFailureText(bool rolledBack, const QString &detail) const;
@@ -1087,8 +1142,15 @@ private:
     // Kept here too so it survives a login: the setting is read at startup,
     // before any bridge exists.
     int m_readReceiptPrivacy = 0;
+    // "Index all rooms" holds (IndexAllHold bits), re-applied to every new
+    // handle: a call or a scroll in progress outlives an account switch.
+    unsigned m_indexAllHold = 0;
     QString m_typingRoom;
     QHash<QString, QList<TimelineEvent>> m_timelines;
+    // Edits already forwarded from sync. They never enter m_timelines, so its
+    // de-dup scan cannot see a second delivery of one. Bounded; same lifetime
+    // as the mirror.
+    QSet<QString> m_forwardedEditIds;
     // A backward-pagination page arrives as many one-item inserts after the
     // timeline-start sentinel. Keep the mirror exact per diff but publish one
     // contiguous model transaction at the drain boundary.

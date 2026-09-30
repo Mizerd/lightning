@@ -100,9 +100,17 @@ Item {
     }
 
     readonly property bool offline:
-        app.connectionStatus === qsTr("Error")
-        || app.connectionStatus === qsTr("Offline — retrying")
+        app.connectionStatus === qsTr("Offline — retrying")
         || app.connectionStatus === qsTr("Not connected")
+    // "Error" is not "offline": the server answered and sync still stopped,
+    // which reconnecting does not fix, so it gets words of its own.
+    readonly property bool syncFailed: app.connectionStatus === qsTr("Error")
+    readonly property string connectionNotice: syncFailed
+        ? qsTr("Lightning can't sync with your server. Your rooms stay "
+               + "available, but new messages may not arrive.")
+        : (offline ? qsTr("You appear to be offline. Reconnecting — "
+                          + "your rooms stay available.")
+                   : "")
 
     Flickable {
         anchors.fill: parent
@@ -165,11 +173,12 @@ Item {
                 lineHeightMode: Text.ProportionalHeight
             }
 
-            // Offline notice, informational only: cached rooms stay reachable
-            // and the status bar carries the detail.
+            // Connection notice (offline, or sync stopped), informational
+            // only: cached rooms stay reachable and the status bar carries
+            // the detail.
             Rectangle {
                 objectName: "homeOfflineNotice"
-                visible: root.offline
+                visible: root.connectionNotice !== ""
                 Layout.fillWidth: true
                 radius: AppTheme.radiusMd
                 // The warning chip family, so fill, border and icon share one
@@ -185,9 +194,9 @@ Item {
                     spacing: AppTheme.spacing10
                     Icon { name: "warning"; size: 18; color: AppTheme.warning }
                     Label {
+                        objectName: "homeConnectionNoticeText"
                         Layout.fillWidth: true
-                        text: qsTr("You appear to be offline. Reconnecting — "
-                                   + "your rooms stay available.")
+                        text: root.connectionNotice
                         // textPrimary: secondary ink on the 14% status tint is
                         // below AA on the light themes.
                         color: AppTheme.textPrimary

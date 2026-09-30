@@ -327,6 +327,7 @@ AppDialog {
                         FileDialog {
                             id: spaceAvatarFile
                             title: qsTr("Choose space avatar")
+                            currentFolder: app.defaultFileDialogFolder()
                             fileMode: FileDialog.OpenFile
                             nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)")]
                             // The crop dialog decides what is uploaded and
@@ -344,6 +345,7 @@ AppDialog {
                         FileDialog {
                             id: spaceBannerFile
                             title: qsTr("Choose a banner image")
+                            currentFolder: app.defaultFileDialogFolder()
                             fileMode: FileDialog.OpenFile
                             nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp)")]
                             onAccepted: spaceBannerCrop.openFor(selectedFile)
@@ -992,7 +994,8 @@ AppDialog {
                         Label {
                             Layout.fillWidth: true
                             text: root.infoIsOurs
-                                  ? qsTr("%1 members").arg(app.roomInfo.joinedCount)
+                                  ? qsTr("%n member(s)", "",
+                                         app.roomInfo.joinedCount)
                                   : ""
                             color: AppTheme.stormText
                             font.family: AppTheme.uiFont

@@ -343,6 +343,7 @@ Popup {
     FileDialog {
         id: saveDialog
         title: qsTr("Save image as…")
+        currentFolder: app.defaultFileDialogFolder()
         fileMode: FileDialog.SaveFile
         onAccepted: {
             if (viewer.current !== null)

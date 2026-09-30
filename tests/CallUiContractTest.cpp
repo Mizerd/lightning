@@ -1001,6 +1001,81 @@ ApplicationWindow {
         QCOMPARE(picker->property("selected").toInt(), 3);
     }
 
+    // ShareSourceImageProvider always answers a null image off Windows (its
+    // own header says why: Linux uses the portal's own picker and never
+    // reaches this dialog with a real screen, macOS lists displays only), and
+    // Qt Quick's image loader treats any null provider answer as a load
+    // failure and logs "Failed to get image from provider" — once per tile,
+    // every time the picker opens. Asked directly here because that warning
+    // is not one QQmlEngine::warnings() surfaces.
+    void thePreviewImageIsNeverRequestedOffWindows()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 1100
+    height: 760
+    visible: true
+    property alias picker: pick
+    ScreenSharePicker { id: pick; objectName: "sharePicker" }
+}
+)"), QUrl(QStringLiteral("qrc:/sharepickerpreviewtest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        auto *window = qobject_cast<QQuickWindow *>(owner.get());
+        QVERIFY(window != nullptr);
+        auto *picker = owner->property("picker").value<QObject *>();
+        QVERIFY(picker != nullptr);
+
+        // A screen row: the "s<index>" half of the provider id.
+        const QVariantList screenRows = pickerRows({
+            { QStringLiteral("Screen A"), QString(), 0 },
+        });
+        picker->setProperty("sources", screenRows);
+        QMetaObject::invokeMethod(picker, "open");
+        QTRY_VERIFY(picker->property("visible").toBool());
+        QCoreApplication::processEvents();
+
+        auto *screenPreview = findVisualChild(
+            picker, QStringLiteral("sharePickerPreview_s0"));
+        QVERIFY2(screenPreview != nullptr,
+                 "the screen tile's preview Image has no matching objectName");
+        QVERIFY2(screenPreview->property("source").toUrl().isEmpty(),
+                 "a screen tile still asks image://lightning-sharesource off "
+                 "Windows");
+
+        QMetaObject::invokeMethod(picker, "close");
+
+        // A window row: the "w<handle>" half, on the Applications tab (set
+        // directly — the tab switch itself is exercised elsewhere).
+        const QVariantList windowRows = pickerRows({
+            { QStringLiteral("Window A"), QStringLiteral("Brave Browser"),
+              4660 },
+        });
+        picker->setProperty("sources", windowRows);
+        picker->setProperty("tab", QStringLiteral("applications"));
+        QMetaObject::invokeMethod(picker, "open");
+        QTRY_VERIFY(picker->property("visible").toBool());
+        QCoreApplication::processEvents();
+
+        auto *windowPreview = findVisualChild(
+            picker, QStringLiteral("sharePickerPreview_w4660"));
+        QVERIFY2(windowPreview != nullptr,
+                 "the window tile's preview Image has no matching objectName");
+        QVERIFY2(windowPreview->property("source").toUrl().isEmpty(),
+                 "a window tile still asks image://lightning-sharesource off "
+                 "Windows");
+    }
+
     // The filtered grid must map back to the unfiltered source index:
     // chooseScreenShareSource() indexes the full list, and a wrong mapping
     // silently shares the wrong thing. Rows interleave kinds so a naive

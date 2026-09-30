@@ -2,6 +2,7 @@
 // audio/video, fakesinks; no microphone, camera or display server): pipeline
 // construction, the crypto pad probes, per-sender key rings and teardown.
 #include "calls/SfuMediaEngine.h"
+#include "calls/CaptureClock.h"
 
 #include "calls/CallFrameCryptor.h"
 #include "calls/RtpVp8Payloader.h"
@@ -1580,6 +1581,253 @@ private slots:
                                   kRetiredWithinMs);
         QCOMPARE(sender.teardownsWhileGatheringForTest(), 0);
         QCOMPARE(receiver.teardownsWhileGatheringForTest(), 0);
+    }
+
+    // A microphone whose timestamps run ahead of the clock (wasapi2src on a
+    // Remote Desktop microphone ran 1.9 % fast, 2026-09-30) must still reach
+    // the far end in real time, with honest RTP timestamps. webrtcbin syncs
+    // each input to the clock, so without the hold the leaky queue in front
+    // of the encoder threw nearly everything away: 100 buffers a second in,
+    // 6 out. Restamping the capture itself (the first fix) kept the audio
+    // flowing but made every RTP step short (~480 per 20 ms packet here).
+    // The source runs at twice real time so the lead builds in a fraction of
+    // a second.
+    void aMicrophoneAheadOfTheClockStillSendsInRealTime()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        // Not live, paced by the identity: 10 ms of audio every 5 ms.
+        sender.setMicrophoneSourceForTest(QStringLiteral(
+            "audiotestsrc is-live=false wave=sine freq=440 volume=0.05 "
+            "samplesperbuffer=480 ! audio/x-raw,rate=48000,channels=1 "
+            "! identity sleep-time=5000"));
+
+        QString failure;
+        const auto note = [&failure](const QString &why) {
+            if (failure.isEmpty())
+                failure = why;
+        };
+        connect(&sender, &SfuMediaEngine::failed, this, note);
+        connect(&receiver, &SfuMediaEngine::failed, this, note);
+        connect(&sender, &SfuMediaEngine::localDescription, &receiver,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)
+                        && kind == QStringLiteral("offer")) {
+                        receiver.applyRemoteDescription(
+                            SfuMediaEngine::Target::Subscriber, kind, sdp);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localDescription, &sender,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)
+                        && kind == QStringLiteral("answer")) {
+                        sender.applyRemoteDescription(
+                            SfuMediaEngine::Target::Publisher, kind, sdp);
+                    }
+                });
+        connect(&sender, &SfuMediaEngine::localCandidate, &receiver,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)) {
+                        receiver.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Subscriber, init);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localCandidate, &sender,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)) {
+                        sender.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Publisher, init);
+                    }
+                });
+        QString arrivedStream;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &, const QString &) {
+                    arrivedStream = streamId;
+                });
+
+        sender.start();
+        receiver.start();
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("sender-device"), 3, key);
+        sender.publishAudio(QStringLiteral("cid-ahead-audio"));
+
+        // RTP timestamp steps as webrtcbin receives them. Opus at 48 kHz in
+        // 20 ms packets steps 960; a lost packet only makes a step longer.
+        struct RtpSteps {
+            std::atomic<quint64> steps{0};
+            std::atomic<quint64> shortSteps{0};
+            bool have = false;
+            guint32 last = 0;
+        };
+        auto rtpSteps = std::make_shared<RtpSteps>();
+        GstElement *bin =
+            sender.publishedBinForTest(QStringLiteral("cid-ahead-audio"));
+        QVERIFY(bin);
+        GstElement *rtpCaps = gst_bin_get_by_name(GST_BIN(bin), "micrtpcaps");
+        QVERIFY(rtpCaps);
+        GstPad *rtpPad = gst_element_get_static_pad(rtpCaps, "src");
+        gst_object_unref(rtpCaps);
+        QVERIFY(rtpPad);
+        gst_pad_add_probe(
+            rtpPad, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *info, gpointer user) {
+                auto *s = static_cast<std::shared_ptr<RtpSteps> *>(user)->get();
+                GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+                GstRTPBuffer rtp = GST_RTP_BUFFER_INIT;
+                if (buffer && gst_rtp_buffer_map(buffer, GST_MAP_READ, &rtp)) {
+                    const guint32 ts = gst_rtp_buffer_get_timestamp(&rtp);
+                    gst_rtp_buffer_unmap(&rtp);
+                    if (s->have) {
+                        ++s->steps;
+                        if (gint32(ts - s->last) < 960)
+                            ++s->shortSteps;
+                    }
+                    s->have = true;
+                    s->last = ts;
+                }
+                return GST_PAD_PROBE_OK;
+            },
+            new std::shared_ptr<RtpSteps>(rtpSteps),
+            [](gpointer user) {
+                delete static_cast<std::shared_ptr<RtpSteps> *>(user);
+            });
+        gst_object_unref(rtpPad);
+
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !arrivedStream.isEmpty(),
+            qPrintable(QStringLiteral("no media pad; failure=%1").arg(failure)),
+            45000);
+        receiver.noteParticipantIdentity(arrivedStream,
+                                         QStringLiteral("sender-device"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.framesDecrypted() > 0,
+            qPrintable(QStringLiteral("nothing decrypted; sent=%1 failure=%2")
+                           .arg(sender.framesEncrypted())
+                           .arg(failure)),
+            45000);
+        // Past the start, so the lead has had time to build.
+        QTest::qWait(1500);
+        const quint64 receivedBefore = receiver.framesDecrypted();
+        const quint64 stepsBefore = rtpSteps->steps.load();
+        const quint64 shortBefore = rtpSteps->shortSteps.load();
+        QTest::qWait(3000);
+        const quint64 received = receiver.framesDecrypted() - receivedBefore;
+        const quint64 steps = rtpSteps->steps.load() - stepsBefore;
+        const quint64 shortSteps = rtpSteps->shortSteps.load() - shortBefore;
+        qInfo("ahead source over 3 s: %llu frames received, %llu RTP steps, "
+              "%llu short, %llu packets held",
+              static_cast<unsigned long long>(received),
+              static_cast<unsigned long long>(steps),
+              static_cast<unsigned long long>(shortSteps),
+              static_cast<unsigned long long>(sender.micBuffersHeldToClock()));
+        // At the far end: real time is 150 frames in 3 s and this source
+        // offers 300; without the hold a handful arrive. 100 leaves room for
+        // a loaded machine.
+        QVERIFY2(received >= 100,
+                 qPrintable(QStringLiteral("%1 frames reached the receiver in "
+                                           "3 s from a source ahead of the "
+                                           "clock (sent %2, held %3)")
+                                .arg(received)
+                                .arg(sender.framesEncrypted())
+                                .arg(sender.micBuffersHeldToClock())));
+        // Honest RTP clock: never a step shorter than one packet's samples.
+        QVERIFY2(steps >= 50, qPrintable(QStringLiteral("%1 RTP steps seen")
+                                             .arg(steps)));
+        QVERIFY2(shortSteps == 0,
+                 qPrintable(QStringLiteral("%1 of %2 RTP timestamp steps were "
+                                           "shorter than 960")
+                                .arg(shortSteps)
+                                .arg(steps)));
+        QVERIFY(sender.micBuffersHeldToClock() > 0);
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // The hold is a no-op for a source that keeps time: a live source never
+    // stamps a buffer later than the clock, whatever latency it reports.
+    void aMicrophoneThatKeepsTimeIsNeverHeld()
+    {
+        using lightning::calls::captureIsAhead;
+        using lightning::calls::captureRunningTimeHeld;
+        const GstClockTime none = GST_CLOCK_TIME_NONE;
+        const GstClockTime ms = GST_MSECOND;
+        // Ahead means later than the clock by more than the tolerance.
+        QVERIFY(!captureIsAhead(-40 * qint64(ms)));
+        QVERIFY(!captureIsAhead(0));
+        QVERIFY(!captureIsAhead(20 * qint64(ms)));
+        QVERIFY(captureIsAhead(21 * qint64(ms)));
+        // Not ahead: untouched, even when clocksync would wait for it.
+        QCOMPARE(captureRunningTimeHeld(5000 * ms, 5000 * ms, 40 * ms, false,
+                                        none),
+                 5000 * ms);
+        // Ahead: released at once, i.e. the clock minus the latency
+        // clocksync adds on top.
+        QCOMPARE(captureRunningTimeHeld(5300 * ms, 5000 * ms, 40 * ms, true,
+                                        none),
+                 4960 * ms);
+        QCOMPARE(captureRunningTimeHeld(5300 * ms, 5000 * ms, 0, true, none),
+                 5000 * ms);
+        // A packet already older than that is never pushed later.
+        QCOMPARE(captureRunningTimeHeld(4900 * ms, 5000 * ms, 40 * ms, true,
+                                        none),
+                 4900 * ms);
+        // Monotonic: the capture turns ahead just after a packet was handed
+        // on at 4990 ms; the next is not stepped back to 4960 ms.
+        QCOMPARE(captureRunningTimeHeld(5050 * ms, 5000 * ms, 40 * ms, true,
+                                        4990 * ms),
+                 4990 * ms);
+        // Not ahead: untouched, even below the last one (a restarted source).
+        QCOMPARE(captureRunningTimeHeld(100 * ms, 5010 * ms, 40 * ms, false,
+                                        4970 * ms),
+                 100 * ms);
+
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);   // audiotestsrc is-live=true
+        SfuMediaEngine receiver;
+        receiver.setTestSourceMode(true);
+        connect(&engine, &SfuMediaEngine::localDescription, &receiver,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)
+                        && kind == QStringLiteral("offer")) {
+                        receiver.applyRemoteDescription(
+                            SfuMediaEngine::Target::Subscriber, kind, sdp);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localDescription, &engine,
+                [&](int target, const QString &kind, const QString &sdp) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)
+                        && kind == QStringLiteral("answer")) {
+                        engine.applyRemoteDescription(
+                            SfuMediaEngine::Target::Publisher, kind, sdp);
+                    }
+                });
+        connect(&engine, &SfuMediaEngine::localCandidate, &receiver,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)) {
+                        receiver.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Subscriber, init);
+                    }
+                });
+        connect(&receiver, &SfuMediaEngine::localCandidate, &engine,
+                [&](int target, const QString &init) {
+                    if (target == int(SfuMediaEngine::Target::Subscriber)) {
+                        engine.applyRemoteCandidate(
+                            SfuMediaEngine::Target::Publisher, init);
+                    }
+                });
+        engine.start();
+        receiver.start();
+        engine.publishAudio(QStringLiteral("cid-in-time-audio"));
+        QTRY_VERIFY_WITH_TIMEOUT(engine.framesEncrypted() >= 100, 45000);
+        QCOMPARE(engine.micBuffersHeldToClock(), quint64(0));
+        engine.stop();
+        receiver.stop();
     }
 
     // An unkeyed sender is reported as unkeyed, not as a decryption failure:

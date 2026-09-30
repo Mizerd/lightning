@@ -53,6 +53,7 @@ Dialog {
     FileDialog {
         id: saveDialog
         objectName: "exportRoomSaveDialog"
+        currentFolder: app.defaultFileDialogFolder()
         fileMode: FileDialog.SaveFile
         title: qsTr("Export room")
         nameFilters: root.format === "json"

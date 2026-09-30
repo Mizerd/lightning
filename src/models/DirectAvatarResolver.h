@@ -2,9 +2,11 @@
 //
 // A Matrix DM usually has no room avatar, so clients show the peer's profile
 // picture: decide whether the room is an unambiguous 1:1, find the peer, and
-// fetch their profile once. Both room-list models own one of these so every
-// surface derives it the same way. Caches are per-owner on purpose: they are
-// presentation memory and the fetch is idempotent and bounded.
+// fetch their profile once. The peer's own member event in the room, when sync
+// delivers one, then keeps that face current. Both room-list models own one of
+// these so every surface derives it the same way. Caches are per-owner on
+// purpose: they are presentation memory and the fetch is idempotent and
+// bounded.
 #pragma once
 
 #include <QHash>
@@ -36,9 +38,17 @@ public:
     /// every rebuild: pending and cached peers are skipped.
     void resolveMissing(const QList<RoomInfo> &rooms);
 
+    /// The avatar `userId` wears in `roomId` per their latest member event
+    /// there (sync room state), empty for none. For that room's peer it wins
+    /// over the roster snapshot and the profile, which can be older. Announces
+    /// only a change.
+    void applyPeerAvatar(const QString &roomId, const QString &userId,
+                         const QString &avatarUrl);
+
 Q_SIGNALS:
-    /// One peer resolved. Owners emit dataChanged for the affected rows instead
-    /// of rebuilding, so a late profile cannot move anything.
+    /// A peer's face changed (learned, replaced or removed). Owners emit
+    /// dataChanged for the affected rows instead of rebuilding, so a late
+    /// profile cannot move anything.
     void avatarResolved(const QString &userId);
 
 private Q_SLOTS:
@@ -64,4 +74,13 @@ private:
     /// pin a DM to initials. avatarFor() checks the member snapshot first, so a
     /// later face still wins.
     QSet<QString> m_noAvatar;
+    /// By room id: the peer a member event was about and the avatar it
+    /// carried. Only read while that user is still the room's peer.
+    struct PeerFace
+    {
+        QString userId;
+        QString avatarUrl;
+    };
+    QHash<QString, PeerFace> m_peerFaces;
+    bool hasPeerFace(const QString &roomId, const QString &peer) const;
 };

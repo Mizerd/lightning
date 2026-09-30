@@ -3,10 +3,13 @@
 // and sign-out invalidation. Encrypted rooms are excluded by the server, which
 // this mock cannot observe.
 
+#include "app/SettingsManager.h"
 #include "matrix/MockMatrixClient.h"
 #include "models/MessageSearchController.h"
 
+#include <QSettings>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <algorithm>
 #include <QtTest/QtTest>
@@ -70,6 +73,30 @@ class MessageSearchControllerTest : public QObject
 {
     Q_OBJECT
 
+    // The index-all offer remembers its answer in SettingsManager; keep that
+    // file out of the real configuration.
+    QTemporaryDir m_configHome;
+
+    static QString alice() { return QStringLiteral("@alice:mock.local"); }
+
+    // An account record, as a real sign-in writes before loginSucceeded. The
+    // token is a fixture, not a credential.
+    static void recordAccount(SettingsManager &settings, const QString &userId)
+    {
+        settings.saveSession(QStringLiteral("https://mock.local"), userId,
+                             QStringLiteral("DEVICE"),
+                             QStringLiteral("token-fixture"));
+    }
+
+    static QVariantMap progress(const QString &state, int position, int total)
+    {
+        return {
+            { QStringLiteral("state"), state },
+            { QStringLiteral("position"), position },
+            { QStringLiteral("total"), total },
+        };
+    }
+
     static bool login(MockMatrixClient &client)
     {
         QSignalSpy spy(&client, &MatrixClient::loginSucceeded);
@@ -82,6 +109,23 @@ class MessageSearchControllerTest : public QObject
     }
 
 private Q_SLOTS:
+    void initTestCase()
+    {
+        QVERIFY(m_configHome.isValid());
+        qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+        QCoreApplication::setOrganizationName(
+            QStringLiteral("MatrixClientTests"));
+        QCoreApplication::setApplicationName(
+            QStringLiteral("message-search-test"));
+    }
+
+    void init()
+    {
+        QSettings settings;
+        settings.clear();
+        settings.sync();
+    }
+
     void debouncedQueryPopulatesWithRoomNames()
     {
         MockMatrixClient client;
@@ -456,6 +500,230 @@ private Q_SLOTS:
         QVERIFY2(!shown.isEmpty(),
                  "a local row lost its sender display name — the producers "
                  "and MessageSearchController disagree on the key");
+    }
+    // ── "Index all rooms" ────────────────────────────────────────────────
+    //
+    // Old code: the controller had no index-all state and MatrixClient no
+    // API to drive a pass, so none of these compiled. Each also pins what a
+    // naive port would get wrong, named in its comment.
+
+    // The controller mirrors the backend's pass and derives what the UI shows:
+    // the room by NAME, an estimate from the pass's own pace, and which states
+    // are under way. Storing `state` alone fails the name, the estimate and
+    // the resumable checks; treating "held" as stopped fails the second block.
+    void indexAllStateFollowsTheBackendsProgress()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setClient(&client);
+
+        model.indexAllRooms();
+        QCOMPARE(client.indexAllStarts, QList<bool>{ false });
+        QTRY_COMPARE(model.indexAllState(), QStringLiteral("running"));
+        QVERIFY(model.indexAllActive());
+        QCOMPARE(model.indexAllEtaMs(), qint64(-1));   // no room finished yet
+
+        QVariantMap status = progress(QStringLiteral("running"), 2, 4);
+        status.insert(QStringLiteral("currentRoomId"),
+                      QStringLiteral("!general:mock.local"));
+        status.insert(QStringLiteral("written"), 120);
+        status.insert(QStringLiteral("undecryptable"), 7);
+        status.insert(QStringLiteral("elapsedMs"), 60000);
+        Q_EMIT client.searchIndexAllProgress(1, status);
+        QCOMPARE(model.indexAllPosition(), 2);
+        QCOMPARE(model.indexAllTotal(), 4);
+        QCOMPARE(model.indexAllWritten(), qint64(120));
+        QCOMPARE(model.indexAllUndecryptable(), qint64(7));
+        QVERIFY2(!model.indexAllRoomName().isEmpty()
+                     && model.indexAllRoomName()
+                            != QStringLiteral("!general:mock.local"),
+                 "the room in progress was not shown by its name");
+        // 30 s per finished room, two rooms left.
+        QCOMPARE(model.indexAllEtaMs(), qint64(60000));
+
+        // Waiting for a call or on the server is still a pass under way.
+        for (const char *state : { "held", "backoff" }) {
+            Q_EMIT client.searchIndexAllProgress(
+                1, progress(QString::fromLatin1(state), 2, 4));
+            QVERIFY2(model.indexAllActive(), state);
+            QVERIFY(!model.indexAllResumable());
+        }
+
+        model.pauseIndexAll();
+        QCOMPARE(client.indexAllPauses, 1);
+        QTRY_COMPARE(model.indexAllState(), QStringLiteral("paused"));
+        QVERIFY(!model.indexAllActive());
+        QVERIFY(model.indexAllResumable());
+        QCOMPARE(model.indexAllEtaMs(), qint64(-1));
+
+        model.cancelIndexAll();
+        QCOMPARE(client.indexAllCancels, 1);
+        QTRY_COMPARE(model.indexAllState(), QStringLiteral("cancelled"));
+        QVERIFY(!model.indexAllResumable());
+        QVERIFY(!model.indexAllActive());
+    }
+
+    // A pass that settles re-runs a local query on screen; one still running
+    // does not, or every page would repaint the list being read. Re-running on
+    // every progress event fails the first half.
+    void aSettledIndexAllPassRefreshesALiveResultList()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!general:mock.local"));
+        model.setQuery(QStringLiteral("Welcome"));
+        QTRY_VERIFY(model.rowCount() > 0);
+
+        QSignalSpy searches(&client, &MatrixClient::localSearchFinished);
+        Q_EMIT client.searchIndexAllProgress(1, progress(QStringLiteral("running"), 1, 3));
+        Q_EMIT client.searchIndexAllProgress(1, progress(QStringLiteral("running"), 2, 3));
+        QTest::qWait(120);
+        QCOMPARE(searches.count(), 0);
+
+        Q_EMIT client.searchIndexAllProgress(1, progress(QStringLiteral("done"), 0, 0));
+        QTRY_VERIFY_WITH_TIMEOUT(searches.count() > 0, kSignalTimeoutMs);
+    }
+
+    // A call and a scroll hold the pass independently; releasing one must not
+    // release the other. A setter that forwards only the latest reason fails
+    // the first comparison.
+    void indexAllHoldsReachTheBackendAsOneBitSet()
+    {
+        MockMatrixClient client;
+        MessageSearchController model;
+        model.setClient(&client);
+        model.setIndexAllHold(MatrixClient::IndexAllHoldCall, true);
+        model.setIndexAllHold(MatrixClient::IndexAllHoldScroll, true);
+        QCOMPARE(client.indexAllHold,
+                 unsigned(MatrixClient::IndexAllHoldCall
+                          | MatrixClient::IndexAllHoldScroll));
+        model.setIndexAllHold(MatrixClient::IndexAllHoldCall, false);
+        QCOMPARE(client.indexAllHold, unsigned(MatrixClient::IndexAllHoldScroll));
+
+        // A hold in force carries over to a new backend.
+        MockMatrixClient next;
+        model.setClient(&next);
+        QCOMPARE(next.indexAllHold, unsigned(MatrixClient::IndexAllHoldScroll));
+    }
+
+    // On sync the app asks only to CONTINUE: a pass must never start by
+    // itself. Calling indexAllRooms() there (resumeOnly false) fails both.
+    void aResumeOnSyncNeverStartsAFreshPass()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setClient(&client);
+        QSignalSpy answers(&client, &MatrixClient::searchIndexAllProgress);
+
+        model.resumeIndexAllIfPending();
+        QCOMPARE(client.indexAllStarts, QList<bool>{ true });
+        QVERIFY(answers.wait(kSignalTimeoutMs));
+        QCOMPARE(model.indexAllState(), QStringLiteral("idle"));
+
+        client.mockIndexAllPending = true;   // interrupted last session
+        model.resumeIndexAllIfPending();
+        QTRY_COMPARE(model.indexAllState(), QStringLiteral("running"));
+    }
+
+    // ── The one-time offer after a sign-in ───────────────────────────────
+    //
+    // Shown once after a sign-in made here, and the answer is remembered —
+    // on disk, per account. An offer that ignored the stored answer, or kept
+    // it in memory only, fails the re-read.
+    void theIndexAllOfferIsMadeOnceAfterASignInMadeHere()
+    {
+        SettingsManager settings;
+        recordAccount(settings, alice());
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setClient(&client);
+        model.setSettings(&settings);
+        QSignalSpy offerChanged(&model,
+                                &MessageSearchController::indexAllOfferChanged);
+
+        model.offerIndexAllAfterSignIn(alice(), /*interactiveSignIn=*/true);
+        QVERIFY(model.indexAllOffered());
+        QCOMPARE(offerChanged.count(), 1);
+
+        model.answerIndexAllOffer(QStringLiteral("no"));
+        QVERIFY(!model.indexAllOffered());
+        QVERIFY2(client.indexAllStarts.isEmpty(), "No started a pass");
+        QCOMPARE(settings.indexAllOfferAnswer(alice()), QStringLiteral("no"));
+
+        // The same account signing in here again is not asked again, even by
+        // a fresh settings object reading the file.
+        SettingsManager reread;
+        model.setSettings(&reread);
+        model.offerIndexAllAfterSignIn(alice(), true);
+        QVERIFY2(!model.indexAllOffered(), "the offer was made twice");
+        model.setSettings(nullptr);
+    }
+
+    // Never for a restored session, and a restore (an account switch)
+    // withdraws an offer armed for the account before it. An account with no
+    // record cannot remember an answer, so it is not asked either. Offering
+    // on every loginSucceeded fails the first check.
+    void aRestoredSessionIsNeverOfferedIndexAll()
+    {
+        SettingsManager settings;
+        recordAccount(settings, alice());
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setClient(&client);
+        model.setSettings(&settings);
+
+        model.offerIndexAllAfterSignIn(alice(), /*interactiveSignIn=*/false);
+        QVERIFY2(!model.indexAllOffered(), "a restored session was offered");
+        QVERIFY2(settings.indexAllOfferAnswer(alice()).isEmpty(),
+                 "a restore consumed the one offer");
+
+        model.offerIndexAllAfterSignIn(alice(), true);
+        QVERIFY(model.indexAllOffered());
+        model.offerIndexAllAfterSignIn(QStringLiteral("@bob:mock.local"), false);
+        QVERIFY2(!model.indexAllOffered(),
+                 "an offer survived a switch to another account");
+        model.answerIndexAllOffer(QStringLiteral("yes"));
+        QVERIFY2(client.indexAllStarts.isEmpty(),
+                 "a withdrawn offer could still start a pass");
+
+        model.offerIndexAllAfterSignIn(QStringLiteral("@carol:mock.local"), true);
+        QVERIFY2(!model.indexAllOffered(),
+                 "an account with no record was offered");
+
+        // Sign-out withdraws it too.
+        model.offerIndexAllAfterSignIn(alice(), true);
+        QVERIFY(model.indexAllOffered());
+        client.logout();
+        QTRY_VERIFY(!model.indexAllOffered());
+        model.setSettings(nullptr);
+    }
+
+    // Yes starts the pass (a fresh one, not a resume) and is remembered.
+    void yesToTheIndexAllOfferStartsThePass()
+    {
+        SettingsManager settings;
+        recordAccount(settings, alice());
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setClient(&client);
+        model.setSettings(&settings);
+
+        model.offerIndexAllAfterSignIn(alice(), true);
+        QVERIFY(model.indexAllOffered());
+        model.answerIndexAllOffer(QStringLiteral("yes"));
+        QCOMPARE(client.indexAllStarts, QList<bool>{ false });
+        QTRY_COMPARE(model.indexAllState(), QStringLiteral("running"));
+        QVERIFY(!model.indexAllOffered());
+        QCOMPARE(settings.indexAllOfferAnswer(alice()), QStringLiteral("yes"));
+        model.setSettings(nullptr);
     }
 };
 

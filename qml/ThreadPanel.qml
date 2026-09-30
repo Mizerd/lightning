@@ -1920,6 +1920,7 @@ Rectangle {
     FileDialog {
         id: threadAttachDialog
         title: qsTr("Attach files")
+        currentFolder: app.defaultFileDialogFolder()
         fileMode: FileDialog.OpenFiles
         onAccepted: {
             for (var i = 0; i < selectedFiles.length; ++i)

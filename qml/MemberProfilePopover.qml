@@ -925,31 +925,46 @@ Popup {
                 active: root.bioText.length > 0
                 visible: active
                 sourceComponent: Rectangle {
-                    implicitHeight: bioLabel.implicitHeight + 2 * AppTheme.spacing12
+                    // A second bound on top of Rust's, for bios stored before
+                    // bounding existed: twelve lines, the rest clipped (a
+                    // TextEdit cannot elide).
+                    implicitHeight: Math.min(bioLabel.implicitHeight,
+                                             bioMetrics.lineSpacing * 12)
+                                    + 2 * AppTheme.spacing12
                     radius: AppTheme.radiusMd
                     color: AppTheme.stormInset
                     border.width: 1
                     border.color: AppTheme.stormBorder
-                    Label {
+                    clip: true
+                    FontMetrics {
+                        id: bioMetrics
+                        font: bioLabel.font
+                    }
+                    // Selectable and copyable, like a message body, but plain
+                    // text only: no links, since MSC4440's own example embeds
+                    // markup a rich renderer would act on.
+                    TextEdit {
                         // Not `bioText`, the popover property this reads.
                         id: bioLabel
                         objectName: "profileBioText"
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.top: parent.top
+                        anchors.topMargin: AppTheme.spacing12
                         anchors.leftMargin: AppTheme.spacing12
                         anchors.rightMargin: AppTheme.spacing12
                         text: root.bioText
                         // Never StyledText or RichText.
                         textFormat: Text.PlainText
-                        wrapMode: Text.Wrap
+                        readOnly: true
+                        selectByMouse: true
+                        selectByKeyboard: true
+                        selectionColor: AppTheme.selectedHover
+                        selectedTextColor: AppTheme.selectedText
+                        wrapMode: TextEdit.Wrap
                         color: AppTheme.stormTextSecondary
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textBody
-                        // A second bound on top of Rust's, for bios stored
-                        // before bounding existed.
-                        maximumLineCount: 12
-                        elide: Text.ElideRight
                     }
                     Accessible.role: Accessible.StaticText
                     Accessible.name: qsTr("Bio")

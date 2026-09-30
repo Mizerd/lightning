@@ -1861,9 +1861,19 @@ Item {
                                              : 560
                         // Keep the last line clear of the receipt rail.
                         Layout.rightMargin: root.receiptRailReserve
+                        // Right-aligned text needs the column's width: a body
+                        // as wide as its own text reads left-aligned.
+                        Layout.fillWidth: bodyDirection.rightToLeft
                         textFormat: Text.RichText
                         selectByMouse: true
                         Accessible.name: model.body || ""
+
+                        // Each paragraph in its own direction (dir="auto").
+                        ParagraphDirection {
+                            id: bodyDirection
+                            document: bodyLabel.textDocument
+                        }
+
                         // One routing implementation, shared with the segmented
                         // renderer.
                         onLinkActivated: function(link) {
@@ -1977,6 +1987,7 @@ Item {
                                     Component {
                                         id: richSegment
                                         TextEdit {
+                                            id: segmentText
                                             objectName: "messageSegmentText"
                                             text: root.highlightSearchMatches(
                                                       segmentRow.modelData.text
@@ -2004,6 +2015,10 @@ Item {
                                             selectByMouse: true
                                             onLinkActivated: function(link) {
                                                 root.openMessageLink(link)
+                                            }
+                                            // Already the row's width.
+                                            ParagraphDirection {
+                                                document: segmentText.textDocument
                                             }
                                         }
                                     }

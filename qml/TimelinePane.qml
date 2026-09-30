@@ -703,6 +703,7 @@ Rectangle {
         id: saveMediaDialog
         property string pendingMediaKey: ""
         title: qsTr("Save file as…")
+        currentFolder: app.defaultFileDialogFolder()
         fileMode: FileDialog.SaveFile
         onAccepted: {
             if (pendingMediaKey.length > 0) {
@@ -1948,6 +1949,23 @@ Rectangle {
                 }
                 function scheduleVisibleRowRange() {
                     visibleRowRangeTimer.restart()
+                }
+                // Same shape as visibleRowRangeTimer above, for the same
+                // reason: onModelReset() used to close its settle step with a
+                // bare Qt.callLater(function() { timeline.recomputePresen...
+                // }), and that queued closure ran after window close/logout/
+                // app quit destroyed `timeline`, logging
+                // "recomputePresentationReady is not a function" on every
+                // session end. A child Timer is destroyed together with
+                // `timeline`, so a torn-down pane leaves nothing queued to
+                // fire.
+                Timer {
+                    id: presentationResetSettledTimer
+                    interval: 0
+                    onTriggered: {
+                        timeline.presentationResetPending = false
+                        timeline.recomputePresentationReady()
+                    }
                 }
 
                 Column {
@@ -4312,10 +4330,7 @@ Rectangle {
                             app.pagination.restoreScrollAnchor(app.currentRoomId)
                         })
                         Qt.callLater(timeline.maybeFillViewport)
-                        Qt.callLater(function() {
-                            timeline.presentationResetPending = false
-                            timeline.recomputePresentationReady()
-                        })
+                        presentationResetSettledTimer.restart()
                     }
                 }
 
@@ -5146,6 +5161,11 @@ Rectangle {
             // A Space is a Matrix room, so it has a real member list (the same
             // roster Room Information reads, already pointed at this Space).
             property bool peopleOpen: false
+            // Joined members only: a banned, invited or departed member is
+            // not one of the people in this Space, and a chip says nothing
+            // about membership.
+            readonly property var spacePeople:
+                app.roomInfo ? (app.roomInfo.joinedMembers || []) : []
 
             InvitePeopleDialog {
                 id: spaceInviteDialog
@@ -5506,6 +5526,7 @@ Rectangle {
                     FileDialog {
                         id: spaceBannerDialog
                         title: qsTr("Choose a banner image")
+                        currentFolder: app.defaultFileDialogFolder()
                         fileMode: FileDialog.OpenFile
                         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp)") ]
                         // The crop dialog decides what is uploaded and refuses
@@ -5693,19 +5714,15 @@ Rectangle {
                                 elide: Label.ElideRight
                                 Layout.fillWidth: true
                             }
-                            Label {
+                            // Whole, selectable, links clickable, as in room
+                            // info (TopicText escapes everything else). No
+                            // three-line elision: a TextEdit cannot elide, and
+                            // a cut-off topic could not be copied.
+                            TopicText {
+                                objectName: "spaceHomeTopic"
                                 visible: (spaceHome.info.topic || "").length > 0
-                                text: spaceHome.info.topic || ""
-                                // Unsanitized server text; never AutoText.
-                                textFormat: Text.PlainText
-                                color: AppTheme.textSecondary
-                                font.family: AppTheme.uiFont
+                                plainText: spaceHome.info.topic || ""
                                 font.pixelSize: AppTheme.scaled(AppTheme.textBody)
-                                wrapMode: Text.WordWrap
-                                lineHeight: AppTheme.lineHeightBody
-                                lineHeightMode: Text.ProportionalHeight
-                                maximumLineCount: 3
-                                elide: Label.ElideRight
                                 Layout.fillWidth: true
                             }
                             Label {
@@ -5772,7 +5789,7 @@ Rectangle {
                             text: spaceHome.peopleOpen
                                   ? qsTr("Hide people")
                                   : qsTr("People (%1)").arg(
-                                        (app.roomInfo.members || []).length)
+                                        spaceHome.spacePeople.length)
                             onClicked: spaceHome.peopleOpen = !spaceHome.peopleOpen
                         }
                         AppButton {
@@ -5845,7 +5862,7 @@ Rectangle {
                                 spacing: AppTheme.spacing8
                                 Repeater {
                                     // Bounded: the Flow is not virtualized.
-                                    model: (app.roomInfo.members || []).slice(0, 60)
+                                    model: spaceHome.spacePeople.slice(0, 60)
                                     delegate: SpaceMemberChip {
                                         onProfileRequested: (member) =>
                                             senderProfilePopover.openFor(member)
@@ -5856,11 +5873,11 @@ Rectangle {
                             Label {
                                 Layout.fillWidth: true
                                 wrapMode: Text.WordWrap
-                                visible: (app.roomInfo.members || []).length > 60
+                                visible: spaceHome.spacePeople.length > 60
                                 // Disclose the cap rather than silently
                                 // truncating.
                                 text: qsTr("Showing the first 60 of %1.")
-                                      .arg((app.roomInfo.members || []).length)
+                                      .arg(spaceHome.spacePeople.length)
                                 color: AppTheme.textMuted
                                 font.pixelSize: AppTheme.textMeta
                             }
@@ -5883,6 +5900,7 @@ Rectangle {
                         FileDialog {
                             id: spaceAvatarDialog
                             title: qsTr("Choose Space avatar")
+                            currentFolder: app.defaultFileDialogFolder()
                             fileMode: FileDialog.OpenFile
                             nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
                             onAccepted: spaceAvatarCrop.openFor(selectedFile)

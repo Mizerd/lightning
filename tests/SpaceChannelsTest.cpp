@@ -1308,6 +1308,94 @@ private Q_SLOTS:
         QCOMPARE(f.model.rowForRoom(QStringLiteral("!dm:x")), row);
     }
 
+    // Reported live 2026-09-30: the peer set an avatar mid-session and the DM
+    // row kept the initial for good, because the profile is asked once and a
+    // "no avatar" answer is remembered. The peer's member event in the DM
+    // (from sync) now reaches the row: a new face, a changed one, a removed
+    // one, and no second profile request for any of them.
+    void aPeersChangedFaceReachesTheRowWithoutAskingAgain()
+    {
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.directUserId = QStringLiteral("@sam:example.org");
+        peer.directUserIds = { QStringLiteral("@sam:example.org") };
+
+        Fixture f;
+        f.build({ peer });
+        f.selectPeople();
+        const int row = f.model.rowForRoom(QStringLiteral("!dm:x"));
+        QVERIFY(row >= 0);
+        auto avatar = [&f, row] {
+            return f.model.data(f.model.index(row, 0),
+                                SpaceChannelModel::AvatarUrlRole).toString();
+        };
+        // Asked once at the start: no avatar yet.
+        QCOMPARE(f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 1);
+        Q_EMIT f.client.userProfileFinished(
+            f.client.nextOp, true, QStringLiteral("@sam:example.org"),
+            QStringLiteral("Sam"), QString(), QString());
+        QCoreApplication::processEvents();
+        QVERIFY(avatar().isEmpty());
+
+        Q_EMIT f.client.directPeerAvatarChanged(
+            QStringLiteral("!dm:x"), QStringLiteral("@sam:example.org"),
+            QStringLiteral("mxc://example.org/first"));
+        QTRY_COMPARE(avatar(), QStringLiteral("mxc://example.org/first"));
+
+        Q_EMIT f.client.directPeerAvatarChanged(
+            QStringLiteral("!dm:x"), QStringLiteral("@sam:example.org"),
+            QStringLiteral("mxc://example.org/second"));
+        QTRY_COMPARE(avatar(), QStringLiteral("mxc://example.org/second"));
+
+        // Removed: back to initials, not the last face.
+        Q_EMIT f.client.directPeerAvatarChanged(
+            QStringLiteral("!dm:x"), QStringLiteral("@sam:example.org"), QString());
+        QTRY_VERIFY(avatar().isEmpty());
+
+        QCOMPARE(f.client.profileFetches.count(QStringLiteral("@sam:example.org")), 1);
+        QCOMPARE(f.model.rowForRoom(QStringLiteral("!dm:x")), row);
+    }
+
+    // The member event is newer than a roster snapshot, which the row used to
+    // prefer; and an event about somebody who is not the room's peer changes
+    // nothing.
+    void aPeersMemberEventOutranksAnOlderRosterFace()
+    {
+        RoomInfo peer = dm(QStringLiteral("!dm:x"), QStringLiteral("Sam"));
+        peer.directUserId = QStringLiteral("@sam:example.org");
+        peer.directUserIds = { QStringLiteral("@sam:example.org") };
+        MemberInfo member;
+        member.userId = peer.directUserId;
+        member.avatarMxcUrl = QStringLiteral("mxc://example.org/old");
+        peer.members.insert(member.userId, member);
+
+        Fixture f;
+        f.build({ peer });
+        f.selectPeople();
+        const int row = f.model.rowForRoom(QStringLiteral("!dm:x"));
+        QVERIFY(row >= 0);
+        auto avatar = [&f, row] {
+            return f.model.data(f.model.index(row, 0),
+                                SpaceChannelModel::AvatarUrlRole).toString();
+        };
+        QCOMPARE(avatar(), QStringLiteral("mxc://example.org/old"));
+
+        Q_EMIT f.client.directPeerAvatarChanged(
+            QStringLiteral("!dm:x"), QStringLiteral("@kim:example.org"),
+            QStringLiteral("mxc://example.org/kim"));
+        QCoreApplication::processEvents();
+        QCOMPARE(avatar(), QStringLiteral("mxc://example.org/old"));
+
+        Q_EMIT f.client.directPeerAvatarChanged(
+            QStringLiteral("!dm:x"), QStringLiteral("@sam:example.org"),
+            QStringLiteral("mxc://example.org/new"));
+        QTRY_COMPARE(avatar(), QStringLiteral("mxc://example.org/new"));
+
+        // Removed: initials, not the roster's older face.
+        Q_EMIT f.client.directPeerAvatarChanged(
+            QStringLiteral("!dm:x"), QStringLiteral("@sam:example.org"), QString());
+        QTRY_VERIFY(avatar().isEmpty());
+    }
+
     // A group DM (`m.direct` naming two targets) borrows nobody's face.
     void aGroupDirectMessageBorrowsNobodysFace()
     {

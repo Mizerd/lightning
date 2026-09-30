@@ -76,6 +76,80 @@ SpaceChannelModel::SpaceChannelModel(QObject *parent)
     // is a second guard.
     connect(&m_directAvatars, &DirectAvatarResolver::avatarResolved, this,
             &SpaceChannelModel::scheduleRebuild);
+
+    // A held order is never allowed to go stale for ever.
+    m_holdCap.setSingleShot(true);
+    m_holdCap.setInterval(kHoldCapMs);
+    connect(&m_holdCap, &QTimer::timeout, this,
+            &SpaceChannelModel::releaseOrder);
+}
+
+void SpaceChannelModel::setDeferReordering(bool defer)
+{
+    if (m_hold.enabled() == defer)
+        return;
+    m_hold.setEnabled(defer);
+    Q_EMIT deferReorderingChanged();
+    // On: take the snapshot of the order on screen. Off: back to live now.
+    rebuild();
+}
+
+void SpaceChannelModel::releaseOrder()
+{
+    m_hold.release();
+    rebuild();
+}
+
+void SpaceChannelModel::setHoldCapMs(int ms)
+{
+    m_holdCap.setInterval(ms);
+}
+
+void SpaceChannelModel::setOpenRoomId(const QString &roomId)
+{
+    if (roomId == m_hold.openRoomId())
+        return;
+    QDateTime liveNow;
+    if (m_client && !roomId.isEmpty()) {
+        for (const RoomInfo &info : m_client->rooms()) {
+            if (info.id == roomId) {
+                liveNow = info.lastActivity;
+                break;
+            }
+        }
+    }
+    m_hold.setOpenRoom(roomId, liveNow);
+}
+
+void SpaceChannelModel::setOrderHeld(bool held)
+{
+    if (held) {
+        // Armed once per stale spell, not restarted by every message.
+        if (!m_holdCap.isActive())
+            m_holdCap.start();
+    } else {
+        m_holdCap.stop();
+    }
+    if (m_orderHeld == held)
+        return;
+    m_orderHeld = held;
+    Q_EMIT orderHeldChanged();
+}
+
+void SpaceChannelModel::sortGroup(QVector<Row> &rooms, bool favouritesFirst)
+{
+    std::sort(rooms.begin(), rooms.end(),
+              favouritesFirst ? byFavouriteThenRecency : byRecency);
+    if (m_sortPending)
+        return;
+    const auto byTarget = [favouritesFirst](const Row &a, const Row &b) {
+        if (favouritesFirst && a.favourite != b.favourite)
+            return a.favourite;
+        return conversation::moreRecent(a.targetActivity, a.name, a.id,
+                                        b.targetActivity, b.name, b.id);
+    };
+    if (!std::is_sorted(rooms.begin(), rooms.end(), byTarget))
+        m_sortPending = true;
 }
 
 void SpaceChannelModel::scheduleRebuild()
@@ -96,6 +170,8 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
     if (m_layout)
         disconnect(m_layout, nullptr, this, nullptr);
     m_client = client;
+    // Another client's rooms are not these rooms: nothing to hold.
+    m_hold.release();
     m_directAvatars.setClient(client);
     m_spaces = spaces;
     m_layout = layout;
@@ -129,6 +205,7 @@ void SpaceChannelModel::setSources(MatrixClient *client, SpaceManager *spaces,
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
             m_collapsed.clear();
             m_collapsedLoaded = false;
+            m_hold.release();
             rebuild();
         });
     }
@@ -179,6 +256,8 @@ void SpaceChannelModel::setFilterMode(int mode)
         return;
     m_filterMode = clamped;
     Q_EMIT filterModeChanged();
+    // A different tab is a different list: order it fresh.
+    m_hold.release();
     rebuild();
 }
 
@@ -188,6 +267,7 @@ void SpaceChannelModel::setSearchQuery(const QString &query)
         return;
     m_searchQuery = query;
     Q_EMIT searchQueryChanged();
+    m_hold.release();
     rebuild();
 }
 
@@ -231,6 +311,8 @@ void SpaceChannelModel::setScopeSpaceId(const QString &spaceId)
     m_scopeSpaceId =
         spaceId.startsWith(QLatin1Char('!')) ? spaceId : QString();
     Q_EMIT scopeSpaceIdChanged();
+    // A different Space is a different list: order it fresh.
+    m_hold.release();
     rebuild();
 }
 
@@ -563,7 +645,9 @@ SpaceChannelModel::Row SpaceChannelModel::roomRow(const RoomInfo &info) const
     row.hasUnread = row.isInvite || info.hasUnreadMessages || info.markedUnread
                     || info.unreadCount > 0 || info.highlightCount > 0;
     row.favourite = info.isFavourite;
-    row.lastActivity = info.lastActivity;
+    // The stamp the row is ordered by, which is not always the live one.
+    row.lastActivity = m_hold.keyFor(info.id, info.lastActivity);
+    row.targetActivity = m_hold.target(info.id, info.lastActivity);
     return row;
 }
 
@@ -630,9 +714,9 @@ int SpaceChannelModel::buildHome(QVector<Row> &rows,
     }
     // Newest first, using the same comparator as the Classic list so the two
     // layouts agree on recency.
-    std::sort(invites.begin(), invites.end(), byRecency);
-    std::sort(unparented.begin(), unparented.end(), byFavouriteThenRecency);
-    std::sort(directs.begin(), directs.end(), byFavouriteThenRecency);
+    sortGroup(invites, false);
+    sortGroup(unparented, true);
+    sortGroup(directs, true);
 
     int shown = 0;
     if (!invites.isEmpty()) {
@@ -682,8 +766,8 @@ int SpaceChannelModel::buildPeople(QVector<Row> &rows,
         chats.append(roomRow(info));
     }
     // Chats newest first, like every other conversation list here.
-    std::sort(invites.begin(), invites.end(), byRecency);
-    std::sort(chats.begin(), chats.end(), byFavouriteThenRecency);
+    sortGroup(invites, false);
+    sortGroup(chats, true);
 
     int shown = 0;
     if (!invites.isEmpty()) {
@@ -757,7 +841,7 @@ int SpaceChannelModel::buildSpace(QVector<Row> &rows,
         }
         // Newest first within the group; the group structure itself is
         // unchanged.
-        std::sort(children.begin(), children.end(), byFavouriteThenRecency);
+        sortGroup(children, true);
         shown += appendGroup(rows, header, children);
     }
     shown += appendSpacePeople(rows, byId);
@@ -804,7 +888,7 @@ int SpaceChannelModel::appendSpacePeople(QVector<Row> &rows,
     if (people.isEmpty())
         return 0;
     // A Space's People are conversations too, so they follow the same order.
-    std::sort(people.begin(), people.end(), byFavouriteThenRecency);
+    sortGroup(people, true);
     Row header;
     header.id = spacePeopleGroupId();
     header.kind = GroupKind;
@@ -822,12 +906,22 @@ void SpaceChannelModel::rebuild()
     ++m_rebuildCount;
     QVector<Row> rows;
     m_accountHasContent = false;
+    m_sortPending = false;
     if (!m_client || !m_spaces) {
+        setOrderHeld(false);
         applyRows(std::move(rows));
         return;
     }
 
     const QList<RoomInfo> allRooms = m_client->rooms();
+    {
+        // A room that left and came back is ordered afresh.
+        QSet<QString> everyId;
+        everyId.reserve(allRooms.size());
+        for (const RoomInfo &info : allRooms)
+            everyId.insert(info.id);
+        m_hold.retainOnly(everyId);
+    }
     // Ask once per unresolved DM peer. Cached and in-flight peers are skipped,
     // so this is free after the first pass.
     m_directAvatars.resolveMissing(allRooms);
@@ -863,6 +957,7 @@ void SpaceChannelModel::rebuild()
         Q_EMIT matchCountChanged();
     }
 
+    setOrderHeld(m_sortPending);
     applyRows(std::move(rows));
 }
 

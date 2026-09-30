@@ -12,7 +12,8 @@
 namespace {
 const QString kKindFolder = QStringLiteral("folder");
 const QString kKindSpace = QStringLiteral("space");
-// SettingsManager::roomNotificationMode(): 2 is mute.
+// SettingsManager::roomNotificationMode(): 0 is All messages, 2 is mute.
+constexpr int kNotificationModeAllMessages = 0;
 constexpr int kNotificationModeMute = 2;
 
 bool isPseudoId(const QString &id)
@@ -329,15 +330,20 @@ void RailEntryModel::stampActivity(QVector<QVariantMap> &rows) const
             const bool unread = r.hasUnreadMessages || r.markedUnread
                                 || r.unreadCount > 0 || r.highlightCount > 0;
             // Only an unread room needs its mode, which is a settings read.
-            const bool muted =
-                unread && m_settings
-                && m_settings->roomNotificationMode(r.id)
-                       == kNotificationModeMute;
+            const int mode = unread && m_settings
+                            ? m_settings->roomNotificationMode(r.id)
+                            : kNotificationModeAllMessages;
+            const bool muted = unread && mode == kNotificationModeMute;
             activity.unread = unread && !muted;
             // A mention survives a mute, as in the room list. Every notifying
-            // message in an unmuted DM is addressed to the user too.
+            // message in an unmuted, All-messages DM counts as one too — a
+            // 1:1 chat has no one else the sender could have meant it for. A
+            // DM explicitly set to "Mentions & keywords only" has opted out
+            // of exactly that: showing its ordinary traffic as a mention
+            // count would erase the choice the mode exists to offer, so it
+            // falls back to the real highlight count like any other room.
             activity.mentions = r.highlightCount;
-            if (r.isDirect && !muted)
+            if (r.isDirect && mode == kNotificationModeAllMessages)
                 activity.mentions = std::max(r.unreadCount, r.highlightCount);
             rooms.insert(r.id, activity);
         }

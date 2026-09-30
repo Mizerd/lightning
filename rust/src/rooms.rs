@@ -9,6 +9,7 @@
 //! into the JSON event queue; media bytes use the take/free bridge in
 //! `lib.rs`.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use matrix_sdk::{
@@ -4564,6 +4565,121 @@ pub(crate) fn mxc_fetch_cap(width: u64, height: u64) -> u64 {
 /// huge blob INSERT stalls every other fetch on the single write connection.
 pub(crate) const MEDIA_STORE_MAX_FILE_BYTES: u64 = 24 * 1024 * 1024;
 
+/// The SDK media store's retention policy: set in build_client, and put back
+/// after `clear_kept_media` empties the store. SDK defaults otherwise (400 MiB
+/// total, 60 days since last access, daily cleanup).
+pub(crate) fn media_retention_policy() -> matrix_sdk::media::MediaRetentionPolicy {
+    matrix_sdk::media::MediaRetentionPolicy::new()
+        .with_max_file_size(Some(MEDIA_STORE_MAX_FILE_BYTES))
+}
+
+/// Settings -> Privacy & security -> "Keep media on this device".
+/// Process-wide and read on every fetch, so a change applies to the next one.
+/// On by default: the SDK media store has always kept unencrypted media.
+static KEEP_MEDIA: AtomicBool = AtomicBool::new(true);
+
+pub(crate) fn set_keep_media(enabled: bool) {
+    KEEP_MEDIA.store(enabled, Ordering::SeqCst);
+}
+
+/// Where one fetched payload may be kept between sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MediaPersistence {
+    /// The SDK media store (`use_cache`).
+    pub sdk_store: bool,
+    /// A kept file (mediafiles.rs), for what the SDK store refuses by size.
+    pub kept_file: bool,
+}
+
+/// Decide where a fetch may keep its bytes, given the media store this
+/// session opened (mediastore.rs).
+///
+/// An encrypted source is kept only in the ENCRYPTED store, and only when its
+/// key is held by a secure keyring (`Active::admits_encrypted`): a fetch keeps
+/// the DECRYPTED bytes, which CLAUDE.md §6 forbids at rest unencrypted.
+/// Nothing from an encrypted room becomes a kept file, which is plain on disk,
+/// even a file that was sent there unencrypted (`room_encrypted`; unknown
+/// counts as encrypted). An in-memory store keeps nothing.
+pub(crate) fn media_persistence(
+    source_encrypted: bool,
+    room_encrypted: bool,
+    kind: u32,
+    declared_size: Option<u64>,
+    keep: bool,
+    store: crate::mediastore::Active,
+) -> MediaPersistence {
+    if !keep || !store.persists() || (source_encrypted && !store.admits_encrypted()) {
+        return MediaPersistence { sdk_store: false, kept_file: false };
+    }
+    let over_store_cap = declared_size.map_or(true, |s| s > MEDIA_STORE_MAX_FILE_BYTES);
+    MediaPersistence {
+        // A declared-oversize full payload would take the store's single
+        // write connection twice for nothing.
+        sdk_store: kind != 0 || declared_size.map_or(true, |s| s <= MEDIA_STORE_MAX_FILE_BYTES),
+        // An unknown size is looked up too: the store refuses a payload by its
+        // real size only after the download.
+        kept_file: !source_encrypted && !room_encrypted && kind == 0 && over_store_cap,
+    }
+}
+
+/// Whether media under `key` may come from an encrypted room. The media-history
+/// walk marks the keys it registers for such a room; every other key belongs
+/// to the open room, which is asked. Unsure counts as encrypted: the cost is a
+/// download, not plaintext on disk.
+fn media_may_be_from_encrypted_room(
+    client: &matrix_sdk::Client,
+    timelines: &crate::timeline::TimelineRegistry,
+    key: &str,
+) -> bool {
+    if timelines.media_from_encrypted_room(key) {
+        return true;
+    }
+    let Some(room_id) = timelines.active_room_id() else {
+        return true;
+    };
+    let Ok(room_id) = RoomId::parse(&room_id) else {
+        return true;
+    };
+    client.get_room(&room_id).map_or(true, |room| {
+        let state = room.encryption_state();
+        state.is_encrypted() || state.is_unknown()
+    })
+}
+
+/// Empty what `media_fetch` kept: the kept-file directory, and everything in
+/// the SDK media store that its policy may drop (a zero-size policy, one
+/// cleanup, then the normal policy back). The SDK keeps what its send queue
+/// pins until an upload finishes. Returns the kept files removed as
+/// (files, bytes), or None when either half failed.
+pub(crate) async fn clear_kept_media(
+    client: &matrix_sdk::Client,
+    kept_dir: Option<std::path::PathBuf>,
+) -> Option<(u64, u64)> {
+    let files = match kept_dir {
+        Some(dir) => tokio::task::spawn_blocking(move || crate::mediafiles::clear(&dir))
+            .await
+            .ok()
+            .and_then(|result| result.ok()),
+        None => Some((0, 0)),
+    };
+    let media = client.media();
+    let empty = matrix_sdk::media::MediaRetentionPolicy::new()
+        .with_max_cache_size(Some(0))
+        .with_max_file_size(Some(0));
+    let cleaned = media.set_media_retention_policy(empty).await.is_ok()
+        && media.clean().await.is_ok();
+    // Always put the normal policy back, or nothing would be cached again.
+    let restored = media
+        .set_media_retention_policy(media_retention_policy())
+        .await
+        .is_ok();
+    if cleaned && restored {
+        files
+    } else {
+        None
+    }
+}
+
 fn emit_media_failed(
     terminal: &crate::EventQueueRef,
     parked: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<u64, Vec<u8>>>>,
@@ -4630,20 +4746,32 @@ pub(crate) fn media_fetch(
             }
         }
     }
-    // Skip the cache when the declared size exceeds the retention max: it can
-    // never be cached, and use_cache would still take the store's single write
-    // connection twice.
+    // `get_media_content` stores the DECRYPTED buffer when `use_cache` is set,
+    // so encrypted-room media is cached only in the store encrypted with the
+    // account's key (mediastore.rs), and never as a kept file
+    // (media_persistence). Without that store it is downloaded again each
+    // session; MediaBridge's RAM cache serves repeats within one.
     //
-    // Encrypted-room media is never written to the sqlite cache.
-    // `get_media_content` stores the decrypted buffer when `use_cache` is set,
-    // and the store is opened without a passphrase, so it would be plaintext on
-    // disk, violating §6. A store passphrase is not the fix: the same setting
-    // opens the crypto store, and changing it would orphan existing installs'
-    // Megolm keys (no migration in 0.18). Cost: a re-download per session;
-    // MediaBridge's RAM cache serves repeats within a session.
+    // An unencrypted payload the SDK store refuses by size is kept as a file
+    // instead (mediafiles.rs), or a video is downloaded again every session.
     let source_is_encrypted = matches!(&source, MediaSource::Encrypted(_));
-    let use_cache = !source_is_encrypted
-        && (kind != 0 || declared_size.map_or(true, |s| s <= MEDIA_STORE_MAX_FILE_BYTES));
+    let persistence = media_persistence(
+        source_is_encrypted,
+        media_may_be_from_encrypted_room(&client, &bridge.timelines, &key),
+        kind,
+        declared_size,
+        KEEP_MEDIA.load(Ordering::SeqCst),
+        crate::mediastore::active(&bridge.store_path),
+    );
+    let use_cache = persistence.sdk_store;
+    let kept_file = match &source {
+        MediaSource::Plain(uri)
+            if persistence.kept_file && !bridge.store_path.as_os_str().is_empty() =>
+        {
+            Some((crate::mediafiles::dir_in(&bridge.store_path), uri.to_string()))
+        }
+        _ => None,
+    };
     if kind == 2 && !has_embedded_thumbnail
         && matches!(&source, MediaSource::Encrypted(_))
     {
@@ -4667,13 +4795,30 @@ pub(crate) fn media_fetch(
             MediaFormat::File
         };
         let request = MediaRequestParameters { source, format };
+        // A kept file answers without a request. Read off the runtime: it can be
+        // hundreds of MiB.
+        let kept = match kept_file.clone() {
+            Some((dir, uri)) => tokio::task::spawn_blocking(move || {
+                crate::mediafiles::read(&dir, &uri, cap)
+            })
+            .await
+            .ok()
+            .flatten(),
+            None => None,
+        };
+        let from_kept_file = kept.is_some();
         // Bounded: matrix-sdk 0.18 disables its HTTP timeout for media. The timeout
         // consumes the future, so exactly one terminal event is emitted per op.
-        let outcome = tokio::time::timeout(
-            std::time::Duration::from_secs(media_timeout_secs(timeout_class)),
-            client.media().get_media_content(&request, use_cache),
-        )
-        .await;
+        let outcome = match kept {
+            Some(bytes) => Ok(Ok(bytes)),
+            None => {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(media_timeout_secs(timeout_class)),
+                    client.media().get_media_content(&request, use_cache),
+                )
+                .await
+            }
+        };
         if let Ok(mut guard) = aborts.lock() {
             guard.remove(&op_id);
         }
@@ -4696,6 +4841,41 @@ pub(crate) fn media_fetch(
                         &terminal, &results, op_id, lifecycle, &key, kind,
                         "too_large",
                     );
+                    return;
+                }
+                // Keep what the SDK store refused by size. Written before the bytes
+                // are parked, so there is one copy in memory, not two; a failed
+                // write only costs the next session a download.
+                let bytes = match kept_file {
+                    Some((dir, uri))
+                        if !from_kept_file && size > MEDIA_STORE_MAX_FILE_BYTES =>
+                    {
+                        let written = tokio::task::spawn_blocking(move || {
+                            if crate::mediafiles::write(&dir, &uri, &bytes).is_ok() {
+                                let _ = crate::mediafiles::trim(
+                                    &dir,
+                                    crate::mediafiles::MAX_TOTAL_BYTES,
+                                    crate::mediafiles::MAX_AGE,
+                                    std::time::SystemTime::now(),
+                                );
+                            }
+                            bytes
+                        })
+                        .await;
+                        match written {
+                            Ok(bytes) => bytes,
+                            Err(_) => {
+                                emit_media_failed(
+                                    &terminal, &results, op_id, lifecycle, &key, kind,
+                                    "internal",
+                                );
+                                return;
+                            }
+                        }
+                    }
+                    _ => bytes,
+                };
+                if !timelines.lifecycle_current(lifecycle) {
                     return;
                 }
                 if let Ok(mut guard) = results.lock() {
@@ -4743,6 +4923,9 @@ pub(crate) fn media_fetch_mxc(
     let lifecycle = timelines.lifecycle();
     let aborts = Arc::clone(&bridge.media_fetch_aborts);
     let size_cap = mxc_fetch_cap(width, height);
+    // An in-memory media store keeps nothing between sessions; asking it to
+    // cache would only hold avatars in RAM a second time beside MediaBridge.
+    let use_cache = crate::mediastore::active(&bridge.store_path).persists();
     bridge.spawn_media_fetch(op_id, async move {
         let format = if width == 0 || height == 0 {
             MediaFormat::File
@@ -4760,7 +4943,7 @@ pub(crate) fn media_fetch_mxc(
         // Standard class: 40 s, below the C++ 45 s watchdog.
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(media_timeout_secs(0)),
-            client.media().get_media_content(&request, true),
+            client.media().get_media_content(&request, use_cache),
         )
         .await;
         if let Ok(mut guard) = aborts.lock() {
@@ -4864,6 +5047,133 @@ mod tests {
         assert_eq!(mxc_fetch_cap(0, 0), media_size_cap(0));
         assert_eq!(mxc_fetch_cap(224, 224), media_size_cap(0));
         assert_eq!(mxc_fetch_cap(1, 1), media_size_cap(0));
+    }
+
+    use crate::mediastore::Active;
+
+    const SECURE: Active = Active::Encrypted { admits_encrypted: true };
+    const INSECURE: Active = Active::Encrypted { admits_encrypted: false };
+    const NOTHING: MediaPersistence = MediaPersistence { sdk_store: false, kept_file: false };
+
+    // Yannik's report: a video over the SDK store's cap was downloaded again
+    // every session. Before the kept-file path, nothing kept these at all.
+    #[test]
+    fn a_large_unencrypted_video_is_kept_as_a_file() {
+        let big = Some(MEDIA_STORE_MAX_FILE_BYTES + 1);
+        for store in [SECURE, INSECURE, Active::Legacy] {
+            assert_eq!(
+                media_persistence(false, false, 0, big, true, store),
+                MediaPersistence { sdk_store: false, kept_file: true },
+            );
+            // Unknown size: the store may refuse it after the download, so both.
+            assert_eq!(
+                media_persistence(false, false, 0, None, true, store),
+                MediaPersistence { sdk_store: true, kept_file: true },
+            );
+            // Within the store's cap the SDK store alone keeps it, as before.
+            assert_eq!(
+                media_persistence(false, false, 0, Some(MEDIA_STORE_MAX_FILE_BYTES), true, store),
+                MediaPersistence { sdk_store: true, kept_file: false },
+            );
+            // Thumbnails never become kept files.
+            assert_eq!(
+                media_persistence(false, false, 1, big, true, store),
+                MediaPersistence { sdk_store: true, kept_file: false },
+            );
+        }
+    }
+
+    // Option B: encrypted-room media is kept, in the store encrypted with a
+    // key held by a secure keyring, and only there. Before it, never.
+    #[test]
+    fn encrypted_media_is_kept_only_in_the_encrypted_store() {
+        let big = Some(MEDIA_STORE_MAX_FILE_BYTES + 1);
+        assert_eq!(
+            media_persistence(true, true, 0, Some(10), true, SECURE),
+            MediaPersistence { sdk_store: true, kept_file: false },
+        );
+        assert_eq!(
+            media_persistence(true, true, 1, None, true, SECURE),
+            MediaPersistence { sdk_store: true, kept_file: false },
+        );
+        // Never as a kept file: those are plain on disk.
+        assert_eq!(media_persistence(true, true, 0, big, true, SECURE), NOTHING);
+        assert!(!media_persistence(true, true, 0, None, true, SECURE).kept_file);
+    }
+
+    // §6: the old plaintext store, a key in an insecure store (macOS's
+    // QSettings fallback, a portable folder) and memory never hold
+    // encrypted-room media.
+    #[test]
+    fn encrypted_media_is_never_kept_anywhere_else() {
+        for store in [INSECURE, Active::Legacy, Active::Memory] {
+            for kind in [0u32, 1, 2] {
+                for size in [None, Some(10), Some(MEDIA_STORE_MAX_FILE_BYTES + 1)] {
+                    assert_eq!(
+                        media_persistence(true, true, kind, size, true, store),
+                        NOTHING,
+                        "{store:?} kind {kind} size {size:?}",
+                    );
+                }
+            }
+        }
+    }
+
+    // Keyring unavailable: the in-memory store keeps nothing, not even the
+    // unencrypted media that is otherwise kept, and no kept file is written.
+    #[test]
+    fn an_in_memory_store_keeps_nothing() {
+        for encrypted in [false, true] {
+            for kind in [0u32, 1, 2] {
+                for size in [None, Some(10), Some(MEDIA_STORE_MAX_FILE_BYTES + 1)] {
+                    assert_eq!(
+                        media_persistence(encrypted, encrypted, kind, size, true, Active::Memory),
+                        NOTHING,
+                    );
+                }
+            }
+        }
+    }
+
+    // Review MINOR: nothing from an encrypted room becomes a plain kept file,
+    // even a file sent there unencrypted; the encrypted store may still hold
+    // it. Before, the kept-file rule looked at the source alone.
+    #[test]
+    fn a_plain_file_in_an_encrypted_room_is_never_a_kept_file() {
+        let big = Some(MEDIA_STORE_MAX_FILE_BYTES + 1);
+        for store in [SECURE, INSECURE, Active::Legacy] {
+            assert!(!media_persistence(false, true, 0, big, true, store).kept_file);
+            assert!(!media_persistence(false, true, 0, None, true, store).kept_file);
+            assert!(media_persistence(false, true, 0, Some(10), true, store).sdk_store);
+        }
+        // The same file in an unencrypted room is kept.
+        assert!(media_persistence(false, false, 0, big, true, SECURE).kept_file);
+    }
+
+    #[test]
+    fn keep_media_off_keeps_nothing() {
+        for store in [SECURE, INSECURE, Active::Legacy] {
+            for encrypted in [false, true] {
+                for kind in [0u32, 1, 2] {
+                    for size in [None, Some(10), Some(MEDIA_STORE_MAX_FILE_BYTES + 1)] {
+                        assert_eq!(
+                            media_persistence(encrypted, encrypted, kind, size, false, store),
+                            NOTHING,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_store_policy_keeps_its_file_cap() {
+        let policy = media_retention_policy();
+        assert_eq!(policy.max_file_size, Some(MEDIA_STORE_MAX_FILE_BYTES));
+        // SDK defaults for the rest, the same values build_client always used.
+        let defaults = matrix_sdk::media::MediaRetentionPolicy::new();
+        assert_eq!(policy.max_cache_size, defaults.max_cache_size);
+        assert_eq!(policy.last_access_expiry, defaults.last_access_expiry);
     }
 
     #[test]

@@ -40,6 +40,13 @@ AppDialog {
         return row !== undefined && row !== null
             && row.windowHandle !== undefined && row.windowHandle !== 0;
     }
+    // The id ShareSourceImageProvider expects (see its header): a window by
+    // handle, a display by the picker's own row index.
+    function shareSourceId(row) {
+        return root.isWindowRow(row)
+            ? "w" + row.windowHandle
+            : "s" + (row.index !== undefined ? row.index : 0);
+    }
     readonly property int screenCount: {
         var n = 0;
         for (var i = 0; i < sources.length; ++i)
@@ -461,21 +468,28 @@ AppDialog {
 
                             Image {
                                 id: preview
+                                // Named so a test can prove the request
+                                // itself, not just what ends up on screen.
+                                objectName: "sharePickerPreview_"
+                                            + root.shareSourceId(tile.row)
                                 anchors.fill: parent
                                 anchors.margins: 2
                                 fillMode: Image.PreserveAspectFit
                                 asynchronous: true
                                 cache: false   // a live grab; a cached one lies
                                 sourceSize.width: root.previewPixelWidth
-                                // The id names the thing in the controller's
-                                // own terms (window handle or display index),
-                                // so the preview matches what Share would send.
-                                source: root.isWindowRow(tile.row)
-                                    ? "image://lightning-sharesource/w"
-                                      + tile.row.windowHandle
-                                    : "image://lightning-sharesource/s"
-                                      + (tile.row.index !== undefined
-                                         ? tile.row.index : 0)
+                                // ShareSourceImageProvider always answers null
+                                // off Windows (see its header — Linux uses the
+                                // portal's own picker and never reaches this
+                                // dialog with a real screen; macOS lists
+                                // displays only), so asking it there bought
+                                // nothing but a "Failed to get image from
+                                // provider" warning on every tile, every open.
+                                // Only ask where an answer is possible.
+                                source: Qt.platform.os === "windows"
+                                    ? "image://lightning-sharesource/"
+                                      + root.shareSourceId(tile.row)
+                                    : ""
                                 // A null image (window closed, or no previews
                                 // on this platform) leaves the glyph showing.
                                 visible: status === Image.Ready

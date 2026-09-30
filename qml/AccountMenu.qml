@@ -260,7 +260,10 @@ Popup {
                 displayName: modelData.displayName || ""
                 userId: modelData.userId || ""
                 avatarMxc: modelData.avatarUrl || ""
+                // A session the server revoked this run needs a sign-in too,
+                // though its token still reads.
                 needsSignIn: modelData.needsSignIn === true
+                             || modelData.sessionRevoked === true
                 // Crypto state only for the active row.
                 healthWarning: modelData.isActive === true
                                && root.activeHealthWarning

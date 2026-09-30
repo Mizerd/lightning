@@ -219,6 +219,60 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral("objectName: \"spaceRemoveAvatarButton\"")));
     }
 
+    // "People in this Space" listed a banned member (2026-09-30, live): the
+    // card and its count read the whole roster, bans and invites included.
+    // They read the joined members now, and nothing else in that stretch of
+    // Space Home reads the unfiltered roster.
+    void spacePeopleListsOnlyTheJoined()
+    {
+        const QString pane = readQml(QStringLiteral("TimelinePane.qml"));
+        const int start = pane.indexOf(QStringLiteral("objectName: \"spacePeopleButton\""));
+        const int end = pane.indexOf(QStringLiteral("id: settingsCol"), start);
+        QVERIFY2(start >= 0 && end > start, "the Space Home people button or card moved");
+        const QString block = pane.mid(start, end - start);
+        QVERIFY2(block.contains(QStringLiteral("objectName: \"spacePeopleCard\"")),
+                 "the people card is no longer between the button and the settings");
+        QVERIFY2(!block.contains(QStringLiteral("app.roomInfo.members")),
+                 "the people button or card reads the whole roster, bans included");
+        QVERIFY(block.contains(QStringLiteral("model: spaceHome.spacePeople.slice(0, 60)")));
+        QVERIFY(block.contains(QStringLiteral(".arg(spaceHome.spacePeople.length)")));
+        QVERIFY(pane.contains(QStringLiteral(
+            "app.roomInfo ? (app.roomInfo.joinedMembers || []) : []")));
+    }
+
+    void joinedMembersAreTheJoinedRowsInRosterOrder()
+    {
+        FakeClient client;
+        RoomInfoController ctl;
+        ctl.setClient(&client);
+        ctl.setRoomId(kSpace);
+        QSignalSpy changed(&ctl, &RoomInfoController::membersChanged);
+        Q_EMIT client.roomMembersReceived(
+            client.lastOpId, kSpace,
+            snapshot(100,
+                     { memberRow(kZoe, QStringLiteral("Zoe"), 0, QStringLiteral("joined")),
+                       memberRow(kBan, QStringLiteral("Banned Bob"), 0,
+                                 QStringLiteral("banned")),
+                       memberRow(kAmy, QStringLiteral("Amy"), 0, QStringLiteral("invited")),
+                       memberRow(QStringLiteral("@gone:example.org"), QStringLiteral("Gone"),
+                                 0, QStringLiteral("other")),
+                       memberRow(kMe, QStringLiteral("Me"), 100, QStringLiteral("joined"),
+                                 /*isOwn=*/true) }));
+        QVERIFY(changed.count() > 0);
+        QCOMPARE(ctl.members().size(), 5);
+        QStringList ids;
+        for (const QVariant &row : ctl.joinedMembers())
+            ids << row.toMap().value(QStringLiteral("userId")).toString();
+        QCOMPARE(ids, (QStringList{ kZoe, kMe }));
+        // A property QML binds, not an invokable: it must be declared with
+        // the roster's own change signal.
+        const QMetaObject *meta = ctl.metaObject();
+        const QMetaProperty property =
+            meta->property(meta->indexOfProperty("joinedMembers"));
+        QVERIFY(property.isValid());
+        QCOMPARE(property.notifySignal().name(), QByteArray("membersChanged"));
+    }
+
     // The action row wraps instead of running off the pane.
 
     void theSpaceHomeActionRowWraps()

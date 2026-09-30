@@ -13,6 +13,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
+#include <QScopeGuard>
 
 #include <functional>
 #include <QQuickWindow>
@@ -214,6 +215,28 @@ private slots:
         QVERIFY(errorLabel);
     }
 
+    // The page's own heading must say what it is doing: repairing an
+    // existing account is not "adding" one. Before the fix it read "Add
+    // another account" (or "Sign in") throughout a repair, regardless of
+    // repair.active.
+    void headingNamesTheRepairInsteadOfAddAccount()
+    {
+        auto *heading = item("loginScreenHeading");
+        QVERIFY(heading);
+        QCOMPARE(heading->property("text").toString(),
+                 QStringLiteral("Sign in"));
+
+        injectFailure(QStringLiteral("access_token_expired"),
+                     QStringLiteral("@alice:example.org"),
+                     QStringLiteral("https://example.org"));
+        auto *card = item("loginRepairCard");
+        QVERIFY(card);
+        QTRY_VERIFY(card->isVisible());
+
+        QCOMPARE(heading->property("text").toString(),
+                 QStringLiteral("Fix this account"));
+    }
+
     // The card appears, is fully labelled, and both fields already show the
     // failed account's identity without typing.
     void failureShowsCardAndPrefillsWithoutTyping()
@@ -292,6 +315,7 @@ private slots:
             QStringLiteral("ambiguous_store_candidates"),
             QStringLiteral("invalid_saved_account_identity"),
             QStringLiteral("secret_backend_unavailable"),
+            QStringLiteral("keyring_lost_session"),
             QStringLiteral("cleanup_incomplete"),
         };
         for (const QString &code : codes) {
@@ -318,6 +342,36 @@ private slots:
                      qPrintable(QStringLiteral("reason '%1' renders no card")
                                     .arg(code)));
         }
+    }
+
+    // The keyring answers but no longer returns a sign-in this install saved
+    // (reported 2026-09-30 on a Flatpak). It used to reach the rebuild card
+    // (store_without_session_metadata: "Quarantine and rebuild", a new
+    // device). The account did not sign out and its store is whole: the card
+    // explains, offers Try again, and neither rebuilds nor removes.
+    void aSignInTheKeyringLostOffersTryAgainAndNoRebuild()
+    {
+        injectFailure(QStringLiteral("keyring_lost_session"),
+                      QStringLiteral("@fay:example.org"),
+                      QStringLiteral("https://example.org"));
+        auto *card = item("loginRepairCard");
+        QTRY_VERIFY(card && card->isVisible());
+        QVERIFY(!m_controller->localResetHelpsFor(QStringLiteral("keyring_lost_session")));
+        auto *retry = item("loginRepairRetryKeyring");
+        QVERIFY(retry);
+        QVERIFY(retry->isVisible());
+        for (const char *name : {"loginRepairPrimaryAction", "loginRepairRetry",
+                                 "loginRepairRemoveAccount", "loginRepairOpenAccount"}) {
+            auto *button = item(name);
+            QVERIFY2(!button || !button->isVisible(), name);
+        }
+        const QString body = item("loginRepairBody")->property("text").toString();
+        QVERIFY2(body.contains(QStringLiteral("@fay:example.org")), qPrintable(body));
+        QVERIFY2(!body.contains(QStringLiteral("rebuild"), Qt::CaseInsensitive),
+                 qPrintable(body));
+        // Not clicked here: this suite's controller uses the process's real
+        // secret store. StartupSessionTest drives Try again on a fake keyring.
+        clearFailure();
     }
 
     // Only cleanup_incomplete shows Retry, and nothing else does.
@@ -387,6 +441,66 @@ private slots:
         QVERIFY(!item("loginRepairRemoveAccount")->isVisible());
     }
 
+    // "← Back" would restore a session the server has signed out, only to
+    // meet this card again, so it is hidden while the ACTIVE account is the
+    // revoked one, and stays for any other account's failure (add-account).
+    void backIsHiddenWhileTheActiveAccountIsRevoked()
+    {
+        const QString active = QStringLiteral("@active-user:mock.local");
+        // The seeded record must not outlive this case: on the mock backend a
+        // logout while a saved account remains switches straight back into
+        // it, and that restore lands in the NEXT case as a MainScreen. The
+        // guard also runs when an assertion below returns early.
+        auto forget = qScopeGuard([this, active] {
+            m_controller->settings()->clearSessionForAccount(active);
+            m_controller->auth()->logout();
+            QTest::qWaitFor([this] {
+                return !m_controller->loggedIn() && !m_controller->accountSwitching();
+            }, kSignalTimeoutMs);
+        });
+        QSignalSpy loginSpy(m_controller->auth(), &AuthManager::loginSucceeded);
+        m_controller->auth()->login(QStringLiteral("https://mock.local"),
+                                    QStringLiteral("active-user"),
+                                    QStringLiteral("mock-password-fixture"));
+        QVERIFY(loginSpy.wait(kSignalTimeoutMs));
+        QTRY_VERIFY(m_controller->loggedIn());
+        // The mock backend records no account, so give it one: the Back button
+        // and the card both key on the ACTIVE saved account.
+        m_controller->settings()->saveSession(QStringLiteral("https://mock.local"), active,
+                                              QStringLiteral("MOCKDEVICE"),
+                                              QStringLiteral("mock-token"), QString(),
+                                              QStringLiteral("password"), QString());
+        m_controller->settings()->setActiveAccountUserId(active);
+        m_controller->showLogin(); // add-account flow
+        QCoreApplication::processEvents();
+        QCOMPARE(m_controller->accounts()->activeUserId(), active);
+        auto *back = item("backToAppButton");
+        QVERIFY(back);
+        QTRY_VERIFY(back->isVisible());
+
+        injectFailure(QStringLiteral("access_token_revoked"), active,
+                      QStringLiteral("https://mock.local"));
+        QTRY_VERIFY(!back->isVisible());
+
+        injectFailure(QStringLiteral("access_token_revoked"),
+                      QStringLiteral("@other-account:example.org"),
+                      QStringLiteral("https://example.org"));
+        QTRY_VERIFY(back->isVisible());
+
+        // An expired (soft-logged-out) session is no more restorable.
+        injectFailure(QStringLiteral("access_token_expired"), active,
+                      QStringLiteral("https://mock.local"));
+        QTRY_VERIFY(!back->isVisible());
+        clearFailure();
+
+        forget.dismiss();
+        m_controller->settings()->clearSessionForAccount(active);
+        m_controller->auth()->logout();
+        QTRY_VERIFY(!m_controller->loggedIn() && !m_controller->accountSwitching());
+        QVERIFY(!m_controller->settings()->savedAccountUserIds().contains(active));
+        QCOMPARE(int(m_controller->currentScreen()), int(AppController::LoginScreen));
+    }
+
     // access_token_revoked must never reach app.repairLocalSession(): the
     // local store holds the key material a user with a revoked token still
     // needs. loginRepairPrimaryAction and loginRepairRetry are the only
@@ -416,6 +530,12 @@ private slots:
                  qPrintable(bodyText));
         QVERIFY2(!bodyText.contains(QStringLiteral("damag"), Qt::CaseInsensitive),
                  qPrintable(bodyText));
+        // What signing in again does, since it no longer opens this store:
+        // a new session, and the old one's data moved aside, not deleted.
+        QVERIFY2(bodyText.contains(QStringLiteral("new session"), Qt::CaseInsensitive)
+                     && bodyText.contains(QStringLiteral("kept aside, not deleted"),
+                                          Qt::CaseInsensitive),
+                 qPrintable(bodyText));
 
         // "Remove this account" stays available as a separately confirmed
         // fallback, going through app.removeAccount(), never the repair path
@@ -437,6 +557,43 @@ private slots:
         auto *result = item("loginRepairResult");
         QVERIFY(!result
                 || result->property("text").toString() != QStringLiteral("Repairing…"));
+    }
+
+    // A soft logout (the server kept the device): no destructive action, and
+    // the card says what signing in again now does, which is carry on as the
+    // same session, not start a new one or move anything aside.
+    void accessTokenExpiredSaysTheSameSessionContinues()
+    {
+        injectFailure(QStringLiteral("access_token_expired"),
+                      QStringLiteral("@henry:example.org"),
+                      QStringLiteral("https://example.org"));
+
+        auto *card = item("loginRepairCard");
+        QVERIFY(card);
+        QTRY_VERIFY(card->isVisible());
+        auto *primary = item("loginRepairPrimaryAction");
+        QVERIFY2(!primary || !primary->isVisible(),
+                 "access_token_expired must not offer a destructive primary action");
+        auto *retry = item("loginRepairRetry");
+        QVERIFY(!retry || !retry->isVisible());
+
+        auto *headline = item("loginRepairHeadline");
+        QVERIFY(!headline
+                || headline->property("text").toString()
+                       != QStringLiteral("This session was signed out remotely"));
+        auto *body = item("loginRepairBody");
+        QVERIFY(body);
+        const QString bodyText = body->property("text").toString();
+        QVERIFY2(bodyText.contains(QStringLiteral("same session"), Qt::CaseInsensitive),
+                 qPrintable(bodyText));
+        QVERIFY2(!bodyText.contains(QStringLiteral("new session"), Qt::CaseInsensitive)
+                     && !bodyText.contains(QStringLiteral("kept aside"),
+                                           Qt::CaseInsensitive),
+                 qPrintable(bodyText));
+        auto *remove = item("loginRepairRemoveAccount");
+        QVERIFY(remove);
+        QVERIFY(remove->isVisible());
+        clearFailure();
     }
 
     // The confirmation dialog names the exact account, and Cancel is the

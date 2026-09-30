@@ -17,6 +17,10 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     Q_ASSERT(m_client);
 
     connect(m_client, &MatrixClient::loginSucceeded, this, [this](const QString &) {
+        // Only a sign-in started through this manager was interactive; every
+        // restore (launch, account switch, add-account rollback) reaches the
+        // client directly and arrives here with m_loggingIn false.
+        m_lastSignInInteractive = m_loggingIn;
         setLoggingIn(false);
         setBrowserLoginInProgress(false);
         // Signed in: a probe asked for during the attempt is moot.

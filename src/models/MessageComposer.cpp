@@ -494,6 +494,13 @@ void MessageComposer::sendInternal(bool allowCommands)
     // MXIDs for m.mentions. Without mentions this is just the trimmed text.
     const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
     QString body = expansion.body.trimmed();
+    // The "or send" half of shortcode auto-convert: a completed `:alias:`
+    // that never got a trailing space (typically because it ends the
+    // message) converts here, once, before commands are parsed or the text
+    // is dispatched. Per-keystroke conversion already handled the common
+    // mid-message case; this only catches what that pass could not see.
+    if (m_emojiAutoConvert)
+        body = convertUnicodeShortcodesForSend(body);
     const QStringList mentionIds = expansion.userIds;
 
     // Slash commands apply only to fresh messages, never to an edit. Parsing
@@ -591,19 +598,61 @@ QVariantMap resolveShortcodes(
     }
     return found;
 }
+// Defined below, alongside emojiTokenAt (MSC2545 shortcode completion): the
+// same "are we inside a code span/fence" rule guards both the completion
+// popup and the `:shortcode:` auto-convert send pass.
+bool insideCode(const QString &text, int cursor);
 } // namespace
 
 QVariantMap MessageComposer::composedMessage() const
 {
     const mention::Expansion expansion = mention::expand(m_text, m_mentionRefs);
+    QString body = expansion.body.trimmed();
+    if (m_emojiAutoConvert)
+        body = convertUnicodeShortcodesForSend(body);
     return QVariantMap{
-        { QStringLiteral("body"), expansion.body.trimmed() },
+        { QStringLiteral("body"), body },
         { QStringLiteral("mentionIds"), expansion.userIds },
         { QStringLiteral("bodySpec"), QVariantMap() },
         { QStringLiteral("roomId"), m_roomId },
         { QStringLiteral("threadRootId"), m_threadRootId },
         { QStringLiteral("replyToEventId"), m_replyingToEventId },
     };
+}
+
+QString MessageComposer::convertUnicodeShortcodesForSend(const QString &text) const
+{
+    if (!m_unicodeShortcodeResolver || !text.contains(QLatin1Char(':')))
+        return text;
+    static const QRegularExpression re(
+        QStringLiteral(":([a-zA-Z0-9_+-]{1,64}):"));
+    QString out;
+    out.reserve(text.size());
+    int last = 0;
+    auto it = re.globalMatch(text);
+    while (it.hasNext()) {
+        const auto m = it.next();
+        const int start = m.capturedStart(0);
+        if (start < last)
+            continue; // overlapped an earlier replacement's matched span
+        out += text.mid(last, start - last);
+        const QString code = m.captured(1);
+        QString emoji;
+        const bool shadowedByCustomPack =
+            m_emoticonResolver && !m_emoticonResolver(code).isEmpty();
+        if (!shadowedByCustomPack && !insideCode(text, start))
+            emoji = m_unicodeShortcodeResolver(code);
+        if (!emoji.isEmpty()) {
+            out += emoji;
+            if (m_unicodeEmojiUseRecorder)
+                m_unicodeEmojiUseRecorder(emoji);
+        } else {
+            out += m.captured(0);
+        }
+        last = m.capturedEnd(0);
+    }
+    out += text.mid(last);
+    return out;
 }
 
 void MessageComposer::sendComposed(const QString &body,
@@ -753,6 +802,29 @@ void MessageComposer::setEmoticonSearch(
     m_emoticonSearch = std::move(search);
 }
 
+void MessageComposer::setUnicodeEmojiSearch(
+    std::function<QVariantList(const QString &, int)> search)
+{
+    m_unicodeEmojiSearch = std::move(search);
+}
+
+void MessageComposer::setUnicodeEmojiUseRecorder(
+    std::function<void(const QString &)> record)
+{
+    m_unicodeEmojiUseRecorder = std::move(record);
+}
+
+void MessageComposer::setUnicodeShortcodeResolver(
+    std::function<QString(const QString &)> resolve)
+{
+    m_unicodeShortcodeResolver = std::move(resolve);
+}
+
+void MessageComposer::setEmojiAutoConvertEnabled(bool enabled)
+{
+    m_emojiAutoConvert = enabled;
+}
+
 namespace {
 /// The `:token` the caret is inside, as [start, length], or {-1, 0}. The
 /// colon must start a word, so `http://host:8080` and `10:30` never complete.
@@ -796,12 +868,53 @@ bool insideCode(const QString &text, int cursor)
     }
     return ticks % 2 == 1;
 }
+
+/// The complete `:alias:` (both colons present) ending exactly at `end`, as
+/// [start, length] covering the whole run including both colons, or {-1, 0}.
+/// Mirrors emojiTokenAt's word-boundary rule for the opening colon; used by
+/// the auto-convert path, where (unlike emojiTokenAt) the closing colon has
+/// already been typed.
+QPair<int, int> completeShortcodeEndingAt(const QString &text, int end)
+{
+    if (end < 3 || end > text.size() || text.at(end - 1) != QLatin1Char(':'))
+        return { -1, 0 };
+    const int closeColon = end - 1;
+    int i = closeColon;
+    while (i > 0) {
+        const QChar c = text.at(i - 1);
+        if (c == QLatin1Char(':'))
+            break;
+        if (!(c.isLetterOrNumber() || c == QLatin1Char('_')
+              || c == QLatin1Char('-') || c == QLatin1Char('+')))
+            return { -1, 0 };
+        --i;
+    }
+    if (i == 0 || i == closeColon || text.at(i - 1) != QLatin1Char(':'))
+        return { -1, 0 }; // no opening colon, or an empty "::"
+    const int openColon = i - 1;
+    if (openColon > 0) {
+        const QChar before = text.at(openColon - 1);
+        if (!(before.isSpace() || before == QLatin1Char('(')
+              || before == QLatin1Char('[') || before == QLatin1Char('{')))
+            return { -1, 0 };
+    }
+    return { openColon, end - openColon };
+}
+} // namespace
+
+namespace {
+// A Unicode match needs two query characters, custom packs keep the existing
+// one: emojiTokenAt already refuses ":)" (')' is not a shortcode character),
+// but ":D" tokenizes as a one-character query "D" and a Unicode search over
+// a single letter is mostly noise no one is asking for.
+constexpr int kUnicodeMinQueryChars = 2;
+constexpr int kMaxEmojiCompletions = 12;
 } // namespace
 
 QVariantList MessageComposer::emojiCompletionsAt(int cursorPos) const
 {
     QVariantList out;
-    if (!m_emoticonSearch || !m_editingEventId.isEmpty())
+    if ((!m_emoticonSearch && !m_unicodeEmojiSearch) || !m_editingEventId.isEmpty())
         return out;
     const auto token = emojiTokenAt(m_text, cursorPos);
     if (token.first < 0)
@@ -810,7 +923,16 @@ QVariantList MessageComposer::emojiCompletionsAt(int cursorPos) const
     const QString prefix = m_text.mid(token.first + 1, token.second - 1);
     if (prefix.isEmpty() || insideCode(m_text, cursorPos))
         return out;
-    return m_emoticonSearch(prefix, 12);
+    if (m_emoticonSearch)
+        out = m_emoticonSearch(prefix, kMaxEmojiCompletions);
+    if (m_unicodeEmojiSearch && prefix.size() >= kUnicodeMinQueryChars
+        && out.size() < kMaxEmojiCompletions) {
+        const QVariantList unicodeMatches =
+            m_unicodeEmojiSearch(prefix, kMaxEmojiCompletions - out.size());
+        for (const QVariant &row : unicodeMatches)
+            out.append(row);
+    }
+    return out;
 }
 
 int MessageComposer::acceptEmojiCompletionAt(int cursorPos,
@@ -825,6 +947,51 @@ int MessageComposer::acceptEmojiCompletionAt(int cursorPos,
     next.replace(token.first, token.second, replacement);
     setText(next);
     return token.first + replacement.length();
+}
+
+int MessageComposer::acceptUnicodeEmojiCompletionAt(int cursorPos,
+                                                    const QString &emoji)
+{
+    const auto token = emojiTokenAt(m_text, cursorPos);
+    if (token.first < 0 || emoji.isEmpty())
+        return -1;
+    const QString replacement = emoji + QStringLiteral(" ");
+    QString next = m_text;
+    next.replace(token.first, token.second, replacement);
+    setText(next);
+    if (m_unicodeEmojiUseRecorder)
+        m_unicodeEmojiUseRecorder(emoji);
+    return token.first + replacement.length();
+}
+
+int MessageComposer::maybeAutoConvertShortcodeBeforeCursor(int cursorPos)
+{
+    if (!m_emojiAutoConvert || !m_unicodeShortcodeResolver)
+        return -1;
+    if (cursorPos < 1 || cursorPos > m_text.size())
+        return -1;
+    if (m_text.at(cursorPos - 1) != QLatin1Char(' '))
+        return -1; // only "...:alias:| " (space just typed) auto-converts live
+    if (insideCode(m_text, cursorPos))
+        return -1;
+    const auto token = completeShortcodeEndingAt(m_text, cursorPos - 1);
+    if (token.first < 0)
+        return -1;
+    const QString code = m_text.mid(token.first + 1, token.second - 2);
+    // A custom pack shortcode of the same name wins; this flag only auto-
+    // converts Unicode aliases and must not shadow the existing
+    // `:shortcode:`-stays-literal-until-send custom behaviour.
+    if (m_emoticonResolver && !m_emoticonResolver(code).isEmpty())
+        return -1;
+    const QString emoji = m_unicodeShortcodeResolver(code);
+    if (emoji.isEmpty())
+        return -1;
+    QString next = m_text;
+    next.replace(token.first, token.second, emoji);
+    setText(next);
+    if (m_unicodeEmojiUseRecorder)
+        m_unicodeEmojiUseRecorder(emoji);
+    return token.first + emoji.length() + 1; // +1: the space stays in place
 }
 
 int MessageComposer::acceptCommandCompletion(const QString &name)

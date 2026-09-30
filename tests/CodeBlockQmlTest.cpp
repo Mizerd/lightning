@@ -21,9 +21,12 @@
 #include <QQmlEngine>
 #include <QQmlError>
 #include <QQuickItem>
+#include <QQuickTextDocument>
 #include <QQuickWindow>
 #include <QSettings>
 #include <QTemporaryDir>
+#include <QTextBlock>
+#include <QTextDocument>
 #include <QVariantMap>
 #include <QWheelEvent>
 
@@ -754,6 +757,57 @@ private Q_SLOTS:
                  qPrintable(QStringLiteral("the bubble collapsed to %1")
                                 .arg(bubbleItem->width())));
         QVERIFY(bubbleItem->width() < cap);
+    }
+
+    // Code reads left to right: a block whose first line is an Arabic comment
+    // was laid out right to left, every line (TextEdit takes one direction for
+    // the whole document). Prose beside it keeps its own directions.
+    void codeReadsLeftToRightAndProseBesideItKeepsItsOwn()
+    {
+        const QString arabic = QStringLiteral("\u0645\u0631\u062D\u0628\u0627");
+        const auto documentOf = [](QQuickItem *textEdit) -> QTextDocument * {
+            auto *quick =
+                textEdit->property("textDocument").value<QQuickTextDocument *>();
+            return quick ? quick->textDocument() : nullptr;
+        };
+
+        Harness h;
+        QVERIFY(build(h, QStringLiteral("// ") + arabic
+                             + QStringLiteral("\nint x = 1; // done")));
+        auto *text = h.find(QStringLiteral("codeBlockText"));
+        QVERIFY(text != nullptr);
+        QTextDocument *doc = documentOf(text);
+        QVERIFY(doc);
+        QCOMPARE(doc->blockCount(), 2);
+        for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+            QCOMPARE(b.textDirection(), Qt::LeftToRight);
+            QRectF r;
+            QVERIFY(QMetaObject::invokeMethod(text, "positionToRectangle",
+                                              Q_RETURN_ARG(QRectF, r),
+                                              Q_ARG(int, b.position())));
+            QVERIFY2(qAbs(r.x()) < 0.5,
+                     qPrintable(QStringLiteral("line %1 starts at x %2")
+                                    .arg(b.blockNumber() + 1).arg(r.x())));
+        }
+        QCOMPARE(h.warnings, QStringList{});
+
+        RowHarness row;
+        QVERIFY(buildRow(row, QVariantList{
+                             richSegment(QStringLiteral("<p>Hello world</p><p>")
+                                         + arabic + QStringLiteral("</p>")),
+                             codeSegment(QStringLiteral("int x = 1;"), QString())},
+                         QStringLiteral("body"), false));
+        const QList<QQuickItem *> rows = segmentRows(row);
+        QCOMPARE(rows.size(), 2);
+        auto *prose = rows.at(0)->findChild<QQuickItem *>(
+            QStringLiteral("messageSegmentText"));
+        QVERIFY(prose != nullptr);
+        QTextDocument *proseDoc = documentOf(prose);
+        QVERIFY(proseDoc);
+        QCOMPARE(proseDoc->blockCount(), 2);
+        QCOMPARE(proseDoc->firstBlock().textDirection(), Qt::LeftToRight);
+        QCOMPARE(proseDoc->lastBlock().textDirection(), Qt::RightToLeft);
+        QCOMPARE(row.bindingLoops(), QStringList{});
     }
 
     // Inside the delegate, a line wider than any pane clamps at the cap and

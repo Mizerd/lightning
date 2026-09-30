@@ -1,5 +1,6 @@
 #include "models/MessageSearchController.h"
 
+#include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
 
 namespace {
@@ -85,9 +86,17 @@ void MessageSearchController::setClient(MatrixClient *client)
             dispatch(false);
         }
     });
-    // One account's search results must never surface under another's.
-    connect(m_client, &MatrixClient::loggedOut, this,
-            &MessageSearchController::clear);
+    connect(m_client, &MatrixClient::searchIndexAllProgress, this,
+            &MessageSearchController::onIndexAllProgress);
+    // One account's search results must never surface under another's, and
+    // neither may its index-all progress or a pending offer.
+    connect(m_client, &MatrixClient::loggedOut, this, [this] {
+        clear();
+        resetIndexAll();
+    });
+    // Holds already in force carry over to a new backend.
+    if (m_indexAllHold != 0)
+        m_client->setIndexAllHold(m_indexAllHold);
     Q_EMIT stateChanged();
 }
 
@@ -164,8 +173,177 @@ void MessageSearchController::clearIndex()
     m_indexedMessages = 0;
     m_indexedRooms = 0;
     Q_EMIT indexStatsChanged();
+    // Clearing also forgets which rooms "index all" had finished and cancels
+    // a pass in flight (a running one answers "cancelled" itself).
+    refreshIndexAllStatus();
     if (effectiveSource() == QLatin1String("local"))
         clear();
+}
+
+// ── "Index all rooms" ────────────────────────────────────────────────────
+
+bool MessageSearchController::indexAllActive() const
+{
+    return m_indexAllState == QLatin1String("running")
+        || m_indexAllState == QLatin1String("held")
+        || m_indexAllState == QLatin1String("backoff");
+}
+
+bool MessageSearchController::indexAllResumable() const
+{
+    return (m_indexAllState == QLatin1String("paused")
+            || m_indexAllState == QLatin1String("stopped"))
+        && m_indexAllPosition < m_indexAllTotal;
+}
+
+void MessageSearchController::indexAllRooms()
+{
+    if (!m_client || !m_client->supportsLocalSearch())
+        return;
+    // The backend owns the one-run-at-a-time rule: a second start while a
+    // pass runs withdraws a pending pause instead of starting another.
+    m_client->indexAllRooms(/*resumeOnly=*/false);
+}
+
+void MessageSearchController::pauseIndexAll()
+{
+    if (m_client)
+        m_client->pauseIndexAll();
+}
+
+void MessageSearchController::cancelIndexAll()
+{
+    if (m_client)
+        m_client->cancelIndexAll();
+}
+
+void MessageSearchController::refreshIndexAllStatus()
+{
+    if (m_client && m_client->supportsLocalSearch())
+        m_client->requestIndexAllStatus();
+}
+
+void MessageSearchController::resumeIndexAllIfPending()
+{
+    if (m_client && m_client->supportsLocalSearch())
+        m_client->indexAllRooms(/*resumeOnly=*/true);
+}
+
+void MessageSearchController::setIndexAllHold(unsigned reason, bool held)
+{
+    const unsigned next = held ? (m_indexAllHold | reason)
+                               : (m_indexAllHold & ~reason);
+    if (next == m_indexAllHold)
+        return;
+    m_indexAllHold = next;
+    if (m_client)
+        m_client->setIndexAllHold(m_indexAllHold);
+}
+
+void MessageSearchController::onIndexAllProgress(quint64 opId,
+                                                 const QVariantMap &status)
+{
+    Q_UNUSED(opId);   // every answer describes the one per-account pass
+    const QString state = status.value(QStringLiteral("state")).toString();
+    if (state.isEmpty())
+        return;
+    const bool wasActive = indexAllActive();
+    m_indexAllState = state;
+    m_indexAllTotal = status.value(QStringLiteral("total")).toInt();
+    m_indexAllPosition = status.value(QStringLiteral("position")).toInt();
+    const QString roomId =
+        status.value(QStringLiteral("currentRoomId")).toString();
+    // A display name only; a raw room id is not something to show a reader.
+    m_indexAllRoomName = (roomId.isEmpty() || !m_client)
+        ? QString() : m_client->roomInfo(roomId).name;
+    m_indexAllWritten = status.value(QStringLiteral("written")).toLongLong();
+    m_indexAllUndecryptable =
+        status.value(QStringLiteral("undecryptable")).toLongLong();
+    m_indexAllSkipped = status.value(QStringLiteral("skipped")).toInt();
+    m_indexAllFailedRooms = status.value(QStringLiteral("failedRooms")).toInt();
+    m_indexAllRetryInMs =
+        status.value(QStringLiteral("retryInMs")).toLongLong();
+    // From this pass's own pace: time per finished room times rooms left.
+    const qint64 elapsed = status.value(QStringLiteral("elapsedMs")).toLongLong();
+    const int left = m_indexAllTotal - m_indexAllPosition;
+    m_indexAllEtaMs = (indexAllActive() && m_indexAllPosition > 0 && left > 0
+                       && elapsed > 0)
+        ? elapsed / m_indexAllPosition * left : -1;
+
+    if (status.contains(QStringLiteral("messages"))) {
+        const qint64 messages =
+            status.value(QStringLiteral("messages")).toLongLong();
+        const qint64 rooms =
+            status.value(QStringLiteral("indexedRooms")).toLongLong();
+        if (messages != m_indexedMessages || rooms != m_indexedRooms) {
+            m_indexedMessages = messages;
+            m_indexedRooms = rooms;
+            Q_EMIT indexStatsChanged();
+        }
+    }
+    Q_EMIT indexAllChanged();
+
+    // A pass that just settled may have indexed what a local query on screen
+    // is looking for. Not on every page: that would repaint the results the
+    // reader is scrolling.
+    if (wasActive && !indexAllActive() && !m_query.trimmed().isEmpty()
+        && effectiveSource() == QLatin1String("local")) {
+        dispatch(false);
+    }
+}
+
+void MessageSearchController::resetIndexAll()
+{
+    m_indexAllState = QStringLiteral("idle");
+    m_indexAllTotal = 0;
+    m_indexAllPosition = 0;
+    m_indexAllRoomName.clear();
+    m_indexAllWritten = 0;
+    m_indexAllUndecryptable = 0;
+    m_indexAllSkipped = 0;
+    m_indexAllFailedRooms = 0;
+    m_indexAllEtaMs = -1;
+    m_indexAllRetryInMs = 0;
+    Q_EMIT indexAllChanged();
+    m_indexAllOfferUserId.clear();
+    setIndexAllOffered(false);
+}
+
+void MessageSearchController::setIndexAllOffered(bool offered)
+{
+    if (m_indexAllOffered == offered)
+        return;
+    m_indexAllOffered = offered;
+    Q_EMIT indexAllOfferChanged();
+}
+
+void MessageSearchController::offerIndexAllAfterSignIn(const QString &userId,
+                                                       bool interactiveSignIn)
+{
+    // A restored session was offered (or not) when it first signed in here.
+    // The account record must exist: it is the only place the answer can be
+    // remembered, and an offer that cannot be remembered would be repeated.
+    const bool offer = interactiveSignIn && !userId.isEmpty() && m_settings
+        && localAvailable() && m_settings->hasSavedAccount(userId)
+        && m_settings->indexAllOfferAnswer(userId).isEmpty();
+    m_indexAllOfferUserId = offer ? userId : QString();
+    setIndexAllOffered(offer);
+}
+
+void MessageSearchController::answerIndexAllOffer(const QString &answer)
+{
+    if (!m_indexAllOffered)
+        return;
+    const QString recorded = answer == QLatin1String("yes")
+        ? QStringLiteral("yes")
+        : answer == QLatin1String("no") ? QStringLiteral("no")
+                                        : QStringLiteral("later");
+    if (m_settings && !m_indexAllOfferUserId.isEmpty())
+        m_settings->setIndexAllOfferAnswer(m_indexAllOfferUserId, recorded);
+    m_indexAllOfferUserId.clear();
+    setIndexAllOffered(false);
+    if (recorded == QLatin1String("yes"))
+        indexAllRooms();
 }
 
 void MessageSearchController::onLocalSearchFinished(

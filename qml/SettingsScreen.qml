@@ -40,6 +40,9 @@ Item {
 
     // Whether the sanitized E2EE recovery diagnostics are expanded.
     property bool showRecoveryDiagnostics: false
+    // "Clear kept media": one request at a time, and its outcome in words.
+    property bool storedMediaClearing: false
+    property string storedMediaStatus: ""
 
     // FontManager, or null. `fonts` is a context property from main.cpp that
     // several suites do not install, and `visible: false` does not stop
@@ -163,6 +166,22 @@ Item {
           keywords: qsTr("room list width panel size sidebar"),
           section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
           anchor: "roomListWidthSlider" },
+        { title: qsTr("Keep the room list still while I use it"),
+          keywords: qsTr("room list order sort reorder jump move still hold "
+                         + "freeze stable recent activity conversation list "
+                         + "sidebar channels new message"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
+          control: "keepRoomListOrderStill",
+          anchor: "keepRoomListOrderStillCheck" },
+        { title: qsTr("Keep running in the tray"),
+          keywords: qsTr("tray system tray minimize close background icon "
+                         + "taskbar quit close to tray"),
+          section: "appearance", breadcrumb: qsTr("Appearance · System tray"),
+          anchor: "closeToTrayCheck" },
+        { title: qsTr("Start in the tray"),
+          keywords: qsTr("tray start startup minimized background icon"),
+          section: "appearance", breadcrumb: qsTr("Appearance · System tray"),
+          anchor: "startInTrayCheck" },
         { title: qsTr("Side panel width"),
           keywords: qsTr("side panel width members threads size"),
           section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
@@ -177,6 +196,12 @@ Item {
           section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
           control: "sendTextAsCaption",
           anchor: "sendTextAsCaptionCheck" },
+        { title: qsTr("Convert :shortcode: to emoji"),
+          keywords: qsTr("emoji shortcode colon convert autoconvert "
+                         + "auto-convert thumbsup smiley slack discord"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
+          control: "emojiShortcodeAutoConvert",
+          anchor: "emojiShortcodeAutoConvertCheck" },
         { title: qsTr("Message box buttons"),
           keywords: qsTr("composer buttons hide show emoji gif sticker stickers "
                          + "voice microphone formatting schedule send later "
@@ -280,6 +305,13 @@ Item {
           breadcrumb: qsTr("Privacy & security · Device trust"),
           anchor: "strictDeviceTrustCheck" },
 
+        { title: qsTr("Keep downloaded media on this device"),
+          keywords: qsTr("media cache video image picture file download "
+                         + "offline storage disk keep clear"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Media kept on this device"),
+          anchor: "keepMediaOnDeviceCheck" },
+
         { title: qsTr("Read receipts"),
           keywords: qsTr("read receipt receipts private seen ticks blue "
                          + "m.read.private privacy"),
@@ -304,6 +336,12 @@ Item {
           section: "privacy",
           breadcrumb: qsTr("Privacy & security · Ignored users"),
           anchor: "ignoredUsersCard" },
+        { title: qsTr("Index all rooms"),
+          keywords: qsTr("message search index all rooms history local "
+                         + "encrypted older messages backfill"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Message search index"),
+          anchor: "indexAllRoomsButton" },
         { title: qsTr("Sign out other sessions"),
           keywords: qsTr("sessions devices sign out remove device delete"),
           section: "sessions",
@@ -829,6 +867,11 @@ Item {
         var requested = app.takeRequestedSettingsSection()
         if (requested.length > 0)
             section = mapLegacySection(requested)
+        // Ctrl+, from the chat shell (MainScreen's Shortcut, requested before
+        // this screen existed) asked for the search field too; the warm case
+        // is the Connections handler below.
+        if (app.takeSettingsSearchFocusRequested())
+            settingsSearchField.forceActiveFocus()
     }
     // The screen is built once and kept (Main.qml), so a section request while
     // alive arrives here; on a cold build both paths fire with the same value.
@@ -841,6 +884,12 @@ Item {
             // incubating, Component.onCompleted takes it instead, which is why
             // C++ must not clear it.
             app.takeRequestedSettingsSection()
+        }
+        // Ctrl+, from the chat shell while this (kept-alive) screen already
+        // exists. Component.onCompleted only fires once, at construction, so
+        // a reopen needs this instead.
+        function onSettingsSearchFocusRequested() {
+            settingsSearchField.forceActiveFocus()
         }
     }
 
@@ -1336,6 +1385,14 @@ Item {
                                             !app.settings.spaceBannersVisible
                                     }
                                     AppSwitch {
+                                        objectName: "settingsSearchInlineKeepRoomOrder_" + resultRow.index
+                                        visible: resultRow.modelData.control === "keepRoomListOrderStill"
+                                        checked: app.settings.keepRoomListOrderStill
+                                        Accessible.name: qsTr("Keep the room list still while I use it")
+                                        onToggled: app.settings.keepRoomListOrderStill =
+                                            !app.settings.keepRoomListOrderStill
+                                    }
+                                    AppSwitch {
                                         objectName: "settingsSearchInlineEnterNewline_" + resultRow.index
                                         visible: resultRow.modelData.control === "enterInsertsNewline"
                                         checked: app.settings.enterInsertsNewline
@@ -1351,6 +1408,14 @@ Item {
                                             "Send text with an attachment as its caption")
                                         onToggled: app.settings.sendTextAsCaption =
                                             !app.settings.sendTextAsCaption
+                                    }
+                                    AppSwitch {
+                                        objectName: "settingsSearchInlineEmojiShortcodeAutoConvert_" + resultRow.index
+                                        visible: resultRow.modelData.control === "emojiShortcodeAutoConvert"
+                                        checked: app.settings.emojiShortcodeAutoConvert
+                                        Accessible.name: qsTr("Convert :shortcode: to emoji")
+                                        onToggled: app.settings.emojiShortcodeAutoConvert =
+                                            !app.settings.emojiShortcodeAutoConvert
                                     }
                                 }
                                 HoverHandler { id: resultHover }
@@ -2723,6 +2788,7 @@ Item {
                                 }
                                 FileDialog {
                                     id: fontFileDialog
+                                    currentFolder: app.defaultFileDialogFolder()
                                     title: qsTr("Choose a font file")
                                     fileMode: FileDialog.OpenFile
                                     nameFilters: [
@@ -3080,6 +3146,7 @@ Item {
                                 }
                                 FileDialog {
                                     id: appIconDialog
+                                    currentFolder: app.defaultFileDialogFolder()
                                     title: qsTr("Choose an application icon image")
                                     fileMode: FileDialog.OpenFile
                                     nameFilters: [
@@ -3302,6 +3369,28 @@ Item {
                                     onMoved: app.settings.roomListWidth = Math.round(value)
                                     Accessible.name: qsTr("Conversation list width")
                                 }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "keepRoomListOrderStillCheck"
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Keep the room list still while I use it")
+                                    checked: app.settings.keepRoomListOrderStill
+                                    onToggled: app.settings.keepRoomListOrderStill = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("New messages still update a room's preview "
+                                               + "and badge at once, but it only moves up "
+                                               + "when you switch Space, tab or search, "
+                                               + "come back to the window, or leave the "
+                                               + "list alone for a few seconds.")
+                                }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8
                                     text: qsTr("Side panel width: %1 px")
@@ -3467,6 +3556,28 @@ Item {
                                                + "that do not understand captions "
                                                + "show the attachment without the "
                                                + "text.")
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "emojiShortcodeAutoConvertCheck"
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Convert :shortcode: to emoji")
+                                    checked: app.settings.emojiShortcodeAutoConvert
+                                    onToggled: app.settings.emojiShortcodeAutoConvert = checked
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Typing a shortcode like "
+                                               + "\":thumbsup:\" turns it into "
+                                               + "the emoji as soon as it is "
+                                               + "complete. Custom pack "
+                                               + "shortcodes are unaffected.")
                                 }
 
                                 // Message box buttons. Presented as "show",
@@ -4070,6 +4181,158 @@ Item {
                                         onClicked: clearIndexConfirm.visible = true
                                     }
                                 }
+
+                                // "Index all rooms": the per-room history walk
+                                // over every joined room, one at a time. The
+                                // disclosure repeats the cost and the privacy
+                                // consequence where the button is.
+                                Label {
+                                    objectName: "indexAllHelpText"
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: AppTheme.spacing8
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    textFormat: Text.PlainText
+                                    text: qsTr("Index all rooms fetches "
+                                        + "older history for every room you "
+                                        + "are in, one room at a time and up "
+                                        + "to the same per-room limit as "
+                                        + "Index this room, so you can "
+                                        + "search it here. It can "
+                                        + "take a long time and uses "
+                                        + "bandwidth, and like the rest of "
+                                        + "the index it stores the decrypted "
+                                        + "message text on this device. "
+                                        + "Messages that cannot be decrypted "
+                                        + "yet are skipped until their keys "
+                                        + "arrive — run it again then and "
+                                        + "they are added. It pauses during "
+                                        + "calls and continues after a "
+                                        + "restart.")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textMeta
+                                }
+                                Label {
+                                    objectName: "indexAllProgressLabel"
+                                    visible: text !== ""
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    textFormat: Text.PlainText
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textBody
+                                    text: {
+                                        var s = app.messageSearch
+                                        var st = s.indexAllState
+                                        var lines = []
+                                        var underWay = s.indexAllActive
+                                            || s.indexAllResumable
+                                        if (underWay) {
+                                            var where = qsTr("%1 of %2 rooms")
+                                                .arg(s.indexAllPosition)
+                                                .arg(s.indexAllTotal)
+                                            if (s.indexAllActive
+                                                    && s.indexAllRoomName !== "")
+                                                where += " · " + s.indexAllRoomName
+                                            lines.push(where)
+                                            lines.push(qsTr("%n message(s) added",
+                                                            "", s.indexAllWritten))
+                                            if (st === "held")
+                                                lines.push(qsTr("Waiting while a "
+                                                    + "call is active or a "
+                                                    + "timeline is scrolling"))
+                                            else if (st === "backoff")
+                                                lines.push(qsTr("The server asked "
+                                                    + "Lightning to slow down; "
+                                                    + "trying again shortly"))
+                                            else if (st === "paused")
+                                                lines.push(qsTr("Paused"))
+                                            else if (st === "stopped")
+                                                lines.push(qsTr("Continues once "
+                                                    + "this account is connected"))
+                                            else if (s.indexAllEtaMs > 0)
+                                                lines.push(qsTr("About %n minute(s) left",
+                                                    "", Math.max(1, Math.round(
+                                                        s.indexAllEtaMs / 60000))))
+                                        } else if (st === "done") {
+                                            // Not "everything is indexed":
+                                            // each room stops at the per-room
+                                            // limit, and failed or
+                                            // undecryptable rooms are listed
+                                            // below and retried next time.
+                                            lines.push(s.indexAllTotal > 0
+                                                ? qsTr("Finished: each room was "
+                                                       + "indexed back to its "
+                                                       + "start or to the "
+                                                       + "per-room limit")
+                                                : qsTr("Nothing new to do: an "
+                                                       + "earlier run already "
+                                                       + "covered every room"))
+                                            if (s.indexAllWritten > 0)
+                                                lines.push(qsTr("%n message(s) added",
+                                                                "", s.indexAllWritten))
+                                        } else if (st === "cancelled") {
+                                            lines.push(qsTr("Stopped. Rooms "
+                                                + "already indexed stay "
+                                                + "indexed."))
+                                        }
+                                        if (s.indexAllUndecryptable > 0)
+                                            lines.push(qsTr("%n message(s) could "
+                                                + "not be decrypted yet and "
+                                                + "were skipped", "",
+                                                s.indexAllUndecryptable))
+                                        if (s.indexAllFailedRooms > 0)
+                                            lines.push(qsTr("%n room(s) could not "
+                                                + "be fetched and will be "
+                                                + "tried next time", "",
+                                                s.indexAllFailedRooms))
+                                        return lines.join("\n")
+                                    }
+                                }
+                                AppProgressBar {
+                                    objectName: "indexAllProgressBar"
+                                    visible: app.messageSearch.indexAllActive
+                                             || app.messageSearch.indexAllResumable
+                                    Layout.fillWidth: true
+                                    value: app.messageSearch.indexAllTotal > 0
+                                           ? app.messageSearch.indexAllPosition
+                                             / app.messageSearch.indexAllTotal
+                                           : 0
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing12
+                                    // One button that starts, pauses and
+                                    // resumes, so the settings search always
+                                    // has a live control to land on.
+                                    AppButton {
+                                        objectName: "indexAllRoomsButton"
+                                        text: app.messageSearch.indexAllActive
+                                              ? qsTr("Pause")
+                                              : app.messageSearch.indexAllResumable
+                                                ? qsTr("Resume")
+                                                : qsTr("Index all rooms")
+                                        kind: app.messageSearch.indexAllActive
+                                              ? "secondary" : "primary"
+                                        onClicked: {
+                                            if (app.messageSearch.indexAllActive)
+                                                app.messageSearch.pauseIndexAll()
+                                            else
+                                                app.messageSearch.indexAllRooms()
+                                        }
+                                    }
+                                    AppButton {
+                                        objectName: "indexAllCancelButton"
+                                        text: qsTr("Stop")
+                                        kind: "ghost"
+                                        visible: app.messageSearch.indexAllActive
+                                                 || app.messageSearch.indexAllResumable
+                                        onClicked: app.messageSearch.cancelIndexAll()
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                }
                             }
                         }
                         // Link-preview and GIF policy.
@@ -4405,6 +4668,110 @@ Item {
                                     text: qsTr("Show all hidden images")
                                     enabled: app.mediaVisibility.hiddenCount > 0
                                     onClicked: app.mediaVisibility.clear()
+                                }
+
+                                // Downloaded media kept between sessions
+                                // (rooms.rs media_persistence). What is opened
+                                // from an encrypted room is never kept, and the
+                                // copy says so rather than hiding the cost.
+                                Label {
+                                    text: qsTr("Media kept on this device")
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                    Layout.topMargin: AppTheme.spacing4
+                                }
+                                CheckBox {
+                                    objectName: "keepMediaOnDeviceCheck"
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Keep downloaded media on this device")
+                                    checked: app.settings.keepMediaOnDevice
+                                    onToggled:
+                                        app.settings.keepMediaOnDevice = checked
+                                }
+                                Label {
+                                    objectName: "keepMediaOnDeviceNote"
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    // Matches rooms.rs media_persistence and
+                                    // mediastore.rs. Sent attachments are the
+                                    // SDK send queue's and ignore the setting.
+                                    text: qsTr("Pictures, videos and files you "
+                                               + "open are kept in this account's "
+                                               + "folder, so they open again "
+                                               + "without downloading: up to about "
+                                               + "1.4 GB, for 60 days after you "
+                                               + "last open them, and removed when "
+                                               + "you sign out. They are kept "
+                                               + "encrypted, and the key is kept "
+                                               + "in your system keyring. Media you "
+                                               + "open in encrypted rooms is kept "
+                                               + "only then; on macOS and in a "
+                                               + "portable install the key is kept "
+                                               + "on this disk instead, and media "
+                                               + "you open in encrypted rooms is "
+                                               + "not kept. While the keyring is "
+                                               + "locked or missing, nothing is "
+                                               + "kept. Files over 24 MB from "
+                                               + "unencrypted rooms are kept "
+                                               + "unencrypted. Attachments you "
+                                               + "send, from any room, are kept "
+                                               + "the same way until they are "
+                                               + "uploaded and then for up to 60 "
+                                               + "days, whatever this setting "
+                                               + "says. Turning it off stops "
+                                               + "keeping media you open; Clear "
+                                               + "removes what is already kept.")
+                                }
+                                AppButton {
+                                    objectName: "clearStoredMediaButton"
+                                    storm: true
+                                    kind: "danger"
+                                    text: qsTr("Clear kept media")
+                                    enabled: !root.storedMediaClearing
+                                    onClicked: {
+                                        root.storedMediaStatus = ""
+                                        root.storedMediaClearing =
+                                            app.clearStoredMedia()
+                                        if (!root.storedMediaClearing)
+                                            root.storedMediaStatus = qsTr(
+                                                "Nothing was cleared: no account "
+                                                + "is signed in.")
+                                    }
+                                }
+                                Label {
+                                    objectName: "storedMediaStatusLabel"
+                                    visible: root.storedMediaStatus !== ""
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: root.storedMediaStatus
+                                }
+                                Connections {
+                                    target: app
+                                    function onStoredMediaCleared(ok, files, bytes) {
+                                        root.storedMediaClearing = false
+                                        if (!ok)
+                                            root.storedMediaStatus = qsTr(
+                                                "Some kept media could not be "
+                                                + "removed. Try again.")
+                                        else if (files > 0)
+                                            root.storedMediaStatus = qsTr(
+                                                "Kept media removed, including "
+                                                + "%1 of large files.")
+                                                .arg(root.formatBytes(bytes))
+                                        else
+                                            root.storedMediaStatus = qsTr(
+                                                "Kept media removed. It downloads "
+                                                + "again when you open it.")
+                                    }
                                 }
                             }
                         }
@@ -5444,6 +5811,7 @@ Item {
                                     }
                                     FileDialog {
                                         id: ownAvatarFileDialog
+                                        currentFolder: app.defaultFileDialogFolder()
                                         title: qsTr("Choose a profile picture")
                                         nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)")]
                                         onAccepted: ownAvatarCrop.openFor(selectedFile)
@@ -5771,6 +6139,7 @@ Item {
                                 }
                                 FileDialog {
                                     id: bannerFileDialog
+                                    currentFolder: app.defaultFileDialogFolder()
                                     title: qsTr("Choose a banner image")
                                     nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)")]
                                     // The crop dialog decides what is published
@@ -7484,6 +7853,7 @@ Item {
                                 }
                                 FileDialog {
                                     id: importFileDialog
+                                    currentFolder: app.defaultFileDialogFolder()
                                     title: qsTr("Select encrypted Matrix room-key export")
                                     fileMode: FileDialog.OpenFile
                                     // No nameFilters: Element writes .txt

@@ -97,6 +97,8 @@ private Q_SLOTS:
     // The insecure-to-secure migration uses the real user id (not the folded
     // QSettings group name) and moves every secret of the account.
     void migratesEverySecretOfAnAccountWhoseIdContainsASlash();
+    void aKeptPlaintextGroupNeverOverwritesADifferentSecureValue();
+    void secretsWrittenHereOnlyForThisInstallsOwnSignIn();
     void leavesPlaintextWhenNoSavedAccountOwnsTheGroup();
     void insecureSecretsGroupFoldingIsStillTwoCharacters();
     // Device-global keys naming rooms and Spaces are removed with the last
@@ -130,6 +132,8 @@ private Q_SLOTS:
     void theEncryptedPreviewLevelDefaultsToFollowingTheGeneralOne();
     void anUnknownEncryptionStateTakesTheStricterLevel();
     void strictDeviceTrustDefaultsOffAndPersists();
+    void keepMediaOnDeviceDefaultsOnAndPersists();
+    void theKeepMediaCheckboxSaysWhereEncryptedMediaIsKept();
     // Every account-scoped value is re-announced on an account switch.
     void switchingAccountsReAnnouncesEveryAccountScopedAppearanceValue();
     void everyAccountScopedGetterHasItsSignalInTheAccountSwitch();
@@ -1365,6 +1369,70 @@ void SettingsSessionTest::strictDeviceTrustDefaultsOffAndPersists()
     QVERIFY(reopened.strictDeviceTrust());
 }
 
+void SettingsSessionTest::keepMediaOnDeviceDefaultsOnAndPersists()
+{
+    {
+        SettingsManager settings;
+        // On by default: the SDK media store has always kept unencrypted media,
+        // so an existing install must not start downloading everything again.
+        QVERIFY(settings.keepMediaOnDevice());
+
+        QSignalSpy spy(&settings, &SettingsManager::keepMediaOnDeviceChanged);
+        settings.setKeepMediaOnDevice(false);
+        QVERIFY(!settings.keepMediaOnDevice());
+        QCOMPARE(spy.count(), 1);
+        settings.setKeepMediaOnDevice(false);
+        QCOMPARE(spy.count(), 1);
+    }
+    // Rust reads the flag on every fetch, but it is only pushed from here, so
+    // a choice that did not survive a restart would silently turn back on.
+    SettingsManager reopened;
+    QVERIFY(!reopened.keepMediaOnDevice());
+}
+
+// The checkbox's description is the only disclosure of what is kept: that
+// media is kept encrypted under a key in the keyring, that encrypted-room
+// media is kept only then, what is left unencrypted, and that sent
+// attachments are kept whatever the setting says (review of store B: the
+// copy used to promise that turning it off stopped keeping new media). All
+// of it must be in the copy, next to the control it describes.
+void SettingsSessionTest::theKeepMediaCheckboxSaysWhereEncryptedMediaIsKept()
+{
+    QFile file(QStringLiteral(REPO_ROOT "/qml/SettingsScreen.qml"));
+    QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(file.errorString()));
+    const QString qml = QString::fromUtf8(file.readAll());
+    const qsizetype check = qml.indexOf(
+        QLatin1String("objectName: \"keepMediaOnDeviceCheck\""));
+    QVERIFY2(check >= 0, "the keep-media checkbox is missing");
+    QVERIFY(qml.contains(QLatin1String("app.settings.keepMediaOnDevice = checked")));
+    const qsizetype note = qml.indexOf(
+        QLatin1String("objectName: \"keepMediaOnDeviceNote\""), check);
+    QVERIFY2(note > check, "the checkbox has no description after it");
+    // The description's text, joined the way qsTr() concatenation reads.
+    const qsizetype end = qml.indexOf(QLatin1String(")\n"), note);
+    QVERIFY(end > note);
+    QString text = qml.mid(note, end - note);
+    static const QRegularExpression joins(QStringLiteral("\"\\s*\\+\\s*\""));
+    text.replace(joins, QString());
+    QVERIFY2(text.contains(QLatin1String("the key is kept in your system keyring")),
+             qPrintable(text));
+    QVERIFY2(text.contains(QLatin1String("you open in encrypted rooms is not kept")),
+             qPrintable(text));
+    QVERIFY2(text.contains(QLatin1String("unencrypted rooms are kept unencrypted")),
+             qPrintable(text));
+    QVERIFY2(text.contains(QLatin1String("Attachments you send, from any room, are kept")),
+             qPrintable(text));
+    QVERIFY2(text.contains(QLatin1String("whatever this setting says")),
+             qPrintable(text));
+    QVERIFY2(!text.contains(QLatin1String("stops keeping new media")),
+             "the copy promises the setting covers sent attachments");
+    QVERIFY2(text.contains(QLatin1String("removed when you sign out")),
+             qPrintable(text));
+    QVERIFY(qml.contains(QLatin1String("objectName: \"clearStoredMediaButton\"")));
+    QVERIFY(qml.contains(QLatin1String("app.clearStoredMedia()")));
+}
+
 void SettingsSessionTest::readReceiptModeDefaultsToPublicPersistsAndClamps()
 {
     {
@@ -1656,6 +1724,95 @@ void SettingsSessionTest::theSoundSectionsScopeSentenceMatchesWhereThingsActuall
     QVERIFY2(ui.contains(QStringLiteral("level belongs to your account")),
              "the Sound card no longer tells the user the microphone level "
              "is per-account, which is the half it used to get wrong");
+}
+
+// A plaintext group with a key this build does not know is kept, and offered
+// to the migration again at every start (and at every keyring retry). Its
+// refresh token is the one copied at the first start; the secure store's has
+// been rotated since. Copying the stale one back makes the next refresh
+// present a used token, and the server ends the session. A group that goes
+// after the pass was written after anything the secure store holds, and
+// still wins.
+void SettingsSessionTest::aKeptPlaintextGroupNeverOverwritesADifferentSecureValue()
+{
+    const QString kept = QStringLiteral("@kate:matrix.example");
+    const QString moved = QStringLiteral("@mo:matrix.example");
+    seedAccountRecord(kept, QStringLiteral("https://matrix.example"));
+    seedAccountRecord(moved, QStringLiteral("https://matrix.example"));
+    {
+        QSettings seed;
+        seed.setValue(QStringLiteral("secrets/%1/accessToken").arg(kept),
+                      QStringLiteral("kept-access-fixture"));
+        seed.setValue(QStringLiteral("secrets/%1/refreshToken").arg(kept),
+                      QStringLiteral("stale-refresh-fixture"));
+        seed.setValue(QStringLiteral("secrets/%1/aKeyFromANewerBuild").arg(kept),
+                      QStringLiteral("unknown-fixture"));
+        seed.setValue(QStringLiteral("secrets/%1/accessToken").arg(moved),
+                      QStringLiteral("newer-access-fixture"));
+        seed.sync();
+    }
+
+    FakeSecretStore secrets;
+    QVERIFY(secrets.storeSecret(kept, QStringLiteral("accessToken"),
+                                QStringLiteral("kept-access-fixture")));
+    QVERIFY(secrets.storeSecret(kept, QStringLiteral("refreshToken"),
+                                QStringLiteral("rotated-refresh-fixture")));
+    QVERIFY(secrets.storeSecret(moved, QStringLiteral("accessToken"),
+                                QStringLiteral("older-access-fixture")));
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);   // the migration
+
+    QCOMPARE(secrets.readSecret(kept, QStringLiteral("refreshToken")),
+             QStringLiteral("rotated-refresh-fixture"));
+    QCOMPARE(secrets.readSecret(kept, QStringLiteral("accessToken")),
+             QStringLiteral("kept-access-fixture"));
+    QSettings check;
+    QVERIFY(check.contains(
+        QStringLiteral("secrets/%1/aKeyFromANewerBuild").arg(kept)));
+    // The group that goes: its value wins, and the plaintext is gone.
+    QCOMPARE(secrets.readSecret(moved, QStringLiteral("accessToken")),
+             QStringLiteral("newer-access-fixture"));
+    QVERIFY(!check.contains(QStringLiteral("secrets/%1/accessToken").arg(moved)));
+}
+
+// The evidence that a secret store which answers "no such item" LOST a sign-in
+// rather than that the account signed out: this install saved it itself, for
+// the device its record names now. Settings only; never a secret read.
+void SettingsSessionTest::secretsWrittenHereOnlyForThisInstallsOwnSignIn()
+{
+    FakeSecretStore secrets;
+    SettingsManager settings;
+    settings.setSecretStore(&secrets);
+    const QString own = QStringLiteral("@own:matrix.example");
+    settings.saveSession(QStringLiteral("https://matrix.example"), own,
+                         QStringLiteral("OWNDEVICE"), QStringLiteral("token-fixture"));
+    QVERIFY(settings.secretsWrittenHereForRecordedDevice(own));
+    // Removing the secrets leaves the evidence: that is the point.
+    QVERIFY(secrets.clearAccountSecrets(own));
+    QVERIFY(settings.secretsWrittenHereForRecordedDevice(own));
+
+    const QString slug = matrix::app_data::safeUserSlug(own);
+    QSettings raw;
+    // An older build signed in again: a new device, the marks still name the
+    // old one.
+    raw.setValue(QStringLiteral("accounts/%1/deviceId").arg(slug),
+                 QStringLiteral("NEWERDEVICE"));
+    raw.sync();
+    QVERIFY(!settings.secretsWrittenHereForRecordedDevice(own));
+    raw.setValue(QStringLiteral("accounts/%1/deviceId").arg(slug),
+                 QStringLiteral("OWNDEVICE"));
+    // Copied from before install scoping: may be another install's device.
+    raw.setValue(QStringLiteral("accounts/%1/keyringItems").arg(slug),
+                 QStringLiteral("adopted-unverified"));
+    raw.sync();
+    QVERIFY(!settings.secretsWrittenHereForRecordedDevice(own));
+
+    // A record from before the marks, and no record at all.
+    const QString older = QStringLiteral("@older:matrix.example");
+    seedAccountRecord(older, QStringLiteral("https://matrix.example"));
+    QVERIFY(!settings.secretsWrittenHereForRecordedDevice(older));
+    QVERIFY(!settings.secretsWrittenHereForRecordedDevice(
+        QStringLiteral("@nobody:matrix.example")));
 }
 
 QTEST_MAIN(SettingsSessionTest)

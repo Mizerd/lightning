@@ -950,6 +950,7 @@ void SessionStoreIdentityTest::everyBlockReasonHasItsOwnCode()
     const QList<R> all = {R::None, R::MissingSessionMetadata, R::MissingDeviceId,
                           R::DifferentAccount, R::ExistingStoreNeedsRestore,
                           R::MissingStoreForSavedSession, R::AccessTokenRevoked,
+                          R::AccessTokenExpired,
                           R::AmbiguousStoreCandidates, R::InvalidSavedIdentity,
                           R::SecretBackendUnavailable};
     QSet<QString> codes;
@@ -966,6 +967,12 @@ void SessionStoreIdentityTest::everyBlockReasonHasItsOwnCode()
              QStringLiteral("saved_session_without_store"));
     QCOMPARE(matrix::rust_session::diagnosticName(R::AccessTokenRevoked),
              QStringLiteral("access_token_revoked"));
+    QCOMPARE(matrix::rust_session::diagnosticName(R::AccessTokenExpired),
+             QStringLiteral("access_token_expired"));
+    // Neither kind of logout may ever offer to reset the store.
+    QVERIFY(!matrix::rust_session::suggestsLocalReset(R::AccessTokenExpired));
+    QVERIFY(!matrix::rust_session::suggestsLocalResetForCode(
+        QStringLiteral("access_token_expired")));
     QCOMPARE(matrix::rust_session::diagnosticName(R::AmbiguousStoreCandidates),
              QStringLiteral("ambiguous_store_candidates"));
 }
@@ -980,6 +987,7 @@ void SessionStoreIdentityTest::missingStoreIsNotReportedAsAForeignStore()
     QVERIFY(matrix::rust_session::userMessage(R::DifferentAccount)
                 .contains(foreign));
     for (R r : {R::MissingStoreForSavedSession, R::AccessTokenRevoked,
+                R::AccessTokenExpired,
                 R::AmbiguousStoreCandidates, R::ExistingStoreNeedsRestore,
                 R::MissingSessionMetadata, R::InvalidSavedIdentity,
                 R::SecretBackendUnavailable}) {
@@ -994,13 +1002,14 @@ void SessionStoreIdentityTest::missingStoreIsNotReportedAsAForeignStore()
     // Distinct conditions read differently.
     QSet<QString> seen;
     for (R r : {R::MissingStoreForSavedSession, R::AccessTokenRevoked,
+                R::AccessTokenExpired,
                 R::AmbiguousStoreCandidates, R::ExistingStoreNeedsRestore,
                 R::MissingSessionMetadata, R::MissingDeviceId,
                 R::DifferentAccount, R::InvalidSavedIdentity,
                 R::SecretBackendUnavailable}) {
         seen.insert(matrix::rust_session::userMessage(r));
     }
-    QCOMPARE(seen.size(), 9);
+    QCOMPARE(seen.size(), 10);
 }
 
 void SessionStoreIdentityTest::onlyRepairableReasonsOfferALocalReset()

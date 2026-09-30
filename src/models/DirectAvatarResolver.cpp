@@ -17,6 +17,8 @@ void DirectAvatarResolver::setClient(MatrixClient *client)
         return;
     connect(m_client, &MatrixClient::userProfileFinished, this,
             &DirectAvatarResolver::onUserProfileFinished);
+    connect(m_client, &MatrixClient::directPeerAvatarChanged, this,
+            &DirectAvatarResolver::applyPeerAvatar);
     // The avatar cache is account-scoped: drop it on sign-out and account
     // switch (same signal). Owners clearing it too is harmless.
     connect(m_client, &MatrixClient::loggedOut, this,
@@ -35,6 +37,14 @@ void DirectAvatarResolver::clear()
     m_ops.clear();
     m_pending.clear();
     m_noAvatar.clear();
+    m_peerFaces.clear();
+}
+
+bool DirectAvatarResolver::hasPeerFace(const QString &roomId,
+                                       const QString &peer) const
+{
+    const auto face = m_peerFaces.constFind(roomId);
+    return face != m_peerFaces.cend() && face->userId == peer;
 }
 
 QString DirectAvatarResolver::directPeer(const RoomInfo &room) const
@@ -74,6 +84,10 @@ QString DirectAvatarResolver::avatarFor(const RoomInfo &room) const
     const QString peer = directPeer(room);
     if (peer.isEmpty())
         return {};
+    // The peer's own member event in this room, as of the last sync: newer
+    // than a roster snapshot or a profile asked once, and it may say "none".
+    if (hasPeerFace(room.id, peer))
+        return m_peerFaces.value(room.id).avatarUrl;
 
     const auto member = room.members.constFind(peer);
     if (member != room.members.cend() && !member->avatarMxcUrl.isEmpty())
@@ -87,7 +101,8 @@ void DirectAvatarResolver::resolveMissing(const QList<RoomInfo> &rooms)
         return;
     for (const RoomInfo &room : rooms) {
         const QString peer = directPeer(room);
-        if (peer.isEmpty() || !avatarFor(room).isEmpty()
+        if (peer.isEmpty() || hasPeerFace(room.id, peer)
+            || !avatarFor(room).isEmpty()
             || m_avatars.contains(peer) || m_pending.contains(peer)
             || m_noAvatar.contains(peer))
             continue;
@@ -97,6 +112,22 @@ void DirectAvatarResolver::resolveMissing(const QList<RoomInfo> &rooms)
             m_ops.insert(opId, peer);
         }
     }
+}
+
+void DirectAvatarResolver::applyPeerAvatar(const QString &roomId,
+                                           const QString &userId,
+                                           const QString &avatarUrl)
+{
+    if (roomId.isEmpty() || userId.isEmpty())
+        return;
+    // A repeat of the face already recorded is silent. The first one for a
+    // room is announced even when it matches the profile: the row may be
+    // showing an older roster snapshot, which this now overrides.
+    if (hasPeerFace(roomId, userId)
+        && m_peerFaces.value(roomId).avatarUrl == avatarUrl)
+        return;
+    m_peerFaces.insert(roomId, PeerFace{ userId, avatarUrl });
+    Q_EMIT avatarResolved(userId);
 }
 
 void DirectAvatarResolver::onUserProfileFinished(quint64 opId, bool ok,

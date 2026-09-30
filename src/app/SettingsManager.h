@@ -80,6 +80,14 @@ class SettingsManager : public QObject
     // effect on restart: matrix-sdk 0.18 has no runtime setter for either half.
     Q_PROPERTY(bool strictDeviceTrust READ strictDeviceTrust
                    WRITE setStrictDeviceTrust NOTIFY strictDeviceTrustChanged)
+    // Keep media the user OPENS between sessions: the SDK media store
+    // (encrypted with the account's key, rust/src/mediastore.rs), plus plain
+    // kept files for what it refuses by size, never from an encrypted room.
+    // Encrypted-room media is kept only under a key a secure keyring holds.
+    // On by default: the SDK store always kept media. Attachments the user
+    // SENDS are kept by matrix-sdk's send queue whatever this says.
+    Q_PROPERTY(bool keepMediaOnDevice READ keepMediaOnDevice
+                   WRITE setKeepMediaOnDevice NOTIFY keepMediaOnDeviceChanged)
     // Who is told this account has read a message: 0 public (default), 1
     // private (MSC2285 `m.read.private`, still clears this account's other
     // devices), 2 off. The fully-read marker is sent in every mode; it is
@@ -161,6 +169,13 @@ class SettingsManager : public QObject
     // Space banner visibility and expansion. App-wide rather than per-Space.
     Q_PROPERTY(bool spaceBannersVisible READ spaceBannersVisible
                    WRITE setSpaceBannersVisible NOTIFY spaceBannersVisibleChanged)
+    // Keep the conversation list's order still while it is in use: a new
+    // message updates its row in place and the list re-sorts when the user
+    // changes Space, tab or search, returns to the window, or leaves the list
+    // alone. Device-scoped; on by default (Element's behaviour).
+    Q_PROPERTY(bool keepRoomListOrderStill READ keepRoomListOrderStill
+                   WRITE setKeepRoomListOrderStill
+                   NOTIFY keepRoomListOrderStillChanged)
     Q_PROPERTY(bool spaceBannerExpanded READ spaceBannerExpanded
                    WRITE setSpaceBannerExpanded NOTIFY spaceBannerExpandedChanged)
     Q_PROPERTY(bool roomListVisible READ roomListVisible
@@ -287,6 +302,13 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
                    WRITE setSendTextAsCaption
                    NOTIFY sendTextAsCaptionChanged)
+    // Composer: a completed `:shortcode:` naming a standard Unicode emoji
+    // (never a custom pack one) converts to the emoji automatically, while
+    // typing once a space follows it and once more at send for a trailing
+    // one with none. Device-global. Default true.
+    Q_PROPERTY(bool emojiShortcodeAutoConvert READ emojiShortcodeAutoConvert
+                   WRITE setEmojiShortcodeAutoConvert
+                   NOTIFY emojiShortcodeAutoConvertChanged)
     // Timeline mouse-wheel speed, matching TimelineScrollController::WheelSpeed
     // (0 = Standard, 1 = Fast, 2 = Very fast). Default: Fast.
     Q_PROPERTY(int timelineWheelSpeed READ timelineWheelSpeed
@@ -402,6 +424,8 @@ public:
     void setCallPictureInPicture(bool v);
     bool strictDeviceTrust() const;
     void setStrictDeviceTrust(bool v);
+    bool keepMediaOnDevice() const;
+    void setKeepMediaOnDevice(bool v);
     int readReceiptMode() const;
     void setReadReceiptMode(int v);
     bool sendTypingNotifications() const;
@@ -527,6 +551,8 @@ public:
     bool sharePresence() const;
     bool spacesRailVisible() const;
     bool spaceBannersVisible() const;
+    bool keepRoomListOrderStill() const;
+    void setKeepRoomListOrderStill(bool v);
     bool spaceBannerExpanded() const;
     void setSpacesRailVisible(bool v);
     void setSpaceBannersVisible(bool v);
@@ -653,6 +679,8 @@ public:
     void setComposerMode(const QString &mode);
     bool sendTextAsCaption() const;
     void setSendTextAsCaption(bool v);
+    bool emojiShortcodeAutoConvert() const;
+    void setEmojiShortcodeAutoConvert(bool v);
 
     // ── Rebindable keyboard shortcuts ────────────────────────────────────
     // Stored per action id as QKeySequence::PortableText, per account with a
@@ -715,6 +743,13 @@ public:
     // {userId, homeserver, deviceId, displayName, avatarUrl, addedAt}, or empty
     // when unknown. Never exposes the sync token.
     QVariantMap accountRecord(const QString &userId) const;
+    // The answer to the one-time "index all messages now?" offer ("yes",
+    // "no", "later"; empty = never asked). Kept in the account's own record,
+    // so it goes with the account on sign-out or removal — the same moment
+    // its search index is deleted. Nothing is stored for an account without
+    // a record: nothing would ever clean it up.
+    QString indexAllOfferAnswer(const QString &userId) const;
+    void setIndexAllOfferAnswer(const QString &userId, const QString &answer);
     // Access token for a specific saved account (SecretStore lookup).
     QString accessTokenFor(const QString &userId) const;
     // OAuth session material. Credentials kept in the SecretStore; never
@@ -748,6 +783,14 @@ public:
     /// Whether a miss could hide a secret this store cannot see. Destructive
     /// decisions key on this; see SecretStore::missesAreInconclusive().
     bool secretMissesAreInconclusive() const;
+    /// True when this install saved the account's secrets itself, for the
+    /// device its record names, and has not removed them since (removing
+    /// them removes the record). A store that answers "no such item" for such
+    /// an account has lost them; the account did not sign out. False for
+    /// records older than the marks and for sessions adopted from before
+    /// install scoping (whose device may be another install's). Reads the
+    /// settings file only, never the secret store.
+    bool secretsWrittenHereForRecordedDevice(const QString &userId) const;
     void setStoreSlugFor(const QString &userId, const QString &storeSlug);
     // Resolve a saved account into an identity whose paths point at the
     // recorded store. Use wherever an account's files are read, deleted or
@@ -827,6 +870,7 @@ Q_SIGNALS:
     void notificationPreviewEncryptedChanged();
     void callPictureInPictureChanged();
     void strictDeviceTrustChanged();
+    void keepMediaOnDeviceChanged();
     void readReceiptModeChanged();
     void sendTypingNotificationsChanged();
     void notificationSoundChanged();
@@ -842,6 +886,7 @@ Q_SIGNALS:
     void sharePresenceChanged();
     void spacesRailVisibleChanged();
     void spaceBannersVisibleChanged();
+    void keepRoomListOrderStillChanged();
     void spaceBannerExpandedChanged();
     void roomListVisibleChanged();
     void roomListWidthChanged();
@@ -872,6 +917,7 @@ Q_SIGNALS:
     void spellCheckEnabledChanged();
     void spellCheckLanguageChanged();
     void sendTextAsCaptionChanged();
+    void emojiShortcodeAutoConvertChanged();
     void timelineWheelSpeedChanged();
     void mediaVolumeChanged();
     void mediaPlaybackRateChanged();

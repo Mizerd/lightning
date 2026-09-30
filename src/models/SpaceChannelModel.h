@@ -42,6 +42,7 @@
 #include <QTimer>
 #include <QVector>
 
+#include "models/ConversationOrder.h"
 #include "models/DirectAvatarResolver.h"
 
 class MatrixClient;
@@ -86,6 +87,14 @@ class SpaceChannelModel : public QAbstractListModel
     /// `empty` false means the filter matched nothing, so the column can say
     /// so.
     Q_PROPERTY(int matchCount READ matchCount NOTIFY matchCountChanged)
+    /// Hold rooms where they are while a new message updates its row in place;
+    /// see conversation::RecencyHold. Off by default here; AppController
+    /// follows the user's setting.
+    Q_PROPERTY(bool deferReordering READ deferReordering
+                   WRITE setDeferReordering NOTIFY deferReorderingChanged)
+    /// True while the column is held in an order that differs from the live
+    /// one, i.e. releaseOrder() would move something.
+    Q_PROPERTY(bool orderHeld READ orderHeld NOTIFY orderHeldChanged)
 
 public:
     enum Kind {
@@ -162,6 +171,16 @@ public:
     void setScopeSpaceId(const QString &spaceId);
     bool empty() const;
     int matchCount() const { return m_matchCount; }
+    bool deferReordering() const { return m_hold.enabled(); }
+    void setDeferReordering(bool defer);
+    bool orderHeld() const { return m_orderHeld; }
+    /// Apply the held order now. A no-op when nothing is held.
+    Q_INVOKABLE void releaseOrder();
+    /// The open room, which an old stamp must not move (RecencyHold).
+    void setOpenRoomId(const QString &roomId);
+    /// How long a held order may stay stale, in ms (60 s in use).
+    static constexpr int kHoldCapMs = 60000;
+    void setHoldCapMs(int ms);
     /// How many times rebuild() has run. Test seam for the coalescing; counting
     /// the client's rooms() calls would include SpaceManager's own rebuilds.
     int rebuildCountForTest() const { return m_rebuildCount; }
@@ -216,6 +235,8 @@ Q_SIGNALS:
     void messageSearchSupportedChanged();
     void scopeSpaceIdChanged();
     void matchCountChanged();
+    void deferReorderingChanged();
+    void orderHeldChanged();
 
 private:
     struct Row {
@@ -239,6 +260,9 @@ private:
         /// diffs rows by value; a sort key the row lacks could never make it
         /// move. Empty for headers, actions, Lobby and Search.
         QDateTime lastActivity;
+        /// Where this row would sort with nothing held. Not part of identity:
+        /// it only decides whether a held order differs from the live one.
+        QDateTime targetActivity;
 
         bool operator==(const Row &other) const;
         bool operator!=(const Row &other) const { return !(*this == other); }
@@ -249,6 +273,10 @@ private:
     static bool byRecency(const Row &a, const Row &b);
     /// Favourites first within a group, then recency.
     static bool byFavouriteThenRecency(const Row &a, const Row &b);
+    /// Sorts one group by the held stamps, and notes whether sorting by the
+    /// live ones would have ordered it differently.
+    void sortGroup(QVector<Row> &rooms, bool favouritesFirst);
+    void setOrderHeld(bool held);
 
     /// Cancels any queued rebuild before running, so nothing armed under the
     /// previous state is still pending afterwards. Every source change ends
@@ -307,6 +335,13 @@ private:
     bool m_peopleView = false;
     QVector<Row> m_rows;
     QTimer m_rebuildCoalesce;
+    /// The stamps rooms are ordered by. Mutable: roomRow() is const and
+    /// records what it hands out.
+    mutable conversation::RecencyHold m_hold;
+    bool m_orderHeld = false;
+    /// Set by sortGroup() during one rebuild.
+    bool m_sortPending = false;
+    QTimer m_holdCap;
     /// Whether anything at all exists to list, independent of the filter.
     bool m_accountHasContent = false;
     /// Room rows that survived the filter and the search.

@@ -105,24 +105,38 @@ bool isSafeExternalUrl(const QUrl &url)
         && url.userInfo().isEmpty();
 }
 
-QString linkifiedMessageHtml(const QString &body)
+// One linkifier for message bodies and topics, so both keep the same escaping
+// and the same isSafeExternalUrl gate. `bareWww` adds "www." hosts (topics).
+static QString linkifiedHtml(const QString &body, bool bareWww)
 {
     static const QRegularExpression webUrl(
         QStringLiteral("\\bhttps?://[^\\s<>]+"),
         QRegularExpression::CaseInsensitiveOption);
+    // "www." only at the start of a word: not inside a host ("foo.www.x"), a
+    // path ("/www.x") or an address ("a@www.x").
+    static const QRegularExpression webOrWww(
+        QStringLiteral("\\bhttps?://[^\\s<>]+|(?<![\\w.@/:-])www\\.[^\\s<>]+"),
+        QRegularExpression::CaseInsensitiveOption);
     QString out;
     qsizetype cursor = 0;
-    auto matches = webUrl.globalMatch(body);
+    auto matches = (bareWww ? webOrWww : webUrl).globalMatch(body);
     while (matches.hasNext()) {
         const auto match = matches.next();
         out += body.mid(cursor, match.capturedStart() - cursor).toHtmlEscaped();
         const QString raw = match.captured();
         const QString candidate = trimTrailingPunctuation(raw);
-        const QUrl url(candidate, QUrl::StrictMode);
-        if (isSafeExternalUrl(url)) {
-            const QString escaped = candidate.toHtmlEscaped();
-            out += QStringLiteral("<a href=\"") + escaped
-                + QStringLiteral("\">") + escaped + QStringLiteral("</a>");
+        const bool bare = !candidate.startsWith(QLatin1String("http"),
+                                                Qt::CaseInsensitive);
+        const QString target =
+            bare ? QStringLiteral("https://") + candidate : candidate;
+        const QUrl url(target, QUrl::StrictMode);
+        // A bare host needs a dot after "www." ("www.x" alone is a word).
+        const bool linkable = isSafeExternalUrl(url)
+            && (!bare || url.host().count(QLatin1Char('.')) >= 2);
+        if (linkable) {
+            out += QStringLiteral("<a href=\"") + target.toHtmlEscaped()
+                + QStringLiteral("\">") + candidate.toHtmlEscaped()
+                + QStringLiteral("</a>");
             out += raw.mid(candidate.size()).toHtmlEscaped();
         } else {
             out += raw.toHtmlEscaped();
@@ -131,6 +145,16 @@ QString linkifiedMessageHtml(const QString &body)
     }
     out += body.mid(cursor).toHtmlEscaped();
     return out.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+}
+
+QString linkifiedMessageHtml(const QString &body)
+{
+    return linkifiedHtml(body, false);
+}
+
+QString linkifiedTopicHtml(const QString &topic)
+{
+    return linkifiedHtml(topic, true);
 }
 
 GifClass classifyGif(const QString &validatedMime, qint64 sizeBytes,

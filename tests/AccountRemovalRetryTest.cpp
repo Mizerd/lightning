@@ -8,6 +8,8 @@
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+#include "matrix/MatrixClient.h"
+#include "matrix/MockMatrixClient.h"
 #include "storage/AppDataPaths.h"
 
 #include <QDir>
@@ -178,6 +180,40 @@ private slots:
         QCOMPARE(controller.localSessionFailureReasonCode(), QString());
         QVERIFY(controller.accountRemovalLeftovers().isEmpty());
         QVERIFY(!QFileInfo::exists(identity.rustStorePath));
+    }
+
+    // A failed restore is exactly what lands an account on the login
+    // screen's repair card, with connectionStatus() reading "Error" and the
+    // account never actually logged in. "Remove this account" from that
+    // card takes removeAccount()'s "signed-out account" branch, which never
+    // runs onLoggedOut() (that only fires for m_auth->logout()), so nothing
+    // else was clearing the stale status: the app-wide status strip
+    // (Main.qml's footer) kept reporting "Error" for an account that no
+    // longer exists.
+    void removingTheNeverConnectedAccountClearsAStaleErrorStatus()
+    {
+        AppController controller(AppController::MockBackend);
+        controller.settings()->setSecretStore(nullptr);
+        const QString server = QStringLiteral("https://example.org");
+        const QString uid = QStringLiteral("@ivy:example.org");
+        controller.settings()->saveSession(server, uid, QStringLiteral("DEVICEONE"),
+                                           QStringLiteral("old-token"), QString(),
+                                           QStringLiteral("oauth"),
+                                           QStringLiteral("client-id"));
+        QVERIFY(controller.settings()->hasSavedAccount(uid));
+
+        auto *mock = qobject_cast<MockMatrixClient *>(
+            controller.findChild<MatrixClient *>());
+        QVERIFY(mock);
+        mock->failNextRestoreForTest();
+        QVERIFY(mock->restoreSession());
+        QTRY_COMPARE(controller.connectionStatus(), QStringLiteral("Error"));
+        QVERIFY(!mock->isLoggedIn());
+
+        controller.removeAccount(uid);
+
+        QVERIFY(!controller.settings()->hasSavedAccount(uid));
+        QCOMPARE(controller.connectionStatus(), QStringLiteral("Not connected"));
     }
 };
 

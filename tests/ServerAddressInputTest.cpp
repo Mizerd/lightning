@@ -632,6 +632,28 @@ private slots:
         QCOMPARE(qml.count(QStringLiteral(
                      "enabled: !app.auth.isLoggingIn && !discoverDebounce.running")), 4);
     }
+
+    // The one-time "index all messages now?" offer is made after a sign-in the
+    // user made here, never after a restore, and AuthManager is where the two
+    // are told apart. Old code had no such flag; a flag that simply read
+    // isLoggedIn() (or was never cleared) fails the restore half.
+    void aSignInMadeHereIsInteractiveAndARestoreIsNot()
+    {
+        MockMatrixClient client;
+        AuthManager auth(&client);
+        QSignalSpy signedIn(&auth, &AuthManager::loginSucceeded);
+        auth.login(QStringLiteral("https://mock.local"), QStringLiteral("alice"),
+                   QStringLiteral("x"));
+        QVERIFY(signedIn.wait(3000));
+        QVERIFY2(auth.lastSignInWasInteractive(),
+                 "a password sign-in made here did not count as interactive");
+
+        // A restore (launch, account switch) reaches the client directly.
+        Q_EMIT client.loginSucceeded(QStringLiteral("@alice:mock.local"));
+        QCOMPARE(signedIn.count(), 2);
+        QVERIFY2(!auth.lastSignInWasInteractive(),
+                 "a restored session counted as a sign-in made here");
+    }
 };
 
 QTEST_MAIN(ServerAddressInputTest)

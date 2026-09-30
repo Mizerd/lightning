@@ -29,6 +29,28 @@ Rectangle {
         discoverJoinDialog.openDialog(startMode)
     }
 
+    // Room order is held still while the list is in use (Settings, Panels);
+    // the models apply a new order on a Space, tab or search change by
+    // themselves. These are the other ways out: the user looked away, or the
+    // list has been left alone. The models also cap how long an order is held.
+    function releaseHeldOrder() {
+        if (app.roomList)
+            app.roomList.releaseOrder()
+        if (app.spaceChannels)
+            app.spaceChannels.releaseOrder()
+    }
+    readonly property bool orderHeld:
+        (app.roomList && app.roomList.orderHeld)
+        || (app.spaceChannels && app.spaceChannels.orderHeld)
+    Connections {
+        target: Qt.application
+        function onStateChanged() {
+            // Back in the window after being away.
+            if (Qt.application.state === Qt.ApplicationActive)
+                root.releaseHeldOrder()
+        }
+    }
+
     // The Channels layout's "Message Search" row. The dialog is MainScreen's
     // (Ctrl+Shift+F opens the same one), so ask by signal.
     signal messageSearchRequested()
@@ -639,6 +661,7 @@ Rectangle {
         // wrapper, not inside the ListView, whose contentItem collapses to 0
         // when empty.
         Item {
+            id: listBody
             Layout.fillWidth: true
             Layout.fillHeight: true
 
@@ -648,7 +671,25 @@ Rectangle {
                 app.settings && app.settings.roomNavigationLayout === 1
             readonly property bool channelsUsable: channelsChosen
 
+            // A held order is applied once the list has sat scrolled to the
+            // top, with the pointer elsewhere, for three seconds: nothing is
+            // under the user's hand to move. Any scroll or hover restarts the
+            // wait, because the binding goes false and true again.
+            readonly property Item activePresenter:
+                channelsUsable ? channelsLoader.item : classicLoader.item
+            readonly property bool listAtRest:
+                activePresenter !== null && activePresenter.atRest
+                && !listHover.hovered
+            HoverHandler { id: listHover }
+            Timer {
+                objectName: "roomOrderIdleTimer"
+                interval: 3000
+                running: root.orderHeld && listBody.listAtRest
+                onTriggered: root.releaseHeldOrder()
+            }
+
             Loader {
+                id: classicLoader
                 anchors.fill: parent
                 active: !parent.channelsUsable
                 visible: active
@@ -675,6 +716,7 @@ Rectangle {
             }
 
             Loader {
+                id: channelsLoader
                 anchors.fill: parent
                 active: parent.channelsUsable
                 visible: active

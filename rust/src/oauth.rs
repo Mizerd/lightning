@@ -289,12 +289,15 @@ pub(crate) fn spawn_token_persistence(
                     );
                 }
                 // The server rejected the token and the SDK could not renew it: report the
-                // revoked-credential state instead of letting sync fail in a loop.
-                Ok(SessionChange::UnknownToken(_)) => {
+                // revoked-credential state instead of letting sync fail in a loop. A soft
+                // logout keeps the device on the server; only a hard one proves it gone,
+                // which is what lets a new sign-in move this device's store aside.
+                Ok(SessionChange::UnknownToken(data)) => {
                     enqueue(
                         &events,
                         json!({
                             "type": "session_token_revoked",
+                            "soft_logout": data.soft_logout,
                         }),
                     );
                 }

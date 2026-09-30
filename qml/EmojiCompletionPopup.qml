@@ -19,7 +19,10 @@ Popup {
     property real anchorWidth: 320
     property int currentIndex: 0
 
-    signal chosen(string shortcode)
+    // The whole completion row, so the caller can tell a custom pack
+    // emoticon (accepted as `:shortcode:`) from a standard Unicode emoji
+    // (accepted as the glyph itself) by its "kind".
+    signal chosen(var entry)
 
     parent: Overlay.overlay
     focus: false
@@ -48,7 +51,7 @@ Popup {
     }
     function accept() {
         if (currentIndex >= 0 && currentIndex < count)
-            root.chosen(completions[currentIndex].shortcode)
+            root.chosen(completions[currentIndex])
     }
     function moveUp() { move(-1) }
     function moveDown() { move(1) }
@@ -62,6 +65,7 @@ Popup {
 
     contentItem: ListView {
         id: list
+        objectName: "emojiCompletionList"
         model: root.completions
         clip: true
         interactive: count > root.visibleRows
@@ -72,14 +76,18 @@ Popup {
             width: ListView.view.width
             height: root.rowH
             highlighted: index === root.currentIndex
-            onClicked: root.chosen(modelData.shortcode)
+            readonly property bool isUnicode: modelData.kind === "unicode"
+            onClicked: root.chosen(modelData)
             contentItem: RowLayout {
                 spacing: AppTheme.spacing8
                 // The image, resolved through the authenticated media path as
-                // in the timeline.
+                // in the timeline. Custom pack emoticons only; a standard
+                // Unicode emoji draws its own glyph below instead.
                 Image {
                     id: completionImage
-                    Layout.preferredWidth: 20
+                    objectName: "emojiCompletionImage"
+                    visible: !isUnicode
+                    Layout.preferredWidth: visible ? 20 : 0
                     Layout.preferredHeight: 20
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
@@ -91,21 +99,34 @@ Popup {
                     property int resolveTick: 0
                     source: {
                         var _tick = resolveTick
-                        return app.mediaBridge.supported && modelData.url
+                        return !isUnicode && app.mediaBridge.supported && modelData.url
                             ? app.mediaBridge.mxcImageSource(modelData.url, 40)
                             : ""
                     }
                     Connections {
                         target: app.mediaBridge
                         function onMediaCached(cacheKey) {
-                            if (cacheKey.endsWith(":" + modelData.url))
+                            if (!isUnicode && cacheKey.endsWith(":" + modelData.url))
                                 completionImage.resolveTick++
                         }
                     }
                 }
+                // The Unicode glyph itself: the whole point of this row is
+                // "this is what you get", unlike a custom emoticon's remote
+                // image which needs the shortcode label to identify it.
                 Label {
+                    objectName: "emojiCompletionGlyph"
+                    visible: isUnicode
+                    Layout.preferredWidth: visible ? 22 : 0
+                    text: isUnicode ? modelData.emoji : ""
+                    font.pixelSize: AppTheme.textTitle
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                Label {
+                    objectName: "emojiCompletionShortcode"
                     Layout.fillWidth: true
-                    // A shortcode is remote text from a pack: never markup.
+                    // A shortcode is remote text from a pack, or a catalogue
+                    // alias: never markup either way.
                     textFormat: Text.PlainText
                     text: ":" + modelData.shortcode + ":"
                     color: AppTheme.textPrimary
@@ -113,8 +134,9 @@ Popup {
                     elide: Label.ElideRight
                 }
                 Label {
+                    objectName: "emojiCompletionMeta"
                     textFormat: Text.PlainText
-                    text: modelData.packName || ""
+                    text: isUnicode ? (modelData.name || "") : (modelData.packName || "")
                     color: AppTheme.textMuted
                     font.pixelSize: AppTheme.textMeta
                     elide: Label.ElideRight

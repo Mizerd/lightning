@@ -19,6 +19,10 @@ Item {
     /// The room the timeline is showing.
     property string currentRoomId: ""
 
+    /// The list is scrolled to its first row and nothing is moving it. The
+    /// host reads this to decide when a held order may be applied.
+    readonly property bool atRest: !roomList.moving && roomList.atYBeginning
+
     // The host owns the dialogs, so rows ask by signal rather than reaching
     // into a parent by id.
     signal roomActivated(string roomId)

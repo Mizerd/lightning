@@ -239,6 +239,7 @@ Rectangle {
     FileDialog {
         id: avatarDialog
         title: qsTr("Choose room avatar")
+        currentFolder: app.defaultFileDialogFolder()
         fileMode: FileDialog.OpenFile
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
         // The picker only chooses; the crop dialog is the gate that refuses SVG
@@ -249,6 +250,7 @@ Rectangle {
     FileDialog {
         id: myAvatarDialog
         title: qsTr("Choose your avatar for this room")
+        currentFolder: app.defaultFileDialogFolder()
         fileMode: FileDialog.OpenFile
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
         // The crop dialog is the gate that refuses SVG (CLAUDE.md §6).
@@ -598,17 +600,13 @@ Rectangle {
                         }
                     }
 
-                    Label {
+                    // Selectable, with its web links clickable (TopicText
+                    // escapes everything else: unsanitized server text).
+                    TopicText {
+                        objectName: "roomInfoTopic"
                         Layout.fillWidth: true
                         visible: (root.roomData.topic || "").length > 0
-                        text: root.roomData.topic || ""
-                        // Unsanitized server text; never AutoText.
-                        textFormat: Text.PlainText
-                        color: AppTheme.textSecondary
-                        lineHeight: AppTheme.lineHeightBody
-                        lineHeightMode: Text.ProportionalHeight
-                        wrapMode: Text.Wrap
-                        font.pixelSize: AppTheme.textBody
+                        plainText: root.roomData.topic || ""
                     }
 
                     Label {

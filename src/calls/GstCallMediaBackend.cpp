@@ -1,5 +1,6 @@
 #include "GstCallMediaBackend.h"
 
+#include "calls/CaptureClock.h"
 #include "calls/GstBootstrap.h"
 
 #include <QCoreApplication>
@@ -375,13 +376,13 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
         "webrtcbin name=wb bundle-policy=max-bundle latency=100 "
         // Bounded and leaky: a default queue holds a second and never drains
         // it, which becomes permanent latency.
-        "%1 ! queue max-size-buffers=0 max-size-bytes=0 "
+        "%1 name=micsrc ! queue max-size-buffers=0 max-size-bytes=0 "
         "max-size-time=100000000 leaky=downstream "
         "! audioconvert ! audioresample "
         // valve name=micvalve: drop=true stops buffers before the encoder, so
         // nothing is published while muted (lowering volume would still send).
         "! valve name=micvalve drop=false ! opusenc "
-        "! rtpopuspay pt=%2 "
+        "! rtpopuspay name=micpay pt=%2 "
         "! application/x-rtp,media=audio,encoding-name=OPUS,payload=%2 "
         "! wb. ").arg(source).arg(payload);
     GError *error = nullptr;
@@ -413,6 +414,36 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
                                                 "micvalve")) {
         m_session.micValve = valve;
         gst_object_unref(valve);
+    }
+    // webrtcbin syncs its inputs to the clock, so a microphone whose
+    // timestamps run ahead would starve the leaky queue; see CaptureClock.h.
+    // Seen at the capture, corrected on the RTP, so the RTP timestamps stay
+    // sample-accurate.
+    {
+        GstElement *micsrc = gst_bin_get_by_name(GST_BIN(pipeline), "micsrc");
+        GstElement *micpay = gst_bin_get_by_name(GST_BIN(pipeline), "micpay");
+        GstPad *captured =
+            micsrc ? gst_element_get_static_pad(micsrc, "src") : nullptr;
+        GstPad *rtp = micpay ? gst_element_get_static_pad(micpay, "src") : nullptr;
+        if (captured && rtp) {
+            auto hold = std::make_shared<lightning::calls::CaptureClockHold>();
+            hold->report = [](quint64 count, qint64 leadMs) {
+                qCWarning(lcCallMedia)
+                    << "microphone timestamps ran" << leadMs
+                    << "ms ahead of the pipeline clock; its packets are "
+                       "released on time (packets held so far:"
+                    << count << ")";
+            };
+            lightning::calls::holdCaptureToClock(captured, rtp, hold);
+        }
+        if (captured)
+            gst_object_unref(captured);
+        if (rtp)
+            gst_object_unref(rtp);
+        if (micsrc)
+            gst_object_unref(micsrc);
+        if (micpay)
+            gst_object_unref(micpay);
     }
     m_sessionActive = true;
     // Before any callback can run; see destroySessionLocked().

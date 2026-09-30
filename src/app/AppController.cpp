@@ -3,6 +3,7 @@
 #include "matrix/BridgeNetwork.h"
 
 #include "app/FontManager.h"
+#include "app/GuiStallTracer.h"
 
 #include "app/RichComposerBridge.h"
 #include "crypto/BackupController.h"
@@ -64,6 +65,7 @@
 
 #include <cstring>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QFontDatabase>
@@ -71,6 +73,7 @@
 #include <QIcon>
 #include <QSaveFile>
 #include <QScreen>
+#include <QStandardPaths>
 #include <QSysInfo>
 #include <QTimer>
 #include <QPalette>
@@ -87,6 +90,12 @@ namespace {
 // for the whole session.
 constexpr int kAutomaticUpdateCheckDelayMs =
     int(lightning::update::UpdateManager::kStartupQuietPeriodMs) + 5 * 1000;
+
+std::unique_ptr<SecretStore> makeSecretStore(
+    const AppController::SecretStoreFactory &factory, QObject *parent)
+{
+    return factory ? factory(parent) : SecretStore::createDefault(parent);
+}
 } // namespace
 
 bool AppController::isBackendCompiled(Backend backend)
@@ -143,6 +152,13 @@ std::unique_ptr<MatrixClient> AppController::makeClient(Backend backend,
 
 AppController::AppController(Backend backend, bool screenshotDemo,
                              QObject *parent)
+    : AppController(backend, screenshotDemo, SecretStoreFactory{}, parent)
+{
+}
+
+AppController::AppController(Backend backend, bool screenshotDemo,
+                             SecretStoreFactory secretStoreFactory,
+                             QObject *parent)
     : QObject(parent)
     , m_backend(backend)
     , m_screenshotDemo(screenshotDemo)
@@ -151,7 +167,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     , m_secretStore(screenshotDemo
                         ? std::unique_ptr<SecretStore>(
                               std::make_unique<InMemorySecretStore>(this))
-                        : SecretStore::createDefault(this))
+                        : makeSecretStore(secretStoreFactory, this))
+    , m_secretStoreFactory(std::move(secretStoreFactory))
     , m_settings(std::make_unique<SettingsManager>(this))
 {
 #ifdef LIGHTNING_RUST_ONLY
@@ -225,6 +242,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_settings.get(), &SettingsManager::strictDeviceTrustChanged, this,
             [this] { applyStrictDeviceTrust(); });
     applyStrictDeviceTrust();
+    connect(m_settings.get(), &SettingsManager::keepMediaOnDeviceChanged, this,
+            [this] { applyKeepMediaOnDevice(); });
+    applyKeepMediaOnDevice();
     connect(m_settings.get(), &SettingsManager::sendTypingNotificationsChanged,
             this, [this] { applyPrivacyPreferences(); });
 
@@ -244,6 +264,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_settings.get(), &SettingsManager::notificationsEnabledChanged,
             this, &AppController::refreshTrayState);
     refreshTrayState();
+    // Qt has no signal for a StatusNotifierWatcher (or, on Windows, the
+    // shell's tray host) appearing or leaving the session — the only way to
+    // learn availability changed is to ask again. Cheap (one call into
+    // QSystemTrayIcon::isSystemTrayAvailable()), so a plain poll rather than
+    // a platform-specific D-Bus watcher.
+    m_trayAvailabilityTimer.setInterval(4000);
+    connect(&m_trayAvailabilityTimer, &QTimer::timeout,
+            this, &AppController::refreshTrayAvailability);
+    m_trayAvailabilityTimer.start();
 
     // Decide once, against the current display layout, whether the stored
     // position is still reachable (SettingsManager already enforced the
@@ -417,6 +446,28 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         const QVariantMap found = m_stickers->emoticon(shortcode);
         return found.value(QStringLiteral("url")).toString();
     });
+    // Standard Unicode emoji in the same `:query` popup (":thumbs" -> 👍),
+    // merged with the custom packs above by MessageComposer::emojiCompletionsAt.
+    // Accepting one, or typing out a complete `:shortcode:`, inserts the
+    // glyph itself rather than literal shortcode text, so it never touches
+    // the MSC2545 resolver above.
+    m_composer->setUnicodeEmojiSearch(
+        [this](const QString &prefix, int limit) {
+            return m_emojiCatalog->completionsForPrefix(prefix, limit);
+        });
+    m_composer->setUnicodeShortcodeResolver([this](const QString &code) {
+        return m_emojiCatalog->emojiForShortcode(code);
+    });
+    m_composer->setUnicodeEmojiUseRecorder([this](const QString &emoji) {
+        m_emojiCatalog->recordUse(emoji);
+    });
+    connect(m_settings.get(), &SettingsManager::emojiShortcodeAutoConvertChanged,
+            this, [this] {
+                m_composer->setEmojiAutoConvertEnabled(
+                    m_settings->emojiShortcodeAutoConvert());
+            });
+    m_composer->setEmojiAutoConvertEnabled(
+        m_settings->emojiShortcodeAutoConvert());
     m_timeline->setInlineImageResolver(
         [this](const QString &mxc) {
             return m_mediaBridge->mxcImageSource(mxc, 64);
@@ -763,7 +814,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 // (onLoggedOut() and removeAccount()).
                 m_gif->closeStarredStore();
                 m_notifications->clearPending();
-                m_knownInvites.clear();
+                m_inviteNotices.clear();
+                m_inviteNoticeTimer.stop();
                 // Unsynced rooms are kept per account in settings and survive
                 // this; the session's reads and writes do not.
                 m_notificationModeRetryReads.clear();
@@ -829,36 +881,29 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     m_bridgeLabels.remember(roomId, best.networkId, best.label);
             });
     // Notify once per newly seen invite; invites present before initial sync
-    // are seeded silently so a restart never re-announces them.
+    // are seeded silently so a restart never re-announces them. The room list
+    // can drop and re-add an invite within one burst (a re-sort, a resync),
+    // so the tracker, not this handler, decides what is new and what is gone.
+    m_inviteNoticeTimer.setSingleShot(true);
+    connect(&m_inviteNoticeTimer, &QTimer::timeout, this,
+            &AppController::processInviteNotices);
     connect(m_client.get(), &MatrixClient::roomsChanged, this, [this] {
         const auto rooms = m_client->rooms();
         QSet<QString> current;
         for (const auto &room : rooms) {
-            if (room.membership != RoomInfo::Invited)
+            if (room.membership != RoomInfo::Invited) {
+                // Accepted, or left: settled now. Only a room missing from
+                // the list waits out the grace.
+                if (m_inviteNotices.forget(room.id))
+                    m_activity->inviteResolved(room.id);
                 continue;
+            }
             current.insert(room.id);
             m_activity->noteInvite(room);
-            if (NotificationManager::shouldNotifyInvite(
-                    m_client->initialSyncDone(),
-                    m_knownInvites.contains(room.id),
-                    m_settings->notificationsEnabled())) {
-                m_notifications->showGeneric(
-                    tr("Room invitation"),
-                    m_settings->notificationPreview() == 2
-                        ? tr("New Matrix notification")
-                        : tr("You were invited to %1")
-                              .arg(room.name.isEmpty() ? room.id : room.name),
-                    room.id,
-                    m_settings->notificationPreview() == 2
-                        ? QString()
-                        : m_roomList->findRoom(room.id)
-                              .value(QStringLiteral("avatarUrl")).toString());
-            }
         }
-        for (const QString &gone : m_knownInvites)
-            if (!current.contains(gone))
-                m_activity->inviteResolved(gone);
-        m_knownInvites = current;
+        m_inviteNotices.observe(current, m_client->initialSyncDone(),
+                                QDateTime::currentMSecsSinceEpoch());
+        processInviteNotices();
     });
     // The tray badge follows the same two signals the room list does. The
     // walk is local and the icon is only re-rasterised when the badge changes.
@@ -1311,11 +1356,19 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         if (state == MatrixClient::Syncing) {
             m_client->sweepSearchIndex();
             m_client->searchIndexStats();
+            // An "index all rooms" pass the last session left unfinished
+            // continues; a paused one stays paused. Idempotent: a running
+            // pass just answers with its status.
+            m_messageSearch->resumeIndexAllIfPending();
             if (!m_searchIndexTimer.isActive())
                 m_searchIndexTimer.start();
         } else {
             m_searchIndexTimer.stop();
         }
+    });
+    connect(m_client.get(), &MatrixClient::storedMediaCleared, this,
+            [this](quint64, bool ok, qint64 files, qint64 bytes) {
+        Q_EMIT storedMediaCleared(ok, files, bytes);
     });
     // New messages become searchable within five minutes.
     m_searchIndexTimer.setInterval(5 * 60 * 1000);
@@ -1323,6 +1376,28 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(&m_searchIndexTimer, &QTimer::timeout, this, [this] {
         if (m_client)
             m_client->sweepSearchIndex();
+    });
+    // "Index all rooms" steps aside for a call and for a reader scrolling a
+    // timeline: the pass waits between pages and loses nothing.
+    const auto refreshIndexAllCallHold = [this] {
+        using CallState = CallController::State;
+        const int oneToOne = m_calls ? m_calls->stateInt()
+                                     : static_cast<int>(CallState::Idle);
+        const bool inCall =
+            (oneToOne != static_cast<int>(CallState::Idle)
+             && oneToOne != static_cast<int>(CallState::Ended))
+            || (m_groupCall && m_groupCall->active());
+        m_messageSearch->setIndexAllHold(MatrixClient::IndexAllHoldCall,
+                                         inCall);
+    };
+    connect(m_calls.get(), &CallController::stateChanged, this,
+            refreshIndexAllCallHold);
+    connect(m_groupCall.get(), &SfuCallController::stateChanged, this,
+            refreshIndexAllCallHold);
+    connect(m_timelineScroll.get(),
+            &TimelineScrollController::motionActiveChanged, this, [this] {
+        m_messageSearch->setIndexAllHold(MatrixClient::IndexAllHoldScroll,
+                                         m_timelineScroll->motionActive());
     });
     // Backstop for an identity-key mismatch that appears after login (the
     // event-driven checks cluster around sign-in). requestOwnDeviceKeyCheck()
@@ -1368,6 +1443,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_spaceChannels->setSources(m_client.get(), m_spaces.get(),
                                 m_railLayout.get());
     m_spaceChannels->setSettings(m_settings.get());
+    // Hold the room order still while the list is in use (a setting, on by
+    // default). Both layouts follow it, so switching layout keeps the rule.
+    const auto applyRoomOrderHold = [this] {
+        const bool still = m_settings->keepRoomListOrderStill();
+        m_roomList->setDeferReordering(still);
+        m_spaceChannels->setDeferReordering(still);
+    };
+    connect(m_settings.get(), &SettingsManager::keepRoomListOrderStillChanged,
+            this, applyRoomOrderHold);
+    applyRoomOrderHold();
     m_quickSwitcher->setClient(m_client.get());
     m_quickSwitcher->setSpaceManager(m_spaces.get());
     m_timeline->setClient(m_client.get());
@@ -1382,6 +1467,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_conversations->setClient(m_client.get());
     m_discovery->setClient(m_client.get());
     m_messageSearch->setClient(m_client.get());
+    m_messageSearch->setSettings(m_settings.get());
     m_uia->setClient(m_client.get());
     m_passwordChange->setClient(m_client.get());
     m_moderation->setClient(m_client.get());
@@ -1598,7 +1684,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // screen. A failed add-account restores the previous account in the
     // background, since the attempt released the shared client's session.
     connect(m_auth.get(), &AuthManager::loginFailed, this,
-            [this](const QString &) {
+            [this](const QString &reason) {
         if (m_accountSwitching) {
             if (!m_switchFallbackUserId.isEmpty()) {
                 failAccountSwitch(tr("Could not switch accounts — returning "
@@ -1615,6 +1701,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             qCInfo(lcApp) << "add-account attempt failed — restoring"
                           << "slug=" << matrix::app_data::safeUserSlug(
                                  m_addAccountReturnTo);
+            // The background restore below finishes almost immediately and
+            // its own loginSucceeded unconditionally clears
+            // AuthManager::lastError (the same as any successful login), so
+            // the login screen's error label is blank again within a beat —
+            // onLoginSucceeded() deliberately keeps the login screen open
+            // for this exact case, but leaves nothing on it to read. This
+            // (e.g. "login redirected to switch": the account just typed is
+            // already signed in here) is the one channel that survives that
+            // return, since onLoginSucceeded() only clears it on the normal
+            // exit path, not the background-restore one.
+            if (!reason.isEmpty())
+                Q_EMIT errorReported(reason);
             m_backgroundRestore = true;
             m_settings->setActiveAccountUserId(m_addAccountReturnTo);
             if (!m_client->restoreSession())
@@ -2210,6 +2308,24 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                              const QString &homeserver) {
             setLocalSessionFailure(reasonCode, userId, homeserver);
             setLocalRustResetRequired(false);
+            // Only the SDK's definitive answer carries these codes, never a
+            // network error: revoked (hard) or expired (soft, the device
+            // kept). The switcher must not show the account as healthy,
+            // whether or not it is the one running.
+            if (reasonCode == QLatin1String("access_token_revoked")
+                || reasonCode == QLatin1String("access_token_expired")) {
+                m_accounts->markSessionRevoked(userId);
+                // A revoked credential while a session runs: the restore
+                // reached the main screen first (it reads only the store), so
+                // the failed-startup path never sees this. Queued: this runs
+                // inside the client's event drain, and ending the session
+                // releases the handle that drain is reading.
+                if (m_client->isLoggedIn()) {
+                    QMetaObject::invokeMethod(this, [this, userId] {
+                        endRevokedSession(userId);
+                    }, Qt::QueuedConnection);
+                }
+            }
         });
         connect(rust, &RustSdkMatrixClient::localSessionCleanupFinished,
                 this, [this](bool ok, const QString &message) {
@@ -2229,8 +2345,21 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // MainScreen via loginSucceeded, every failure via loginFailed. The mock
     // restores from its account registry. Screenshot-demo mode runs its own
     // restore from beginScreenshotDemo, so this one must not race it.
+    const bool sessionReadable = !m_screenshotDemo && m_settings->hasSession();
+    // Headed for the login screen: a saved sign-in the keyring cannot answer
+    // for, or no longer returns, must not look signed out there, so the
+    // screen says which and offers a way on. Asked only then, and from the
+    // read hasSession() already made, so a launch reads no more of the keyring
+    // than before. Re-checked when an account is added or removed, but only
+    // while the notice shows.
+    if (!m_screenshotDemo && !sessionReadable)
+        explainUnrestoredLaunch();
+    connect(m_settings.get(), &SettingsManager::accountsChanged, this, [this] {
+        if (m_keyringUnavailable)
+            refreshKeyringUnavailable();
+    });
     const bool hasRestorableSession = !m_screenshotDemo
-        && (m_settings->hasSession()
+        && (sessionReadable
             || (m_backend == MockBackend
                 && !m_settings->activeAccountUserId().isEmpty()));
     if (hasRestorableSession) {
@@ -2272,6 +2401,18 @@ void AppController::applyStrictDeviceTrust()
 #endif
 }
 
+void AppController::applyKeepMediaOnDevice()
+{
+#ifdef ENABLE_RUST_SDK_BACKEND
+    RustSdkMatrixClient::setKeepMediaOnDevice(m_settings->keepMediaOnDevice());
+#endif
+}
+
+bool AppController::clearStoredMedia()
+{
+    return m_client && m_client->clearStoredMedia() != 0;
+}
+
 void AppController::applyPrivacyPreferences()
 {
     // Both settings govern what leaves the device while reading and typing,
@@ -2290,25 +2431,52 @@ void AppController::prepareForShutdown()
         return;
     m_shuttingDown = true;
 
+    // Every step below runs synchronously on the GUI thread while the window
+    // is still closing, and each is independently bounded further down (the
+    // call engine's own drain, the Rust sync/bootstrap thread join). A 14 s
+    // quit after using the tray was reported once and never reproduced;
+    // nothing here recorded which step, if any, actually ran long, so a
+    // repeat would be just as unattributable. Timed and traced the same way
+    // src/media/MediaBridge.cpp instruments its own heavy sections
+    // (stalltrace::Scope), so a live capture (LIGHTNING_GUI_STALL_TRACE=1)
+    // or this log line can tell which phase to look at next time.
+    QElapsedTimer shutdownTimer;
+    shutdownTimer.start();
+
     // Stop the Qt Multimedia players first: on Windows their Media Foundation
     // threads deliver state through queued signals that must not run into
     // teardown.
-    if (m_playback)
+    if (m_playback) {
+        stalltrace::Scope stallScope("quit-stop-playback");
         m_playback->stopAll();
+    }
 
     // Leave the call before stopSync(): the membership retraction and the SFU
     // Leave both need the client, and otherwise we linger in the call as a
     // ghost participant. Not left to ~SfuCallController, whose timing depends
     // on member destruction order. leave() is safe in any state, including
     // mid-join; the client's bounded Rust task join gives the sends time to
-    // land.
-    if (m_groupCall)
+    // land. teardown() also drains the media engine (webrtcbin/ICE), which
+    // docs/open-items.md records as bounded at up to 2 s on its own.
+    if (m_groupCall) {
+        stalltrace::Scope stallScope("quit-leave-call");
         m_groupCall->leave();
+    }
 
     // Stop the sync loop so no further backend callback is scheduled during
-    // teardown.
-    if (m_client)
+    // teardown. Blocking: the Rust side joins its sync (and, on the first
+    // account of a session, bootstrap) thread within a bounded budget
+    // (SYNC_TASK_JOIN_BUDGET_MS x 2, rust/src/lib.rs) before detaching it.
+    if (m_client) {
+        stalltrace::Scope stallScope("quit-stop-sync");
         m_client->stopSync();
+    }
+
+    const qint64 elapsed = shutdownTimer.elapsed();
+    if (elapsed >= 1000) {
+        qCInfo(lcApp) << "prepareForShutdown took" << elapsed
+                      << "ms before the window can finish closing";
+    }
 }
 
 bool AppController::loggedIn() const
@@ -3047,6 +3215,9 @@ void AppController::setCurrentRoomId(const QString &roomId)
     m_threads->setActiveRoom(roomId);
     // Keep the open room visible under the Unreads filter.
     m_roomList->setPinnedRoomId(roomId);
+    // The same for the Channels column: opening a room must not move it.
+    if (m_spaceChannels)
+        m_spaceChannels->setOpenRoomId(roomId);
     // Disarm mention suggestions, or the previous room's roster keeps
     // refetching on every membership event.
     m_mentionSuggestions->setRoomId(QString());
@@ -3147,6 +3318,32 @@ QString AppController::takeRequestedSettingsSection()
     const QString section = m_requestedSettingsSection;
     m_requestedSettingsSection.clear();
     return section;
+}
+
+void AppController::requestSettingsSearchFocus()
+{
+    m_settingsSearchFocusRequested = true;
+    showSettings();
+    Q_EMIT settingsSearchFocusRequested();
+}
+
+bool AppController::takeSettingsSearchFocusRequested()
+{
+    const bool requested = m_settingsSearchFocusRequested;
+    m_settingsSearchFocusRequested = false;
+    return requested;
+}
+
+QUrl AppController::defaultFileDialogFolder() const
+{
+    for (const auto location : { QStandardPaths::PicturesLocation,
+                                 QStandardPaths::DocumentsLocation,
+                                 QStandardPaths::HomeLocation }) {
+        const QString dir = QStandardPaths::writableLocation(location);
+        if (!dir.isEmpty() && QFileInfo::exists(dir))
+            return QUrl::fromLocalFile(dir);
+    }
+    return {};
 }
 
 namespace {
@@ -4134,6 +4331,133 @@ bool AppController::localResetHelpsFor(const QString &reasonCode) const
     return matrix::rust_session::suggestsLocalResetForCode(reasonCode);
 }
 
+void AppController::refreshKeyringUnavailable()
+{
+    bool unavailable = false;
+    // The demo store is in memory and cannot fail. Where no native store
+    // exists, the plaintext store answers for itself and a miss is a fact, so
+    // this stays false there.
+    if (!m_screenshotDemo && m_settings) {
+        QStringList ask = m_settings->savedAccountUserIds();
+        // A native store's answer is the backend's, and every lookup in a
+        // locked collection can raise an unlock prompt (a dismissed one reads
+        // as "no such item", so a loop would never stop early): one read.
+        if (!m_settings->secretMissesAreInconclusive() && !ask.isEmpty()) {
+            const QString active = m_settings->activeAccountUserId();
+            ask = QStringList{active.isEmpty() ? ask.first() : active};
+        }
+        for (const QString &uid : std::as_const(ask)) {
+            // Read first: the unavailable flag reflects the most recent read.
+            if (m_settings->accessTokenFor(uid).isEmpty()
+                && m_settings->secretBackendUnavailable()) {
+                unavailable = true;
+                break;
+            }
+        }
+    }
+    setKeyringUnavailable(unavailable);
+}
+
+void AppController::setKeyringUnavailable(bool unavailable)
+{
+    if (unavailable == m_keyringUnavailable)
+        return;
+    m_keyringUnavailable = unavailable;
+    qCInfo(lcApp) << (unavailable
+                          ? "keyring cannot answer for a saved sign-in"
+                          : "keyring answers for every saved sign-in")
+                  << "backend=" << m_settings->secretBackendName();
+    Q_EMIT keyringUnavailableChanged();
+}
+
+void AppController::explainUnrestoredLaunch()
+{
+    const QString active = m_settings->activeAccountUserId();
+    if (active.isEmpty()) {
+        refreshKeyringUnavailable();
+        return;
+    }
+    // hasSession() has just read the active account's token and found none;
+    // whether the store could answer that read is what this launch needs.
+    setKeyringUnavailable(m_settings->secretBackendUnavailable());
+    if (!m_keyringUnavailable)
+        noteKeyringLostSession(active);
+}
+
+void AppController::noteKeyringLostSession(const QString &userId)
+{
+    // Only a sign-in this install saved for the recorded device, and never
+    // removed: anything else missing may be a real sign-out, or someone
+    // else's, and keeps the card it had.
+    if (!m_settings->secretsWrittenHereForRecordedDevice(userId))
+        return;
+    qCWarning(lcApp) << "the secret store no longer returns a sign-in this "
+                        "install saved; the store stays, nothing is reset"
+                     << "slug=" << matrix::app_data::safeUserSlug(userId)
+                     << "backend=" << m_settings->secretBackendName();
+    setLocalSessionFailure(
+        QStringLiteral("keyring_lost_session"), userId,
+        m_settings->accountRecord(userId).value(QStringLiteral("homeserver")).toString());
+}
+
+bool AppController::retryKeyring()
+{
+    if (m_screenshotDemo || !m_settings)
+        return false;
+    // Replaced only when it is a stand-in: the plaintext store substituted
+    // for a native one that did not answer at startup, or a native store that
+    // could not open. A native store that opened and is merely locked stays;
+    // reading through it again below is the retry, and may prompt to unlock.
+    const bool standIn = !m_secretStore
+        || m_secretStore->missesAreInconclusive()
+        || !m_secretStore->isAvailable();
+    if (standIn) {
+        // Probes the Secret Service synchronously, as the startup did.
+        std::unique_ptr<SecretStore> candidate =
+            makeSecretStore(m_secretStoreFactory, this);
+        if (candidate && candidate->isAvailable()
+            && !candidate->missesAreInconclusive()) {
+            qCInfo(lcApp) << "secret store answers again; replacing the stand-in"
+                          << "backend=" << candidate->backendName();
+            // Wired before it is current, as at startup: setSecretStore()
+            // scopes it and moves into it any sign-in the stand-in took
+            // meanwhile. The stand-in is retired, not destroyed.
+            m_settings->setSecretStore(candidate.get());
+            if (m_secretStore)
+                m_retiredSecretStores.push_back(std::move(m_secretStore));
+            m_secretStore = std::move(candidate);
+        }
+        // Otherwise the candidate was never wired to anything and goes here.
+    }
+    refreshKeyringUnavailable();
+    if (m_keyringUnavailable) {
+        Q_EMIT errorReported(
+            tr("Lightning can't read this device's saved sign-ins right now — "
+               "the system keyring is locked or unavailable. Unlock it and "
+               "try again."));
+        return false;
+    }
+    Q_EMIT errorReported(QString{});
+    // Restore as a launch with a saved session does. Only from the login
+    // screen and with nothing else in flight: a signed-in session (an
+    // account added while the keyring was away) is left alone.
+    if (m_currentScreen == LoginScreen && !m_client->isLoggedIn()
+        && !m_accountSwitching && !(m_auth && m_auth->isLoggingIn())) {
+        if (m_settings->hasSession()) {
+            setCurrentScreen(BootScreen);
+            if (!m_client->restoreSession())
+                setCurrentScreen(LoginScreen);
+            Q_EMIT rustDeviceIdChanged();
+        } else if (m_localSessionFailureReason
+                   == QLatin1String("keyring_lost_session")) {
+            Q_EMIT errorReported(
+                tr("The keyring still does not return this account's saved "
+                   "sign-in."));
+        }
+    }
+    return true;
+}
+
 void AppController::repairLocalSession()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
@@ -4324,6 +4648,7 @@ void AppController::onLoginSucceeded()
                       << remembered.size();
     }
     m_accounts->setActiveUser(uid);
+    m_accounts->clearSessionRevoked(uid);
     setLocalRustResetRequired(false);
     clearLocalSessionFailure();
     m_switchFallbackUserId.clear();
@@ -4331,6 +4656,12 @@ void AppController::onLoginSucceeded()
     m_client->startSync();
     // Cache the account's own display name / avatar for the switcher UI.
     m_client->fetchUserProfile(uid);
+    // Offer "index all messages now?" once per account, after a sign-in made
+    // here — never for a restore, which also disarms an offer armed for the
+    // account signed in before it.
+    // Not in the screenshot demo, whose fictional accounts are staged.
+    m_messageSearch->offerIndexAllAfterSignIn(
+        uid, m_auth->lastSignInWasInteractive() && !m_screenshotDemo);
     // A background restore after a failed add-account keeps the user on the
     // login screen with the error form visible.
     if (m_backgroundRestore && uid == m_addAccountReturnTo) {
@@ -4345,8 +4676,18 @@ void AppController::onLoginSucceeded()
     Q_EMIT loggedInChanged();
 }
 
+void AppController::refreshTrayAvailability()
+{
+    const bool available = TrayIcon::platformSupportsTray();
+    if (available == m_trayAvailable)
+        return;
+    m_trayAvailable = available;
+    Q_EMIT trayAvailableChanged();
+}
+
 void AppController::refreshTrayState()
 {
+    refreshTrayAvailability();
     // Without QtDBus (Windows, macOS) the tray balloon is the only notification
     // delivery and it needs a visible icon, so the icon also follows the
     // notifications setting there.
@@ -4358,7 +4699,7 @@ void AppController::refreshTrayState()
     const bool wanted = m_settings
         && (m_settings->closeToTray()
             || (kTrayCarriesNotifications && m_settings->notificationsEnabled()));
-    m_tray.setEnabled(wanted && TrayIcon::platformSupportsTray());
+    m_tray.setEnabled(wanted && m_trayAvailable);
     if (m_tray.enabled()) {
         m_tray.setAccountLabel(m_lastSessionUserId);
         // A tray turned on while messages are already waiting must open with
@@ -4423,6 +4764,12 @@ void AppController::onLoggedOut()
         m_pendingRemovalUserId.clear();
         m_pendingRemovalIdentity = {};
         m_pendingRemovalResolved = false;
+        return;
+    }
+    if (m_revokedDetach) {
+        // The server ended this session, not the user: nothing of the
+        // account is deleted and no other account is switched to.
+        // endRevokedSession() shows the login screen once the detach returns.
         return;
     }
     // A genuine sign-out (including removal of the active account). The
@@ -4500,6 +4847,13 @@ void AppController::onLoggedOut()
     m_addAccountReturnTo.clear();
     m_backgroundRestore = false;
     Q_EMIT errorReported(QString{});
+    // A genuine sign-out/removal ends whatever the last connection state
+    // was; nothing else here re-derives it (the client's own
+    // connectionStateChanged may not fire again for a session that is
+    // already gone), so a stale "Error" from before the sign-out would
+    // otherwise sit in the status strip indefinitely. switchToAccount()
+    // below reports its own state as soon as it starts.
+    setConnectionStatus(tr("Not connected"));
     // When other accounts remain, continue with the most recently added one.
     const QStringList remaining = m_settings->savedAccountUserIds();
     // An empty token read is not evidence an account is gone: with a locked
@@ -4516,6 +4870,7 @@ void AppController::onLoggedOut()
             anyUnreadable = true;
             break;
         case SignInState::Gone:
+        case SignInState::KeyringLost:
             break;
         }
     }
@@ -4552,7 +4907,8 @@ void AppController::clearCrossAccountCaches()
     m_notifications->clearPending();
     // Anything still on screen must not be attributed to the next account.
     m_notifications->setAccountUserId(QString());
-    m_knownInvites.clear();
+    m_inviteNotices.clear();
+    m_inviteNoticeTimer.stop();
     // Encrypted-room drafts are memory-only and account-scoped.
     if (m_draftStore)
         m_draftStore->clearMemoryDrafts();
@@ -4784,6 +5140,77 @@ void AppController::dismissOwnDisplayNameError()
     Q_EMIT ownDisplayNameStateChanged();
 }
 
+void AppController::endRevokedSession(const QString &userId)
+{
+    // The client names the running session's own account, so this is exact.
+    // Anything else (a switch or a sign-out got there first) ends nothing and
+    // moves no screen; the handler has already marked the account.
+    const QString running = m_client->currentUserId();
+    if (!m_client->isLoggedIn() || userId.isEmpty() || userId != running)
+        return;
+    qCInfo(lcApp) << "session revoked by the server — ending it locally"
+                  << "slug=" << matrix::app_data::safeUserSlug(running)
+                  << "screen=" << int(m_currentScreen);
+    // Leave the call and the room first, as a switch does: the retraction
+    // needs the client, and no composer target may outlive the session.
+    if (m_groupCall)
+        m_groupCall->leave();
+    setCurrentRoomId(QString{});
+    m_roomInfo->setRoomId(QString{});
+    m_composer->setRoomId({});
+    // A local end only: no server logout (the server already ended it), and
+    // the record, token, crypto store and every per-account file stay.
+    m_revokedDetach = true;
+    const bool detached = m_client->detachSession();
+    m_revokedDetach = false;
+    if (!detached) {
+        // A sign-out is finishing; its completion owns what happens next.
+        qCWarning(lcApp) << "revoked session not detached: a sign-out is "
+                            "still in flight";
+        return;
+    }
+    // A later failed add-account must not restore this session behind the
+    // card: the server has already refused it.
+    if (m_addAccountReturnTo == running)
+        m_addAccountReturnTo.clear();
+    // Sync's own "no longer authorized" error is what the card now says.
+    Q_EMIT errorReported(QString{});
+    setCurrentScreen(LoginScreen);
+    Q_EMIT loggedInChanged();
+}
+
+void AppController::processInviteNotices()
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (const QString &roomId : m_inviteNotices.takeResolved(now))
+        m_activity->inviteResolved(roomId);
+    for (const QString &roomId : m_inviteNotices.takeDue(now)) {
+        // Read now, not when first seen: the settle is what lets the room's
+        // real name replace the SDK's "Empty Room".
+        const RoomInfo room = m_client->roomInfo(roomId);
+        if (room.membership != RoomInfo::Invited
+            || !NotificationManager::shouldNotifyInvite(
+                   true, false, m_settings->notificationsEnabled()))
+            continue;
+        m_notifications->showGeneric(
+            tr("Room invitation"),
+            m_settings->notificationPreview() == 2
+                ? tr("New Matrix notification")
+                : tr("You were invited to %1")
+                      .arg(room.name.isEmpty() ? room.id : room.name),
+            room.id,
+            m_settings->notificationPreview() == 2
+                ? QString()
+                : m_roomList->findRoom(room.id)
+                      .value(QStringLiteral("avatarUrl")).toString());
+    }
+    const qint64 wait = m_inviteNotices.nextDueInMs(now);
+    if (wait < 0)
+        m_inviteNoticeTimer.stop();
+    else
+        m_inviteNoticeTimer.start(int(std::min<qint64>(wait, 60000)));
+}
+
 void AppController::switchToAccount(const QString &userId)
 {
     const QString target = userId.trimmed();
@@ -4801,6 +5228,17 @@ void AppController::switchToAccount(const QString &userId)
     case SignInState::Gone:
         Q_EMIT errorReported(
             tr("That account's sign-in has expired. Sign in to it again."));
+        return;
+    case SignInState::KeyringLost:
+        // Not "expired": the server session is most likely alive. The login
+        // screen's card explains, and a password sign-in continues as the
+        // same device (RustSdkMatrixClient::login()), keeping its keys.
+        if (!m_client->isLoggedIn())
+            noteKeyringLostSession(target);
+        Q_EMIT errorReported(
+            tr("Your system keyring no longer returns that account's saved "
+               "sign-in. Nothing was deleted: sign in to it again to continue "
+               "on this device."));
         return;
     case SignInState::Unreadable:
         // Refuse with the real reason: switching would detach the current
@@ -4881,8 +5319,14 @@ AppController::signInStateFor(const QString &userId) const
         return SignInState::Usable;
     // No token in hand. AccountManager::needsSignIn() owns the read-then-ask
     // ordering for "is this account genuinely signed out?"; do not duplicate it.
-    if (m_accounts && m_accounts->needsSignIn(userId))
-        return SignInState::Gone;
+    if (m_accounts && m_accounts->needsSignIn(userId)) {
+        // The store answered "no such item". For a sign-in this install saved
+        // for the recorded device and never removed, that says the store lost
+        // it, not that the account signed out (settings file only, no read).
+        return m_settings->secretsWrittenHereForRecordedDevice(userId)
+                   ? SignInState::KeyringLost
+                   : SignInState::Gone;
+    }
     // Empty read and the backend cannot vouch for it: genuinely unknown.
     return SignInState::Unreadable;
 }
@@ -5011,6 +5455,23 @@ void AppController::removeAccount(const QString &userId)
         return;
     if (!m_settings->hasSavedAccount(target))
         return;
+    // Its sign-in is in a keyring that cannot be read now: removing the
+    // account would delete the record and leave a live token in the keyring,
+    // with nothing left that could ever remove it. A signed-in account reads
+    // its token, so this never blocks the ordinary sign-out. Only while a
+    // store exists and says it cannot answer: with no secret store wired at
+    // all (never in production) there is no keyring to leave anything in.
+    if (m_settings->secretStore()
+        && m_settings->accessTokenFor(target).isEmpty()
+        && m_settings->secretBackendUnavailable()) {
+        qCWarning(lcApp) << "removal refused: the secret store cannot be read"
+                         << "slug=" << matrix::app_data::safeUserSlug(target);
+        Q_EMIT errorReported(
+            tr("This account can't be removed while the system keyring can't "
+               "be read: its saved sign-in is there and would be left behind. "
+               "Unlock the keyring, or start it, and try again."));
+        return;
+    }
 
     const bool isActive = target == m_settings->activeAccountUserId();
     if (isActive && m_client->isLoggedIn()) {
@@ -5041,8 +5502,16 @@ void AppController::removeAccount(const QString &userId)
                          << "slug=" << matrix::app_data::safeUserSlug(target);
     }
     m_accounts->removeAccount(target); // record + secrets
-    if (isActive)
+    if (isActive) {
         m_lastSessionUserId.clear();
+        // This account was never actually connected this session (a failed
+        // restore is exactly how it ends up here, from the login screen's
+        // repair card) but connectionStatus() can still read a stale
+        // "Error" from that failed attempt. Nothing else touches it once
+        // the account is gone, since onLoggedOut() never runs on this
+        // branch.
+        setConnectionStatus(tr("Not connected"));
+    }
     // The login screen's card named this account. A complete removal ends
     // it; otherwise it becomes a card that says what is still here and
     // tries again, never one whose buttons no longer do anything.

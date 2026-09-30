@@ -229,6 +229,7 @@ private slots:
     void mentionsAreTheCountAndPlainUnreadIsOnlyADot();
     void aRoomInTwoSpacesIsCountedOnceByTheirFolder();
     void directMessagesCountLikeMentionsUnlessMuted();
+    void aMentionsOnlyDirectMessageCountsOnlyItsRealMentions();
 
 private:
     QTemporaryDir m_dir;
@@ -584,6 +585,35 @@ void UnreadBadgeAttributionTest::directMessagesCountLikeMentionsUnlessMuted()
     QCOMPARE(railMentions(*m_rail, SpaceManager::allRoomsId()), 3);
     QCOMPARE(railMentions(*m_rail, kWork), 0);
     QVERIFY(!railHasUnread(*m_rail, kWork));
+    m_settings->setRoomNotificationMode(quietDm, 0);
+}
+
+// Regression: a DM set to "Mentions & keywords only" (mode 1) is not the
+// same as an unmuted DM. The rail used to treat every unmuted DM's ordinary
+// unreadCount as a mention (kNotificationModeMute is the only mode it ever
+// checked), so a Mentions-only DM's five plain messages surfaced as five
+// "mentions" in the rail rollup exactly like an All-messages DM would.
+void UnreadBadgeAttributionTest::aMentionsOnlyDirectMessageCountsOnlyItsRealMentions()
+{
+    const QString quietDm = QStringLiteral("!dm-mentions-only:x");
+    RoomInfo mentionsOnly = dm(quietDm, QStringLiteral("Cy"),
+                              QStringLiteral("@cy:x"), /*unread*/ 5,
+                              /*highlight*/ 1);
+    mentionsOnly.hasUnreadMessages = true;
+    QList<RoomInfo> rooms = workspace(0, 0, /*dm*/ 3);
+    rooms[3].hasUnreadMessages = true;
+    rooms.append(mentionsOnly);
+    m_settings->setRoomNotificationMode(quietDm, 1);
+    load(rooms, /*channels*/ true);
+
+    // The workspace DM's 3 notifying messages (mode 0, unchanged) plus the
+    // Mentions-only DM's ONE real mention — never its other 4 plain
+    // messages, which the old code folded in via std::max(unreadCount,
+    // highlightCount) regardless of mode.
+    QCOMPARE(railMentions(*m_rail, SpaceManager::peopleId()), 3 + 1);
+    QVERIFY(railHasUnread(*m_rail, SpaceManager::peopleId()));
+    // Channels' Home lists the DMs too.
+    QCOMPARE(railMentions(*m_rail, SpaceManager::allRoomsId()), 3 + 1);
     m_settings->setRoomNotificationMode(quietDm, 0);
 }
 

@@ -289,6 +289,13 @@ Rectangle {
                     // the counts-only summary.
                     Accessible.role: Accessible.EditableText
                     Accessible.name: qsTr("Code")
+
+                    // Every line left to right: TextEdit would take the whole
+                    // block's direction from an Arabic comment on line one.
+                    ParagraphDirection {
+                        document: codeArea.textDocument
+                        leftToRight: true
+                    }
                 }
 
                 // `thin` so hover doesn't widen the bar and reflow the reserved

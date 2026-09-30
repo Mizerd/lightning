@@ -228,6 +228,51 @@ private Q_SLOTS:
         QVERIFY(!isSafeExternalUrl(QUrl(QStringLiteral("file:///tmp/x"))));
     }
 
+    // Room and Space topics (TopicText.qml): the message linkifier plus bare
+    // "www." hosts, as Element links topics. Reported: a topic's URLs were
+    // plain text in room info.
+    void topicsLinkWebAndBareWwwHostsAndNothingElse()
+    {
+        using namespace matrix::link_preview;
+        const QString html = linkifiedTopicHtml(QStringLiteral(
+            "Rules: https://example.org/rules and www.example.com/faq."));
+        QVERIFY(html.contains(QStringLiteral("href=\"https://example.org/rules\"")));
+        // A bare host links to https:// and keeps its text as written, without
+        // the sentence's full stop.
+        QVERIFY2(html.contains(QStringLiteral(
+                     "<a href=\"https://www.example.com/faq\">www.example.com/faq</a>.")),
+                 qPrintable(html));
+        QVERIFY(linkifiedTopicHtml(QStringLiteral("(www.example.org)"))
+                    .contains(QStringLiteral("href=\"https://www.example.org\"")));
+
+        // "www." inside a host, an address or a path, or with no domain after
+        // it, is not a link.
+        for (const char *text : { "foo.www.example.org", "a@www.example.org",
+                                  "/www.example.org", "www.x" }) {
+            QVERIFY2(!linkifiedTopicHtml(QString::fromLatin1(text))
+                          .contains(QStringLiteral("href=")),
+                     text);
+        }
+
+        // No scheme but http(s), and markup in a topic is text.
+        const QString hostile = linkifiedTopicHtml(QStringLiteral(
+            "javascript:alert(1) data:text/html,x file:///etc/passwd "
+            "ftp://example.org <a href=\"javascript:alert(2)\">x</a>"));
+        // Escaped markup still spells "href=" as text; a real attribute is
+        // followed by a quote.
+        QVERIFY2(!hostile.contains(QStringLiteral("href=\"")), qPrintable(hostile));
+        QVERIFY(hostile.contains(QStringLiteral("&lt;a href=")));
+        QVERIFY(!hostile.contains(QStringLiteral("<a ")));
+
+        // Line breaks survive.
+        QCOMPARE(linkifiedTopicHtml(QStringLiteral("one\ntwo")),
+                 QStringLiteral("one<br>two"));
+
+        // Message bodies are unchanged: http(s) only.
+        QVERIFY(!linkifiedMessageHtml(QStringLiteral("www.example.com/faq"))
+                     .contains(QStringLiteral("href=")));
+    }
+
     // ---- GIF classification ----------------------------------------------
 
     void gifClassificationTrustsMimeNotSuffix()

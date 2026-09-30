@@ -10,6 +10,7 @@
 #include "i18n/LocalizationManager.h"
 #include "app/BackendSelection.h"
 #include "app/FontManager.h"
+#include "app/SingleInstanceGuard.h"
 #include "app/StartupChecks.h"
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
 #include "app/ScreenshotDemoController.h"  // demo CLI validation (dev builds only)
@@ -361,6 +362,8 @@ struct PreflightResult {
         ExitSuccess,   // e.g. --help emitted, exit 0
         ExitError,     // bad argument, exit 2
         ExitResetError, // --reset-crypto-store failed, exit 3
+        ExitResetRefused, // --reset-crypto-store: a running instance owns
+                          // this data root, exit 6
         RunSmokeTest,  // --rust-sdk-smoke-test (Rust build only)
         RunGifStatus,  // --gif-status: print provider-configured booleans
         RunGifSelfTest, // --gif-selftest: bounded live provider request
@@ -463,6 +466,8 @@ PreflightResult preflightParse(int argc, char *argv[])
                 "  --reset-crypto-store Delete per-account Rust SDK stores under\n"
                 "                       ${XDG_DATA_HOME}/MatrixClient/matrix-client/*/matrix-rust-sdk-store.\n"
                 "                       It never touches cache.sqlite or SecretStore tokens.\n"
+                "                       Refuses, with exit code 6, while a running Lightning\n"
+                "                       instance still owns this profile's data root.\n"
                 "                       Exit code 0 when nothing is found; exit code 3 on error.\n"
                 "  --rust-sdk-smoke-test\n"
                 "                       Headless verification harness for --backend=rust\n"
@@ -697,6 +702,29 @@ PreflightResult preflightParse(int argc, char *argv[])
                 r.stdoutMsg += QStringLiteral(
                     "No app data root available "
                     "(neither $HOME nor $XDG_DATA_HOME is set).\n");
+                return r;
+            }
+
+            // A running instance's SingleInstanceGuard holds exactly this
+            // lock (main.cpp keys it the same way, on the same literal app
+            // name — applicationName() is not set yet this early). No
+            // QCoreApplication exists here, so this can only take the lock,
+            // not also probe the socket the way claim()'s Lock::Error path
+            // can. Held for the rest of this block, across the whole scan
+            // and delete below: probing and releasing before deleting would
+            // leave a window where a starting instance opens the very store
+            // being deleted. A starting instance's own claim() waits out its
+            // budget against this lock instead.
+            lightning::SingleInstanceGuard::RootLock rootLock(
+                roots.first(), QStringLiteral("matrix-client"));
+            if (rootLock.result()
+                == lightning::SingleInstanceGuard::LockProbe::HeldByOther) {
+                r.action = PreflightResult::ExitResetRefused;
+                r.stderrMsg = QStringLiteral(
+                    "Lightning is already running with this profile "
+                    "(%1). Quit it first: deleting its Rust SDK store while "
+                    "it is open can corrupt Olm sessions and one-time "
+                    "keys.\n").arg(roots.first());
                 return r;
             }
 
@@ -1613,6 +1641,11 @@ int main(int argc, char *argv[])
         DiagnosticStream(stderr) << pf.stderrMsg;
         return 3;
     }
+    if (pf.action == PreflightResult::ExitResetRefused) {
+        DiagnosticStream(stdout) << pf.stdoutMsg;
+        DiagnosticStream(stderr) << pf.stderrMsg;
+        return 6;
+    }
     if (pf.action == PreflightResult::RunCallMediaStatus) {
         // Uses the same bootstrap and probes as a normal launch, so it tells
         // "not built in", "plugins not found" and "element missing" apart.
@@ -1912,6 +1945,48 @@ int main(int argc, char *argv[])
     // Opt-in GUI-thread stall tracing (LIGHTNING_GUI_STALL_TRACE).
     stalltrace::install();
 
+    // One process per data root: two SDK clients on one store corrupt it.
+    // After every preflight flag that exits (validators run those while the
+    // app is open) and before any store opens. A second launch asks the
+    // running one to show its window and exits.
+    lightning::SingleInstanceGuard instanceGuard(
+        matrix::app_data::primaryRoot(), QCoreApplication::applicationName());
+    // Held until the OS reclaims the fd/handle at real process exit, never
+    // merely at main() unwinding: RustSdkMatrixClient's teardown can still be
+    // closing the store on a background thread (its own retirement pool, a
+    // leaked static that can outlive main() returning) for up to
+    // kStoreCloseBudgetMs after aboutToQuit. Releasing any earlier would let
+    // a fast relaunch open the same store while that close is still in
+    // flight.
+    instanceGuard.holdLockUntilProcessExit();
+    switch (instanceGuard.claim()) {
+    case lightning::SingleInstanceGuard::Claim::Primary:
+    case lightning::SingleInstanceGuard::Claim::Unguarded:
+        break;
+    case lightning::SingleInstanceGuard::Claim::Deferred:
+        return 0;
+    case lightning::SingleInstanceGuard::Claim::Unresponsive: {
+        const QString text = QStringLiteral(
+            "Lightning is already running with this profile but did not "
+            "respond. If no window appears, quit the running Lightning (or end "
+            "it in the task manager) and start it again.");
+        QTextStream(stderr) << "lightning-matrix: " << text << "\n";
+#ifdef Q_OS_WIN
+        // No console for a double-clicked GUI-subsystem binary.
+        MessageBoxW(nullptr, reinterpret_cast<const wchar_t *>(text.utf16()),
+                    L"Lightning", MB_OK | MB_ICONWARNING);
+#endif
+        return 5;
+    }
+    }
+    // Closed once quitting starts; the lock stays held past that and past
+    // this guard's own destruction (see holdLockUntilProcessExit() above),
+    // until the process truly exits, so a relaunch during teardown waits for
+    // the lock instead of for an answer from an event loop that has stopped.
+    QObject::connect(&app, &QCoreApplication::aboutToQuit,
+                     &instanceGuard,
+                     &lightning::SingleInstanceGuard::stopListening);
+
     // A missing GL stack must degrade rather than exit: Qt Quick fails to
     // create its RHI and quits before any window appears (e.g. an AppImage
     // whose host libEGL is unreachable). Probe before any QQuickWindow exists
@@ -2080,6 +2155,20 @@ int main(int argc, char *argv[])
     // initialise GStreamer.
     controller.enableCallMediaEngine();
     controller.enableCallSounds();
+
+    // Another launch on this data root: raise the window the way a tray click
+    // does. On Wayland the launcher's activation token lets it take focus;
+    // Qt's shell integration reads and clears the variable when activating.
+    QObject::connect(
+        &instanceGuard, &lightning::SingleInstanceGuard::activationRequested,
+        &controller, [&controller](const QString &activationToken) {
+            if (!activationToken.isEmpty()
+                && QGuiApplication::platformName().startsWith(
+                    QLatin1String("wayland"))) {
+                qputenv("XDG_ACTIVATION_TOKEN", activationToken.toLatin1());
+            }
+            Q_EMIT controller.trayShowRequested();
+        });
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
     // Auto-login into the deterministic demo account on the mock backend.

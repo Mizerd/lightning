@@ -215,6 +215,7 @@ Dialog {
     FileDialog {
         id: avatarFileDialog
         title: qsTr("Choose a room picture")
+        currentFolder: app.defaultFileDialogFolder()
         fileMode: FileDialog.OpenFile
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
         onAccepted: avatarCrop.openFor(selectedFile)

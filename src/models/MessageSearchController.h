@@ -8,6 +8,7 @@
 #include <QVariantMap>
 
 class MatrixClient;
+class SettingsManager;
 
 // Message-history search, room-scoped or global.
 //
@@ -59,6 +60,42 @@ class MessageSearchController : public QAbstractListModel
     /// Shortest query the local tokenizer can match (0 until known), shown
     /// instead of "no results" for a query that can never match.
     Q_PROPERTY(int minLocalChars READ minLocalChars NOTIFY stateChanged)
+    // ── "Index all rooms" ────────────────────────────────────────────────
+    //
+    // Every joined room's history, one room at a time, with the same bounded
+    // walk as indexRoomHistory. The backend persists the queue per account.
+    // "idle" | "running" | "held" (a call or a scrolling timeline) |
+    // "backoff" (the server asked us to wait) | "paused" | "done" |
+    // "cancelled" | "stopped" (the last session ended mid-run; it continues
+    // on its own once this account syncs).
+    Q_PROPERTY(QString indexAllState READ indexAllState NOTIFY indexAllChanged)
+    /// Running, held or backing off: a pass is under way.
+    Q_PROPERTY(bool indexAllActive READ indexAllActive NOTIFY indexAllChanged)
+    /// A pass exists that can be resumed (paused or interrupted).
+    Q_PROPERTY(bool indexAllResumable READ indexAllResumable
+                   NOTIFY indexAllChanged)
+    Q_PROPERTY(int indexAllTotal READ indexAllTotal NOTIFY indexAllChanged)
+    Q_PROPERTY(int indexAllPosition READ indexAllPosition
+                   NOTIFY indexAllChanged)
+    /// The room being indexed, by its display name ("" when unknown).
+    Q_PROPERTY(QString indexAllRoomName READ indexAllRoomName
+                   NOTIFY indexAllChanged)
+    /// Messages this pass has added to the index.
+    Q_PROPERTY(qint64 indexAllWritten READ indexAllWritten
+                   NOTIFY indexAllChanged)
+    /// Messages seen that could not be decrypted yet: never indexed.
+    Q_PROPERTY(qint64 indexAllUndecryptable READ indexAllUndecryptable
+                   NOTIFY indexAllChanged)
+    Q_PROPERTY(int indexAllSkipped READ indexAllSkipped NOTIFY indexAllChanged)
+    Q_PROPERTY(int indexAllFailedRooms READ indexAllFailedRooms
+                   NOTIFY indexAllChanged)
+    /// Rough time left from this pass's own pace; -1 until a room is done.
+    Q_PROPERTY(qint64 indexAllEtaMs READ indexAllEtaMs NOTIFY indexAllChanged)
+    Q_PROPERTY(qint64 indexAllRetryInMs READ indexAllRetryInMs
+                   NOTIFY indexAllChanged)
+    /// The one-time offer after a first sign-in on this device.
+    Q_PROPERTY(bool indexAllOffered READ indexAllOffered
+                   NOTIFY indexAllOfferChanged)
 
 public:
     enum Roles {
@@ -76,6 +113,8 @@ public:
     explicit MessageSearchController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+    /// Where the index-all offer's answer is remembered, per account.
+    void setSettings(SettingsManager *settings) { m_settings = settings; }
 
     QString query() const { return m_query; }
     void setQuery(const QString &query);
@@ -102,6 +141,19 @@ public:
     qint64 indexedRooms() const { return m_indexedRooms; }
     bool indexing() const { return m_deepOp != 0; }
     int minLocalChars() const { return m_minLocalChars; }
+    QString indexAllState() const { return m_indexAllState; }
+    bool indexAllActive() const;
+    bool indexAllResumable() const;
+    int indexAllTotal() const { return m_indexAllTotal; }
+    int indexAllPosition() const { return m_indexAllPosition; }
+    QString indexAllRoomName() const { return m_indexAllRoomName; }
+    qint64 indexAllWritten() const { return m_indexAllWritten; }
+    qint64 indexAllUndecryptable() const { return m_indexAllUndecryptable; }
+    int indexAllSkipped() const { return m_indexAllSkipped; }
+    int indexAllFailedRooms() const { return m_indexAllFailedRooms; }
+    qint64 indexAllEtaMs() const { return m_indexAllEtaMs; }
+    qint64 indexAllRetryInMs() const { return m_indexAllRetryInMs; }
+    bool indexAllOffered() const { return m_indexAllOffered; }
 
     /// Ask the backend what the index holds. Cheap; safe to call on open.
     Q_INVOKABLE void refreshIndexStats();
@@ -110,6 +162,25 @@ public:
     /// Page one room's history in and index it ("search this room").
     Q_INVOKABLE void indexRoomHistory(const QString &roomId);
     Q_INVOKABLE void clearIndex();
+    /// Start "index all rooms", or continue a paused or interrupted pass.
+    Q_INVOKABLE void indexAllRooms();
+    Q_INVOKABLE void pauseIndexAll();
+    Q_INVOKABLE void cancelIndexAll();
+    /// Ask where a pass stands (Settings calls this when it opens).
+    Q_INVOKABLE void refreshIndexAllStatus();
+    /// Continue a pass the last session left unfinished and unpaused. Called
+    /// when the account starts syncing; a paused pass stays paused.
+    void resumeIndexAllIfPending();
+    /// Automatic holds: `reason` is a MatrixClient::IndexAllHold bit.
+    void setIndexAllHold(unsigned reason, bool held);
+    unsigned indexAllHold() const { return m_indexAllHold; }
+    /// Arm the one-time offer: only after a sign-in the user just made here
+    /// (never a restored session), only when this account has never answered
+    /// it, and only where there is a local index.
+    void offerIndexAllAfterSignIn(const QString &userId, bool interactiveSignIn);
+    /// "yes" starts the pass; "no" and "later" dismiss. Any answer is
+    /// remembered for the account, so it is asked once.
+    Q_INVOKABLE void answerIndexAllOffer(const QString &answer);
 
     Q_INVOKABLE void search();   // dispatch immediately (Enter key)
     Q_INVOKABLE void loadMore();
@@ -127,6 +198,8 @@ Q_SIGNALS:
     void sourceChanged();
     void indexStatsChanged();
     void indexingChanged();
+    void indexAllChanged();
+    void indexAllOfferChanged();
     /// A deep index finished. `reachedStart` says whether the whole history is
     /// indexed or the page budget ran out.
     void roomHistoryIndexed(const QString &roomId, bool ok, bool reachedStart,
@@ -139,6 +212,7 @@ private Q_SLOTS:
                           const QString &category);
     void onLocalSearchFinished(quint64 opId, bool ok, const QString &category,
                                int minChars, const QVariantList &results);
+    void onIndexAllProgress(quint64 opId, const QVariantMap &status);
 
 private:
     QString effectiveSource() const;
@@ -147,6 +221,8 @@ private:
     void requestPage(bool append);
     bool matchesFilters(const QVariantMap &row) const;
     void rebuildFilterSets();
+    void resetIndexAll();
+    void setIndexAllOffered(bool offered);
 
     MatrixClient *m_client = nullptr;
     QString m_query;
@@ -179,6 +255,21 @@ private:
     qint64 m_indexedRooms = 0;
     quint64 m_deepOp = 0;
     int m_minLocalChars = 0;
+    SettingsManager *m_settings = nullptr;
+    QString m_indexAllState = QStringLiteral("idle");
+    int m_indexAllTotal = 0;
+    int m_indexAllPosition = 0;
+    QString m_indexAllRoomName;
+    qint64 m_indexAllWritten = 0;
+    qint64 m_indexAllUndecryptable = 0;
+    int m_indexAllSkipped = 0;
+    int m_indexAllFailedRooms = 0;
+    qint64 m_indexAllEtaMs = -1;
+    qint64 m_indexAllRetryInMs = 0;
+    unsigned m_indexAllHold = 0;
+    bool m_indexAllOffered = false;
+    /// The account the offer was armed for; the answer is stored under it.
+    QString m_indexAllOfferUserId;
     /// Rows per local page; "load more" raises the limit (there is no cursor).
     static constexpr int kLocalPage = 50;
 };

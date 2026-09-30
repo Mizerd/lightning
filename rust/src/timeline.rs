@@ -223,6 +223,12 @@ const MEDIA_SOURCE_CAP: usize = 4096;
 /// (every serialization) or looked up by a fetch. A row served from the C++
 /// cache touches nothing here, so its key can be evicted; a later fetch then
 /// fails as "unknown media item" until the row is serialized again.
+#[derive(Default)]
+struct EncryptedRoomMedia {
+    keys: std::collections::HashSet<String>,
+    overflowed: bool,
+}
+
 struct MediaRegistry {
     entries: HashMap<String, (StoredMedia, u64)>,
     /// (stamp, key) in stamp order. Lazily pruned: an entry whose stamp no
@@ -345,6 +351,11 @@ pub struct TimelineRegistry {
     /// Media sources for the open room. Cleared on room open and shutdown.
     /// Never crosses the FFI.
     media_sources: Mutex<MediaRegistry>,
+    /// Keys the media-history walk registered for a room that is encrypted
+    /// (or not known not to be), which may not be the open room. The kept-file
+    /// cache asks (rooms::media_fetch); everything else here belongs to the
+    /// open room and is judged by it. Cleared with the sources.
+    encrypted_room_media: Mutex<EncryptedRoomMedia>,
     /// One reaction toggle per (room, event, key) at a time. Concurrent toggles
     /// for one target raced into a storm of add/remove echoes, so a click
     /// arriving while its target is still resolving is dropped (a toggle is a
@@ -432,6 +443,7 @@ impl TimelineRegistry {
             room_gen: AtomicU64::new(0),
             lifecycle_gen: AtomicU64::new(1),
             media_sources: Mutex::new(MediaRegistry::with_cap(MEDIA_SOURCE_CAP)),
+            encrypted_room_media: Mutex::new(EncryptedRoomMedia::default()),
             reaction_inflight: Mutex::new(std::collections::HashSet::new()),
             backup_download_attempts: Mutex::new(std::collections::HashMap::new()),
         }
@@ -566,6 +578,29 @@ impl TimelineRegistry {
         if let Ok(mut guard) = self.media_sources.lock() {
             guard.clear();
         }
+        if let Ok(mut guard) = self.encrypted_room_media.lock() {
+            *guard = EncryptedRoomMedia::default();
+        }
+    }
+
+    /// The media-history walk registered `key` for a room that is encrypted
+    /// or not known not to be.
+    pub(crate) fn mark_media_from_encrypted_room(&self, key: &str) {
+        if let Ok(mut guard) = self.encrypted_room_media.lock() {
+            if guard.keys.len() >= MEDIA_SOURCE_CAP {
+                // Past the bound, every key counts, until the next clear.
+                guard.overflowed = true;
+            } else {
+                guard.keys.insert(key.to_owned());
+            }
+        }
+    }
+
+    /// Whether `key` was marked, or might have been. True when unsure.
+    pub(crate) fn media_from_encrypted_room(&self, key: &str) -> bool {
+        self.encrypted_room_media
+            .lock()
+            .map_or(true, |guard| guard.overflowed || guard.keys.contains(key))
     }
 
     /// Abort and forget the active timeline. Returns the task handle so
@@ -3296,6 +3331,26 @@ fn state_row_text(kind: &str, actor: &str) -> String {
     }
 }
 
+/// `m.space.parent`'s `via` field is REQUIRED by the type ruma generates
+/// (`SpaceParentEventContent`, no `#[serde(default)]`), so the EMPTY content
+/// `{}` the spec uses to REMOVE a parent link never reaches
+/// `TimelineItemContent::OtherState` — it fails to deserialize and arrives as
+/// `FailedToParseState` instead, which used to render "[unsupported event]"
+/// for exactly the shape the spec documents as a normal, deliberate action.
+///
+/// Recognise that one case from the deserializer's own complaint ("missing
+/// field `via`") rather than from the content, which this layer never sees,
+/// and describe it. Any OTHER parse failure on this type (a `via` of the
+/// wrong JSON shape, say) is genuinely malformed data, not a removal, and
+/// keeps the generic unsupported fallback.
+fn failed_state_parse_body(event_type: &str, error_display: &str, actor: &str) -> Option<String> {
+    if event_type == "m.space.parent" && error_display.contains("missing field `via`") {
+        Some(format!("{actor} removed this room from a space."))
+    } else {
+        None
+    }
+}
+
 fn event_item_to_json(
     unique_id: &str,
     event: &EventTimelineItem,
@@ -3704,10 +3759,23 @@ fn event_item_to_json(
             out["state_kind"] = kind.clone().into();
             out["body"] = state_row_text(&kind, &actor).into();
         }
-        TimelineItemContent::FailedToParseMessageLike { .. }
-        | TimelineItemContent::FailedToParseState { .. } => {
+        TimelineItemContent::FailedToParseMessageLike { .. } => {
             out["msgtype"] = "unsupported".into();
             out["body"] = "[unsupported event]".into();
+        }
+        TimelineItemContent::FailedToParseState { event_type, error, .. } => {
+            let actor = event.sender().to_string();
+            match failed_state_parse_body(&event_type.to_string(), &error.to_string(), &actor) {
+                Some(body) => {
+                    out["msgtype"] = "state".into();
+                    out["state_kind"] = "m.space.parent".into();
+                    out["body"] = body.into();
+                }
+                None => {
+                    out["msgtype"] = "unsupported".into();
+                    out["body"] = "[unsupported event]".into();
+                }
+            }
         }
         // ── Call rows are room history, not a room setting ───────────────
         //
@@ -5272,7 +5340,7 @@ pub fn sessions_by_room_from_import(
 #[cfg(test)]
 mod tests {
     use super::{
-        backup_attempt_allowed, backup_attempt_backoff, find_img_tag,
+        backup_attempt_allowed, backup_attempt_backoff, failed_state_parse_body, find_img_tag,
         is_rtc_membership_event, raw_displayed_formatted_body,
         sessions_by_room_from_import, state_row_text, substitute_emoticons,
         TimelineRegistry, MAX_BACKUP_ATTEMPTS,
@@ -5828,6 +5896,51 @@ mod tests {
         assert_eq!(state_row_text("m.room.avatar", "@a:b.c"), "@a:b.c changed the room avatar.");
         // Actor-free: the room becoming encrypted is the fact.
         assert_eq!(state_row_text("m.room.encryption", "@a:b.c"), "Encryption was enabled.");
+    }
+
+    // Regression for an "[unsupported event]" row on an empty `m.space.parent`
+    // (content `{}`), which MSC1772 uses to remove a parent link and which
+    // ruma's generated deserializer refuses because `via` has no default.
+    #[test]
+    fn empty_space_parent_is_described_as_removed_not_unsupported() {
+        let body = failed_state_parse_body(
+            "m.space.parent",
+            "missing field `via` at line 1 column 2",
+            "@alice:example.org",
+        );
+        assert_eq!(
+            body,
+            Some("@alice:example.org removed this room from a space.".to_owned())
+        );
+    }
+
+    // A `via` of the wrong shape is real corruption, not the spec's
+    // documented removal shape, and must not be relabelled as a removal.
+    #[test]
+    fn a_differently_malformed_space_parent_stays_unsupported() {
+        assert_eq!(
+            failed_state_parse_body(
+                "m.space.parent",
+                "invalid type: string \"nope\", expected a sequence at line 1 column 20",
+                "@alice:example.org",
+            ),
+            None
+        );
+    }
+
+    // The check is gated on the event type too: some other state event whose
+    // parse error happens to mention `via` must not be mistaken for a space
+    // parent removal.
+    #[test]
+    fn the_via_message_alone_is_not_enough_without_the_right_event_type() {
+        assert_eq!(
+            failed_state_parse_body(
+                "org.example.unrelated",
+                "missing field `via`",
+                "@alice:example.org",
+            ),
+            None
+        );
     }
 
     #[test]

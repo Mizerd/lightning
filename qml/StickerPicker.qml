@@ -170,6 +170,7 @@ AnchoredPopup {
             FileDialog {
                 id: stickerFileDialog
                 title: qsTr("Choose a sticker")
+                currentFolder: app.defaultFileDialogFolder()
                 nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif)")]
                 // Straight to the pack, no crop step. The bytes are sniffed and
                 // bounded in Rust.

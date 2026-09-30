@@ -2161,6 +2161,10 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
 
 void MediaBridge::clear()
 {
+    // Named for the stall tracer: this runs on the GUI thread inside the
+    // sign-out and account-switch fan-out, where a 6.7 s stall was seen once
+    // (2026-09-30) and could not be attributed.
+    stalltrace::Scope stallScope("media-clear");
     {
         QMutexLocker lock(&m_cacheMutex);
         qCDebug(lcMedia, "clear: dropping %lld cached entries, %lld inflight",
@@ -2222,6 +2226,9 @@ void MediaBridge::clear()
     if (m_playableWriter)
         m_playableWriter->cancelAll();
     m_playableNameSalt.clear(); // next session gets fresh unguessable names
+    // Synchronous filesystem work (a recursive delete, a new directory, a
+    // lock file), attributed on its own: it can wait on a busy disk.
+    stalltrace::Scope scratchScope("media-scratch-dir");
     // Release the live mark before the directory is removed.
     if (m_animatedDir)
         lightning::portable::releaseScratchDir(m_animatedDir->path());

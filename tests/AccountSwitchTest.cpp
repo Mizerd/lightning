@@ -20,6 +20,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QMetaProperty>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -419,6 +420,7 @@ private Q_SLOTS:
         // Enter add-account mode and fail the attempt (mock magic password).
         app.showLogin();
         QCOMPARE(app.currentScreen(), AppController::LoginScreen);
+        QSignalSpy notice(&app, &AppController::errorReported);
         app.auth()->login(kHsTwo, QStringLiteral("bob"),
                           QStringLiteral("mock-fail"));
 
@@ -428,6 +430,27 @@ private Q_SLOTS:
         QTRY_VERIFY(app.auth()->isLoggedIn());
         QCOMPARE(app.currentScreen(), AppController::LoginScreen);
         QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
+
+        // The background restore above finishes fast enough that its own
+        // loginSucceeded already cleared AuthManager::lastError (the same
+        // unconditional clear any successful login does), so the login
+        // screen sits there with nothing left in its error label to read.
+        QCOMPARE(app.auth()->lastError(), QString());
+        // errorReported() is the channel onLoginSucceeded's background-restore
+        // branch does NOT clear, so it is what must carry the real reason —
+        // "redirected to switch" said nothing without this.
+        QVERIFY2(!notice.isEmpty(),
+                 "no notice was shown for the failed/redirected add-account "
+                 "attempt");
+        bool sawReason = false;
+        for (const auto &call : notice) {
+            if (call.at(0).toString()
+                == QStringLiteral("mock: invalid credentials"))
+                sawReason = true;
+        }
+        QVERIFY2(sawReason,
+                 "the add-account failure's real reason never reached "
+                 "errorReported()");
 
         // Back returns to a healthy shell: no stale error, live session.
         app.showMain();
@@ -889,8 +912,10 @@ private Q_SLOTS:
                               : errors.first().first().toString())));
     }
 
-    // Non-regression guard: with a readable backend, an account whose token
-    // is genuinely gone is still reported as expired.
+    // With a readable backend, an account whose token is gone but whose record
+    // says this install wrote its keyring items reads as a sign-in the keyring
+    // LOST (non-destructive), not as expired. An adopted record without the
+    // marks keeps the "expired" verdict (StartupSessionTest).
     void anAccountWithNoTokenAndAReadableBackendIsStillExpired()
     {
         AppController app(AppController::HttpBackend);
@@ -914,8 +939,9 @@ private Q_SLOTS:
         QCOMPARE(errors.first().first().toString(),
                  QCoreApplication::translate(
                      "AppController",
-                     "That account's sign-in has expired. Sign in to it "
-                     "again."));
+                     "Your system keyring no longer returns that account's "
+                     "saved sign-in. Nothing was deleted: sign in to it again "
+                     "to continue on this device."));
         QCOMPARE(app.settings()->activeAccountUserId(), kAlice);
     }
 
@@ -946,6 +972,43 @@ private Q_SLOTS:
                  "the sign-out fallback dropped to the login screen without "
                  "saying that the credential store, not the accounts, is "
                  "what failed");
+    }
+
+    // A CONSTANT Q_PROPERTY has no NOTIFY signal at all, so a QML binding
+    // that reads it (Main.qml and SettingsScreen.qml both bind
+    // app.trayAvailable) is evaluated once and never re-evaluated even if
+    // the C++ getter's answer changes later — exactly what happens when a
+    // StatusNotifierWatcher (or, on Windows, the shell's tray host) appears
+    // or leaves after Lightning started. This does not assert a tray IS or
+    // ISN'T available (headless CI has none); it asserts the property CAN
+    // tell QML when that answer changes.
+    void trayAvailableCanNotifyItsBindings()
+    {
+        AppController app(AppController::MockBackend);
+        const QMetaObject *mo = app.metaObject();
+        const int idx = mo->indexOfProperty("trayAvailable");
+        QVERIFY(idx >= 0);
+        const QMetaProperty prop = mo->property(idx);
+        QVERIFY2(prop.hasNotifySignal(),
+                 "trayAvailable has no NOTIFY signal — a binding on it "
+                 "freezes at whatever the platform answered on first read");
+        QCOMPARE(QString::fromUtf8(prop.notifySignal().name()),
+                 QStringLiteral("trayAvailableChanged"));
+    }
+
+    // The Qt Quick file dialog's own default, with nothing remembered yet,
+    // can be the filesystem root on a fresh profile. defaultFileDialogFolder()
+    // exists so every FileDialog in the tree can ask for something better
+    // (Pictures, then Documents, then home) instead.
+    void defaultFileDialogFolderIsNeverRoot()
+    {
+        AppController app(AppController::MockBackend);
+        const QUrl folder = app.defaultFileDialogFolder();
+        QVERIFY2(folder.isLocalFile(),
+                 "no writable Pictures/Documents/home folder was found at "
+                 "all on this machine");
+        QVERIFY2(folder.toLocalFile() != QStringLiteral("/"),
+                 "the file dialog default folder is the filesystem root");
     }
 
 private:

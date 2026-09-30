@@ -57,6 +57,8 @@ constexpr const char *kComponents[] = {
     "ThemeEditorDialog",
     "IncomingCallPrompt",
     "EncryptionBrokenPrompt",  // B011: the undecryptable-device card
+    // The one-time "index all messages now?" card; reads app.messageSearch.
+    "IndexAllPrompt",
     "CallHeaderBar",
     "ActivityCenterPanel",
     "JumpToDateDialog",
@@ -75,6 +77,9 @@ constexpr const char *kComponents[] = {
     "RoomCloseDialog",
     // Settings -> Account -> Change password; renders app.passwordChange.
     "ChangePasswordSection",
+    // Room and Space topics; reads app.linkPreviews. A TextEdit, where a Text
+    // property such as lineHeight is a load-time error.
+    "TopicText",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

@@ -32,9 +32,14 @@ class VideoPosterExtractor;
 //   * playable and animated payloads, as 0600 files in a 0700 scratch
 //     directory so the player can map them. Removed by clear() and on
 //     destruction, but a crash leaves them behind;
-//   * the SDK media store, for unencrypted rooms only. `media_fetch` in
-//     rust/src/rooms.rs passes use_cache=false for encrypted sources because
-//     that store has no cipher and would hold decrypted bytes.
+//   * the SDK media store, encrypted with a per-account key from the OS
+//     keyring (rust/src/mediastore.rs), or in memory without one. It holds
+//     encrypted-room media only when that key is in a secure keyring
+//     (rooms.rs media_persistence), and matrix-sdk's send queue keeps the
+//     user's sent attachments in it;
+//   * kept files (rust/src/mediafiles.rs) for unencrypted payloads over that
+//     store's size cap, never for encrypted rooms. Both follow the
+//     keepMediaOnDevice setting.
 class MediaBridge : public QObject
 {
     Q_OBJECT

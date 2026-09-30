@@ -41,6 +41,7 @@ QVariantList AccountManager::accounts() const
         record.remove(QStringLiteral("addedAt"));
         record.insert(QStringLiteral("isActive"), uid == active);
         record.insert(QStringLiteral("needsSignIn"), needsSignIn(uid));
+        record.insert(QStringLiteral("sessionRevoked"), sessionRevoked(uid));
         list.append(record);
     }
     return list;
@@ -80,6 +81,7 @@ QVariantMap AccountManager::account(const QString &userId) const
     QVariantMap record = m_settings->accountRecord(userId);
     record.remove(QStringLiteral("deviceId"));
     record.insert(QStringLiteral("needsSignIn"), needsSignIn(userId));
+    record.insert(QStringLiteral("sessionRevoked"), sessionRevoked(userId));
     return record;
 }
 
@@ -106,9 +108,31 @@ void AccountManager::updateProfile(const QString &userId,
     m_settings->updateAccountProfile(userId, displayName, avatarUrl);
 }
 
+// Exact: the client names the account by the server's id, the same id the
+// record is kept under, and two accounts may differ only by case.
+void AccountManager::markSessionRevoked(const QString &userId)
+{
+    if (userId.isEmpty() || sessionRevoked(userId))
+        return;
+    m_revokedSessions.append(userId);
+    Q_EMIT accountsChanged();
+}
+
+void AccountManager::clearSessionRevoked(const QString &userId)
+{
+    if (m_revokedSessions.removeAll(userId) > 0)
+        Q_EMIT accountsChanged();
+}
+
+bool AccountManager::sessionRevoked(const QString &userId) const
+{
+    return m_revokedSessions.contains(userId);
+}
+
 bool AccountManager::removeAccount(const QString &userId)
 {
     if (!m_settings)
         return false;
+    clearSessionRevoked(userId);
     return m_settings->clearSessionForAccount(userId);
 }

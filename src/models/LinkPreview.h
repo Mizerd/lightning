@@ -21,6 +21,11 @@ QString firstPreviewableUrl(const QString &body);
 // fragment, or userinfo. Empty for unparsable input.
 QString sanitizedHost(const QString &url);
 QString linkifiedMessageHtml(const QString &body);
+// A plain-text room or Space topic as safe rich text: linkifiedMessageHtml,
+// plus a bare "www." host at the start of a word, as Element links topics.
+// Such a link targets https:// and keeps the text as written. Everything else
+// is escaped, and every anchor passes isSafeExternalUrl.
+QString linkifiedTopicHtml(const QString &topic);
 bool isSafeExternalUrl(const QUrl &url);
 
 // A preview is a GIF only when the validated MIME type (from og:image:type,

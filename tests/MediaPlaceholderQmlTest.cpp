@@ -641,6 +641,52 @@ private Q_SLOTS:
         }
     }
 
+    // Reaching the end of playback must not leave the card on a frozen or
+    // black frame (some QtMultimedia backends clear the video sink at
+    // EndOfMedia rather than holding the last decoded frame — the literal
+    // black card this was reported as). It must close the inline player
+    // exactly like the explicit close button, which reveals
+    // MessageDelegate's own cover underneath: thumbnail and Play glyph, the
+    // same poster-plus-replay affordance shown before Play was first
+    // pressed. Driven directly (handleEndOfMedia(), not a real decoder
+    // reaching EndOfMedia, which needs a real codec this test tree cannot
+    // assume) — QMetaObject::invokeMethod itself fails to find the method
+    // on the unfixed card, which had no EndOfMedia handling at all.
+    void endedVideoReturnsToTheCoverInsteadOfABlackCard()
+    {
+        AppController controller(AppController::MockBackend);
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("isVideo"), true);
+        fixture.insert(QStringLiteral("mediaWidth"), 1280);
+        fixture.insert(QStringLiteral("mediaHeight"), 720);
+        fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+        fixture.insert(QStringLiteral("mediaKey"),
+                       QStringLiteral("fixture-video-ended"));
+        fixture.insert(QStringLiteral("mediaFilename"),
+                       QStringLiteral("clip.mp4"));
+        fixture.insert(QStringLiteral("body"), QStringLiteral("clip.mp4"));
+
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *video = d.root->findChild<QQuickItem *>(
+            QStringLiteral("videoMedia"));
+        QVERIFY(video != nullptr);
+
+        QVERIFY(video->setProperty("playerActive", true));
+        QCoreApplication::processEvents();
+        auto *card = video->findChild<QQuickItem *>(
+            QStringLiteral("videoPlayerCard"));
+        QVERIFY(card != nullptr);
+
+        QVERIFY2(QMetaObject::invokeMethod(card, "handleEndOfMedia"),
+                 "VideoPlayerCard has no handleEndOfMedia() to drive — "
+                 "EndOfMedia is not handled at all");
+
+        QTRY_VERIFY(!video->property("playerActive").toBool());
+        QTRY_VERIFY(video->findChild<QQuickItem *>(
+                        QStringLiteral("videoPlayerCard")) == nullptr);
+    }
+
     // Play whose fetch cannot start ends in the failure panel with Retry, not
     // a spinner that never stops: neither a dispatch the backend refuses at
     // once nor a fetch blocked by an earlier failure is followed by a signal.

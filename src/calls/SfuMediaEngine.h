@@ -49,6 +49,9 @@ typedef struct _GstCaps GstCaps;
 
 class CallFrameCryptor;
 class SfuVideoRouter;
+namespace lightning::calls {
+struct CaptureClockHold;
+}
 
 class SfuMediaEngine : public QObject
 {
@@ -572,6 +575,10 @@ public:
     quint64 framesEncrypted() const { return m_framesEncrypted.load(); }
     quint64 framesDecrypted() const { return m_framesDecrypted.load(); }
     quint64 framesDropped() const { return m_framesDropped.load(); }
+    /// Microphone RTP packets whose timestamps were ahead of the pipeline
+    /// clock and were held to it (see CaptureClock.h). Out of line: the type is
+    /// incomplete here.
+    quint64 micBuffersHeldToClock() const;
     /// Receive-side frames passed through in the clear (`!required &&
     /// !haveKey`) that carry a crypto trailer: a peer encrypting on a call we
     /// believe is clear. A rate, not a count: `looksEncrypted` is a two-byte
@@ -891,6 +898,9 @@ private:
     std::atomic<quint64> m_framesClearButCiphertextShaped{0};
     /// See framesServerInjected(). Reset per session in start().
     std::atomic<quint64> m_framesServerInjected{0};
+    /// The current microphone's clock hold; its probe keeps its own
+    /// reference. See micBuffersHeldToClock().
+    std::shared_ptr<lightning::calls::CaptureClockHold> m_micClockHold;
     /// See setServerInjectedTrailer(). Own mutex; nests inside nothing.
     QByteArray m_sifTrailer;
     mutable QMutex m_sifMutex;

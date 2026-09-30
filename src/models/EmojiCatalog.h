@@ -58,6 +58,25 @@ public:
     Q_INVOKABLE void clearRecent();
     Q_INVOKABLE bool contains(const QString &emoji) const;
     Q_INVOKABLE int catalogueCount() const { return m_entries.size(); }
+
+    // ── Colon-shortcode completion (":thumbs" -> 👍) ─────────────────────
+    //
+    // Candidates for the composer's `:query` popup, merged there with custom
+    // pack emoticons. Ranked prefix-on-name-or-alias first, then word-prefix
+    // within the name, then a keyword (alias) substring; recently used
+    // entries are boosted within their tier. One row per emoji family (skin
+    // tones collapse to the caller's preferredTone), each
+    // {kind: "unicode", emoji, name, shortcode}. `shortcode` is the
+    // catalogue's own first alias (gemoji-style, e.g. "thumbsup") or, absent
+    // one, a slug derived from the name — display only, never required to be
+    // unique or reversible.
+    Q_INVOKABLE QVariantList completionsForPrefix(const QString &prefix,
+                                                  int limit) const;
+    // The emoji for an exact shortcode/alias match (e.g. "thumbsup" or "+1"),
+    // preferredTone applied, or "" when `code` names no Unicode alias. Used
+    // to auto-convert a completed `:code:` the caller has already confirmed
+    // is not a custom pack shortcode.
+    Q_INVOKABLE QString emojiForShortcode(const QString &code) const;
     // Big-emoji support: the number of user-perceived emoji sequences when
     // the text consists ONLY of catalogue emoji and whitespace, else 0.
     // One grapheme cluster (ZWJ family, flag, keycap, tone variant,
@@ -93,10 +112,22 @@ private:
     bool hasResolvableRecents() const;
     int indexOf(const QString &emoji) const;
     bool isKnownEmojiCluster(const QString &cluster) const;
+    // A base-entry index resolved to its completion row, preferredTone
+    // applied to `emoji`.
+    QVariantMap completionRow(int index) const;
+    // `entry`'s emoji, substituting the preferredTone variant when one is set
+    // and the family has tones. Shared by completionRow and emojiForShortcode
+    // so a shortcode and a search result never disagree on the tone.
+    QString toneAdjustedEmoji(const Entry &entry) const;
 
     SettingsManager *m_settings = nullptr;
     QList<Entry> m_entries;
     QHash<QString, int> m_byEmoji;
+    // Case-folded alias/shortcode -> base-entry index, e.g. "thumbsup" and
+    // "+1" both -> the 👍 row. Built once at load() from the TSV's own
+    // aliases column; first entry wins a collision. Empty aliases (skin-tone
+    // variant rows) contribute nothing.
+    QHash<QString, int> m_aliasToIndex;
     // VS16-stripped forms of every catalogue sequence, built once at load.
     // Clients disagree about emitting U+FE0F presentation selectors; a
     // cluster missing (or carrying extra) VS16 still matches its sequence.

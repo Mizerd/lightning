@@ -5,6 +5,7 @@
 
 #include "storage/SecretStore.h"
 #include "storage/AppDataPaths.h"
+#include "matrix/MediaStoreKey.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -51,6 +52,7 @@ constexpr auto kSharePresence = "presence/shareOwn";
 constexpr auto kSpacesRailVisible = "shell/spacesRailVisible";
 constexpr auto kSpaceBannersVisible = "shell/spaceBannersVisible";
 constexpr auto kSpaceBannerExpanded = "shell/spaceBannerExpanded";
+constexpr auto kKeepRoomListOrderStill = "shell/keepRoomListOrderStill";
 constexpr auto kRoomListVisible   = "shell/roomListVisible";
 constexpr auto kRoomListWidth     = "shell/roomListWidth";
 constexpr auto kSpacesRailWidth   = "shell/spacesRailWidth";
@@ -84,6 +86,7 @@ constexpr auto kComposerMode        = "composer/mode";
 constexpr auto kSpellCheckEnabled   = "composer/spellCheck";
 constexpr auto kSpellCheckLanguage  = "composer/spellLanguage";
 constexpr auto kTextAsCaption       = "composer/textAsCaption";
+constexpr auto kEmojiShortcodeAutoConvert = "composer/emojiShortcodeAutoConvert";
 // Shortcut overrides live in their own group, one key per action id.
 constexpr auto kShortcutsGroup      = "shortcuts";
 // 0 = Standard, 1 = Fast, 2 = Very fast (see TimelineScrollController).
@@ -115,6 +118,8 @@ constexpr auto kAccountAuthType     = "authType";
 constexpr auto kAccountSyncToken    = "syncToken";
 // The on-disk SDK store directory name recorded at login. See storeSlugFor.
 constexpr auto kAccountStoreSlug    = "storeSlug";
+// The one-time "index all messages now?" answer. See indexAllOfferAnswer.
+constexpr auto kAccountIndexAllOffer = "indexAllOffer";
 
 // SecretStore keys.
 constexpr auto kSecretAccessToken   = "accessToken";
@@ -286,6 +291,18 @@ bool SettingsManager::secretMissesAreInconclusive() const
     return !m_secretStore || m_secretStore->missesAreInconclusive();
 }
 
+bool SettingsManager::secretsWrittenHereForRecordedDevice(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId.trimmed());
+    if (slug.isEmpty())
+        return false;
+    const QString device =
+        m_store->value(accountKey(slug, kAccountDeviceId)).toString();
+    return !device.trimmed().isEmpty() && keyringItemsAreCurrent(slug)
+        && m_store->value(accountKey(slug, kAccountKeyringItems)).toString()
+               == QLatin1String(kKeyringItemsOwn);
+}
+
 QString SettingsManager::accountOwningStoreSlug(const QString &storeSlug) const
 {
     const QString slug = storeSlug.trimmed();
@@ -440,6 +457,24 @@ QStringList SettingsManager::savedAccountUserIds() const
 bool SettingsManager::hasSavedAccount(const QString &userId) const
 {
     return !slugForSavedAccount(userId).isEmpty();
+}
+
+QString SettingsManager::indexAllOfferAnswer(const QString &userId) const
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return {};
+    return m_store->value(accountKey(slug, kAccountIndexAllOffer)).toString();
+}
+
+void SettingsManager::setIndexAllOfferAnswer(const QString &userId,
+                                             const QString &answer)
+{
+    const QString slug = slugForSavedAccount(userId);
+    if (slug.isEmpty())
+        return;
+    m_store->setValue(accountKey(slug, kAccountIndexAllOffer), answer);
+    m_store->sync();
 }
 
 QVariantMap SettingsManager::accountRecord(const QString &userId) const
@@ -848,11 +883,15 @@ void SettingsManager::migrateInsecureSecretsGroup()
     }
 
     // Every secret an account can own; migrating only the access token would
-    // strand an OAuth account without its refresh token and client id.
+    // strand an OAuth account without its refresh token and client id, and a
+    // group holding a key not listed here is kept whole, in plaintext. The
+    // media store key (MediaStoreKey.h) moves too, unchanged, so the store it
+    // encrypts still opens.
     const QLatin1String secretKeys[] = {
         QLatin1String(kSecretAccessToken),
         QLatin1String(kSecretRefreshToken),
         QLatin1String(kSecretOAuthClientId),
+        QLatin1String(matrix::media_store_key::kSecretName),
     };
 
     int migrated = 0;
@@ -877,7 +916,18 @@ void SettingsManager::migrateInsecureSecretsGroup()
         if (presentKeys.isEmpty())
             continue;
 
-        bool allMoved = true;
+        // Unknown keys (e.g. from a newer build) are not ours to delete, so
+        // such a group is kept and offered again at every start.
+        const bool groupKept =
+            std::any_of(presentKeys.cbegin(), presentKeys.cend(),
+                        [&secretKeys](const QString &present) {
+                            return std::none_of(
+                                std::begin(secretKeys), std::end(secretKeys),
+                                [&present](const QLatin1String &key) {
+                                    return present == key;
+                                });
+                        });
+        bool allMoved = !groupKept;
         int movedHere = 0;
         for (const QLatin1String &key : secretKeys) {
             const QString plainKey = groupKey + QLatin1Char('/') + key;
@@ -886,6 +936,30 @@ void SettingsManager::migrateInsecureSecretsGroup()
             const QString value = m_store->value(plainKey).toString();
             if (value.isEmpty())
                 continue;   // nothing to move; removing it loses nothing
+            // A kept group was copied at an earlier start, so a secure value
+            // that differs now was written since: a refresh token the server
+            // rotated. Copying the stale one over it would end the session.
+            // A group that goes after this pass was written while no secure
+            // store answered, after anything that store holds, and still wins.
+            if (groupKept) {
+                const QString existing = m_secretStore->readSecret(uid, key);
+                if (m_secretStore->lastReadFailed()) {
+                    continue;
+                }
+                if (existing == value) {
+                    ++movedHere;
+                    continue;
+                }
+                if (!existing.isEmpty()) {
+                    qCWarning(lcSettings)
+                        << "Secure credential migration: a kept plaintext copy "
+                           "differs from the secure store's; the secure one "
+                           "stays"
+                        << "key=" << key << "slug="
+                        << matrix::app_data::safeUserSlug(uid);
+                    continue;
+                }
+            }
             // Verify the read-back under the real id before deleting the
             // plaintext.
             if (m_secretStore->storeSecret(uid, key, value)
@@ -894,17 +968,6 @@ void SettingsManager::migrateInsecureSecretsGroup()
             } else {
                 allMoved = false;
             }
-        }
-
-        // Unknown keys (e.g. from a newer build) are not ours to delete.
-        for (const QString &present : presentKeys) {
-            const bool known =
-                std::any_of(std::begin(secretKeys), std::end(secretKeys),
-                            [&present](const QLatin1String &key) {
-                                return present == key;
-                            });
-            if (!known)
-                allMoved = false;
         }
 
         if (allMoved) {
@@ -1533,6 +1596,20 @@ void SettingsManager::setStrictDeviceTrust(bool v)
         return;
     m_store->setValue(QStringLiteral("privacy/strictDeviceTrust"), v);
     Q_EMIT strictDeviceTrustChanged();
+}
+
+bool SettingsManager::keepMediaOnDevice() const
+{
+    return m_store->value(QStringLiteral("privacy/keepMediaOnDevice"), true)
+        .toBool();
+}
+
+void SettingsManager::setKeepMediaOnDevice(bool v)
+{
+    if (keepMediaOnDevice() == v)
+        return;
+    m_store->setValue(QStringLiteral("privacy/keepMediaOnDevice"), v);
+    Q_EMIT keepMediaOnDeviceChanged();
 }
 
 int SettingsManager::readReceiptMode() const
@@ -2302,6 +2379,20 @@ void SettingsManager::setSpaceBannersVisible(bool v)
     Q_EMIT spaceBannersVisibleChanged();
 }
 
+bool SettingsManager::keepRoomListOrderStill() const
+{
+    // On by default, so a row does not slide away from under the pointer.
+    return m_store->value(kKeepRoomListOrderStill, true).toBool();
+}
+
+void SettingsManager::setKeepRoomListOrderStill(bool v)
+{
+    if (keepRoomListOrderStill() == v)
+        return;
+    m_store->setValue(kKeepRoomListOrderStill, v);
+    Q_EMIT keepRoomListOrderStillChanged();
+}
+
 bool SettingsManager::spaceBannerExpanded() const
 {
     // Cropped to a strip by default.
@@ -2820,6 +2911,19 @@ void SettingsManager::setSendTextAsCaption(bool v)
         return;
     m_store->setValue(kTextAsCaption, v);
     Q_EMIT sendTextAsCaptionChanged();
+}
+
+bool SettingsManager::emojiShortcodeAutoConvert() const
+{
+    return m_store->value(kEmojiShortcodeAutoConvert, true).toBool();
+}
+
+void SettingsManager::setEmojiShortcodeAutoConvert(bool v)
+{
+    if (emojiShortcodeAutoConvert() == v)
+        return;
+    m_store->setValue(kEmojiShortcodeAutoConvert, v);
+    Q_EMIT emojiShortcodeAutoConvertChanged();
 }
 
 namespace {

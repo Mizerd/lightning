@@ -30,9 +30,13 @@
 #include "storage/AppDataPaths.h"
 #include "storage/BridgeLabelStore.h"
 #include "app/TrayIcon.h"
+#include "notifications/InviteNoticeTracker.h"
 #include "text/SpellChecker.h"
 
 #include <QTimer>
+
+#include <functional>
+#include <vector>
 #include "profile/NameColorManager.h"
 #include "profile/ProfileBannerManager.h"
 #include "profile/ProfileBadges.h"
@@ -151,6 +155,15 @@ class AppController : public QObject
     // already detached.
     Q_PROPERTY(bool accountSwitching READ accountSwitching
                NOTIFY accountSwitchingChanged)
+    // A saved account's sign-in cannot be read because the secret store says
+    // it cannot answer (no Secret Service on the bus, a store that failed to
+    // open, a lookup that errors): the login screen says so instead of
+    // looking signed out, and offers retryKeyring(). NOT detected: an unlock
+    // prompt the user dismissed, which libsecret reports as "no such item",
+    // exactly like an empty keyring. Never true where no native store exists
+    // at all, since the plaintext store is the real one there (CLAUDE.md §6).
+    Q_PROPERTY(bool keyringUnavailable READ keyringUnavailable
+               NOTIFY keyringUnavailableChanged)
 
     // Own display name editor state. The name itself lives in the account
     // registry (AccountManager) and is deliberately not mirrored here.
@@ -270,7 +283,10 @@ class AppController : public QObject
     /// null; an unavailable backend reports `available: false`.
     Q_PROPERTY(QObject* spell READ spellChecker CONSTANT)
     // Whether a system tray exists; QML hides the tray settings otherwise.
-    Q_PROPERTY(bool trayAvailable READ trayAvailable CONSTANT)
+    // NOT constant: a StatusNotifierWatcher (Linux tray host) can appear or
+    // go away while Lightning is running, so this is re-checked and the
+    // property re-evaluated rather than frozen at the first read.
+    Q_PROPERTY(bool trayAvailable READ trayAvailable NOTIFY trayAvailableChanged)
     // The saved window geometry, or an invalid rect when it no longer fits
     // on any connected screen. Computed once at startup.
     Q_PROPERTY(QRect restorableWindowGeometry READ restorableWindowGeometry
@@ -413,6 +429,13 @@ public:
     explicit AppController(Backend backend = HttpBackend,
                            bool screenshotDemo = false,
                            QObject *parent = nullptr);
+    // Makes the secret store, at construction and again on retryKeyring().
+    // Empty means SecretStore::createDefault(). Tests inject a fake keyring.
+    using SecretStoreFactory =
+        std::function<std::unique_ptr<SecretStore>(QObject *parent)>;
+    AppController(Backend backend, bool screenshotDemo,
+                  SecretStoreFactory secretStoreFactory,
+                  QObject *parent = nullptr);
     ~AppController() override;
 
     // Quiesce background work (playback, sync) while the event dispatcher is
@@ -490,6 +513,7 @@ public:
     { return m_localSessionFailureHomeserver; }
     QStringList accountRemovalLeftovers() const { return m_removalLeftovers; }
     bool accountSwitching() const { return m_accountSwitching; }
+    bool keyringUnavailable() const { return m_keyringUnavailable; }
 
     SettingsManager *settings() const;
     ShortcutRegistry *shortcuts() const;
@@ -534,6 +558,10 @@ public:
     bool sessionDevicesLoading() const { return m_sessionDevicesLoading; }
     bool sessionDevicesFailed() const { return m_sessionDevicesFailed; }
     Q_INVOKABLE void refreshSessionDevices();
+    // Settings -> Privacy & security: remove the media this account keeps
+    // between sessions. False when nothing could be started (no session);
+    // otherwise storedMediaCleared follows.
+    Q_INVOKABLE bool clearStoredMedia();
     // Rename one of this account's sessions; refetches on success. Result in
     // sessionDeviceRenameError ("" = fine).
     Q_INVOKABLE void renameSessionDevice(const QString &deviceId,
@@ -582,6 +610,9 @@ private:
     /// Push MSC4153 into the Rust process global; takes effect at the next
     /// sign-in.
     void applyStrictDeviceTrust();
+    /// Push "keep media on this device" into the Rust process global; read on
+    /// every fetch.
+    void applyKeepMediaOnDevice();
     /// Whether a notification action's account is still the active one;
     /// otherwise refuses and tells the user.
     bool notificationActionIsForCurrentAccount(const QString &accountUserId);
@@ -790,6 +821,13 @@ public:
     // Open Settings on a category; SettingsScreen consumes it once on load.
     Q_INVOKABLE void showSettingsSection(const QString &section);
     Q_INVOKABLE QString takeRequestedSettingsSection();
+    // Open Settings and focus its search field, for Ctrl+, from the chat
+    // shell (Settings itself declares the same shortcut for when it is
+    // already open, which just focuses the field it already has). Same
+    // warm/cold consumption shape as showSettingsSection() above, since the
+    // kept-alive screen may already exist or may still be incubating.
+    Q_INVOKABLE void requestSettingsSearchFocus();
+    Q_INVOKABLE bool takeSettingsSearchFocusRequested();
 
     // Apply the theme to the application palette, which popups, menus and
     // tooltips paint from (an item palette does not reach them). Keys are
@@ -819,6 +857,17 @@ public:
     // Whether clearing local data can repair this failure; QML shows the
     // destructive action only then. Unknown or empty codes answer false.
     Q_INVOKABLE bool localResetHelpsFor(const QString &reasonCode) const;
+
+    // The login screen's "Try again" while keyringUnavailable, or on the
+    // keyring_lost_session card. A store that could not be opened at startup
+    // is opened again; when the keyring answers now, it replaces the stand-in
+    // exactly as at startup, so a sign-in the stand-in took meanwhile is
+    // copied into the keyring (over an older keyring value only when its
+    // whole plaintext group moves) and its plaintext copy deleted after a
+    // verified read-back (SettingsManager::migrateInsecureSecretsGroup()).
+    // Then the saved session restores as at launch, with no restart. Removes
+    // no account, SDK store or keyring item. True when the keyring answers.
+    Q_INVOKABLE bool retryKeyring();
 
     // Sanitized support bundle for the clipboard: versions, capabilities,
     // lifecycle state and error categories only. Never tokens, keys,
@@ -916,7 +965,12 @@ public:
             ? QString{}
             : QStringLiteral("image://lightning-qr/") + m_verificationQrToken;
     }
-    bool trayAvailable() const { return TrayIcon::platformSupportsTray(); }
+    bool trayAvailable() const { return m_trayAvailable; }
+    // The folder a Save/Open FileDialog should start in when it has nothing
+    // remembered yet: Pictures, then Documents, then home, the first that
+    // actually exists. Never `/` — QtQuick.Dialogs' own default on a fresh
+    // profile with nothing else to go on.
+    Q_INVOKABLE QUrl defaultFileDialogFolder() const;
     QObject *spellChecker() { return &m_spell; }
     QRect restorableWindowGeometry() const { return m_restorableWindowGeometry; }
     bool verificationQrScanned() const { return m_verificationQrScanned; }
@@ -951,6 +1005,10 @@ public:
 Q_SIGNALS:
     // The tray icon was clicked; Main.qml restores and raises the window.
     void trayShowRequested();
+    // clearStoredMedia finished. `files`/`bytes` count the large kept files
+    // only (the SDK media store reports no count); `ok` false means part of it
+    // could not be removed.
+    void storedMediaCleared(bool ok, qint64 files, qint64 bytes);
 
     void voiceOwnerChanged();
     // Emitted when a reconnect retry batch is issued, with the room count,
@@ -964,9 +1022,15 @@ Q_SIGNALS:
     void currentScreenChanged();
     // From showSettingsSection(), for the kept-alive settings screen.
     void settingsSectionRequested(const QString &section);
+    // From requestSettingsSearchFocus(), for a warm (already-built) settings
+    // screen; a cold build instead takes it via
+    // takeSettingsSearchFocusRequested() in Component.onCompleted.
+    void settingsSearchFocusRequested();
+    void trayAvailableChanged();
     void appIconChanged();
     void initialSyncDoneChanged();
     void accountSwitchingChanged();
+    void keyringUnavailableChanged();
     void ownDisplayNameStateChanged();
     void ownAvatarStateChanged();
     void ownAvatarSaved();
@@ -1045,6 +1109,11 @@ private:
     void applyAppIcon();
     void onLoginSucceeded();
     void onLoggedOut();
+    // The server revoked the credential of `userId` and the SDK could not
+    // renew it. When that is the running session, ends it locally (no server
+    // call, nothing deleted) and shows the login screen's card; for any other
+    // account it does nothing. Queued behind the event that reported it.
+    void endRevokedSession(const QString &userId);
     void setLocalRustResetRequired(bool required);
     void setAccountSwitching(bool switching);
     // Failure path of switchToAccount: falls back to the previous account
@@ -1054,12 +1123,31 @@ private:
     // How a saved account's stored credential reads right now. Three states:
     // an unreadable secret store (locked keyring, no session bus) says nothing
     // about whether the account is signed out.
+    // KeyringLost: the store answered "no such item" for a sign-in this
+    // install saved for the recorded device (see
+    // SettingsManager::secretsWrittenHereForRecordedDevice()): the keyring lost
+    // it, the account did not sign out. Never grounds for moving the store
+    // aside; a password sign-in continues as the same device.
     enum class SignInState {
         Usable,      // a token was read
         Gone,        // no token AND the backend could answer: really signed out
         Unreadable,  // the backend could not answer; says nothing about the account
+        KeyringLost, // no token, the backend answered, and this install saved one
     };
     SignInState signInStateFor(const QString &userId) const;
+    // Recomputes keyringUnavailable. A native store answers for the whole
+    // backend in one read, and each read of a locked one may raise an unlock
+    // prompt, so it reads ONE account (the active one, else the first). A
+    // stand-in answers per account from the settings file, without a prompt,
+    // so every account is read there.
+    void refreshKeyringUnavailable();
+    void setKeyringUnavailable(bool unavailable);
+    // A launch that could not restore the active account: says why, from the
+    // read hasSession() just made, without reading the keyring again.
+    void explainUnrestoredLaunch();
+    // The keyring_lost_session card for `userId`, right after a read of its
+    // token that the store answered with "no such item".
+    void noteKeyringLostSession(const QString &userId);
     // Clears every cache that must not leak across accounts. Used on account
     // change; logout clears the same state through loggedOut connections.
     void clearCrossAccountCaches();
@@ -1105,6 +1193,7 @@ private:
     // request (see matrix::app_data::bridgeLabelsFile).
     BridgeLabelStore m_bridgeLabels;
     QString m_requestedSettingsSection;
+    bool m_settingsSearchFocusRequested = false;
     QString m_connectionStatus;
     bool m_localRustResetRequired = false;
     QString m_localSessionFailureReason;
@@ -1115,6 +1204,10 @@ private:
     QStringList m_removalLeftovers;
     bool m_resetResultPending = false;
     bool m_accountSwitching = false;
+    bool m_keyringUnavailable = false;
+    // True only inside endRevokedSession()'s detach, so onLoggedOut keeps the
+    // account's record, stores and active-account setting, as for a switch.
+    bool m_revokedDetach = false;
     // The account to fall back to if activating the switch target fails.
     // Consumed by the loginFailed handler; empty = no fallback pending.
     QString m_switchFallbackUserId;
@@ -1156,6 +1249,10 @@ private:
     // Order matters: SecretStore is constructed first so SettingsManager can
     // be wired to it before any code touches accessToken() / hasSession().
     std::unique_ptr<SecretStore> m_secretStore;
+    // Stores replaced by retryKeyring(). Kept alive for the life of the
+    // process, never destroyed: a caller may still hold the old pointer.
+    std::vector<std::unique_ptr<SecretStore>> m_retiredSecretStores;
+    SecretStoreFactory m_secretStoreFactory;
     std::unique_ptr<SettingsManager> m_settings;
     std::unique_ptr<LocalizationManager> m_localization;
     std::unique_ptr<ShortcutRegistry> m_shortcuts;
@@ -1215,7 +1312,12 @@ private:
     bool m_sessionDevicesFailed = false;
     bool m_activeRoomAtLatest = false;
     bool m_activeRoomHydrating = false;
-    QSet<QString> m_knownInvites;
+    // Which invites to announce and which have resolved; see
+    // InviteNoticeTracker for why neither is read straight off one
+    // roomsChanged. The timer runs the next due step.
+    InviteNoticeTracker m_inviteNotices;
+    QTimer m_inviteNoticeTimer;
+    void processInviteNotices();
     // Rooms whose write failed live in SettingsManager
     // (roomNotificationModeUnsynced), per account and across restarts. These
     // are the session's: the retry's pending reads, and this device's writes
@@ -1313,6 +1415,14 @@ private:
     // snapshot and roomUpdated fires per room.
     QTimer m_trayUnreadCoalesce;
     void refreshTrayState();
+    // Re-checks TrayIcon::platformSupportsTray() and emits
+    // trayAvailableChanged() only on an actual flip. There is no Qt signal
+    // for a StatusNotifierWatcher appearing or leaving the session bus, so
+    // this is also polled (m_trayAvailabilityTimer) rather than only checked
+    // when settings change.
+    void refreshTrayAvailability();
+    bool m_trayAvailable = false;
+    QTimer m_trayAvailabilityTimer;
     // Computed once in the constructor; see restorableWindowGeometry().
     QRect m_restorableWindowGeometry;
     QString m_verificationQrToken;

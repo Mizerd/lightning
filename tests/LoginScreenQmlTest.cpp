@@ -210,6 +210,21 @@ class LoginScreenQmlTest : public QObject
         QVERIFY2(item, qPrintable(name));
         QVERIFY2(QMetaObject::invokeMethod(item, "clicked"), qPrintable(name));
     }
+
+    // Where an item is drawn once the layouts have run. A layout places its
+    // children when the window polishes, on its next frame, so a read straight
+    // after a change can see the old places: theFieldsStayPutWhenTheWaysChange
+    // compared an unplaced userField (y 117, its form still at y 0) with a
+    // placed one (y 328) whenever that frame fell between its two reads, which
+    // the timing of a parallel ctest made likely. grabWindow() polishes and
+    // renders one.
+    QPointF placed(QQuickItem *item)
+    {
+        QCoreApplication::processEvents();
+        (void)m_window->grabWindow();
+        return item->mapToScene(QPointF(0, 0));
+    }
+
     // A new server typed into the field and Enter pressed (Qt emits
     // accepted, then editingFinished).
     void typeServer(const QString &server)
@@ -441,8 +456,9 @@ private slots:
         QCoreApplication::processEvents();
         QVERIFY(shown(QStringLiteral("serverSummary")));
         QQuickItem *field = find(QStringLiteral("homeserverField"));
-        const QPointF fieldAt = field->mapToScene(QPointF(0, 0));
-        const QPointF userAt = find(QStringLiteral("userField"))->mapToScene(QPointF(0, 0));
+        const QPointF fieldAt = placed(field);
+        const QPointF userAt = placed(find(QStringLiteral("userField")));
+        QVERIFY2(userAt.y() > fieldAt.y(), "the form was read before it was laid out");
 
         click(QStringLiteral("serverChangeButton"));
         QVERIFY(field->isVisible());
@@ -453,8 +469,8 @@ private slots:
         QCOMPARE(field->property("text").toString(), kServer);
         QCOMPARE(m_client->discoveries.size(), 1);
         // Nothing moved while the row swapped.
-        QCOMPARE(field->mapToScene(QPointF(0, 0)), fieldAt);
-        QCOMPARE(find(QStringLiteral("userField"))->mapToScene(QPointF(0, 0)), userAt);
+        QCOMPARE(placed(field), fieldAt);
+        QCOMPARE(placed(find(QStringLiteral("userField"))), userAt);
     }
 
     // The fields never move when the choices below them change: the card is
@@ -462,7 +478,7 @@ private slots:
     void theFieldsStayPutWhenTheWaysChange()
     {
         QQuickItem *field = find(QStringLiteral("homeserverField"));
-        const QPointF before = field->mapToScene(QPointF(0, 0));
+        const QPointF before = placed(field);
         m_client->answer(kServer, true, false, true);
         QTRY_COMPARE(m_client->providerRequests, QStringList{ kServer });
         m_client->providers(kServer, {
@@ -471,16 +487,17 @@ private slots:
             provider(QStringLiteral("c"), QStringLiteral("C"), QString()),
         });
         QCoreApplication::processEvents();
-        const QPointF userAt = find(QStringLiteral("userField"))->mapToScene(QPointF(0, 0));
-        QCOMPARE(find(QStringLiteral("serverSummary"))->mapToScene(QPointF(0, 0)), before);
+        const QPointF userAt = placed(find(QStringLiteral("userField")));
+        QVERIFY2(userAt.y() > before.y(), "the form was read before it was laid out");
+        QCOMPARE(placed(find(QStringLiteral("serverSummary"))), before);
 
         // The server changes and everything below goes; nothing above moves.
         typeServer(QStringLiteral("other.example"));
-        QCOMPARE(field->mapToScene(QPointF(0, 0)), before);
+        QCOMPARE(placed(field), before);
         m_client->answer(QStringLiteral("https://other.example"), true, false, false);
         QCoreApplication::processEvents();
         QTRY_VERIFY(shown(QStringLiteral("userField")));
-        QCOMPARE(find(QStringLiteral("userField"))->mapToScene(QPointF(0, 0)), userAt);
+        QCOMPARE(placed(find(QStringLiteral("userField"))), userAt);
     }
 
     // A session already on this device that blocks a new sign-in (D6: one a

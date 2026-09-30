@@ -1,6 +1,7 @@
 #pragma once
 
 #include "matrix/RoomInfo.h"
+#include "models/ConversationOrder.h"
 #include "models/DirectAvatarResolver.h"
 
 #include <QAbstractListModel>
@@ -39,6 +40,15 @@ class RoomListModel : public QAbstractListModel
                    NOTIFY unreadTotalsChanged)
     Q_PROPERTY(int highlightRoomCount READ highlightRoomCount
                    NOTIFY unreadTotalsChanged)
+    /// Hold the order still: a new message updates its row in place (preview,
+    /// badge, time) and the list keeps its positions until releaseOrder() or
+    /// a view change (Space, filter tab, search). Off by default here;
+    /// AppController follows the user's setting.
+    Q_PROPERTY(bool deferReordering READ deferReordering
+                   WRITE setDeferReordering NOTIFY deferReorderingChanged)
+    /// True while the list is being held in an order that differs from the
+    /// live one, i.e. releaseOrder() would move something.
+    Q_PROPERTY(bool orderHeld READ orderHeld NOTIFY orderHeldChanged)
 public:
     enum Roles {
         RoomIdRole = Qt::UserRole + 1,
@@ -141,6 +151,17 @@ public:
     // switch.
     void setPinnedRoomId(const QString &roomId);
 
+    bool deferReordering() const { return m_hold.enabled(); }
+    void setDeferReordering(bool defer);
+    bool orderHeld() const { return m_orderHeld; }
+    /// Apply the held order now (the user has looked away, or the list has
+    /// been at rest). A no-op when nothing is held.
+    Q_INVOKABLE void releaseOrder();
+    /// How long a held order may stay stale, in ms. A cap, so a list nobody
+    /// looks away from still catches up. Test seam; 60 s in use.
+    static constexpr int kHoldCapMs = 60000;
+    void setHoldCapMs(int ms);
+
     // Account switch: drop DM profile lookups made under the previous account,
     // then rebuild.
     void clearProfileCaches();
@@ -175,7 +196,8 @@ private:
     QString effectiveAvatarUrl(const RoomInfo &room) const;
     bool passesScopeFilter(const RoomInfo &r) const;
     bool passesFilter(const RoomInfo &r) const;
-    QList<RoomInfo> desiredRooms(const QSet<QString> &superseded) const;
+    QList<RoomInfo> desiredRooms(const QSet<QString> &superseded);
+    void setOrderHeld(bool held);
     void reconcileRooms();
     // Rooms replaced by a successor the user can reach: a successor exists, we
     // hold a Joined or Invited record for it, and its predecessor points back
@@ -211,6 +233,14 @@ private:
     // Coalesces per-event refreshRoom() calls into one reconcile per turn.
     QTimer m_reconcileCoalesce;
     DirectAvatarResolver m_directAvatars;
+    // The keys the list is ordered by; see conversation::RecencyHold.
+    conversation::RecencyHold m_hold;
+    bool m_orderHeld = false;
+    // Set by desiredRooms(): whether the order it returned differs from the
+    // live one.
+    bool m_sortPending = false;
+    // Releases the hold once it has been stale this long.
+    QTimer m_holdCap;
     // roomId -> what its bridge advertises (MSC2346), filled by
     // setAdvertisedBridge; never fetched here.
     QHash<QString, BridgeBadge> m_advertisedBridges;
@@ -222,4 +252,6 @@ Q_SIGNALS:
     void roomFavouritesSupportedChanged();
     void favouritesBoundaryRoomIdChanged();
     void unreadTotalsChanged();
+    void deferReorderingChanged();
+    void orderHeldChanged();
 };

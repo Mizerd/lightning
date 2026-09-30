@@ -21,6 +21,7 @@ RoomListModel::RoomListModel(QObject *parent)
         ++m_filterGeneration;
         Q_EMIT searchQueryChanged();
         Q_EMIT filterGenerationChanged();
+        m_hold.release();
         reconcileRooms();
     });
     // Per-room update signals (roomUpdated per event, membersChanged per
@@ -32,6 +33,11 @@ RoomListModel::RoomListModel(QObject *parent)
 
     connect(&m_directAvatars, &DirectAvatarResolver::avatarResolved,
             this, &RoomListModel::onDirectAvatarResolved);
+
+    // A held order is never allowed to go stale for ever.
+    m_holdCap.setSingleShot(true);
+    m_holdCap.setInterval(kHoldCapMs);
+    connect(&m_holdCap, &QTimer::timeout, this, &RoomListModel::releaseOrder);
 
     // The favourites boundary derives from the current rows, and the model
     // mutates through many entry points; hooking its own change signals covers
@@ -57,6 +63,8 @@ void RoomListModel::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
+    // Another client's rooms are not these rooms: nothing to hold.
+    m_hold.release();
     m_directAvatars.setClient(m_client);
     clearAdvertisedBridges();
     if (m_client) {
@@ -82,6 +90,7 @@ void RoomListModel::clearProfileCaches()
     m_directAvatars.clear();
     // Bridge answers are keyed by room id and belong to the previous account.
     clearAdvertisedBridges();
+    m_hold.release();
     refresh();
 }
 
@@ -96,6 +105,8 @@ void RoomListModel::setSpaceManager(SpaceManager *spaces)
         connect(m_spaces, &SpaceManager::activeSpaceIdChanged, this, [this] {
             ++m_filterGeneration;
             Q_EMIT filterGenerationChanged();
+            // A different Space is a different list: order it fresh.
+            m_hold.release();
             reconcileRooms();
         });
         connect(m_spaces, &SpaceManager::spacesChanged,
@@ -404,6 +415,8 @@ void RoomListModel::setFilterMode(int mode)
     // Same sequence as the search and Space filter changes.
     ++m_filterGeneration;
     Q_EMIT filterGenerationChanged();
+    // A different tab is a different list: order it fresh.
+    m_hold.release();
     reconcileRooms();
     Q_EMIT filterModeChanged();
 }
@@ -413,12 +426,60 @@ void RoomListModel::setPinnedRoomId(const QString &roomId)
     if (roomId == m_pinnedRoomId)
         return;
     m_pinnedRoomId = roomId;
+    // Opening a room must not move it for a stamp that predates the open (see
+    // RecencyHold). The baseline is what the room sorts by right now.
+    QDateTime liveNow;
+    if (m_client && !roomId.isEmpty()) {
+        for (const RoomInfo &r : m_client->rooms()) {
+            if (r.id == roomId) {
+                liveNow = r.lastActivity;
+                break;
+            }
+        }
+    }
+    m_hold.setOpenRoom(roomId, liveNow);
     // Only the Unreads view depends on the pin; skip the reconcile otherwise.
     if (m_filterMode == 3) {
         ++m_filterGeneration;
         Q_EMIT filterGenerationChanged();
         reconcileRooms();
     }
+}
+
+void RoomListModel::setDeferReordering(bool defer)
+{
+    if (m_hold.enabled() == defer)
+        return;
+    m_hold.setEnabled(defer);
+    Q_EMIT deferReorderingChanged();
+    // On: take the snapshot of the order on screen. Off: back to live now.
+    reconcileRooms();
+}
+
+void RoomListModel::releaseOrder()
+{
+    m_hold.release();
+    reconcileRooms();
+}
+
+void RoomListModel::setHoldCapMs(int ms)
+{
+    m_holdCap.setInterval(ms);
+}
+
+void RoomListModel::setOrderHeld(bool held)
+{
+    if (held) {
+        // Armed once per stale spell, not restarted by every message.
+        if (!m_holdCap.isActive())
+            m_holdCap.start();
+    } else {
+        m_holdCap.stop();
+    }
+    if (m_orderHeld == held)
+        return;
+    m_orderHeld = held;
+    Q_EMIT orderHeldChanged();
 }
 
 void RoomListModel::setSearchQuery(const QString &query)
@@ -459,13 +520,30 @@ QSet<QString> RoomListModel::computeSupersededRoomIds() const
     return superseded;
 }
 
-QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded) const
+QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
 {
     QList<RoomInfo> desired;
+    m_sortPending = false;
     if (m_client) {
-        for (const auto &r : m_client->rooms()) {
+        const QList<RoomInfo> all = m_client->rooms();
+        QSet<QString> everyId;
+        everyId.reserve(all.size());
+        for (const auto &r : all) {
+            everyId.insert(r.id);
             if (passesFilter(r))
                 desired.append(r);
+        }
+        m_hold.retainOnly(everyId);
+        // The stamp each room is ordered by (held, when holding) and the one
+        // it would have if nothing were held. Only the order is held: the
+        // rows written below carry the live RoomInfo.
+        QHash<QString, QDateTime> key;
+        QHash<QString, QDateTime> target;
+        key.reserve(desired.size());
+        target.reserve(desired.size());
+        for (const auto &r : desired) {
+            key.insert(r.id, m_hold.keyFor(r.id, r.lastActivity));
+            target.insert(r.id, m_hold.target(r.id, r.lastActivity));
         }
         // Invitations first, then favourites under their own header, then one
         // activity feed of DMs and rooms interleaved by recency. Within each
@@ -475,19 +553,26 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded) con
         // of its rank: a demotion, not a filter, so the old room stays
         // openable. Applied before recency so a superseded room cannot outrank
         // a live one.
-        std::stable_sort(desired.begin(), desired.end(),
-                         [&superseded](const RoomInfo &a, const RoomInfo &b) {
-            const int aRank = orderRankOf(a);
-            const int bRank = orderRankOf(b);
-            if (aRank != bRank)
-                return aRank < bRank;
-            const bool aOld = superseded.contains(a.id);
-            const bool bOld = superseded.contains(b.id);
-            if (aOld != bOld)
-                return bOld;
-            return conversation::moreRecent(a.lastActivity, a.name, a.id,
-                                            b.lastActivity, b.name, b.id);
-        });
+        const auto order = [&superseded](const QHash<QString, QDateTime> &stamps) {
+            return [&superseded, p = &stamps](const RoomInfo &a, const RoomInfo &b) {
+                const int aRank = orderRankOf(a);
+                const int bRank = orderRankOf(b);
+                if (aRank != bRank)
+                    return aRank < bRank;
+                const bool aOld = superseded.contains(a.id);
+                const bool bOld = superseded.contains(b.id);
+                if (aOld != bOld)
+                    return bOld;
+                return conversation::moreRecent(
+                    p->value(a.id), a.name, a.id,
+                    p->value(b.id), b.name, b.id);
+            };
+        };
+        std::stable_sort(desired.begin(), desired.end(), order(key));
+        // Held differs from live exactly when sorting by the live stamps would
+        // move something.
+        m_sortPending =
+            !std::is_sorted(desired.begin(), desired.end(), order(target));
     }
     return desired;
 }
@@ -617,6 +702,7 @@ void RoomListModel::reconcileRooms()
         }
     }
 
+    setOrderHeld(m_sortPending);
     resolveMissingDirectAvatars();
 }
 

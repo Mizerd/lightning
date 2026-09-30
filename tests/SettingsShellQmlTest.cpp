@@ -27,6 +27,7 @@
 #include "app/AppController.h"
 #include "app/CustomThemeStore.h"
 #include "app/ModerationController.h"
+#include "models/MessageSearchController.h"
 #include "profile/ProfileBioManager.h"
 #include "app/PinnedMessagesController.h"
 #include "app/RoomInfoController.h"
@@ -1440,6 +1441,31 @@ private slots:
                                          .join(QStringLiteral(", ")))));
     }
 
+    // Ctrl+, from the chat shell (Settings not yet open) must open Settings
+    // AND land keyboard focus in the search field, not just show the screen.
+    // Before the fix, MainScreen's Shortcut called app.showSettings() alone;
+    // only SettingsScreen's OWN Shortcut (gated to when it is already
+    // visible, exercised by the next test) focused the field, so the very
+    // first Ctrl+, from the chat shell opened Settings with focus nowhere
+    // useful — Main.qml's loader only forces focus on its own root item.
+    void ctrlCommaFromTheChatShellOpensSettingsAndFocusesSearch()
+    {
+        m_controller->showMain();
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(item("spacesRail") && item("spacesRail")->isVisible());
+        auto *settingsLoader = m_window->findChild<QQuickItem *>(
+            QStringLiteral("settingsViewLoader"));
+        QVERIFY(settingsLoader);
+        QVERIFY(!settingsLoader->isVisible());
+
+        QTest::keyClick(m_window, Qt::Key_Comma, Qt::ControlModifier);
+
+        QTRY_VERIFY(settingsLoader->isVisible());
+        auto *search = item("settingsSearchField");
+        QVERIFY(search);
+        QTRY_VERIFY(search->hasActiveFocus());
+    }
+
     void ctrlCommaFocusesSearchThenFiltersNavAndBindsInlineControl()
     {
         auto *search = item("settingsSearchField");
@@ -2278,6 +2304,60 @@ private slots:
                  qPrintable(QStringLiteral(
                      "the message-search-index paragraph leads at %1 where "
                      "its neighbours lead at %2").arg(lead).arg(wantLead)));
+    }
+
+    // "Index all rooms" is found by searching Settings, its entry names a
+    // live control, the card discloses the cost and the plaintext-at-rest
+    // consequence, and the control follows the pass: start, pause, resume.
+    // Old code: no entry and no control, so "index all" found nothing.
+    void indexAllRoomsIsFindableInSettingsSearchAndFollowsThePass()
+    {
+        m_controller->showSettings();
+        QCoreApplication::processEvents();
+        auto *screen = item("settingsScreenRoot");
+        auto *search = item("settingsSearchField");
+        QVERIFY(screen && search);
+        search->setProperty("text", QStringLiteral("index all"));
+        QCoreApplication::processEvents();
+        bool found = false;
+        const QVariantList hits =
+            screen->property("matchedSearchResults").toList();
+        for (const QVariant &hit : hits) {
+            found = found
+                || hit.toMap().value(QStringLiteral("anchor")).toString()
+                       == QStringLiteral("indexAllRoomsButton");
+        }
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+        QVERIFY2(found, "searching Settings for \"index all\" does not find "
+                        "Index all rooms");
+
+        m_controller->showSettingsSection(QStringLiteral("privacy"));
+        QCoreApplication::processEvents();
+        auto *button = item("indexAllRoomsButton");
+        auto *help = item("indexAllHelpText");
+        QVERIFY2(button && help, "the index-all control is not live");
+        const QString disclosure = help->property("text").toString();
+        QVERIFY2(disclosure.contains(QStringLiteral("bandwidth"))
+                     && disclosure.contains(QStringLiteral("decrypted"))
+                     && disclosure.contains(QStringLiteral("cannot be decrypted")),
+                 "the index-all disclosure lost its cost, privacy or "
+                 "undecryptable-history sentence");
+        QCOMPARE(button->property("text").toString(),
+                 QStringLiteral("Index all rooms"));
+
+        auto *search_ = m_controller->messageSearch();
+        search_->indexAllRooms();
+        QTRY_COMPARE(button->property("text").toString(), QStringLiteral("Pause"));
+        search_->pauseIndexAll();
+        QTRY_COMPARE(button->property("text").toString(), QStringLiteral("Resume"));
+        auto *stop = item("indexAllCancelButton");
+        QVERIFY(stop && stop->isVisible());
+        search_->cancelIndexAll();
+        QTRY_COMPARE(button->property("text").toString(),
+                     QStringLiteral("Index all rooms"));
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
     }
 
     // Every wrapping paragraph in SettingsScreen.qml sets body leading. A

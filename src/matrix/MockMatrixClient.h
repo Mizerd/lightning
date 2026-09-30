@@ -423,6 +423,20 @@ public:
     void forgetIndexedEvent(const QString &eventId) override;
     void forgetIndexedRoom(const QString &roomId) override;
     void clearSearchIndex() override;
+    // "Index all rooms": records every call and answers like the bridge does
+    // (a status at once; a running pass stays "running" until a test emits
+    // more progress itself).
+    quint64 indexAllRooms(bool resumeOnly) override;
+    quint64 pauseIndexAll() override;
+    quint64 cancelIndexAll() override;
+    quint64 requestIndexAllStatus() override;
+    void setIndexAllHold(unsigned bits) override { indexAllHold = bits; }
+    QList<bool> indexAllStarts;   // resumeOnly of every start, in order
+    int indexAllPauses = 0;
+    int indexAllCancels = 0;
+    unsigned indexAllHold = 0;
+    /// A run the mock considers interrupted and resumable.
+    bool mockIndexAllPending = false;
     /// Mirrors localsearch::MIN_QUERY_CHARS (a Rust constant cannot be
     /// included); a different minimum would let a UI pass here and fail in
     /// production.

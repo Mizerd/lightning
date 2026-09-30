@@ -15,6 +15,21 @@ bool unreadableSecretBlocksLogin(bool storeExists,
     return secretBackendUnavailable || secretMissesAreInconclusive;
 }
 
+bool lostSignInDeviceMayResume(const QString &typedUserId,
+                               const QString &typedHomeserver,
+                               const QString &recordUserId,
+                               const QString &recordHomeserver,
+                               const QString &recordDeviceId,
+                               bool recordSignedInThroughBrowser)
+{
+    if (recordSignedInThroughBrowser || typedUserId.isEmpty() || typedHomeserver.isEmpty()
+        || recordUserId.isEmpty() || recordHomeserver.isEmpty()
+        || recordDeviceId.trimmed().isEmpty()) {
+        return false;
+    }
+    return typedUserId == recordUserId && typedHomeserver == recordHomeserver;
+}
+
 StoreBlockReason passwordLoginBlockReason(
     const app_data::AccountIdentity &target,
     bool storeExists,
@@ -33,6 +48,39 @@ StoreBlockReason passwordLoginBlockReason(
     // be opened by restoring its exact saved device. The account should be
     // activated from the switcher instead.
     return StoreBlockReason::ExistingStoreNeedsRestore;
+}
+
+bool revokedDeviceMayBeReplaced(const QString &recordUserId,
+                                const QString &recordDeviceId,
+                                const QString &revokedUserId,
+                                const QString &revokedDeviceId)
+{
+    if (recordUserId.isEmpty() || recordDeviceId.isEmpty()
+        || revokedUserId.isEmpty() || revokedDeviceId.isEmpty()) {
+        return false;
+    }
+    return recordUserId == revokedUserId && recordDeviceId == revokedDeviceId;
+}
+
+bool softLoggedOutDeviceMayResume(const QString &typedUserId,
+                                  const QString &typedHomeserver,
+                                  const QString &recordUserId,
+                                  const QString &recordHomeserver,
+                                  const QString &recordDeviceId,
+                                  const QString &softUserId,
+                                  const QString &softHomeserver,
+                                  const QString &softDeviceId)
+{
+    for (const QString *value : { &typedUserId, &typedHomeserver, &recordUserId,
+                                  &recordHomeserver, &recordDeviceId, &softUserId,
+                                  &softHomeserver, &softDeviceId }) {
+        if (value->isEmpty())
+            return false;
+    }
+    return typedUserId == recordUserId && recordUserId == softUserId
+           && typedHomeserver == recordHomeserver
+           && recordHomeserver == softHomeserver
+           && recordDeviceId == softDeviceId;
 }
 
 StoreBlockReason oauthLoginBlockReason(
@@ -104,6 +152,8 @@ QString diagnosticName(StoreBlockReason reason)
         return QStringLiteral("saved_session_without_store");
     case StoreBlockReason::AccessTokenRevoked:
         return QStringLiteral("access_token_revoked");
+    case StoreBlockReason::AccessTokenExpired:
+        return QStringLiteral("access_token_expired");
     case StoreBlockReason::AmbiguousStoreCandidates:
         return QStringLiteral("ambiguous_store_candidates");
     case StoreBlockReason::SecretBackendUnavailable:
@@ -112,6 +162,8 @@ QString diagnosticName(StoreBlockReason reason)
         // Stable token: restoreSession() emits it as a literal and the UI keys
         // off it.
         return QStringLiteral("invalid_saved_account_identity");
+    case StoreBlockReason::KeyringLostSession:
+        return QStringLiteral("keyring_lost_session");
     }
     return QStringLiteral("unknown");
 }
@@ -145,6 +197,9 @@ QString userMessage(StoreBlockReason reason)
     case StoreBlockReason::AccessTokenRevoked:
         return msg("This session was signed out on the server. Sign in again "
                   "to continue. Your local data is intact.");
+    case StoreBlockReason::AccessTokenExpired:
+        return msg("Your session on this server has expired. Sign in again "
+                  "to continue on this device. Your local data is intact.");
     case StoreBlockReason::MissingSessionMetadata:
         return msg("Lightning found a local encryption store for this account "
                   "with no sign-in saved alongside it. Sign in again to "
@@ -172,6 +227,10 @@ QString userMessage(StoreBlockReason reason)
                   "Matrix session or device. Reset the local Lightning "
                   "session for this account, then sign in again. This does "
                   "not delete server messages or Element data.");
+    case StoreBlockReason::KeyringLostSession:
+        return msg("Your system keyring no longer returns this account's saved "
+                  "sign-in. Nothing on this device has been deleted, and its "
+                  "local encryption store is intact.");
     }
     return msg("Lightning could not open the local session for this account.");
 }
@@ -188,10 +247,13 @@ bool suggestsLocalReset(StoreBlockReason reason)
     case StoreBlockReason::MissingStoreForSavedSession:
     case StoreBlockReason::AmbiguousStoreCandidates:
     case StoreBlockReason::AccessTokenRevoked:
+    case StoreBlockReason::AccessTokenExpired:
     case StoreBlockReason::ExistingStoreNeedsRestore:
     // The sign-in may be fine and merely unreadable; deleting the store for a
     // locked keyring destroys room keys for nothing.
     case StoreBlockReason::SecretBackendUnavailable:
+    // The keyring lost the sign-in; the store is this account's own and whole.
+    case StoreBlockReason::KeyringLostSession:
         return false;
     }
     return false;
@@ -208,9 +270,11 @@ bool suggestsLocalResetForCode(const QString &reasonCode)
           StoreBlockReason::ExistingStoreNeedsRestore,
           StoreBlockReason::MissingStoreForSavedSession,
           StoreBlockReason::AccessTokenRevoked,
+          StoreBlockReason::AccessTokenExpired,
           StoreBlockReason::AmbiguousStoreCandidates,
           StoreBlockReason::SecretBackendUnavailable,
-          StoreBlockReason::InvalidSavedIdentity}) {
+          StoreBlockReason::InvalidSavedIdentity,
+          StoreBlockReason::KeyringLostSession}) {
         if (diagnosticName(reason) == code)
             return suggestsLocalReset(reason);
     }

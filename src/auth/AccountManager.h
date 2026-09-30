@@ -18,7 +18,7 @@ class AccountManager : public QObject
     Q_PROPERTY(QStringList knownUserIds READ knownUserIds NOTIFY accountsChanged)
     Q_PROPERTY(bool hasActiveAccount READ hasActiveAccount NOTIFY activeUserIdChanged)
     // List of maps: {userId, homeserver, displayName, avatarUrl, isActive,
-    // needsSignIn}.
+    // needsSignIn, sessionRevoked}.
     Q_PROPERTY(QVariantList accounts READ accounts NOTIFY accountsChanged)
 
 public:
@@ -37,6 +37,12 @@ public:
 
     void setActiveUser(const QString &userId);
     void clearActiveUser();
+    // The server revoked this account's session during this run. Held in
+    // memory only: the next restore asks the server again. Cleared when the
+    // account signs in again or is removed.
+    void markSessionRevoked(const QString &userId);
+    void clearSessionRevoked(const QString &userId);
+    bool sessionRevoked(const QString &userId) const;
     // Cache the account's own profile for the switcher UI.
     void updateProfile(const QString &userId,
                        const QString &displayName,
@@ -55,4 +61,5 @@ private:
     bool secretBackendUnavailable() const;
 
     SettingsManager *m_settings = nullptr; // not owned; outlives this object
+    QStringList m_revokedSessions;
 };

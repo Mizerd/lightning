@@ -181,10 +181,124 @@ private Q_SLOTS:
         QCOMPARE(catalog.emojiOnlySequenceCount(text), expected);
     }
 
+    // ── Colon-shortcode completion (":thumbs" -> 👍) ─────────────────────
+    //
+    // On the pre-feature code neither method exists and this file fails to
+    // compile at all, which is the sharpest possible regression signal for a
+    // method that a future edit could otherwise delete unnoticed.
+    void completionsRankThumbsUpFirst()
+    {
+        SettingsManager settings;
+        // Earlier cases persist a skin tone; these expect the plain glyph.
+        settings.setPreferredEmojiTone(QString());
+        EmojiCatalog catalog(&settings);
+        const QVariantList rows = catalog.completionsForPrefix(
+            QStringLiteral("thumbs"), 12);
+        QVERIFY2(rows.size() >= 2, "expected both thumbs up and thumbs down");
+        const QVariantMap first = rows.first().toMap();
+        QCOMPARE(first.value(QStringLiteral("kind")).toString(),
+                 QStringLiteral("unicode"));
+        QCOMPARE(first.value(QStringLiteral("emoji")).toString(),
+                 QStringLiteral("👍"));
+        QVERIFY2(rows.size() <= 12, "must respect the requested limit");
+    }
+
+    // Gemoji-style aliases already ship in the TSV's own column (no separate
+    // alias table needed): "+1"/"thumbsup" -> 👍, "heart" -> ❤️, "joy" -> 😂,
+    // "fire" -> 🔥, matching what Slack/Discord/GitHub users expect.
+    void aliasesFromTheCatalogueResolveExactly_data()
+    {
+        QTest::addColumn<QString>("code");
+        QTest::addColumn<QString>("expected");
+        QTest::newRow("+1") << QStringLiteral("+1") << QStringLiteral("👍");
+        QTest::newRow("thumbsup") << QStringLiteral("thumbsup") << QStringLiteral("👍");
+        QTest::newRow("-1") << QStringLiteral("-1") << QStringLiteral("👎");
+        QTest::newRow("heart") << QStringLiteral("heart") << QStringLiteral("❤️");
+        QTest::newRow("joy") << QStringLiteral("joy") << QStringLiteral("😂");
+        QTest::newRow("fire") << QStringLiteral("fire") << QStringLiteral("🔥");
+        QTest::newRow("case-insensitive") << QStringLiteral("THUMBSUP") << QStringLiteral("👍");
+    }
+
+    void aliasesFromTheCatalogueResolveExactly()
+    {
+        QFETCH(QString, code);
+        QFETCH(QString, expected);
+        SettingsManager settings;
+        // Earlier cases persist a skin tone; these expect the plain glyph.
+        settings.setPreferredEmojiTone(QString());
+        EmojiCatalog catalog(&settings);
+        QCOMPARE(catalog.emojiForShortcode(code), expected);
+    }
+
+    void unknownShortcodeResolvesToNothing()
+    {
+        SettingsManager settings;
+        EmojiCatalog catalog(&settings);
+        QVERIFY(catalog.emojiForShortcode(QStringLiteral("not-a-real-emoji")).isEmpty());
+        QVERIFY(catalog.emojiForShortcode(QString()).isEmpty());
+    }
+
+    // Preferred tone applies to both the exact-alias resolver and the
+    // fuzzy-search results, so a shortcode and a search result never
+    // disagree about which variant the user gets.
+    void toneAppliesToShortcodeAndSearchAlike()
+    {
+        SettingsManager settings;
+        EmojiCatalog catalog(&settings);
+        catalog.setPreferredTone(QStringLiteral("medium"));
+        QCOMPARE(catalog.emojiForShortcode(QStringLiteral("thumbsup")),
+                 QStringLiteral("👍🏽"));
+        const QVariantList rows =
+            catalog.completionsForPrefix(QStringLiteral("thumbs"), 12);
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("emoji")).toString(),
+                 QStringLiteral("👍🏽"));
+    }
+
+    // Recently used emoji are boosted within their own ranking tier, but a
+    // tier match still beats a non-matching recent, and non-recent ties keep
+    // catalogue order.
+    void recentlyUsedIsBoostedWithinItsTier()
+    {
+        SettingsManager settings;
+        EmojiCatalog catalog(&settings);
+        QVariantList rows = catalog.completionsForPrefix(QStringLiteral("cat"), 12);
+        QVERIFY2(rows.size() >= 2, "expected multiple name/alias-prefix cat emoji");
+        // Unboosted: catalogue order among the tier-0 "cat" matches, 😹
+        // ("cat with tears of joy") sorting ahead of 🐈 ("cat").
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("emoji")).toString(),
+                 QStringLiteral("😹"));
+        int catIndex = -1;
+        for (int i = 0; i < rows.size(); ++i) {
+            if (rows.at(i).toMap().value(QStringLiteral("emoji")).toString()
+                == QStringLiteral("🐈")) { catIndex = i; break; }
+        }
+        QVERIFY2(catIndex > 0, "🐈 must not already lead with nothing recorded");
+
+        catalog.recordUse(QStringLiteral("🐈"));
+        rows = catalog.completionsForPrefix(QStringLiteral("cat"), 12);
+        QCOMPARE(rows.first().toMap().value(QStringLiteral("emoji")).toString(),
+                 QStringLiteral("🐈"));
+        // The non-recent tie (😹 vs the others) is unaffected by the boost.
+        QCOMPARE(rows.at(1).toMap().value(QStringLiteral("emoji")).toString(),
+                 QStringLiteral("😹"));
+    }
+
+    void completionsForPrefixIgnoresEmptyAndBlank()
+    {
+        SettingsManager settings;
+        EmojiCatalog catalog(&settings);
+        QVERIFY(catalog.completionsForPrefix(QString(), 12).isEmpty());
+        QVERIFY(catalog.completionsForPrefix(QStringLiteral("   "), 12).isEmpty());
+        QVERIFY(catalog.completionsForPrefix(
+            QStringLiteral("no-such-emoji-query-4b11"), 12).isEmpty());
+    }
+
     void recentPersistenceAndBound()
     {
         SettingsManager settings;
         EmojiCatalog catalog(&settings);
+        // Other cases record uses into the same persisted list.
+        catalog.clearRecent();
         catalog.recordUse(QStringLiteral("😀"));
         catalog.recordUse(QStringLiteral("❤️"));
         catalog.recordUse(QStringLiteral("😀"));

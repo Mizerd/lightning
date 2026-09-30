@@ -85,6 +85,10 @@ public:
     static QString normalizedServerAddress(const QString &typed);
 
     bool isLoggingIn() const { return m_loggingIn; }
+    // Whether the latest loginSucceeded came from a sign-in the user started
+    // here (password, browser/OAuth, SSO) rather than a restored session.
+    // Read from a loginSucceeded handler.
+    bool lastSignInWasInteractive() const { return m_lastSignInInteractive; }
     bool isLoggedIn() const;
     QString currentUserId() const;
     QString lastError() const { return m_lastError; }
@@ -170,6 +174,7 @@ private:
 
     MatrixClient *m_client = nullptr;
     bool m_loggingIn = false;
+    bool m_lastSignInInteractive = false;
     QString m_lastError;
     QString m_loginStage = QStringLiteral("idle");
     QString m_discoveryState = QStringLiteral("idle");

@@ -1075,6 +1075,11 @@ QVariantMap RoomInfoController::memberFor(const QString &userId,
     };
 }
 
+QVariantList RoomInfoController::joinedMembers() const
+{
+    return visibleMembers(QString(), QStringLiteral("joined"), false);
+}
+
 QVariantList RoomInfoController::filterMembers(const QString &needle,
                                                const QString &membership,
                                                bool alphabetical) const

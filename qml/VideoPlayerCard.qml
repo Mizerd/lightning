@@ -104,6 +104,20 @@ Item {
         fetchState = "idle"
         app.playback.release(root.ownerKey)
     }
+    // Reached at end of playback. Some backends clear the video sink once the
+    // stream ends rather than holding the last decoded frame, which is the
+    // literal black card this was reported as; nothing here can rely on
+    // VideoOutput still showing anything. Closing the inline player exactly
+    // like the explicit close button reveals MessageDelegate's own cover —
+    // thumbnail and Play glyph included — so the poster and a replay
+    // affordance are what the user sees, the same as the cover before Play
+    // was first pressed. Its own name (not inlined into onMediaStatusChanged)
+    // so a test can drive it directly: a real decoder reaching EndOfMedia
+    // needs a real codec, which this test tree cannot assume.
+    function handleEndOfMedia() {
+        resetPlayback()
+        closeRequested()
+    }
     // Delegate reuse: never keep the previous event's position, source or
     // audibility.
     onMediaKeyChanged: resetPlayback()
@@ -191,6 +205,10 @@ Item {
             volume: app.settings.mediaVolume
         }
         onErrorOccurred: root.fetchState = "failed"
+        onMediaStatusChanged: {
+            if (mediaStatus === MediaPlayer.EndOfMedia)
+                root.handleEndOfMedia()
+        }
     }
 
     Rectangle {

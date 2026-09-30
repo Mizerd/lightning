@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "calls/CallFrameCryptor.h"
+#include "calls/CaptureClock.h"
 #include "calls/CaptureDeviceSelection.h"
 #include "calls/GstBootstrap.h"
 #include "calls/RtpVp8Payloader.h"
@@ -1021,6 +1022,7 @@ void SfuMediaEngine::start()
     m_framesDropped.store(0);
     m_framesClearButCiphertextShaped.store(0);
     m_framesServerInjected.store(0);
+    m_micClockHold.reset();
     m_microphoneMuted = false;
     m_outputMuted.store(false);
     m_publishedMedia.store(0);
@@ -2587,6 +2589,33 @@ void SfuMediaEngine::publishAudio(const QString &cid)
         }
         gst_object_unref(micsrc);
     }
+    // A capture ahead of the clock must not stall webrtcbin's clocksync; see
+    // CaptureClock.h. Seen at the capture, corrected on the RTP, so the RTP
+    // timestamps stay sample-accurate.
+    GstElement *micsrc = gst_bin_get_by_name(GST_BIN(bin), "micsrc");
+    GstElement *rtpOut = gst_bin_get_by_name(GST_BIN(bin), "micrtpcaps");
+    GstPad *captured = micsrc ? gst_element_get_static_pad(micsrc, "src") : nullptr;
+    GstPad *rtp = rtpOut ? gst_element_get_static_pad(rtpOut, "src") : nullptr;
+    if (captured && rtp) {
+        auto hold = std::make_shared<lightning::calls::CaptureClockHold>();
+        hold->report = [](quint64 count, qint64 leadMs) {
+            qCWarning(lcSfuMedia)
+                << "microphone timestamps ran" << leadMs
+                << "ms ahead of the pipeline clock; its packets are released "
+                   "on time (packets held so far:"
+                << count << ")";
+        };
+        m_micClockHold = hold;
+        lightning::calls::holdCaptureToClock(captured, rtp, hold);
+    }
+    if (captured)
+        gst_object_unref(captured);
+    if (rtp)
+        gst_object_unref(rtp);
+    if (micsrc)
+        gst_object_unref(micsrc);
+    if (rtpOut)
+        gst_object_unref(rtpOut);
     // The speaking indicator: LiveKit decides who is speaking from the RFC
     // 6464 audio level each packet carries. `level` attaches it as a meta,
     // opusenc and the encrypt probe keep it, and the payloader writes it for
@@ -5740,6 +5769,11 @@ bool SfuMediaEngine::micSilenceReached(qint64 silentSinceMs, qint64 nowMs)
     if (silentSinceMs < 0)
         return false;
     return nowMs - silentSinceMs >= kMicSilenceWindowMs;
+}
+
+quint64 SfuMediaEngine::micBuffersHeldToClock() const
+{
+    return m_micClockHold ? m_micClockHold->held.load() : 0;
 }
 
 void SfuMediaEngine::resetMicLevelState()

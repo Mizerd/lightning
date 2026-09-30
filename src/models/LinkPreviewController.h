@@ -140,6 +140,9 @@ public:
     /// MediaVisibilityStore::kMaxHidden).
     static constexpr int kMaxDismissed = 4096;
     Q_INVOKABLE QString linkifiedBody(const QString &body) const;
+    // A plain-text room or Space topic as safe rich text for TopicText.qml:
+    // http(s) and bare "www." links, everything else escaped.
+    Q_INVOKABLE QString linkifiedTopic(const QString &topic) const;
 
     // Test hooks.
     void setUrlCacheLimit(int limit) { m_urlCacheLimit = limit; }

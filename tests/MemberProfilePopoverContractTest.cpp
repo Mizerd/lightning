@@ -239,6 +239,15 @@ private slots:
                  "the anchors do not bracket the item that renders the bio");
         QVERIFY2(bioBlock.contains(QStringLiteral("textFormat: Text.PlainText")),
                  qPrintable(bioBlock.left(400)));
+        // Reported: nothing on the room information panel or its siblings could
+        // be selected or copied. The bio is a read-only TextEdit that selects,
+        // still plain text (the checks above).
+        QVERIFY2(bioBlock.contains(QStringLiteral("readOnly: true")),
+                 qPrintable(bioBlock.left(600)));
+        QVERIFY2(bioBlock.contains(QStringLiteral("selectByMouse: true")),
+                 "the bio cannot be selected with the mouse");
+        QVERIFY2(bioBlock.contains(QStringLiteral("selectByKeyboard: true")),
+                 "the bio cannot be selected with the keyboard");
     }
 
     // Presence wording lives only in PresenceDot; a second copy here would

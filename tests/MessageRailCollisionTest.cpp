@@ -7,6 +7,10 @@
 // reactions must stay inside (or under) their own bubble, and an own bubble
 // must leave the receipt rail clear.
 //
+// And the body's right-to-left paragraphs (2026-09-30: an all-Arabic
+// paragraph read left-aligned): each paragraph takes its own direction and
+// starts at the edge it reads from.
+//
 // These are geometric assertions on the real delegate, not a source scan: a
 // scan cannot see an overlap.
 #include <QtTest/QtTest>
@@ -15,9 +19,12 @@
 #include <QQmlContext>
 #include <QQmlProperty>
 #include <QQuickItem>
+#include <QQuickTextDocument>
 #include <QQuickWindow>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTextBlock>
+#include <QTextDocument>
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
@@ -179,6 +186,33 @@ class MessageRailCollisionTest : public QObject
     static qreal leftEdgeIn(QQuickItem *item, QQuickItem *reference)
     {
         return item->mapToItem(reference, QPointF(0, 0)).x();
+    }
+
+    /// "مرحبا بالعالم": short, so it never wraps and a body as wide as its
+    /// own text stays narrower than the column.
+    static QString arabic()
+    {
+        return QStringLiteral("\u0645\u0631\u062D\u0628\u0627 "
+                              "\u0628\u0627\u0644\u0639\u0627\u0644\u0645");
+    }
+
+    static QTextDocument *documentOf(QQuickItem *textEdit)
+    {
+        auto *quick =
+            textEdit->property("textDocument").value<QQuickTextDocument *>();
+        return quick ? quick->textDocument() : nullptr;
+    }
+
+    /// Where a paragraph's first character is drawn: the right end of its
+    /// line when it reads right to left.
+    static qreal paragraphStartIn(QQuickItem *textEdit, const QTextBlock &block,
+                                  QQuickItem *reference)
+    {
+        QRectF r;
+        QMetaObject::invokeMethod(textEdit, "positionToRectangle",
+                                  Q_RETURN_ARG(QRectF, r),
+                                  Q_ARG(int, block.position()));
+        return textEdit->mapToItem(reference, r.topLeft()).x();
     }
 
 private Q_SLOTS:
@@ -527,6 +561,148 @@ private Q_SLOTS:
                      "the sender header ends at %1 and the receipt facepile "
                      "starts at %2 — the timestamp is under the avatars")
                      .arg(headerRight).arg(leftEdgeIn(pile, d.root))));
+    }
+
+    // An all-Arabic paragraph starts at the column's right edge. It read
+    // left-aligned: right-aligned inside a body exactly as wide as its text.
+    // A leading emoji changes nothing (TextEdit reads its surrogate as left to
+    // right). A left-to-right line with an Arabic run keeps its own width.
+    void aRightToLeftParagraphStartsAtTheColumnsRightEdge()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(0);   // Modern
+
+        const QStringList bodies = {
+            arabic(),
+            QString::fromUtf8("\xf0\x9f\x98\x80 ") + arabic(),
+        };
+        for (const QString &text : bodies) {
+            QVariantMap f = baseFixture();
+            f.insert(QStringLiteral("body"), text);
+            Delegate d;
+            QVERIFY(build(app, f, d));
+            auto *column = d.root->findChild<QQuickItem *>(
+                QStringLiteral("messageContentColumn"));
+            auto *body = d.root->findChild<QQuickItem *>(
+                QStringLiteral("messageBody"));
+            QVERIFY(column);
+            QVERIFY2(body && body->isVisible(), "no message body in the row");
+            QTextDocument *doc = documentOf(body);
+            QVERIFY(doc);
+            QCOMPARE(doc->firstBlock().textDirection(), Qt::RightToLeft);
+            const qreal start = paragraphStartIn(body, doc->firstBlock(), d.root);
+            QVERIFY2(qAbs(start - rightEdgeIn(column, d.root)) <= 1.5,
+                     qPrintable(QStringLiteral(
+                         "the Arabic paragraph starts at %1 and the column "
+                         "ends at %2 — it reads left-aligned")
+                         .arg(start).arg(rightEdgeIn(column, d.root))));
+        }
+
+        // Control: left to right, and not widened.
+        QVariantMap g = baseFixture();
+        g.insert(QStringLiteral("body"), QStringLiteral("Mixed: hello 123 ")
+                                             + arabic() + QStringLiteral(" world"));
+        Delegate e;
+        QVERIFY(build(app, g, e));
+        auto *mixed = e.root->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(mixed);
+        QTextDocument *mixedDoc = documentOf(mixed);
+        QVERIFY(mixedDoc);
+        QCOMPARE(mixedDoc->firstBlock().textDirection(), Qt::LeftToRight);
+        QVERIFY2(qAbs(paragraphStartIn(mixed, mixedDoc->firstBlock(), e.root)
+                      - leftEdgeIn(mixed, e.root)) <= 1.5,
+                 "a left-to-right line does not start at the body's left edge");
+        QVERIFY2(mixed->width() <= mixed->implicitWidth() + 1.0,
+                 qPrintable(QStringLiteral(
+                     "a left-to-right body was widened to %1 (its text is %2)")
+                     .arg(mixed->width()).arg(mixed->implicitWidth())));
+    }
+
+    // Each paragraph reads in its own direction, whichever comes first. The
+    // TextEdit took one direction for the whole message from its first
+    // paragraph.
+    void eachParagraphTakesItsOwnDirection()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(0);   // Modern
+
+        const QString english = QStringLiteral("Hello world");
+        const QList<QStringList> orders = {
+            { english, arabic() },
+            { arabic(), english },
+        };
+        for (const QStringList &order : orders) {
+            QVariantMap f = baseFixture();
+            f.insert(QStringLiteral("body"), order.join(QStringLiteral("\n\n")));
+            f.insert(QStringLiteral("formattedBody"),
+                     QStringLiteral("<p>%1</p><p>%2</p>")
+                         .arg(order.at(0), order.at(1)));
+            Delegate d;
+            QVERIFY(build(app, f, d));
+            auto *column = d.root->findChild<QQuickItem *>(
+                QStringLiteral("messageContentColumn"));
+            auto *body = d.root->findChild<QQuickItem *>(
+                QStringLiteral("messageBody"));
+            QVERIFY(column && body);
+            QTextDocument *doc = documentOf(body);
+            QVERIFY(doc);
+            QCOMPARE(doc->blockCount(), 2);
+            int checked = 0;
+            for (QTextBlock b = doc->begin(); b.isValid(); b = b.next()) {
+                const bool rtl = b.text() == arabic();
+                QCOMPARE(b.textDirection(),
+                         rtl ? Qt::RightToLeft : Qt::LeftToRight);
+                const qreal edge = rtl ? rightEdgeIn(column, d.root)
+                                       : leftEdgeIn(column, d.root);
+                const qreal start = paragraphStartIn(body, b, d.root);
+                QVERIFY2(qAbs(start - edge) <= 1.5,
+                         qPrintable(QStringLiteral(
+                             "paragraph %1 (%2) starts at %3, not at %4")
+                             .arg(b.blockNumber())
+                             .arg(rtl ? QStringLiteral("Arabic")
+                                      : QStringLiteral("English"))
+                             .arg(start).arg(edge)));
+                ++checked;
+            }
+            QCOMPARE(checked, 2);
+        }
+    }
+
+    // Bubbles: a right-to-left body starts at the bubble's inner right edge
+    // (here the sender header, not the text, sets the bubble's width) and
+    // stays inside the bubble.
+    void aRightToLeftBodyStartsAtItsBubblesInnerRightEdge()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);   // Bubbles
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("body"), arabic());
+        Delegate d;
+        QVERIFY(build(app, f, d, kRowWidth, true));
+        QVERIFY(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool());
+
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *body = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(bubble);
+        QVERIFY2(body && body->isVisible(), "no message body in the row");
+        QTextDocument *doc = documentOf(body);
+        QVERIFY(doc);
+        QVERIFY2(body->implicitWidth() + 20 < bubble->width(),
+                 "the fixture's header no longer outgrows its text");
+        const qreal start = paragraphStartIn(body, doc->firstBlock(), d.root);
+        QVERIFY2(qAbs(start - innerRight(d.root, bubble)) <= 1.5,
+                 qPrintable(QStringLiteral(
+                     "the Arabic paragraph starts at %1, the bubble's inner "
+                     "edge is at %2")
+                     .arg(start).arg(innerRight(d.root, bubble))));
+        QVERIFY(rightEdgeIn(body, d.root) <= innerRight(d.root, bubble) + 0.6);
     }
 
 private:

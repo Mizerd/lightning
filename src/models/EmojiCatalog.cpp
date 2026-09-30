@@ -4,8 +4,11 @@
 
 #include <QFile>
 #include <QLoggingCategory>
+#include <QRegularExpression>
 #include <QSet>
 #include <QTextBoundaryFinder>
+
+#include <algorithm>
 
 Q_LOGGING_CATEGORY(lcEmoji, "matrix.emoji")
 
@@ -108,6 +111,21 @@ void EmojiCatalog::load()
         stripped.remove(QChar(0xFE0F));
         if (!stripped.isEmpty())
             m_sequencesNoVs16.insert(stripped);
+    }
+    // Colon-shortcode index, built once: the TSV's aliases column is already
+    // gemoji-style short names ("+1 thumbsup" for 👍), space-separated, on
+    // the tone-neutral base row only.
+    for (int i = 0; i < m_entries.size(); ++i) {
+        const Entry &entry = m_entries.at(i);
+        if (entry.emoji != entry.baseEmoji || entry.keywords.isEmpty())
+            continue;
+        const QStringList aliases =
+            entry.keywords.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        for (const QString &alias : aliases) {
+            const QString key = alias.toCaseFolded();
+            if (!key.isEmpty() && !m_aliasToIndex.contains(key))
+                m_aliasToIndex.insert(key, i);
+        }
     }
     qCInfo(lcEmoji) << "loaded local" << dataVersion() << "catalogue:"
                     << m_entries.size() << "sequences; duplicates ignored:"
@@ -317,4 +335,128 @@ void EmojiCatalog::setPreferredTone(const QString &tone)
         return;
     m_settings->setPreferredEmojiTone(tone);
     Q_EMIT preferredToneChanged();
+}
+
+QString EmojiCatalog::toneAdjustedEmoji(const Entry &entry) const
+{
+    if (!entry.hasSkinTones)
+        return entry.emoji;
+    const QString tone = preferredTone();
+    if (tone.isEmpty() || tone == QLatin1String("default"))
+        return entry.emoji;
+    for (int index : m_variants.value(entry.baseEmoji)) {
+        if (m_entries.at(index).tone == tone)
+            return m_entries.at(index).emoji;
+    }
+    return entry.emoji;
+}
+
+QVariantMap EmojiCatalog::completionRow(int index) const
+{
+    const Entry &entry = m_entries.at(index);
+    QString shortcode;
+    if (!entry.keywords.isEmpty()) {
+        const QStringList aliases =
+            entry.keywords.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        if (!aliases.isEmpty())
+            shortcode = aliases.first();
+    }
+    if (shortcode.isEmpty()) {
+        // No curated alias (rare): a display-only slug from the name. Never
+        // used for lookup, so it need not be unique.
+        shortcode = entry.name.toCaseFolded();
+        shortcode.replace(QRegularExpression(QStringLiteral("[^a-z0-9]+")),
+                          QStringLiteral("_"));
+        while (shortcode.startsWith(QLatin1Char('_')))
+            shortcode.remove(0, 1);
+        while (shortcode.endsWith(QLatin1Char('_')))
+            shortcode.chop(1);
+    }
+    return QVariantMap{
+        { QStringLiteral("kind"), QStringLiteral("unicode") },
+        { QStringLiteral("emoji"), toneAdjustedEmoji(entry) },
+        { QStringLiteral("name"), entry.name },
+        { QStringLiteral("shortcode"), shortcode },
+    };
+}
+
+QVariantList EmojiCatalog::completionsForPrefix(const QString &prefix,
+                                                int limit) const
+{
+    QVariantList out;
+    const QString needle = prefix.trimmed().toCaseFolded();
+    if (needle.isEmpty() || m_entries.isEmpty())
+        return out;
+    const int bound = limit > 0 ? limit : 12;
+    const QStringList recents = m_settings ? m_settings->recentEmoji() : QStringList();
+
+    // Tier 0: the name or a whole alias starts with the query. Tier 1: any
+    // word inside the name starts with it. Tier 2: an alias contains it
+    // anywhere. Ties keep catalogue order (roughly Unicode order, e.g. 👍
+    // before 👎), except a recently used emoji is promoted ahead of
+    // non-recent ties in the same tier.
+    struct Candidate { int index; int tier; int recentRank; };
+    QList<Candidate> candidates;
+    for (int i = 0; i < m_entries.size(); ++i) {
+        const Entry &entry = m_entries.at(i);
+        if (entry.emoji != entry.baseEmoji)
+            continue; // one row per family; tone applied on output
+        const QString name = entry.name.toCaseFolded();
+        const QStringList aliases = entry.keywords.isEmpty()
+            ? QStringList()
+            : entry.keywords.toCaseFolded()
+                  .split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        int tier = -1;
+        if (name.startsWith(needle)) {
+            tier = 0;
+        } else {
+            for (const QString &alias : aliases) {
+                if (alias.startsWith(needle)) { tier = 0; break; }
+            }
+        }
+        if (tier < 0) {
+            const QStringList words =
+                name.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+            for (const QString &word : words) {
+                if (word.startsWith(needle)) { tier = 1; break; }
+            }
+        }
+        if (tier < 0) {
+            for (const QString &alias : aliases) {
+                if (alias.contains(needle)) { tier = 2; break; }
+            }
+        }
+        if (tier < 0)
+            continue;
+        candidates.append({ i, tier, static_cast<int>(recents.indexOf(entry.emoji)) });
+    }
+    std::stable_sort(candidates.begin(), candidates.end(),
+        [](const Candidate &a, const Candidate &b) {
+            if (a.tier != b.tier)
+                return a.tier < b.tier;
+            const bool aRecent = a.recentRank >= 0;
+            const bool bRecent = b.recentRank >= 0;
+            if (aRecent != bRecent)
+                return aRecent;
+            if (aRecent && a.recentRank != b.recentRank)
+                return a.recentRank < b.recentRank;
+            return a.index < b.index;
+        });
+    for (const Candidate &c : candidates) {
+        if (out.size() >= bound)
+            break;
+        out.append(completionRow(c.index));
+    }
+    return out;
+}
+
+QString EmojiCatalog::emojiForShortcode(const QString &code) const
+{
+    const QString needle = code.trimmed().toCaseFolded();
+    if (needle.isEmpty())
+        return {};
+    const auto it = m_aliasToIndex.constFind(needle);
+    if (it == m_aliasToIndex.cend())
+        return {};
+    return toneAdjustedEmoji(m_entries.at(it.value()));
 }

@@ -527,6 +527,8 @@ set(APP_SOURCES
     src/models/MentionSuggestionModel.cpp
     src/models/MentionHighlighter.h
     src/models/MentionHighlighter.cpp
+    src/models/ParagraphDirection.h
+    src/models/ParagraphDirection.cpp
     src/models/MarkdownFormat.h
     src/models/MarkdownFormat.cpp
     src/models/SlashCommands.h
@@ -601,6 +603,8 @@ set(APP_SOURCES
 
     src/notifications/NotificationManager.h
     src/notifications/NotificationManager.cpp
+    src/notifications/InviteNoticeTracker.h
+    src/notifications/InviteNoticeTracker.cpp
     src/notifications/FallbackAvatar.h
     src/notifications/FallbackAvatar.cpp
     src/theme/IdentityColors.h
@@ -620,6 +624,8 @@ set(APP_SOURCES
     src/media/MediaVisibilityStore.cpp
     src/app/TrayIcon.h
     src/app/TrayIcon.cpp
+    src/app/SingleInstanceGuard.h
+    src/app/SingleInstanceGuard.cpp
     src/spaces/RailLayoutStore.h
     src/spaces/RailLayoutStore.cpp
     src/spaces/RailEntryModel.h
@@ -711,6 +717,9 @@ if(ENABLE_RUST_SDK_BACKEND)
     list(APPEND APP_SOURCES
         src/matrix/RustSdkMatrixClient.h
         src/matrix/RustSdkMatrixClient.cpp
+        # The encrypted media store's per-account key, in the SecretStore.
+        src/matrix/MediaStoreKey.h
+        src/matrix/MediaStoreKey.cpp
         src/matrix/RustRoomRegistry.h
         src/matrix/RustRoomRegistry.cpp
         src/matrix/RustTimelineMirror.h
@@ -745,6 +754,7 @@ if(HAVE_LIGHTNING_WEBRTC)
         src/calls/WebrtcRetirer.h
         src/calls/WebrtcRetirer.cpp
         src/calls/CaptureDeviceSelection.h
+        src/calls/CaptureClock.h
         src/calls/CaptureDeviceSelection.cpp
         src/calls/RtpVp8Payloader.h
         src/calls/RtpVp8Payloader.cpp
@@ -917,6 +927,7 @@ set(APP_QML_FILES
     qml/RoomCallBanner.qml
     qml/CallEventDelegate.qml
     qml/VerifySessionPrompt.qml
+    qml/IndexAllPrompt.qml
     qml/EncryptionBrokenPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
@@ -925,6 +936,8 @@ set(APP_QML_FILES
     qml/StormNode.qml
     qml/TrustMeter.qml
     qml/CodeBlock.qml
+    # Room and Space topics: selectable, links clickable.
+    qml/TopicText.qml
     qml/AppTheme.qml
 )
 
@@ -1259,7 +1272,7 @@ lightning_configure_qml_app(lightning-matrix)
 
 # Call sounds, rendered by scripts/generate-call-sounds.py (GPL-3.0-or-later).
 # Played by CallSoundPlayer from qrc:/sounds/<name>.wav. App target only, not
-# the QML module: every test target re-registers that, and the WAVs are ~2.4 MB.
+# the QML module: every test target re-registers that, and the WAVs are ~5.6 MB (stereo).
 qt_add_resources(lightning-matrix "lightning_call_sounds"
     PREFIX "/sounds"
     BASE "data/sounds"
@@ -1507,6 +1520,25 @@ if(BUILD_TESTING)
     target_include_directories(keyring-scope-test PRIVATE src)
     target_link_libraries(keyring-scope-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME keyring-scope COMMAND keyring-scope-test)
+
+    # The encrypted media store's key: made only when its record is provably
+    # absent, never over one a locked keyring could not read, and deleted with
+    # the account's tokens. Against a fake keyring.
+    qt_add_executable(media-store-key-test
+        tests/MediaStoreKeyTest.cpp
+        src/matrix/MediaStoreKey.h
+        src/matrix/MediaStoreKey.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/media/MediaVisibilityStore.h
+        src/media/MediaVisibilityStore.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(media-store-key-test PRIVATE src)
+    target_link_libraries(media-store-key-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME media-store-key COMMAND media-store-key-test)
 
     # The same against a real Secret Service. Every case skips unless
     # LIGHTNING_KEYRING_TEST_BUS vouches for a private session bus (see the
@@ -2415,6 +2447,17 @@ if(BUILD_TESTING)
     target_link_libraries(code-block-qml-test PRIVATE Qt6::Test)
     add_test(NAME code-block-qml COMMAND code-block-qml-test)
     set_tests_properties(code-block-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # qml/TopicText.qml, room and Space topics: selectable and copyable, web
+    # links clickable, a drag never opens one, and no scheme but http(s) is a
+    # link. Real mouse and key events on the real component.
+    qt_add_executable(topic-text-qml-test tests/TopicTextQmlTest.cpp)
+    lightning_configure_qml_test(topic-text-qml-test)
+    target_compile_definitions(topic-text-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME topic-text-qml COMMAND topic-text-qml-test)
+    set_tests_properties(topic-text-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Measurement, not a fix: the cost of state-activity grouping over a long
@@ -3406,6 +3449,7 @@ if(BUILD_TESTING)
             src/calls/WebrtcRetirer.h
             src/calls/WebrtcRetirer.cpp
             src/calls/CaptureDeviceSelection.h
+            src/calls/CaptureClock.h
             src/calls/CaptureDeviceSelection.cpp
             src/calls/RtpVp8Payloader.h
             src/calls/RtpVp8Payloader.cpp
@@ -3698,6 +3742,17 @@ if(BUILD_TESTING)
     target_include_directories(event-preview-test PRIVATE src)
     target_link_libraries(event-preview-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME event-preview COMMAND event-preview-test)
+
+    # Which invites are announced and when one has resolved, across the room
+    # list's remove-and-insert re-sorts. Pure logic.
+    qt_add_executable(invite-notice-tracker-test
+        tests/InviteNoticeTrackerTest.cpp
+        src/notifications/InviteNoticeTracker.h
+        src/notifications/InviteNoticeTracker.cpp
+    )
+    target_include_directories(invite-notice-tracker-test PRIVATE src)
+    target_link_libraries(invite-notice-tracker-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME invite-notice-tracker COMMAND invite-notice-tracker-test)
 
     # Notification decision policy: privacy modes, mention metadata, room
     # modes, active-room suppression, never exposing ciphertext.
@@ -4329,6 +4384,25 @@ if(BUILD_TESTING)
     add_dependencies(diagnostic-output-test lightning-matrix)
     add_test(NAME diagnostic-output COMMAND diagnostic-output-test)
 
+    # One process per data root. The in-process cases drive the guard; the
+    # process cases run the real binary against a guard the test holds, which
+    # is the only way to see where main.cpp claims relative to the preflight
+    # flags.
+    qt_add_executable(single-instance-guard-test
+        tests/SingleInstanceGuardTest.cpp
+        src/app/SingleInstanceGuard.h
+        src/app/SingleInstanceGuard.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(single-instance-guard-test PRIVATE src)
+    target_link_libraries(single-instance-guard-test PRIVATE
+        Qt6::Core Qt6::Network Qt6::Test)
+    target_compile_definitions(single-instance-guard-test PRIVATE
+        "LIGHTNING_BINARY=\"$<TARGET_FILE:lightning-matrix>\"")
+    add_dependencies(single-instance-guard-test lightning-matrix)
+    add_test(NAME single-instance-guard COMMAND single-instance-guard-test)
+
     # Development-only demo dataset: structure, determinism (stable ids, fixed
     # clock), and only fictional *.example identities.
     qt_add_executable(screenshot-demo-data-test
@@ -4552,6 +4626,19 @@ if(BUILD_TESTING)
         PRIVATE lightning-app-testlib Qt6::Test)
     add_test(NAME slash-command-composer COMMAND slash-command-composer-test)
 
+    # Colon-shortcode completion, composer half: Unicode-vs-custom merge and
+    # its two-character noise gate, accepting a Unicode row, the `:alias:`
+    # auto-convert while typing and once more at send, the code-span guard,
+    # the custom-shortcode shadow rule, and the settings toggle.
+    qt_add_executable(emoji-shortcode-completion-test
+        tests/EmojiShortcodeCompletionTest.cpp
+    )
+    target_include_directories(emoji-shortcode-completion-test PRIVATE src)
+    target_link_libraries(emoji-shortcode-completion-test
+        PRIVATE lightning-app-testlib Qt6::Test)
+    add_test(NAME emoji-shortcode-completion
+        COMMAND emoji-shortcode-completion-test)
+
     # Opt-in sync-latency tracer: inert when off, no room ids, unobserved
     # stages not reported as instant, bounded table, gap reporting.
     qt_add_executable(sync-latency-tracer-test
@@ -4657,6 +4744,20 @@ if(BUILD_TESTING)
     target_link_libraries(mention-popup-contract-test PRIVATE Qt6::Test)
     add_test(NAME mention-popup-contract COMMAND mention-popup-contract-test)
     set_tests_properties(mention-popup-contract PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Colon-shortcode completion popup: a custom pack emoticon and a standard
+    # Unicode emoji share one popup and must be visually distinguishable
+    # (image vs glyph), and accept() must hand back the whole row.
+    qt_add_executable(emoji-completion-popup-contract-test
+        tests/EmojiCompletionPopupContractTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(emoji-completion-popup-contract-test)
+    target_link_libraries(emoji-completion-popup-contract-test PRIVATE Qt6::Test)
+    add_test(NAME emoji-completion-popup-contract
+        COMMAND emoji-completion-popup-contract-test)
+    set_tests_properties(emoji-completion-popup-contract PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Account switcher: identity cards, real data only, live-id switch guard,
@@ -4947,6 +5048,38 @@ if(BUILD_TESTING)
     target_link_libraries(space-people-scope-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME space-people-scope COMMAND space-people-scope-test)
+
+    # Holding the room order still while the list is in use: both layouts, the
+    # release triggers (Space, tab, search, cap) and the open-room rule.
+    qt_add_executable(room-order-defer-test
+        tests/RoomOrderDeferTest.cpp
+        src/models/ConversationOrder.h
+        src/models/RoomListModel.h
+        src/models/RoomListModel.cpp
+        src/matrix/BridgeNetwork.h
+        src/matrix/BridgeNetwork.cpp
+        src/models/SpaceChannelModel.h
+        src/models/SpaceChannelModel.cpp
+        src/models/DirectAvatarResolver.h
+        src/models/DirectAvatarResolver.cpp
+        src/spaces/SpaceManager.h
+        src/spaces/SpaceManager.cpp
+        src/spaces/RailLayoutStore.h
+        src/spaces/RailLayoutStore.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(room-order-defer-test PRIVATE src)
+    target_compile_definitions(room-order-defer-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(room-order-defer-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME room-order-defer COMMAND room-order-defer-test)
 
     # Unread badge attribution: a tile's badge counts exactly what that tile's
     # view lists (the synthesised DM tile included). Every case asserts both

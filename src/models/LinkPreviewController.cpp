@@ -78,6 +78,11 @@ QString LinkPreviewController::linkifiedBody(const QString &body) const
         matrix::link_preview::linkifiedMessageHtml(body));
 }
 
+QString LinkPreviewController::linkifiedTopic(const QString &topic) const
+{
+    return matrix::link_preview::linkifiedTopicHtml(topic);
+}
+
 void LinkPreviewController::setClient(MatrixClient *client)
 {
     if (m_client == client)

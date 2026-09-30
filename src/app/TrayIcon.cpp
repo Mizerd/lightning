@@ -10,6 +10,7 @@
 #include <QPixmap>
 #include <QAction>
 #include <QMenu>
+#include <QApplication>
 #include <QSystemTrayIcon>
 
 namespace {
@@ -56,14 +57,26 @@ QPixmap TrayIcon::macTemplateBadged(const QPixmap &base, const QString &label)
 {
     if (base.isNull() || label.isEmpty())
         return base;
-    QPixmap out = base;
-    QPainter painter(&out);
+    // Painted on a QImage, never on `base` (or a copy of it) directly: a
+    // QPixmap's platform backing store is not guaranteed to carry a real
+    // alpha channel. Measured on the offscreen QPA platform this dev shell's
+    // tests run under (Qt 6.11.2): QPainter(&pixmap) makes EVERY
+    // CompositionMode_Clear draw \u2014 fillRect, drawEllipse, drawText alike \u2014 a
+    // silent no-op, because the platform pixmap reports
+    // hasAlphaChannel()==false however the source image was formatted. A
+    // QImage always has one, and painting there start to finish, converting
+    // to QPixmap only once at the end, preserves it losslessly (verified
+    // with a standalone probe: 0 pixels cleared painting on a QPixmap, 100/100
+    // cleared painting the same operation on a QImage first).
+    QImage image =
+        base.toImage().convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    const qreal side = qMin(out.width(), out.height());
+    const qreal side = qMin(image.width(), image.height());
     const bool dotOnly = (label == QStringLiteral("\u2022"));
     const qreal diameter = dotOnly ? side * 0.42 : side * 0.62;
-    const QRectF circle(out.width() - diameter, out.height() - diameter,
+    const QRectF circle(image.width() - diameter, image.height() - diameter,
                         diameter, diameter);
 
     // Clear a moat first: in a template, badge and mark share one ink and
@@ -79,8 +92,10 @@ QPixmap TrayIcon::macTemplateBadged(const QPixmap &base, const QString &label)
     painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
     painter.setBrush(QColor(0, 0, 0, 255));
     painter.drawEllipse(circle);
-    if (dotOnly)
-        return out;
+    if (dotOnly) {
+        painter.end();
+        return QPixmap::fromImage(image);
+    }
 
     // Knock the digit out of the disc; white ink would vanish in a template.
     QFont font = QGuiApplication::font();
@@ -90,7 +105,8 @@ QPixmap TrayIcon::macTemplateBadged(const QPixmap &base, const QString &label)
     painter.setCompositionMode(QPainter::CompositionMode_Clear);
     painter.setPen(QColor(0, 0, 0, 255));
     painter.drawText(circle, Qt::AlignCenter, label);
-    return out;
+    painter.end();
+    return QPixmap::fromImage(image);
 }
 
 #ifdef Q_OS_MACOS
@@ -135,6 +151,10 @@ TrayIcon::~TrayIcon() = default;
 
 bool TrayIcon::platformSupportsTray()
 {
+    // QSystemTrayIcon's backends are widgets: under a QGuiApplication (the
+    // test harnesses) the query itself dereferences what does not exist.
+    if (!qobject_cast<QApplication *>(QCoreApplication::instance()))
+        return false;
     return QSystemTrayIcon::isSystemTrayAvailable();
 }
 

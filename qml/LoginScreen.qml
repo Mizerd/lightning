@@ -275,10 +275,21 @@ Item {
                 // app.loggedIn: a failed add-account releases the shared
                 // client's session and the button must survive that; showMain()
                 // self-heals.
+                // Not while the server has signed that account out: "back"
+                // would restore the dead session only to meet the card again.
+                // Other saved accounts stay reachable in the list below.
+                // Nor while the keyring cannot answer and nothing is signed
+                // in: "back" led to a shell reading "Reconnecting" for a
+                // session that had no token to reconnect with.
                 AppButton {
                     id: backToAppButton
                     objectName: "backToAppButton"
                     visible: app.accounts && app.accounts.hasActiveAccount
+                             && !((app.localSessionFailureReasonCode === "access_token_revoked"
+                                   || app.localSessionFailureReasonCode === "access_token_expired")
+                                  && app.localSessionFailureUserId
+                                     === app.accounts.activeUserId)
+                             && !(app.keyringUnavailable === true && !app.loggedIn)
                     Accessible.name: qsTr("Back to the app")
                     text: qsTr("← Back")
                     onClicked: app.showMain()
@@ -319,6 +330,57 @@ Item {
                     }
                 }
 
+                // ── The keyring cannot answer ── A saved sign-in that cannot
+                // be read is not a signed-out account: say why this screen
+                // shows, and retry without a restart. The copy is
+                // AppController's, which the account list's refusal already
+                // shows, so both say the same thing.
+                Rectangle {
+                    objectName: "keyringUnavailableNotice"
+                    visible: app.keyringUnavailable === true
+                    Layout.fillWidth: true
+                    radius: AppTheme.radiusMd
+                    color: AppTheme.surfaceAlt
+                    border.color: AppTheme.warning
+                    border.width: 1
+                    implicitHeight: keyringNoticeColumn.implicitHeight + AppTheme.spacingM * 2
+                    Accessible.role: Accessible.AlertMessage
+                    Accessible.name: keyringNoticeText.text
+
+                    ColumnLayout {
+                        id: keyringNoticeColumn
+                        x: AppTheme.spacingM
+                        y: AppTheme.spacingM
+                        width: parent.width - AppTheme.spacingM * 2
+                        spacing: AppTheme.spacingS
+
+                        Label {
+                            id: keyringNoticeText
+                            objectName: "keyringUnavailableText"
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            textFormat: Text.PlainText
+                            lineHeight: AppTheme.lineHeightBody
+                            lineHeightMode: Text.ProportionalHeight
+                            text: qsTranslate("AppController",
+                                              "Lightning can't read this device's saved sign-ins right now — "
+                                              + "the system keyring is locked or unavailable. Unlock it and "
+                                              + "try again.")
+                            color: AppTheme.text
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                        }
+                        AppButton {
+                            objectName: "keyringRetryButton"
+                            kind: "primary"
+                            enabled: !app.auth.isLoggingIn
+                            text: qsTr("Try again")
+                            Accessible.name: text
+                            onClicked: app.retryKeyring()
+                        }
+                    }
+                }
+
                 // Brand mark.
                 RowLayout {
                     Layout.fillWidth: true
@@ -339,9 +401,17 @@ Item {
                 }
 
                 Label {
-                    text: (app.accounts && app.accounts.hasActiveAccount)
-                          ? qsTr("Add another account")
-                          : qsTr("Sign in")
+                    objectName: "loginScreenHeading"
+                    // Repairing an existing account is not "adding" one —
+                    // repair.active is set (setLocalSessionFailure) whether
+                    // this page was reached by opening a broken account or by
+                    // a failed sign-in that redirected here, and it names the
+                    // page over the generic add-account/sign-in copy.
+                    text: repair.active
+                          ? qsTr("Fix this account")
+                          : (app.accounts && app.accounts.hasActiveAccount)
+                            ? qsTr("Add another account")
+                            : qsTr("Sign in")
                     color: AppTheme.text
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textDisplay
@@ -1085,18 +1155,46 @@ Item {
                             // suggestsLocalReset() is false here: the session
                             // died on the server and the local store is key
                             // material the user still needs. No destructive
-                            // primary action. "Remove this account" stays as an
-                            // explicit, honestly worded fallback, never the
-                            // suggested action.
+                            // primary action. Signing in again moves the old
+                            // store aside (RustSdkMatrixClient::
+                            // moveRevokedDeviceStoreAside), never deletes it.
+                            // "Remove this account" stays as an explicit,
+                            // honestly worded fallback, never the suggested
+                            // action.
                             return {
                                 headline: qsTr("This session was signed out remotely"),
                                 body: qsTr(
                                     "This device's Matrix session is no longer valid on "
                                     + "the server — for example, it may have been signed "
                                     + "out from another client. Your local data, including "
-                                    + "this device's encryption keys, is intact. Sign in "
-                                    + "again above. If that keeps failing, you can remove "
-                                    + "this account below, "
+                                    + "this device's encryption keys, is intact. Signing in "
+                                    + "again above starts a new session on this device; the "
+                                    + "old session's data is kept aside, not deleted. "
+                                    + "Encrypted history can come back through key backup "
+                                    + "or another verified session, if you have one. If "
+                                    + "signing in keeps failing, you can remove this "
+                                    + "account below, which does delete this device's "
+                                    + "local copy of your encryption keys."),
+                                primaryLabel: "",
+                                confirmTitle: "",
+                                confirmBody: "",
+                                showRemove: true
+                            }
+                        case "access_token_expired":
+                            // A soft logout: the server keeps this device, so
+                            // signing in again above resumes it with the same
+                            // store and keys (RustSdkMatrixClient::login, the
+                            // soft-logout proof). Nothing is moved or deleted,
+                            // and no destructive primary action.
+                            return {
+                                headline: qsTr("Your session expired"),
+                                body: qsTr(
+                                    "The server ended this device's session but kept "
+                                    + "the device. Signing in again above continues it "
+                                    + "as the same session on this device, with its "
+                                    + "encryption keys and history. Nothing on this "
+                                    + "device has been moved or deleted. If signing in "
+                                    + "keeps failing, you can remove this account below, "
                                     + "which does delete this device's local copy of your "
                                     + "encryption keys."),
                                 primaryLabel: "",
@@ -1121,7 +1219,32 @@ Item {
                                 primaryLabel: "",
                                 confirmTitle: "",
                                 confirmBody: "",
-                                showRemove: false
+                                showRemove: false,
+                                showRetryKeyring: true
+                            }
+                        case "keyring_lost_session":
+                            // The keyring answers but no longer returns a
+                            // sign-in this install saved for this device: it
+                            // lost it, the account did not sign out. Never a
+                            // rebuild: the store is this device's own and
+                            // whole, and a password sign-in continues as it.
+                            return {
+                                headline: qsTr("Your keyring no longer has this sign-in"),
+                                body: qsTr(
+                                    "Lightning saved the sign-in for %1 in your system "
+                                    + "keyring, and the keyring no longer returns it. "
+                                    + "This can happen after the keyring was reset, or "
+                                    + "when a Flatpak or snap starts using a different "
+                                    + "keyring. Nothing on this device has been deleted, "
+                                    + "and its encryption keys are intact. Try again if "
+                                    + "the keyring may come back, or sign in with your "
+                                    + "password to continue as this same device.")
+                                    .arg(repair.userId),
+                                primaryLabel: "",
+                                confirmTitle: "",
+                                confirmBody: "",
+                                showRemove: false,
+                                showRetryKeyring: true
                             }
                         case "ambiguous_store_candidates":
                             // suggestsLocalReset() is false: several candidate
@@ -1329,6 +1452,15 @@ Item {
                                 text: qsTr("Try again")
                                 Accessible.name: qsTr("Try removing %1 again").arg(repair.userId)
                                 onClicked: app.retryAccountRemoval()
+                            }
+                            AppButton {
+                                objectName: "loginRepairRetryKeyring"
+                                visible: repair.info && repair.info.showRetryKeyring === true
+                                enabled: !repairPanel.running && !app.auth.isLoggingIn
+                                kind: "primary"
+                                text: qsTr("Try again")
+                                Accessible.name: text
+                                onClicked: app.retryKeyring()
                             }
                             AppButton {
                                 objectName: "loginRepairOpenAccount"

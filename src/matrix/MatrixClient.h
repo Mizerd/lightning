@@ -921,6 +921,9 @@ public:
                                 int limit, int offset)
     { Q_UNUSED(query); Q_UNUSED(roomId); Q_UNUSED(limit); Q_UNUSED(offset);
       return 0; }
+    /// Remove the media this account keeps on disk between sessions. Answers
+    /// on storedMediaCleared. 0 means this backend keeps none.
+    virtual quint64 clearStoredMedia() { return 0; }
     /// What the index holds, so a surface can say what search covers.
     virtual quint64 searchIndexStats() { return 0; }
     /// Sweep cached events into the index. Bounded per call.
@@ -933,6 +936,23 @@ public:
     virtual void forgetIndexedEvent(const QString &eventId) { Q_UNUSED(eventId); }
     virtual void forgetIndexedRoom(const QString &roomId) { Q_UNUSED(roomId); }
     virtual void clearSearchIndex() {}
+    /// "Index all rooms": every joined room's history, one room at a time,
+    /// with the same bounded walk as deepenSearchIndex. Persisted per
+    /// account, so a restart continues. `resumeOnly` continues a run the last
+    /// session left unfinished and unpaused, and otherwise only reports.
+    /// Answers (and keeps answering while it runs) on searchIndexAllProgress.
+    /// 0 means this backend has no local index.
+    virtual quint64 indexAllRooms(bool resumeOnly)
+    { Q_UNUSED(resumeOnly); return 0; }
+    virtual quint64 pauseIndexAll() { return 0; }
+    virtual quint64 cancelIndexAll() { return 0; }
+    virtual quint64 requestIndexAllStatus() { return 0; }
+    /// Automatic holds (IndexAllHold bits): a held run waits between pages.
+    enum IndexAllHold : unsigned {
+        IndexAllHoldCall = 1,
+        IndexAllHoldScroll = 2,
+    };
+    virtual void setIndexAllHold(unsigned bits) { Q_UNUSED(bits); }
     /// Whether this backend can search locally at all, so a surface can be
     /// absent rather than dead.
     virtual bool supportsLocalSearch() const { return false; }
@@ -1603,6 +1623,12 @@ Q_SIGNALS:
     // refreshes of every loaded row; this can fire per event in busy rooms and
     // only reaches roster-refetch consumers.
     void roomMemberEventSeen(const QString &roomId);
+    // A direct chat's peer (an m.direct target) has a new member event in
+    // that room: the avatar it carries now, empty when it has none. From sync
+    // room state, so a DM row can follow a changed face without asking the
+    // profile again.
+    void directPeerAvatarChanged(const QString &roomId, const QString &userId,
+                                 const QString &avatarUrl);
 
     // Server-reported per-room mode (0/1/2 as above). userDefined is true for
     // an explicit room rule, false for the resolved account default. Mode and
@@ -1853,12 +1879,23 @@ Q_SIGNALS:
     void roomProfileResult(quint64 opId, const QString &roomId,
                            const QString &field, bool ok,
                            const QString &error);
+    /// clearStoredMedia finished. `files`/`bytes` count the large kept files
+    /// only; the SDK media store reports no count. `ok` false: part of it
+    /// could not be removed.
+    void storedMediaCleared(quint64 opId, bool ok, qint64 files, qint64 bytes);
     void searchIndexStatsReceived(quint64 opId, qint64 messages, qint64 rooms);
     void searchIndexSwept(quint64 opId, int rooms, int written,
                           qint64 messages, qint64 indexedRooms);
     void searchIndexDeepened(quint64 opId, bool ok, const QString &roomId,
                              int pages, bool reachedStart, int written,
                              qint64 messages, const QString &category);
+    /// "Index all rooms" progress. Keys: state ("idle" | "running" | "held" |
+    /// "backoff" | "paused" | "done" | "cancelled" | "stopped"), total,
+    /// position, currentRoomId, written, skipped, undecryptable,
+    /// undecryptableRooms, failedRooms, completeRooms, retryInMs, elapsedMs,
+    /// and — only when present — messages and indexedRooms (index totals).
+    /// Room ids and counters only, never message text.
+    void searchIndexAllProgress(quint64 opId, const QVariantMap &status);
     // Scheduled send.
     void delayedEventsSupportReceived(bool supported, bool advertised);
     void scheduledSendFinished(quint64 opId, const QString &roomId, bool ok,

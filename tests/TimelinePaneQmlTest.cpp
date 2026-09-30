@@ -9506,6 +9506,61 @@ private Q_SLOTS:
         QTRY_VERIFY_WITH_TIMEOUT(!sent.isEmpty(), 3000);
         QCOMPARE(sent.last().at(1).toString(), QStringLiteral("$n-latest"));
     }
+
+    // Regression for TimelinePane.qml:4317 "recomputePresentationReady is
+    // not a function", logged on every session end. app.timeline's
+    // onModelReset() ends with a settle step that used to queue
+    // Qt.callLater(function() { timeline.presentationResetPending = false;
+    // timeline.recomputePresentationReady() }). A queued Qt.callLater is
+    // engine-global state, not owned by the item it references: destroying
+    // the pane (window close, logout, app quit) before the engine flushes
+    // its call-later queue leaves that closure calling a method on a
+    // QObject that no longer exists. A child Timer, by contrast, is
+    // destroyed together with its parent and cannot fire afterwards — the
+    // same reasoning already documented on visibleRowRangeTimer above.
+    void teardownDuringAPendingResetSettleLogsNoWarning()
+    {
+        AppController controller(AppController::MockBackend);
+        const QString roomA = loginAndRoomIdAt(controller, /*row=*/0);
+        QVERIFY(!roomA.isEmpty());
+        QVERIFY(controller.roomList()->rowCount() > 1);
+        const QString roomB = controller.roomList()
+            ->data(controller.roomList()->index(1, 0),
+                   RoomListModel::RoomIdRole)
+            .toString();
+        QVERIFY(!roomB.isEmpty());
+        QVERIFY(roomA != roomB);
+
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomA,
+                                          textFixture(roomA, 5, "a", "hello"),
+                                          /*paginationPages=*/0,
+                                          /*viewportHeight=*/400, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+
+        LogCapture capture;
+        // A real room switch: TimelineModel::modelReset() fires, running
+        // onModelReset() and queuing its settle step.
+        controller.setCurrentRoomId(roomB);
+
+        // Teardown before the engine gets a turn to flush anything queued —
+        // exactly the shape of a window close or app quit racing the settle
+        // step. `timeline` (and, on the fixed tree, its child
+        // presentationResetSettledTimer) is destroyed here.
+        delete root;
+        QCoreApplication::sendPostedEvents();
+        QCoreApplication::processEvents();
+        QTest::qWait(50);
+        QCoreApplication::processEvents();
+
+        for (const QString &line : capture.messages()) {
+            QVERIFY2(!line.contains(QStringLiteral("is not a function")),
+                     qPrintable(line));
+        }
+    }
 };
 
 int main(int argc, char *argv[])

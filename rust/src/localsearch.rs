@@ -72,6 +72,19 @@ pub(crate) fn query_is_long_enough(query: &str) -> bool {
 
 pub(crate) struct SearchIndex {
     conn: Connection,
+    /// Changes when the index is cleared, and is unique per opened index. A
+    /// writer captures it before its first `.await` and writes only while it
+    /// still matches, checked under the index mutex that `clear` also holds:
+    /// so nothing collected before a clear can land after it.
+    generation: std::sync::atomic::AtomicU64,
+}
+
+/// Source of index generations, process-wide so a reopened index never
+/// repeats a value an older writer captured.
+static GENERATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn next_generation() -> u64 {
+    GENERATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl SearchIndex {
@@ -90,7 +103,10 @@ impl SearchIndex {
     }
 
     fn from_connection(conn: Connection) -> Result<Self, String> {
-        let index = Self { conn };
+        let index = Self {
+            conn,
+            generation: std::sync::atomic::AtomicU64::new(next_generation()),
+        };
         index.ensure_schema()?;
         Ok(index)
     }
@@ -217,8 +233,16 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Drop the whole index.
+    /// The current generation; see the field.
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Drop the whole index. The generation moves FIRST, so a writer holding
+    /// an older one is refused even when the delete itself fails.
     pub(crate) fn clear(&self) -> Result<(), String> {
+        self.generation
+            .store(next_generation(), std::sync::atomic::Ordering::Relaxed);
         self.conn
             .execute_batch("DELETE FROM messages;")
             .map_err(|e| format!("cannot clear the search index: {e}"))?;
@@ -444,62 +468,267 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     Some(Indexable { event_id: target_id, sender, body, msgtype, ts })
 }
 
-/// Page a room backwards, indexing what each page brings in.
+/// Page a room backwards, indexing what each page brings in ("Index this
+/// room"). The same walk as [`deep_index_room_gated`], stopped only by
+/// sign-out and unpaced, because the user is waiting on it.
 ///
-/// Read after every page: `RoomEventCache::events()` reads the in-memory
-/// linked chunk, which Lightning's jump-to-live trim shrinks to about one
-/// page, so reading only at the end would collect one page.
-///
-/// Bounded by `max_pages`, stops at the room start, and checks `stop`
-/// between pages so sign-out never waits. Returns (pages run,
-/// reached_start, rows written).
+/// Returns (pages run, reached_start, rows written).
 pub(crate) async fn deep_index_room(
     room: &Room,
     index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
     stop: &std::sync::atomic::AtomicBool,
     max_pages: u16,
 ) -> Result<(u16, bool, usize), String> {
+    let outcome = deep_index_room_gated(room, index, &StopOnly(stop), max_pages)
+        .await
+        .map_err(|e| e.message)?;
+    Ok((outcome.pages, outcome.reached_start, outcome.written))
+}
+
+/// What a paged walk is told between pages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Gate {
+    /// Fetch the next page.
+    Go,
+    /// Hold (a call, a scrolling reader): wait and ask again, losing nothing.
+    Wait,
+    /// Stop now: sign-out, account switch, cancel or pause.
+    Stop,
+}
+
+/// How a caller paces and stops [`deep_index_room_gated`]. Sync methods only,
+/// so the walk future stays `Send` without an async trait.
+pub(crate) trait PageGate: Sync {
+    /// Asked before every page, and polled while a page is in flight so a
+    /// stop never waits on a slow request (only `Stop` matters then).
+    fn gate(&self) -> Gate;
+    /// Pause between pages. Zero for the interactive per-room index.
+    fn page_gap(&self) -> std::time::Duration {
+        std::time::Duration::ZERO
+    }
+    /// Called after each page is indexed, with the walk so far.
+    fn on_page(&self, _so_far: &DeepOutcome) {}
+}
+
+/// The per-room gate: sign-out stops it, nothing paces it.
+pub(crate) struct StopOnly<'a>(pub &'a std::sync::atomic::AtomicBool);
+
+impl PageGate for StopOnly<'_> {
+    fn gate(&self) -> Gate {
+        if self.0.load(std::sync::atomic::Ordering::Relaxed) {
+            Gate::Stop
+        } else {
+            Gate::Go
+        }
+    }
+}
+
+/// How one walk ended.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DeepOutcome {
+    pub pages: u16,
+    pub reached_start: bool,
+    pub written: usize,
+    /// Distinct events in the walked history that are still undecryptable.
+    /// They are never indexed (their `type` is `m.room.encrypted`); counted
+    /// so a room holding them is not recorded as fully indexed.
+    pub undecryptable: usize,
+    /// The gate stopped the walk before its bound or the room start.
+    pub interrupted: bool,
+}
+
+/// Why a walk failed. `retry_after_ms` is the server's own hint on an
+/// `M_LIMIT_EXCEEDED` that matrix-sdk's retries did not absorb.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeepError {
+    pub message: String,
+    pub rate_limited: bool,
+    pub retry_after_ms: Option<u64>,
+}
+
+impl DeepError {
+    fn plain(message: String) -> Self {
+        Self { message, rate_limited: false, retry_after_ms: None }
+    }
+
+    fn from_pagination(error: &matrix_sdk::event_cache::EventCacheError) -> Self {
+        use matrix_sdk::event_cache::EventCacheError;
+        use matrix_sdk::ruma::api::error::{ErrorKind, LimitExceededErrorData};
+        let mut out = Self::plain(format!("pagination failed: {error}"));
+        if let EventCacheError::PaginationError(inner) = error {
+            if let Some(ErrorKind::LimitExceeded(LimitExceededErrorData {
+                retry_after, ..
+            })) = inner.client_api_error_kind()
+            {
+                out.rate_limited = true;
+                out.retry_after_ms = retry_after
+                    .as_ref()
+                    .and_then(crate::presence::retry_after_to_ms);
+            }
+        }
+        out
+    }
+}
+
+/// How often a hold or an in-flight page re-reads its gate.
+const GATE_POLL_MS: u64 = 250;
+
+/// Resolves once the gate says `Stop`; raced against an in-flight page.
+async fn stopped<G: PageGate>(gate: &G) {
+    loop {
+        if gate.gate() == Gate::Stop {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(GATE_POLL_MS)).await;
+    }
+}
+
+/// Wait `gap`, then out any hold. False when the gate stopped the walk.
+async fn paced<G: PageGate>(gate: &G, gap: std::time::Duration) -> bool {
+    let poll = std::time::Duration::from_millis(GATE_POLL_MS);
+    let mut left = gap;
+    while !left.is_zero() {
+        if gate.gate() == Gate::Stop {
+            return false;
+        }
+        let step = left.min(poll);
+        tokio::time::sleep(step).await;
+        left -= step;
+    }
+    loop {
+        match gate.gate() {
+            Gate::Go => return true,
+            Gate::Stop => return false,
+            Gate::Wait => tokio::time::sleep(poll).await,
+        }
+    }
+}
+
+/// The generation a writer captures before its first `.await`; 0 when no
+/// index is open (every write is then refused, which is right: there is
+/// nothing to write into).
+pub(crate) fn current_generation(
+    index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
+) -> u64 {
+    index
+        .lock()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(SearchIndex::generation))
+        .unwrap_or(0)
+}
+
+/// Write one collected batch under the index mutex, never across an await.
+/// `None` when the index was cleared (or replaced) since `generation` was
+/// captured: the batch was collected for an index that no longer exists, and
+/// writing it would refill what the user just cleared. The check and the
+/// write share the one lock `clear` takes.
+fn write_locked(
+    index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
+    generation: u64,
+    room_id: &str,
+    batch: &RoomBatch,
+) -> Option<usize> {
+    let mut guard = index.lock().ok()?;
+    let ix = guard.as_mut()?;
+    if ix.generation() != generation {
+        return None;
+    }
+    Some(write_batch(ix, room_id, batch))
+}
+
+/// Upper bound on the undecryptable ids one walk remembers: 50 pages of 100
+/// events is 5,000, so this never truncates a real walk and still bounds a
+/// pathological one.
+const MAX_TRACKED_UNDECRYPTABLE: usize = 10_000;
+
+/// Page a room backwards, indexing what each page brings in.
+///
+/// Read after every page: `RoomEventCache::events()` reads the in-memory
+/// linked chunk, which Lightning's jump-to-live trim shrinks to about one
+/// page, so reading only at the end would collect one page.
+///
+/// Bounded by `max_pages` and stops at the room start. The gate is asked
+/// before every page and polled while one is in flight, so sign-out never
+/// waits on a request. Pages already fetched come from the event-cache store
+/// before the network, so re-walking a room is mostly local reads.
+pub(crate) async fn deep_index_room_gated<G: PageGate>(
+    room: &Room,
+    index: &std::sync::Arc<std::sync::Mutex<Option<SearchIndex>>>,
+    gate: &G,
+    max_pages: u16,
+) -> Result<DeepOutcome, DeepError> {
+    // Before the first await: every write below must go into this index, so a
+    // clear during any await, this one included, refuses them.
+    let generation = current_generation(index);
     let (room_cache, _drop_handles) = room
         .event_cache()
         .await
-        .map_err(|e| format!("no event cache for the room: {e}"))?;
+        .map_err(|e| DeepError::plain(format!("no event cache for the room: {e}")))?;
     let room_id = room.room_id().as_str();
 
-    let mut written = 0usize;
+    let mut outcome = DeepOutcome::default();
+    let mut undecryptable: HashSet<String> = HashSet::new();
     // What is already loaded, before any request.
     if let Ok(batch) = collect_from(room, &room_cache).await {
-        if let Ok(mut guard) = index.lock() {
-            if let Some(ix) = guard.as_mut() {
-                written += write_batch(ix, room_id, &batch);
-            }
-        }
+        let Some(written) = write_locked(index, generation, room_id, &batch) else {
+            outcome.interrupted = true;
+            return Ok(outcome);
+        };
+        outcome.written += written;
+        note_undecryptable(&mut undecryptable, &batch);
     }
 
     let pagination = room_cache.pagination();
-    let mut pages = 0u16;
-    let mut reached_start = false;
-    for _ in 0..max_pages {
-        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+    for page in 0..max_pages {
+        let gap = if page == 0 { std::time::Duration::ZERO } else { gate.page_gap() };
+        if !paced(gate, gap).await {
+            outcome.interrupted = true;
             break;
         }
-        let outcome = pagination
-            .run_backwards_once(DEEP_PAGE_SIZE)
-            .await
-            .map_err(|e| format!("pagination failed: {e}"))?;
-        pages += 1;
+        let fetched = tokio::select! {
+            result = pagination.run_backwards_once(DEEP_PAGE_SIZE) => Some(result),
+            _ = stopped(gate) => None,
+        };
+        let Some(result) = fetched else {
+            outcome.interrupted = true;
+            break;
+        };
+        let page_outcome = result.map_err(|e| DeepError::from_pagination(&e))?;
+        outcome.pages += 1;
         if let Ok(batch) = collect_from(room, &room_cache).await {
-            if let Ok(mut guard) = index.lock() {
-                if let Some(ix) = guard.as_mut() {
-                    written += write_batch(ix, room_id, &batch);
-                }
-            }
+            // Cleared while this page was in flight: stop, write nothing.
+            let Some(written) = write_locked(index, generation, room_id, &batch) else {
+                outcome.interrupted = true;
+                break;
+            };
+            outcome.written += written;
+            note_undecryptable(&mut undecryptable, &batch);
         }
-        if outcome.reached_start {
-            reached_start = true;
+        outcome.undecryptable = undecryptable.len();
+        gate.on_page(&outcome);
+        if page_outcome.reached_start {
+            outcome.reached_start = true;
             break;
         }
     }
-    Ok((pages, reached_start, written))
+    outcome.undecryptable = undecryptable.len();
+    Ok(outcome)
+}
+
+fn note_undecryptable(seen: &mut HashSet<String>, batch: &RoomBatch) {
+    for id in &batch.undecryptable {
+        if seen.len() >= MAX_TRACKED_UNDECRYPTABLE {
+            return;
+        }
+        seen.insert(id.clone());
+    }
+}
+
+/// True for an event the client holds but could not decrypt: the cache keeps
+/// a UTD in its encrypted form. Never indexed ([`indexable_from`] takes only
+/// `m.room.message`); counted instead.
+fn is_undecryptable(raw: &serde_json::Value) -> bool {
+    raw.get("type").and_then(|t| t.as_str()) == Some("m.room.encrypted")
 }
 
 // ---------------------------------------------------------------------------
@@ -523,6 +752,9 @@ pub(crate) async fn sweep(
 ) -> (usize, usize) {
     let mut rooms_done = 0usize;
     let mut written = 0usize;
+    // Captured before the first await, like the deep walk: a clear during the
+    // sweep ends it rather than being refilled from batches collected before.
+    let generation = current_generation(index);
     for room in client.joined_rooms() {
         if stop.load(std::sync::atomic::Ordering::Relaxed) {
             break;
@@ -536,10 +768,9 @@ pub(crate) async fn sweep(
             Ok(events) => events,
             Err(_) => continue,
         };
-        if let Ok(mut guard) = index.lock() {
-            if let Some(ix) = guard.as_mut() {
-                written += write_batch(ix, room.room_id().as_str(), &events);
-            }
+        match write_locked(index, generation, room.room_id().as_str(), &events) {
+            Some(n) => written += n,
+            None => break,
         }
     }
     (rooms_done, written)
@@ -551,6 +782,8 @@ pub(crate) struct RoomBatch {
     ordinary: Vec<Indexable>,
     edits: Vec<Indexable>,
     names: std::collections::HashMap<String, String>,
+    /// Ids of events still undecryptable; ids only, never content.
+    undecryptable: Vec<String>,
 }
 
 pub(crate) async fn collect_room(room: &Room) -> Result<RoomBatch, String> {
@@ -576,10 +809,17 @@ pub(crate) async fn collect_from(
     let mut edits = Vec::new();
     let mut names: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
+    let mut undecryptable = Vec::new();
     for event in &events {
         let Ok(raw) = event.raw().deserialize_as::<serde_json::Value>() else {
             continue;
         };
+        if is_undecryptable(&raw) {
+            if let Some(id) = raw.get("event_id").and_then(|v| v.as_str()) {
+                undecryptable.push(id.to_owned());
+            }
+            continue;
+        }
         let is_replacement = raw
             .get("content")
             .and_then(|c| c.get("m.relates_to"))
@@ -607,7 +847,7 @@ pub(crate) async fn collect_from(
             }
         }
     }
-    Ok(RoomBatch { ordinary, edits, names })
+    Ok(RoomBatch { ordinary, edits, names, undecryptable })
 }
 
 /// Write one collected room. Synchronous, so the index mutex is held for a
@@ -946,6 +1186,89 @@ mod tests {
         assert_eq!(ok.body, "a real message");
         assert_eq!(ok.msgtype, "m.text");
         assert_eq!(ok.ts, 42);
+    }
+
+    // "Index all rooms" must not record a room as complete while part of its
+    // history is still ciphertext. The cache keeps a UTD in its encrypted
+    // form; it is counted, and never indexed. Old code had no such count, so
+    // a walk over a room of UTDs reported nothing unusual.
+    #[test]
+    fn anUndecryptableEventIsCountedAndNeverIndexed() {
+        let utd = raw(serde_json::json!({
+            "event_id": "$u", "sender": "@a:x", "origin_server_ts": 3,
+            "type": "m.room.encrypted",
+            "content": {"algorithm": "m.megolm.v1.aes-sha2",
+                        "ciphertext": "AwgAEpAB", "session_id": "s"}
+        }));
+        assert!(is_undecryptable(&utd));
+        assert!(indexable_from(&utd).is_none(), "ciphertext was indexed");
+        let decrypted = raw(serde_json::json!({
+            "event_id": "$d", "sender": "@a:x", "origin_server_ts": 4,
+            "type": "m.room.message",
+            "content": {"msgtype": "m.text", "body": "readable"}
+        }));
+        assert!(!is_undecryptable(&decrypted));
+
+        let mut seen = HashSet::new();
+        let batch = RoomBatch {
+            ordinary: Vec::new(),
+            edits: Vec::new(),
+            names: std::collections::HashMap::new(),
+            undecryptable: vec!["$u".to_owned(), "$v".to_owned()],
+        };
+        note_undecryptable(&mut seen, &batch);
+        // The same page read twice (the in-memory chunk overlaps) counts once.
+        note_undecryptable(&mut seen, &batch);
+        assert_eq!(seen.len(), 2);
+    }
+
+    // "Clear index" while a page is in flight: the walk (or sweep) captured
+    // the generation before its await, the clear moves it under the same
+    // mutex, and the batch collected for the old index is refused. Old code:
+    // write_locked had no generation, so this batch refilled the cleared
+    // index with up to a page of decrypted text.
+    #[test]
+    fn aBatchCollectedBeforeAClearIsNeverWrittenAfterIt() {
+        let index = std::sync::Arc::new(std::sync::Mutex::new(Some(
+            SearchIndex::open_in_memory().unwrap(),
+        )));
+        let batch = RoomBatch {
+            ordinary: vec![Indexable {
+                event_id: "$late".to_owned(),
+                sender: "@a:x".to_owned(),
+                body: "collected before the clear".to_owned(),
+                msgtype: "m.text".to_owned(),
+                ts: 1,
+            }],
+            edits: Vec::new(),
+            names: std::collections::HashMap::new(),
+            undecryptable: Vec::new(),
+        };
+        // Control: the same batch writes when nothing was cleared.
+        let before = current_generation(&index);
+        assert_ne!(before, 0);
+        assert_eq!(write_locked(&index, before, "!r:x", &batch), Some(1));
+
+        let generation = current_generation(&index);
+        // The page is "in flight"; the user clears the index.
+        index.lock().unwrap().as_ref().unwrap().clear().unwrap();
+        assert_eq!(
+            write_locked(&index, generation, "!r:x", &batch),
+            None,
+            "a batch collected before the clear was written after it"
+        );
+        let stats = index.lock().unwrap().as_ref().unwrap().stats().unwrap();
+        assert_eq!(stats.messages, 0, "the cleared index was refilled");
+
+        // A writer that starts after the clear writes normally.
+        let fresh = current_generation(&index);
+        assert_eq!(write_locked(&index, fresh, "!r:x", &batch), Some(1));
+        // No index open: nothing to write into, and nothing is written.
+        let closed = std::sync::Arc::new(std::sync::Mutex::new(None));
+        assert_eq!(current_generation(&closed), 0);
+        assert_eq!(write_locked(&closed, 0, "!r:x", &batch), None);
+        // A reopened index never reuses a generation an old writer holds.
+        assert_ne!(SearchIndex::open_in_memory().unwrap().generation(), fresh);
     }
 
     #[test]

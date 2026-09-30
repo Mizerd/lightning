@@ -141,18 +141,58 @@ public:
     // ── Inline custom emoji completion (MSC2545) ─────────────────────────
     //
     // Cursor-driven rather than a property: a shortcode can be anywhere, and
-    // QML knows where the caret is. Returns [{shortcode, url, packName}], most
-    // recently used first, or empty when the caret is not in a completable
-    // `:token` (including inside a URL or code span).
+    // QML knows where the caret is. Returns [{shortcode, url, packName}] rows
+    // (custom, `kind` omitted) merged with [{kind: "unicode", emoji, name,
+    // shortcode}] rows (standard emoji, from EmojiCatalog), most recently
+    // used first within each source, capped at 12 total, or empty when the
+    // caret is not in a completable `:token` (including inside a URL or code
+    // span). Custom packs keep their existing one-character threshold; a
+    // Unicode match needs at least two, so a bare ":D" or ":)" being typed as
+    // an emoticon does not pop a Unicode-emoji menu.
     Q_INVOKABLE QVariantList emojiCompletionsAt(int cursorPos) const;
     /// Replace the `:token` under the caret with `:shortcode: ` and return
     /// the new cursor position, or -1 when there was nothing to replace.
     Q_INVOKABLE int acceptEmojiCompletionAt(int cursorPos,
                                             const QString &shortcode);
+    /// Replace the `:token` under the caret with `emoji ` (the character
+    /// itself, already skin-tone adjusted by the caller) and return the new
+    /// cursor position, or -1 when there was nothing to replace. Records the
+    /// use for recents.
+    Q_INVOKABLE int acceptUnicodeEmojiCompletionAt(int cursorPos,
+                                                   const QString &emoji);
     /// Supplies the candidates. Set by AppController from the installed packs;
     /// without it completion is never offered.
     void setEmoticonSearch(
         std::function<QVariantList(const QString &prefix, int limit)> search);
+    /// Supplies standard-emoji completion candidates (EmojiCatalog); without
+    /// it only custom packs are offered.
+    void setUnicodeEmojiSearch(
+        std::function<QVariantList(const QString &prefix, int limit)> search);
+    /// Records a Unicode emoji's use (recents), separate from the custom-pack
+    /// resolver: MessageComposer has no direct EmojiCatalog dependency.
+    void setUnicodeEmojiUseRecorder(
+        std::function<void(const QString &emoji)> record);
+    /// Exact shortcode/alias -> emoji (EmojiCatalog::emojiForShortcode), used
+    /// by the `:shortcode:` auto-convert below. Distinct from
+    /// setUnicodeEmojiSearch, which is the fuzzy popup search.
+    void setUnicodeShortcodeResolver(
+        std::function<QString(const QString &code)> resolve);
+
+    // ── `:shortcode:` auto-convert (Slack/Discord-style) ─────────────────
+    //
+    // Called by QML right after a keystroke lands in the text. When the
+    // character immediately before `cursorPos` is a space and the run before
+    // it is a complete `:alias:` naming a Unicode emoji — and not a custom
+    // pack shortcode of the same name, which keeps today's `:shortcode: `
+    // literal-until-send behaviour — replaces it with the emoji and returns
+    // the new cursor position; otherwise returns -1 and leaves the text
+    // alone. A no-op while disabled (Settings) or with no Unicode resolver.
+    Q_INVOKABLE int maybeAutoConvertShortcodeBeforeCursor(int cursorPos);
+    /// Settings -> composer: auto-convert a completed `:alias:` while typing
+    /// and once more at send for a trailing one with no following space.
+    /// Default true; a custom pack shortcode is never affected by this flag.
+    void setEmojiAutoConvertEnabled(bool enabled);
+    bool emojiAutoConvertEnabled() const { return m_emojiAutoConvert; }
     Q_INVOKABLE void clear();
     Q_INVOKABLE void beginReply(const QString &eventId,
                                 const QString &sender,
@@ -292,6 +332,11 @@ private:
     // refused with commandError) and the ordinary send must not run.
     bool executeCommand(const SlashCommands::Parse &parsed,
                         const QStringList &mentionIds);
+    // The "or send" half of shortcode auto-convert: a `:alias:` still literal
+    // (typically because it ended the message with no trailing space)
+    // converts here, under the same code-span and custom-pack-shadow rules as
+    // maybeAutoConvertShortcodeBeforeCursor. A no-op without a resolver.
+    QString convertUnicodeShortcodesForSend(const QString &text) const;
     void setCommandError(const QString &error);
     // stopTyping + cancelReplyOrEdit + clear: the tail shared by every
     // successful send and content-sending command.
@@ -306,6 +351,10 @@ private:
     MatrixClient *m_client = nullptr;
     std::function<QString(const QString &)> m_emoticonResolver;
     std::function<QVariantList(const QString &, int)> m_emoticonSearch;
+    std::function<QVariantList(const QString &, int)> m_unicodeEmojiSearch;
+    std::function<void(const QString &)> m_unicodeEmojiUseRecorder;
+    std::function<QString(const QString &)> m_unicodeShortcodeResolver;
+    bool m_emojiAutoConvert = true;
     AttachmentQueueModel *m_attachments = nullptr;
     bool m_sendTextAsCaption = false;
     QString m_text;

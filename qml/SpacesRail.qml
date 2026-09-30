@@ -1134,7 +1134,8 @@ Rectangle {
                     // Activity from RailEntryModel: a count for mentions, a dot
                     // for anything else unread. Muted rooms light neither, a
                     // mention excepted. Hidden on the open view, which already
-                    // shows it.
+                    // shows it. Bottom-right, where Discord puts a server's
+                    // badge; the room dots below follow the same corner.
                     Rectangle {
                         objectName: "railMentionBadge"
                         visible: spaceItem.mentionCount > 0
@@ -1147,9 +1148,9 @@ Rectangle {
                         color: AppTheme.mentionBadge
                         border.color: AppTheme.rail
                         border.width: 2
-                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
                         anchors.right: parent.right
-                        anchors.topMargin: -AppTheme.scaled(5)
+                        anchors.bottomMargin: -AppTheme.scaled(5)
                         anchors.rightMargin: -AppTheme.scaled(5)
 
                         Label {
@@ -1174,9 +1175,9 @@ Rectangle {
                         color: AppTheme.unreadBadge
                         border.color: AppTheme.rail
                         border.width: 2
-                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
                         anchors.right: parent.right
-                        anchors.topMargin: -2
+                        anchors.bottomMargin: -2
                         anchors.rightMargin: -2
                     }
 
@@ -1461,9 +1462,9 @@ Rectangle {
                                            : AppTheme.unreadBadge
                                     border.color: AppTheme.rail
                                     border.width: 2
-                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
                                     anchors.right: parent.right
-                                    anchors.topMargin: -2
+                                    anchors.bottomMargin: -2
                                     anchors.rightMargin: -2
                                 }
                             }

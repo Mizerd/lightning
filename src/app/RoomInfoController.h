@@ -23,6 +23,10 @@ class RoomInfoController : public QObject
     Q_PROPERTY(bool supported READ supported NOTIFY roomIdChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY membersChanged)
     Q_PROPERTY(QVariantList members READ members NOTIFY membersChanged)
+    // The members who have joined, in roster order: never an invite, a ban or
+    // a leave. What "the people in this room" means on a surface that shows
+    // no membership.
+    Q_PROPERTY(QVariantList joinedMembers READ joinedMembers NOTIFY membersChanged)
     Q_PROPERTY(int joinedCount READ joinedCount NOTIFY membersChanged)
     Q_PROPERTY(int invitedCount READ invitedCount NOTIFY membersChanged)
     Q_PROPERTY(bool truncated READ truncated NOTIFY membersChanged)
@@ -127,6 +131,7 @@ public:
     bool supported() const;
     bool loading() const { return m_membersOp != 0; }
     QVariantList members() const { return m_members; }
+    QVariantList joinedMembers() const;
     int joinedCount() const { return m_joinedCount; }
     int invitedCount() const { return m_invitedCount; }
     bool truncated() const { return m_truncated; }

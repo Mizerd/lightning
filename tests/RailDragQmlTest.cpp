@@ -1417,13 +1417,13 @@ private slots:
             const QRectF listRect = m_list->mapRectToItem(
                 m_rail, QRectF(0, 0, m_list->width(), m_list->height()));
             QVERIFY2(mark.width() > 0 && mark.height() > 0, "zero-size mark");
-            // On the corner: overlapping the tile, centred in its top-right
-            // quadrant.
+            // On the corner: overlapping the tile, centred in its
+            // bottom-right quadrant.
             QVERIFY(mark.intersects(tileRect));
             QVERIFY2(mark.center().x() > tileRect.center().x()
-                         && mark.center().y() < tileRect.center().y(),
+                         && mark.center().y() > tileRect.center().y(),
                      qPrintable(QStringLiteral("%1: mark at %2,%3 is not on "
-                                               "the tile's top-right corner")
+                                               "the tile's bottom-right corner")
                                     .arg(e.id)
                                     .arg(mark.center().x())
                                     .arg(mark.center().y())));
@@ -1438,6 +1438,7 @@ private slots:
                                     .arg(mark.right())
                                     .arg(m_rail->width())));
             QVERIFY(mark.top() >= listRect.top());
+            QVERIFY(mark.bottom() <= listRect.bottom());
             ++placed;
         }
         // Both marks were measured, not skipped.

@@ -2980,6 +2980,78 @@ void MockMatrixClient::clearSearchIndex()
     forgottenIndexRooms.clear();
 }
 
+namespace {
+QVariantMap mockIndexAllStatus(const QString &state, qint64 total)
+{
+    QVariantMap status;
+    status.insert(QStringLiteral("state"), state);
+    status.insert(QStringLiteral("total"), total);
+    status.insert(QStringLiteral("position"), qint64(0));
+    status.insert(QStringLiteral("currentRoomId"), QString());
+    status.insert(QStringLiteral("written"), qint64(0));
+    return status;
+}
+} // namespace
+
+quint64 MockMatrixClient::indexAllRooms(bool resumeOnly)
+{
+    const quint64 op = ++m_opCounter;
+    indexAllStarts.append(resumeOnly);
+    // Like the bridge: a resume with nothing interrupted only reports.
+    const bool starts = !resumeOnly || mockIndexAllPending;
+    if (starts)
+        mockIndexAllPending = true;
+    // At least one room, so a paused or interrupted pass reads resumable.
+    const qint64 total = qMax<qint64>(1, m_timelines.size());
+    QTimer::singleShot(0, this, [this, op, starts, total] {
+        Q_EMIT searchIndexAllProgress(
+            op, mockIndexAllStatus(starts ? QStringLiteral("running")
+                                          : QStringLiteral("idle"),
+                                   starts ? total : 0));
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::pauseIndexAll()
+{
+    const quint64 op = ++m_opCounter;
+    ++indexAllPauses;
+    // At least one room, so a paused or interrupted pass reads resumable.
+    const qint64 total = qMax<qint64>(1, m_timelines.size());
+    QTimer::singleShot(0, this, [this, op, total] {
+        Q_EMIT searchIndexAllProgress(
+            op, mockIndexAllStatus(QStringLiteral("paused"), total));
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::cancelIndexAll()
+{
+    const quint64 op = ++m_opCounter;
+    ++indexAllCancels;
+    mockIndexAllPending = false;
+    QTimer::singleShot(0, this, [this, op] {
+        Q_EMIT searchIndexAllProgress(
+            op, mockIndexAllStatus(QStringLiteral("cancelled"), 0));
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::requestIndexAllStatus()
+{
+    const quint64 op = ++m_opCounter;
+    const bool pending = mockIndexAllPending;
+    // At least one room, so a paused or interrupted pass reads resumable.
+    const qint64 total = qMax<qint64>(1, m_timelines.size());
+    QTimer::singleShot(0, this, [this, op, pending, total] {
+        Q_EMIT searchIndexAllProgress(
+            op, mockIndexAllStatus(pending ? QStringLiteral("stopped")
+                                           : QStringLiteral("idle"),
+                                   pending ? total : 0));
+    });
+    return op;
+}
+
 quint64 MockMatrixClient::deleteDevices(const QStringList &deviceIds)
 {
     if (deviceIds.isEmpty())

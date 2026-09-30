@@ -18,6 +18,7 @@ private Q_SLOTS:
     void oauthReauthorizationKeepsItsOwnStore();
     void restoreStorePolicy();
     void mismatchClassifierIsNarrow();
+    void aSignInTheKeyringLostIsNeverAResetAndResumesOnlyItsOwnAccount();
 
 private:
     matrix::app_data::AccountIdentity identity(const QString &user) const;
@@ -225,6 +226,38 @@ void RustSessionLifecycleTest::mismatchClassifierIsNarrow()
         "Matrix Rust SDK login failed: invalid password")));
     QVERIFY(!matrix::rust_session::isStoreOwnershipMismatch(QStringLiteral(
         "Matrix Rust SDK login failed: network unavailable")));
+}
+
+// The keyring answered "no such item" for a sign-in this install saved: the
+// store is whole, so no reset, and only exactly that account on its own
+// homeserver, signing in with a password, continues as the recorded device.
+void RustSessionLifecycleTest::aSignInTheKeyringLostIsNeverAResetAndResumesOnlyItsOwnAccount()
+{
+    using matrix::rust_session::lostSignInDeviceMayResume;
+    using Reason = matrix::rust_session::StoreBlockReason;
+    QVERIFY(!matrix::rust_session::suggestsLocalReset(Reason::KeyringLostSession));
+    QCOMPARE(matrix::rust_session::diagnosticName(Reason::KeyringLostSession),
+             QStringLiteral("keyring_lost_session"));
+    QVERIFY(!matrix::rust_session::suggestsLocalResetForCode(
+        QStringLiteral("keyring_lost_session")));
+
+    const QString user = QStringLiteral("@kai:example.org");
+    const QString server = QStringLiteral("https://example.org");
+    const QString device = QStringLiteral("KAIDEVICE");
+    QVERIFY(lostSignInDeviceMayResume(user, server, user, server, device, false));
+    // Another server typed with the full id: the password goes nowhere else.
+    QVERIFY(!lostSignInDeviceMayResume(user, QStringLiteral("https://evil.example"),
+                                       user, server, device, false));
+    // Localparts are case-sensitive.
+    QVERIFY(!lostSignInDeviceMayResume(QStringLiteral("@Kai:example.org"), server,
+                                       user, server, device, false));
+    // A browser sign-in cannot ask for the device.
+    QVERIFY(!lostSignInDeviceMayResume(user, server, user, server, device, true));
+    // Nothing to continue as.
+    QVERIFY(!lostSignInDeviceMayResume(user, server, user, server, QString(), false));
+    QVERIFY(!lostSignInDeviceMayResume(user, server, user, server,
+                                       QStringLiteral("  "), false));
+    QVERIFY(!lostSignInDeviceMayResume(QString(), server, user, server, device, false));
 }
 
 QTEST_MAIN(RustSessionLifecycleTest)

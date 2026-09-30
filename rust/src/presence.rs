@@ -246,7 +246,7 @@ fn retry_after_ms(error: &matrix_sdk::HttpError) -> Option<u64> {
 ///
 /// `DateTime` is compared with the local clock, so a skewed client clock can
 /// ask for a long wait; the C++ ceiling is what bounds it.
-fn retry_after_to_ms(retry_after: &matrix_sdk::ruma::api::error::RetryAfter) -> Option<u64> {
+pub(crate) fn retry_after_to_ms(retry_after: &matrix_sdk::ruma::api::error::RetryAfter) -> Option<u64> {
     use matrix_sdk::ruma::api::error::RetryAfter;
     match retry_after {
         RetryAfter::Delay(duration) => u64::try_from(duration.as_millis()).ok(),

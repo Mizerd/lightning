@@ -7,12 +7,16 @@
 // `everyNewRowKindStillProducesAPreviewLine` checks the string each consumer
 // builds from the row, which is what the user actually reads.
 // `aSyncedMessageCarriesItsPushVerdict` covers the push-rule verdict the
-// notification policy follows (issue #15).
+// notification policy follows (issue #15). `anEditIsNotANewMessage` keeps an
+// edit's "* " fallback out of the room list (2026-09-30), and
+// `aRedeliveredEditIsForwardedOnce` keeps a redelivered edit from notifying
+// twice.
 
 #include "app/SettingsManager.h"
 #include "matrix/EventPreview.h"
 #include "matrix/TimelineEvent.h"
 
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
 #include <QtTest>
@@ -360,6 +364,123 @@ private slots:
         QCOMPARE(sink.rows.size(), 1);
         QVERIFY(sink.rows.constFirst().pushVerdict
                 == TimelineEvent::PushVerdict::Unknown);
+#endif
+    }
+
+    /// An edit's body is the "* " fallback ("* edited: **bold words** ..." in
+    /// the room list, 2026-09-30). It must not become the preview, move the
+    /// room or enter the mirror as a row of its own, and it must still reach
+    /// eventAppended: an edit that newly mentions you notifies.
+    void anEditIsNotANewMessage()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        Appended sink;
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        watch(client, sink);
+
+        const QString room = QStringLiteral("!r:example.org");
+        QJsonObject listed;
+        listed.insert(QStringLiteral("id"), room);
+        listed.insert(QStringLiteral("name"), QStringLiteral("r"));
+        QJsonObject snapshot;
+        snapshot.insert(QStringLiteral("type"), QStringLiteral("room_snapshot"));
+        snapshot.insert(QStringLiteral("rooms"), QJsonArray{ listed });
+        client.handleRustEventForTest(snapshot);
+        QCOMPARE(client.roomInfo(room).id, room);
+
+        rowFor(client, sink, QStringLiteral("text"), QStringLiteral("hello"),
+               QString(), QStringLiteral("$original"));
+        QCOMPARE(client.roomInfo(room).lastMessagePreview, QStringLiteral("hello"));
+        const QDateTime activity = client.roomInfo(room).lastActivity;
+        QCOMPARE(client.timeline(room).size(), 1);
+
+        QJsonObject out = syncedMessage(QStringLiteral("text"),
+                                        QStringLiteral("* hello again"),
+                                        QString(), QStringLiteral("$edit"));
+        QJsonObject edit = out.value(QStringLiteral("event")).toObject();
+        edit.insert(QStringLiteral("replaces_event_id"), QStringLiteral("$original"));
+        edit.insert(QStringLiteral("timestamp_ms"), 1700000060000.0);
+        out.insert(QStringLiteral("event"), edit);
+        sink.rows.clear();
+        client.handleRustEventForTest(out);
+
+        QCOMPARE(sink.rows.size(), 1);
+        QCOMPARE(client.roomInfo(room).lastMessagePreview, QStringLiteral("hello"));
+        QCOMPARE(client.roomInfo(room).lastActivity, activity);
+        QCOMPARE(client.timeline(room).size(), 1);
+
+        // The same edit while the room is open (the preview-only branch).
+        client.m_timelineTracker.request(room);
+        edit.insert(QStringLiteral("event_id"), QStringLiteral("$edit2"));
+        out.insert(QStringLiteral("event"), edit);
+        client.handleRustEventForTest(out);
+        QCOMPARE(client.roomInfo(room).lastMessagePreview, QStringLiteral("hello"));
+        QCOMPARE(client.roomInfo(room).lastActivity, activity);
+        // Control: that branch does write a plain message's preview.
+        client.handleRustEventForTest(syncedMessage(
+            QStringLiteral("text"), QStringLiteral("fresh"), QString(),
+            QStringLiteral("$fresh")));
+        QCOMPARE(client.roomInfo(room).lastMessagePreview, QStringLiteral("fresh"));
+#endif
+    }
+
+    /// An edit never enters the mirror, so the mirror's de-dup cannot see it
+    /// arrive twice (a sliding-sync reset, a room re-entering the window), and
+    /// the notification policy has no de-dup of its own: each copy would
+    /// notify. Also an edit that cannot be decrypted yet, whose m.relates_to is
+    /// readable on the encrypted event.
+    void aRedeliveredEditIsForwardedOnce()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("needs the Rust backend");
+#else
+        Appended sink;
+        SettingsManager settings;
+        RustSdkMatrixClient client(&settings);
+        watch(client, sink);
+        const QString room = QStringLiteral("!r:example.org");
+
+        rowFor(client, sink, QStringLiteral("text"), QStringLiteral("hello"),
+               QString(), QStringLiteral("$original"));
+        const auto editOf = [&](const QString &eventId, bool undecryptable) {
+            QJsonObject out = syncedMessage(
+                undecryptable ? QStringLiteral("encrypted") : QStringLiteral("text"),
+                undecryptable ? QString() : QStringLiteral("* hello again"),
+                QString(), eventId);
+            QJsonObject edit = out.value(QStringLiteral("event")).toObject();
+            edit.insert(QStringLiteral("replaces_event_id"), QStringLiteral("$original"));
+            if (undecryptable) {
+                edit.insert(QStringLiteral("is_encrypted"), true);
+                edit.insert(QStringLiteral("undecryptable"), true);
+                edit.insert(QStringLiteral("error_kind"), QStringLiteral("no_key"));
+            }
+            out.insert(QStringLiteral("event"), edit);
+            return out;
+        };
+
+        int checked = 0;
+        for (const bool undecryptable : { false, true }) {
+            const QString id = undecryptable ? QStringLiteral("$utd-edit")
+                                             : QStringLiteral("$edit");
+            sink.rows.clear();
+            client.handleRustEventForTest(editOf(id, undecryptable));
+            QCOMPARE(sink.rows.size(), 1);
+            client.handleRustEventForTest(editOf(id, undecryptable));
+            QVERIFY2(sink.rows.size() == 1,
+                     qPrintable(QStringLiteral("%1 was forwarded %2 times")
+                                    .arg(id).arg(sink.rows.size())));
+            QCOMPARE(client.timeline(room).size(), 1);
+            ++checked;
+        }
+        QCOMPARE(checked, 2);
+
+        // Control: a different edit still gets through.
+        sink.rows.clear();
+        client.handleRustEventForTest(editOf(QStringLiteral("$edit-next"), false));
+        QCOMPARE(sink.rows.size(), 1);
 #endif
     }
 };

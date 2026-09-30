@@ -454,13 +454,36 @@ Item {
     // MSC2545 shortcode completion, refreshed from the input's signals since
     // only the editor knows where the caret is.
     property bool emojiPopupDismissed: false
+    // Guards the `:shortcode:` auto-convert below against its own echo: the
+    // convert call sets app.composer.text, which (via the reverse-sync
+    // Connections further down) writes the editor's `text` back, which would
+    // otherwise re-enter this same onTextChanged handler.
+    property bool emojiAutoConverting: false
+    // Runs the composer's `:shortcode:` -> emoji auto-convert for whichever
+    // editor just changed, and lands the caret where the conversion says.
+    // Called from both editors' onTextChanged; a no-op most keystrokes (see
+    // MessageComposer::maybeAutoConvertShortcodeBeforeCursor).
+    function checkEmojiAutoConvert(editor) {
+        if (root.emojiAutoConverting)
+            return
+        root.emojiAutoConverting = true
+        var pos = app.composer.maybeAutoConvertShortcodeBeforeCursor(
+            editor.cursorPosition)
+        root.emojiAutoConverting = false
+        if (pos >= 0)
+            editor.cursorPosition = pos
+    }
     EmojiCompletionPopup {
         id: emojiPopup
-        onChosen: (shortcode) => {
-            var pos = app.composer.acceptEmojiCompletionAt(
-                root.activeInput().cursorPosition, shortcode)
+        onChosen: (entry) => {
+            var editor = root.activeInput()
+            var pos = entry.kind === "unicode"
+                ? app.composer.acceptUnicodeEmojiCompletionAt(
+                      editor.cursorPosition, entry.emoji)
+                : app.composer.acceptEmojiCompletionAt(
+                      editor.cursorPosition, entry.shortcode)
             if (pos >= 0)
-                input.cursorPosition = pos
+                editor.cursorPosition = pos
             emojiPopup.close()
         }
     }
@@ -1025,6 +1048,7 @@ Item {
     FileDialog {
         id: pickAttachmentsDialog
         title: qsTr("Attach files")
+        currentFolder: app.defaultFileDialogFolder()
         fileMode: FileDialog.OpenFiles
         onAccepted: {
             for (var i = 0; i < selectedFiles.length; ++i)
@@ -1037,6 +1061,7 @@ Item {
     FileDialog {
         id: pickImageDialog
         title: qsTr("Send image")
+        currentFolder: app.defaultFileDialogFolder()
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"),
                        qsTr("All files (*)") ]
         onAccepted: app.media.sendPickedImage(app.currentRoomId, selectedFile)
@@ -1044,6 +1069,7 @@ Item {
     FileDialog {
         id: pickFileDialog
         title: qsTr("Send file")
+        currentFolder: app.defaultFileDialogFolder()
         onAccepted: app.media.sendPickedFile(app.currentRoomId, selectedFile)
     }
     AppMenu {
@@ -2052,6 +2078,7 @@ Item {
                                 root.updateCommandPopupState()
                                 root.emojiPopupDismissed = false
                                 root.updateEmojiPopupState()
+                                root.checkEmojiAutoConvert(richInput)
                             }
                             onSelectionStartChanged: root.refreshFormatState()
                             onSelectionEndChanged: root.refreshFormatState()
@@ -2264,6 +2291,7 @@ Item {
                             root.updateCommandPopupState()
                             root.emojiPopupDismissed = false
                             root.updateEmojiPopupState()
+                            root.checkEmojiAutoConvert(input)
                             spellTimer.restart()
                         }
                         onSelectionStartChanged: root.refreshFormatState()

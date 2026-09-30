@@ -25,9 +25,10 @@ Item {
             app.settings.spacesRailVisible = !app.settings.spacesRailVisible
     }
 
-    // Opens Settings. SettingsScreen declares the same action for when Settings
-    // is already open (it focuses the search field). Two enabled Shortcuts on
-    // one sequence make Qt fire neither, so the gates are exact complements:
+    // Opens Settings AND focuses its search field — the same action
+    // SettingsScreen declares for when Settings is already open (there it
+    // just focuses the field it already has). Two enabled Shortcuts on one
+    // sequence make Qt fire neither, so the gates are exact complements:
     // SettingsScreen's `root.visible` is app.currentScreen === 2 (see
     // Main.qml's settingsViewLoader). The gate is needed because Shortcuts stay
     // live while MainScreen is hidden under Settings.
@@ -37,7 +38,7 @@ Item {
             return [app.shortcuts.sequenceFor("app.openSettings")]
         }
         enabled: app.currentScreen !== 2
-        onActivated: app.showSettings()
+        onActivated: app.requestSettingsSearchFocus()
     }
     // The shortcut list is the rebinding page, so navigate there. Ungated:
     // showSettingsSection() works whether Settings is open or not.

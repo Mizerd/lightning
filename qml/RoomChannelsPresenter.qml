@@ -13,6 +13,9 @@ Item {
 
     /// The room the timeline is showing, so its row can be marked.
     property string currentRoomId: ""
+    /// The column is scrolled to its first row and nothing is moving it. The
+    /// host reads this to decide when a held order may be applied.
+    readonly property bool atRest: !channelList.moving && channelList.atYBeginning
     /// True while the shell shows an overview (Space Home or Home) rather than a
     /// timeline: "no room open", the same condition TimelinePane uses.
     readonly property bool lobbyActive: app.currentRoomId === ""
