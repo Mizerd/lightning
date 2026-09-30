@@ -12726,12 +12726,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1020"/>
-        <source>New messages still update a room&apos;s preview and badge at once, but it only moves up when you switch Space, tab or search, come back to the window, or leave the list alone for a few seconds.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+188"/>
+        <location line="+1208"/>
         <source>Typing a shortcode like &quot;:thumbsup:&quot; turns it into the emoji as soon as it is complete. Custom pack shortcodes are unaffected.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13712,7 +13707,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lebar daftar percakapan: %1 piksel</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+35"/>
+        <source>New messages still update a room&apos;s preview and badge at once, but it only moves up when you open another room, switch Space, tab or search, or come back to the window.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>Side panel width: %1 px</source>
         <translation>Lebar panel samping: %1 piksel</translation>
     </message>
@@ -15739,7 +15739,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+673"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+678"/>
         <source>Create Room</source>
         <translation>Buat Ruangan</translation>
     </message>
