@@ -403,8 +403,9 @@ copr-srpm:
       artifacts: true
   before_script:
     # .copr/Makefile installs what COPR's own chroot lacks (git, cargo,
-    # rpm-build); make and cpio are this job's.
-    - dnf install -y cpio git-core make
+    # rpm-build). The rest are this job's: jq for fetch-lightning-source.sh
+    # (its first run died on "jq: command not found"), xz for the SRPM check.
+    - dnf install -y cpio git-core jq make xz
   script:
     - ./packaging-ci/scripts/prepare-pinned-source.sh
     - ./packaging-ci/scripts/check-copr-srpm.sh
