@@ -6,7 +6,8 @@
 
 // Abstract secret storage. Backends include:
 //   * LibSecretStore: Secret Service via libsecret (HAVE_LIBSECRET);
-//     isAvailable() checks that the session bus is actually reachable.
+//     isAvailable() checks that the session bus is actually reachable. Shared
+//     between installs, so its items are scoped (see setInstallScope()).
 //   * WinCredStore: Windows Credential Manager (HAVE_WINCRED).
 //   * PortableSecretStore: sealed file for portable installations.
 //   * InsecureFallbackSecretStore: plaintext QSettings; reports insecure and
@@ -39,7 +40,7 @@ public:
     virtual QString backendName() const = 0;
 
     // Store / read / delete a secret keyed by (userId, key); userId scopes
-    // secrets to one account.
+    // secrets to one account. A shared store also scopes them to this install.
     virtual bool storeSecret(const QString &userId,
                              const QString &key,
                              const QString &value) = 0;
@@ -47,7 +48,8 @@ public:
                                const QString &key) const = 0;
     virtual bool deleteSecret(const QString &userId, const QString &key) = 0;
 
-    // Remove every secret bound to a user id. Used by logout.
+    // Remove every secret bound to a user id (in a shared store, this
+    // install's only). Used by logout.
     virtual bool clearAccountSecrets(const QString &userId) = 0;
 
     // Last error string. Empty when no error.
@@ -65,4 +67,37 @@ public:
     /// Destructive decisions key on this structural fact, not on
     /// lastReadFailed(), which can report individual reads as trustworthy.
     virtual bool missesAreInconclusive() const { return false; }
+
+    // Install scoping. The Secret Service is one per desktop session, but the
+    // Flatpak, the snap and a native build each keep their own account records
+    // and SDK stores, so each must keep its own tokens. A store shared between
+    // installs keys every item by installScope() too; SettingsManager sets it
+    // from the id it keeps beside the account records, before any other call.
+    // Stores that live inside one install (Credential Manager, portable file,
+    // QSettings fallback) ignore it.
+    virtual bool isSharedBetweenInstalls() const { return false; }
+    void setInstallScope(const QString &scope) { m_installScope = scope; }
+    QString installScope() const { return m_installScope; }
+
+    // Items written before install scoping existed, which every install could
+    // read and overwrite. Shared stores only. Another install may still be
+    // using them: delete one only when it provably holds this install's own
+    // token (SettingsManager::clearSessionForAccount). Same lastReadFailed()
+    // contract as readSecret().
+    virtual QString readLegacySecret(const QString &userId,
+                                     const QString &key) const
+    {
+        Q_UNUSED(userId);
+        Q_UNUSED(key);
+        return {};
+    }
+    virtual bool deleteLegacySecret(const QString &userId, const QString &key)
+    {
+        Q_UNUSED(userId);
+        Q_UNUSED(key);
+        return true;
+    }
+
+private:
+    QString m_installScope;
 };

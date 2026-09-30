@@ -335,8 +335,9 @@ public:
     explicit SettingsManager(QObject *parent = nullptr);
 
     // Inject the process-wide SecretStore. Call once, right after
-    // construction. Migrates any plaintext access token from QSettings into
-    // the store.
+    // construction. Scopes a store shared with other installs to this one,
+    // migrates any plaintext access token from QSettings into the store, and
+    // copies sessions saved before install scoping into this install's items.
     void setSecretStore(SecretStore *store);
     SecretStore *secretStore() const { return m_secretStore; }
 
@@ -685,7 +686,8 @@ public:
     void setPreferredEmojiTone(const QString &tone);
 
     // Session storage. The access token lives in the SecretStore keyed by the
-    // full user id; non-secret metadata is stored per account under
+    // full user id (and, in a store shared between installs, by this install);
+    // non-secret metadata is stored per account under
     // accounts/<slug>/, and accounts/active names the account shown. The
     // accessors below describe the active account.
     bool hasSession() const;
@@ -889,6 +891,31 @@ private:
     void migratePlaintextTokenIfPresent();
     void migrateInsecureSecretsGroup();
     void migrateLegacySessionRecord();
+    // This install's scope in a shared secret store, created once in the
+    // settings file. Empty only when it could not be saved.
+    QString keyringInstallId();
+    // At startup: adoptLegacyKeyringSession() for every saved account with no
+    // items of its own for its recorded device yet.
+    void adoptLegacyKeyringSessions();
+    // Whether this install's items in a shared store were written for the
+    // device the account record names now.
+    bool keyringItemsAreCurrent(const QString &slug) const;
+    // Records how this install's items for the account came to be, and for
+    // which device. Flushed at once.
+    void markKeyringItems(const QString &slug, const char *how) const;
+    enum class LegacyAdoption { Adopted, CopyFailed, NotAdoptable, Unreadable };
+    // Copies an account's items saved before install scoping into this
+    // install's, leaving the shared ones untouched. Only for an account this
+    // install records and did not sign in itself for the recorded device.
+    // Const, and writing, because the read path adopts on first use when the
+    // keyring was locked at startup.
+    LegacyAdoption adoptLegacyKeyringSession(
+        const QString &userId, QHash<QString, QString> *legacyOut) const;
+    // One secret of an account. In a shared store the access token decides:
+    // this install's items when it has one for the recorded device, else the
+    // pre-scoping session, adopted on the way. A failed read leaves
+    // lastReadFailed() set.
+    QString readAccountSecret(const QString &userId, const char *key) const;
     // Per-account appearance storage: reads prefer the active account, writes
     // update the account and the global fallback used by the logged-out shell.
     QVariant appearanceValue(const char *globalKey,

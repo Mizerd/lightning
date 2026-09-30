@@ -16,9 +16,27 @@ Q_LOGGING_CATEGORY(lcLibSecret, "matrix.secret.libsecret")
 
 namespace {
 
-// Application-scoped schema. Attributes are used both as identity for
-// libsecret and as a search filter for clearAccountSecrets().
-const SecretSchema *matrixClientSchema()
+// Every item this build writes. libsecret adds the name as `xdg:schema` to
+// each item and lookup, so older builds, which search the legacy name, never
+// see these items and their sign-out never deletes them.
+const SecretSchema *scopedSchema()
+{
+    static const SecretSchema schema = {
+        "org.lightning_matrix.Lightning.Secret", SECRET_SCHEMA_NONE,
+        {
+            { "user_id", SECRET_SCHEMA_ATTRIBUTE_STRING },
+            { "key",     SECRET_SCHEMA_ATTRIBUTE_STRING },
+            { "install", SECRET_SCHEMA_ATTRIBUTE_STRING },
+            { nullptr,   SECRET_SCHEMA_ATTRIBUTE_STRING },
+        },
+        // reserved
+        0, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+    };
+    return &schema;
+}
+
+// Builds before install scoping. Read only: any install may still use it.
+const SecretSchema *legacySchema()
 {
     static const SecretSchema schema = {
         "net.smetonis.matrixclient.Secret", SECRET_SCHEMA_NONE,
@@ -35,10 +53,12 @@ const SecretSchema *matrixClientSchema()
 
 QString makeLabel(const QString &userId, const QString &key)
 {
-    return QStringLiteral("matrix-client: %1 (%2)").arg(userId, key);
+    return QStringLiteral("Lightning: %1 (%2)").arg(userId, key);
 }
 
 QByteArray toUtf8(const QString &s) { return s.toUtf8(); }
+
+constexpr auto kNoScope = "no install scope set";
 
 } // namespace
 
@@ -74,9 +94,10 @@ void LibSecretStore::probe()
     // only an error means unusable.
     GError *probeErr = nullptr;
     gchar *probeValue = secret_password_lookup_sync(
-        matrixClientSchema(), nullptr, &probeErr,
+        scopedSchema(), nullptr, &probeErr,
         "user_id", "__lightning_probe__",
         "key",     "__probe__",
+        "install", "__probe__",
         nullptr);
     if (probeValue)
         secret_password_free(probeValue);
@@ -111,14 +132,20 @@ bool LibSecretStore::storeSecret(const QString &userId,
         setError(QStringLiteral("libsecret unavailable"));
         return false;
     }
+    // An unscoped write would be an item no install can find again.
+    if (installScope().isEmpty()) {
+        setError(QLatin1String(kNoScope));
+        return false;
+    }
     GError *err = nullptr;
     const QByteArray u = toUtf8(userId);
     const QByteArray k = toUtf8(key);
+    const QByteArray i = toUtf8(installScope());
     const QByteArray v = toUtf8(value);
     const QByteArray label = toUtf8(makeLabel(userId, key));
 
     gboolean ok = secret_password_store_sync(
-        matrixClientSchema(),
+        scopedSchema(),
         SECRET_COLLECTION_DEFAULT,
         label.constData(),
         v.constData(),
@@ -126,6 +153,7 @@ bool LibSecretStore::storeSecret(const QString &userId,
         &err,
         "user_id", u.constData(),
         "key",     k.constData(),
+        "install", i.constData(),
         nullptr);
 
     if (!ok || err) {
@@ -146,14 +174,23 @@ QString LibSecretStore::readSecret(const QString &userId,
         m_lastReadFailed = true;
         return {};
     }
+    // Not "no such secret": this install's items exist, it just cannot name
+    // them yet (CLAUDE.md §6).
+    if (installScope().isEmpty()) {
+        setError(QLatin1String(kNoScope));
+        m_lastReadFailed = true;
+        return {};
+    }
     GError *err = nullptr;
     const QByteArray u = toUtf8(userId);
     const QByteArray k = toUtf8(key);
+    const QByteArray i = toUtf8(installScope());
 
     gchar *raw = secret_password_lookup_sync(
-        matrixClientSchema(), nullptr, &err,
+        scopedSchema(), nullptr, &err,
         "user_id", u.constData(),
         "key",     k.constData(),
+        "install", i.constData(),
         nullptr);
 
     if (err) {
@@ -174,7 +211,41 @@ QString LibSecretStore::readSecret(const QString &userId,
     return out;
 }
 
-bool LibSecretStore::deleteSecret(const QString &userId, const QString &key)
+QString LibSecretStore::readLegacySecret(const QString &userId,
+                                          const QString &key) const
+{
+    if (!m_available) {
+        setError(QStringLiteral("libsecret unavailable"));
+        m_lastReadFailed = true;
+        return {};
+    }
+    GError *err = nullptr;
+    const QByteArray u = toUtf8(userId);
+    const QByteArray k = toUtf8(key);
+
+    gchar *raw = secret_password_lookup_sync(
+        legacySchema(), nullptr, &err,
+        "user_id", u.constData(),
+        "key",     k.constData(),
+        nullptr);
+
+    if (err) {
+        setError(QString::fromUtf8(err->message));
+        g_error_free(err);
+        m_lastReadFailed = true;
+        qCWarning(lcLibSecret) << "readLegacySecret failed:" << m_lastError;
+        return {};
+    }
+    m_lastReadFailed = false;
+    if (!raw)
+        return {};
+    QString out = QString::fromUtf8(raw);
+    secret_password_free(raw);
+    return out;
+}
+
+bool LibSecretStore::deleteLegacySecret(const QString &userId,
+                                        const QString &key)
 {
     if (!m_available) {
         setError(QStringLiteral("libsecret unavailable"));
@@ -183,10 +254,39 @@ bool LibSecretStore::deleteSecret(const QString &userId, const QString &key)
     GError *err = nullptr;
     const QByteArray u = toUtf8(userId);
     const QByteArray k = toUtf8(key);
-    gboolean removed = secret_password_clear_sync(
-        matrixClientSchema(), nullptr, &err,
+    secret_password_clear_sync(
+        legacySchema(), nullptr, &err,
         "user_id", u.constData(),
         "key",     k.constData(),
+        nullptr);
+    if (err) {
+        setError(QString::fromUtf8(err->message));
+        g_error_free(err);
+        return false;
+    }
+    return true;
+}
+
+bool LibSecretStore::deleteSecret(const QString &userId, const QString &key)
+{
+    if (!m_available) {
+        setError(QStringLiteral("libsecret unavailable"));
+        return false;
+    }
+    // Without the scope this clear would match every install's items.
+    if (installScope().isEmpty()) {
+        setError(QLatin1String(kNoScope));
+        return false;
+    }
+    GError *err = nullptr;
+    const QByteArray u = toUtf8(userId);
+    const QByteArray k = toUtf8(key);
+    const QByteArray i = toUtf8(installScope());
+    gboolean removed = secret_password_clear_sync(
+        scopedSchema(), nullptr, &err,
+        "user_id", u.constData(),
+        "key",     k.constData(),
+        "install", i.constData(),
         nullptr);
     if (err) {
         setError(QString::fromUtf8(err->message));
@@ -204,13 +304,20 @@ bool LibSecretStore::clearAccountSecrets(const QString &userId)
         setError(QStringLiteral("libsecret unavailable"));
         return false;
     }
+    if (installScope().isEmpty()) {
+        setError(QLatin1String(kNoScope));
+        return false;
+    }
     GError *err = nullptr;
     const QByteArray u = toUtf8(userId);
-    // Passing only user_id (without key) matches every entry whose user_id
-    // attribute equals the given value.
+    const QByteArray i = toUtf8(installScope());
+    // Without `key`: every entry of this account in this install. Legacy items
+    // and other installs' items do not match (different schema name, or a
+    // different install attribute).
     gboolean removed = secret_password_clear_sync(
-        matrixClientSchema(), nullptr, &err,
+        scopedSchema(), nullptr, &err,
         "user_id", u.constData(),
+        "install", i.constData(),
         nullptr);
     if (err) {
         setError(QString::fromUtf8(err->message));
@@ -233,6 +340,8 @@ QString LibSecretStore::backendName() const
 }
 bool LibSecretStore::storeSecret(const QString &, const QString &, const QString &) { return false; }
 QString LibSecretStore::readSecret(const QString &, const QString &) const { return {}; }
+QString LibSecretStore::readLegacySecret(const QString &, const QString &) const { return {}; }
+bool LibSecretStore::deleteLegacySecret(const QString &, const QString &) { return false; }
 bool LibSecretStore::deleteSecret(const QString &, const QString &) { return false; }
 bool LibSecretStore::clearAccountSecrets(const QString &) { return false; }
 

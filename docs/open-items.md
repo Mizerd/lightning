@@ -139,6 +139,47 @@ Everything below was found or left open by that round's live testing and its
   (`generate-update-manifest.sh`); flipping the Flatpak channel changes what
   clients are told and is a decision for Rokas.
 
+### Keyring: install scoping (phase 1 landed, phase 2 open)
+
+Since this round each install keeps its own Secret Service items (schema
+`org.lightning_matrix.Lightning.Secret`, attribute `install` = the id kept in
+its own settings file), so the Flatpak, the snap and a native build can no
+longer overwrite or, on sign-out, delete each other's tokens (live PASS
+2026-09-29 on a private keyring; the old build reproduced the report). What
+remains open:
+
+- **Adopted sessions are UNVERIFIED.** An item written by an older build
+  (`net.smetonis.matrixclient.Secret`) is copied into the install's own items
+  at first start (`keyringItems=adopted-unverified`). Offline nothing tells
+  whose device a token is, so an install that already ran on another install's
+  token before the update keeps it, and its sign-out still logs that device
+  out server-side, as before. **Phase 2 (needs its own review):** for an
+  unverified adoption, `GET /account/whoami` with the stored token BEFORE
+  `restore_session` (no crypto, no sync, no refresh): same device -> confirm;
+  other device -> drop this install's copy, keep the shared item, ask to sign
+  in; 401 or unreachable -> proceed unverified (a restore must not need a live
+  server). Residual: OAuth (MAS) access tokens are usually expired at restore,
+  so whoami answers 401 and phase 2 rarely decides an OAuth account.
+- **Sign-out of an adopted session** deletes the shared item too when it still
+  holds this install's token (as before scoping); any other value is another
+  session's and stays. After an OAuth refresh the two differ, so the shared
+  item is left holding the pre-rotation tokens: a consumed refresh token and
+  an access token that is live until it expires, and live indefinitely if the
+  server logout failed. `secret-tool clear xdg:schema
+  net.smetonis.matrixclient.Secret` removes it.
+- **Old and new builds of ONE install** (AppImage and a dev `.deb` share the
+  data root): an old build's OAuth refresh rewrites only the shared item, so
+  the new build's adopted copy keeps a rotated-away refresh token and the
+  session is lost at its next refresh; a session a new build signed in is
+  invisible to an older build (downgrade = sign in again).
+- A copy the keyring refuses is retried on every read (about five synchronous
+  D-Bus calls and a warning each time) and the shared item is read through
+  meanwhile. Bounded only by the next successful write.
+- Search semantics were measured on gnome-keyring 50 and read in KWallet 6.26's
+  `ksecretd` (subset match, as the design needs); KWallet NOT TESTED live,
+  KeePassXC not checked. Windows (every installed build shares one data root)
+  and macOS (no Keychain backend) have no collision and are unchanged.
+
 ### Test harness
 
 - A QML test helper that matches `metaObject()->className()` EXACTLY misses

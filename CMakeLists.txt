@@ -1468,6 +1468,40 @@ if(BUILD_TESTING)
         REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME settings-session COMMAND settings-session-test)
 
+    # Two installs on one Secret Service (the Flatpak and a .deb) keep their
+    # own tokens; sessions saved before install scoping are copied, never taken
+    # from another install or deleted. Against a fake keyring.
+    qt_add_executable(keyring-scope-test
+        tests/KeyringScopeTest.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/media/MediaVisibilityStore.h
+        src/media/MediaVisibilityStore.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(keyring-scope-test PRIVATE src)
+    target_link_libraries(keyring-scope-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME keyring-scope COMMAND keyring-scope-test)
+
+    # The same against a real Secret Service. Every case skips unless
+    # LIGHTNING_KEYRING_TEST_BUS vouches for a private session bus (see the
+    # file header), so it never touches a developer's own keyring.
+    if(HAVE_LIBSECRET)
+        qt_add_executable(libsecret-scope-test
+            tests/LibSecretScopeTest.cpp
+            src/storage/SecretStore.h
+            src/storage/LibSecretStore.h
+            src/storage/LibSecretStore.cpp
+        )
+        target_include_directories(libsecret-scope-test PRIVATE src)
+        target_link_libraries(libsecret-scope-test
+            PRIVATE Qt6::Core Qt6::Test PkgConfig::LIBSECRET)
+        target_compile_definitions(libsecret-scope-test PRIVATE HAVE_LIBSECRET=1)
+        add_test(NAME libsecret-scope COMMAND libsecret-scope-test)
+    endif()
+
     # "Send later": server (MSC4140) vs local queue policy, no persisted
     # encrypted-room plaintext, crash and sign-out handling.
     qt_add_executable(scheduled-send-test
