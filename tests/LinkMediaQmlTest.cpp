@@ -339,10 +339,23 @@ QtObject {
         return d.root->findChild<QQuickItem *>(name);
     }
 
+    // Polishes the window's layouts and renders a frame first. A click sent
+    // while the row was still in its pre-layout geometry (a 56 px row around a
+    // 120 px picture) reached no item at all: no grab, no press. Whether the
+    // polish had run first depended on load and on the cases before, which
+    // made aClickAfterEvictionOpensTheBrowser flaky.
+    static void settle(Delegate &d)
+    {
+        QCoreApplication::processEvents();
+        if (d.window)
+            (void)d.window->grabWindow();
+    }
+
     static bool click(Delegate &d, QQuickItem *item)
     {
         if (!item || !item->isVisible() || item->width() <= 0)
             return false;
+        settle(d);
         const QPointF centre = item->mapToScene(
             QPointF(item->width() / 2, item->height() / 2));
         QTest::mouseClick(d.window.get(), Qt::LeftButton, {}, centre.toPoint());
