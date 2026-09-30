@@ -69,19 +69,19 @@
       English values.
     -->
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/01-conversation.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.0/docs/screenshots/flathub/01-conversation.png</image>
       <caption>A room conversation with replies, reactions and a thread</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/02-threads.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.0/docs/screenshots/flathub/02-threads.png</image>
       <caption>A thread and its replies, opened from the conversation it started in</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/03-call.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.0/docs/screenshots/flathub/03-call.png</image>
       <caption>A four-person video call inside a room</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.9.9/docs/screenshots/flathub/04-themes.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.0/docs/screenshots/flathub/04-themes.png</image>
       <caption>Building a colour theme against a live sample of the interface</caption>
     </screenshot>
   </screenshots>
@@ -148,6 +148,18 @@
   </content_rating>
 
   <releases>
+    <release version="0.10.0" date="2026-10-01" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.10.0</url>
+      <description>
+        <p>
+          A release about calls that hold up, a sign-in that says what it wants,
+          and Spaces you can actually run. Most of it came from reports: a voice
+          call that went quiet after every join and leave, a crash on hang-up
+          that only slower machines could reach, a server address that had to be
+          typed in full, and pictures that stayed blank until the first scroll.
+        </p>
+      </description>
+    </release>
     <release version="0.9.9" date="2026-09-21" type="stable">
       <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.9.9</url>
       <description>
