@@ -1,0 +1,39 @@
+name: Update cargo sources
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - org.lightning_matrix.Lightning.yaml
+
+permissions:
+  contents: write
+
+jobs:
+  cargo-sources:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-aiohttp python3-tomlkit python3-yaml
+
+      - name: Regenerate cargo-sources.json
+        run: python3 update-cargo-sources.py
+
+      - name: Commit if it changed
+        run: |
+          if git diff --quiet -- cargo-sources.json; then
+            echo "cargo-sources.json already matches the pinned Cargo.lock"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cargo-sources.json
+          git commit -m "Update cargo-sources.json"
+          git push

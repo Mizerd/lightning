@@ -54,6 +54,7 @@ required_jobs = [
     "sign-update-manifest", "mirror-release-to-github", "publish-update-manifest",
     "github-mirror-preflight", "mirror-update-manifest-to-github",
     "windows-package-test", "build-windows", "macos-package-test",
+    "flathub-update-pr",
 ]
 for job in required_jobs:
     check(job in doc, f"job {job} is defined")
@@ -1657,6 +1658,24 @@ _client_endpoints = open(_client_endpoints_path).read() if os.path.exists(_clien
 if _client_endpoints:
     check("releases/download/update-latest" in _client_endpoints,
           "the client's compiled-in fallback names the same update-latest slot this pipeline writes")
+# The Flathub PR job opens a PR after a published release, and nothing more.
+_fh = resolve_extends_dict(doc["flathub-update-pr"])
+check(_fh.get("stage") == "update" and _fh.get("allow_failure") is True,
+      "flathub-update-pr is allow_failure in the update stage: GitHub cannot fail a published release")
+check(isinstance(_fh.get("environment"), dict)
+      and _fh["environment"].get("name") == "flathub",
+      "flathub-update-pr declares the `flathub` environment its token is scoped to")
+check("script_failure" not in ((_fh.get("retry") or {}).get("when") or []),
+      "flathub-update-pr does not retry a script failure (a refusal is a decision, not a flake)")
+check("mirror-release-to-github" in needs_names("flathub-update-pr"),
+      "flathub-update-pr runs only after the GitHub mirror has the tag Flathub builds")
+_fh_script = _strip_shell_comments(_read("scripts", "flathub-update-pr.sh"))
+check(not re.search(r"/merge\b|\bgit\s+merge\b|\bpr\s+merge\b", _fh_script)
+      and not re.search(r"\bpush\b[^\n]*(--force|\s-f\b|\s\+)", _fh_script),
+      "the Flathub script never merges a PR and never force-pushes")
+check("GIT_CONFIG_VALUE_0" in _fh_script
+      and not re.search(r'git\s+-c\s+"?http[^\n]*extraheader', _fh_script),
+      "the Flathub token reaches git through its environment, never argv")
 for job in ("build-deb", "build-rpm", "build-appimage", "build-flatpak",
             "build-snap", "build-windows"):
     check("environment" not in resolve_extends_dict(doc[job]),

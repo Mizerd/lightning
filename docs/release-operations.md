@@ -241,6 +241,75 @@ the lightning-deploy pipeline only after packages publish and verify
   lightning-deploy `7e84170`). A 0.7.2 Flatpak **bundle is not upgraded
   in place and must be reinstalled**.
 
+### Flathub: the release pipeline opens the update PR (from 0.9.10)
+
+Flathub builds from two files kept in this repository's root:
+`org.lightning_matrix.Lightning.yaml` and `cargo-sources.json`. Neither is
+edited in the Flathub repository any more.
+
+- **`flathub-update-pr`** (stage `update`, after `mirror-release-to-github`)
+  runs in a create-mode release. It clones the GitHub mirror at the new tag
+  (what Flathub fetches) and refuses if the tag peels to anything but the
+  released commit. It re-pins the manifest's tag and commit, pushes the
+  manifest, `cargo-sources.json` and the two `packaging-ci/flathub/` files to
+  a branch `lightning-<version>` of
+  `flathub/org.lightning_matrix.Lightning`, and opens a PR. It never merges:
+  Flathub publishes only a merged PR, test-builds every PR, and restricts
+  automatic merging. **Merge the PR after its test build passes.**
+  `allow_failure`, idempotent (an identical branch or open PR is reused), and
+  its result is in `dist/flathub/flathub-pr.json`.
+- **The Flathub repository regenerates its own crate list, as Fractal's
+  does.** The job also copies `packaging-ci/flathub/`: a workflow that runs on
+  every same-repository PR touching the manifest, and the script it runs,
+  which reads the pinned tag and commit, fetches that `Cargo.lock` and
+  regenerates `cargo-sources.json` with the same pinned generator. So
+  flathubbot's own tag-bump PR (`x-checker-data`) gets a correct crate list
+  too. Measured against the live Flathub files at v0.9.9: the script
+  reproduces Flathub's `cargo-sources.json` byte for byte, and repairs a
+  truncated one. The workflow itself has NOT run yet; it first runs on the
+  PR that adds it.
+- **Setup, once:** a GitHub token of a Flathub maintainer of that repository
+  as project 6 variable `FLATHUB_GITHUB_TOKEN`, protected and masked, with
+  environment scope `flathub`. A classic token needs `workflow` (GitHub
+  refuses a push that adds a workflow file without it), and GitHub's page then
+  forces the whole `repo` scope on with it; a fine-grained one cannot reach a
+  repository where the account is only a collaborator. The token in use
+  (2026-09-30, Rokas's choice) is classic, `repo` + `workflow`, no expiry, on
+  his own account; a bot account that maintains only the Flathub repository
+  would bound it further.
+  Without the variable the job exits 0 and says so. The token reaches git
+  through `GIT_CONFIG_COUNT` in its environment, never argv (readable by any
+  user on the runner host).
+- **Rehearsed end to end on 2026-09-30** against a local bare remote
+  (`FLATHUB_REMOTE_URL`) and a fake GitHub API (`FLATHUB_API_HOST`): it pushed
+  all four files to `lightning-0.9.99`, opened the PR, and a second run reused
+  both. A `git` wrapper recording every argv found the token (base64) in 3 of 10
+  git calls with the earlier `git -c` header and in 0 with the environment. The
+  real GitHub push and PR remain NOT TESTED until the first release.
+- **`cargo-sources.json` follows `rust/Cargo.lock`.** `config-tests` fails
+  when they disagree; `scripts/update-cargo-sources.sh` regenerates it with a
+  pinned `flatpak-cargo-generator`, which reproduces the committed file byte
+  for byte.
+- **Nothing sent to Flathub carries comments** (Rokas, 2026-09-30). The job drops
+  the manifest's full-line comments and refuses any comment left, and the two
+  `packaging-ci/flathub/` files are written without any.
+- **Prose that names the old release fails the job.** Re-pinning changes only
+  the tag and commit lines; any other mention of the previous version would
+  be left stale, so the job stops instead of pushing it.
+- **Dry run:** `FLATHUB_DRY_RUN=true` writes the re-pinned files to
+  `dist/flathub/` and pushes nothing. It was run against v0.9.9: it re-pinned
+  v0.9.8 to v0.9.9, and a wrong commit was refused.
+- **How others do it, audited 2026-09-30.**
+  - Element (`im.riot.Riot`) repackages prebuilt tarballs and has no crate
+    list.
+  - Fractal, the Rust Matrix client, keeps a workflow in its Flathub
+    repository that regenerates the crate list on every PR.
+  - Helvum ships a release tarball with vendored crates.
+  - Shortwave commits a generated file in its Flathub repository.
+  - Smaller apps (WaveFlow, qobine) refresh theirs with a bot in their own
+    repository, which is the model here.
+  - None of those edits the crate list by hand.
+
 ## Update / upgrade live-validation truth
 
 Moved out of `CLAUDE.md` §2 on 2026-09-11, unchanged, to keep that
