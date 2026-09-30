@@ -248,12 +248,11 @@ ApplicationWindow {
             window.raiseIntoView()
         }
     }
-    // Ctrl+Q quits for real; the tray icon has no context menu, so this is the
-    // way out after closing to the tray. It sets quitRequested first so the
-    // close handler does not veto the quit. Qt.quit() rather than Qt.exit() so
-    // aboutToQuit teardown (AppController, UpdateManager apply-on-quit) still
-    // runs. ApplicationShortcut so it fires while one of our native dialogs has
-    // focus.
+    // Ctrl+Q quits for real, as does the tray icon's "Quit Lightning". It sets
+    // quitRequested first so the close handler does not veto the quit.
+    // Qt.quit() rather than Qt.exit() so aboutToQuit teardown (AppController,
+    // UpdateManager apply-on-quit) still runs. ApplicationShortcut so it fires
+    // while one of our native dialogs has focus.
     Shortcut {
         // From ShortcutRegistry. bindingRevision is read inside the binding
         // because sequenceFor() creates no dependency.

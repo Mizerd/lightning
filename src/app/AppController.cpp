@@ -232,6 +232,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // has a tray.
     connect(&m_tray, &TrayIcon::showRequested,
             this, &AppController::trayShowRequested);
+    // "Quit Lightning" in the tray menu. Announce the intent first, as the
+    // updater does: close-to-tray would otherwise refuse the window close and
+    // abort the quit.
+    connect(&m_tray, &TrayIcon::quitRequested, this, [this] {
+        Q_EMIT applicationQuitIntended();
+        QCoreApplication::quit();
+    });
     connect(m_settings.get(), &SettingsManager::closeToTrayChanged,
             this, &AppController::refreshTrayState);
     connect(m_settings.get(), &SettingsManager::notificationsEnabledChanged,

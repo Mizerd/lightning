@@ -4,7 +4,10 @@
 #include <QPixmap>
 #include <QString>
 
+#include <memory>
+
 class QImage;
+class QMenu;
 class QSystemTrayIcon;
 
 // The system-tray icon. It exists only while the user has enabled it, and it
@@ -49,8 +52,17 @@ public:
     bool showMessage(const QString &title, const QString &body,
                      const QImage &image);
 
+    // The icon's right-click menu: "Show Lightning" and "Quit Lightning".
+    // Built on first use, so it is testable without a tray.
+    QMenu *contextMenu();
+    // Whether an activation raises the window. Not the Context reason: that is
+    // the right click which opens the menu (Windows reports both).
+    static bool activationShowsWindow(int reason);
+
 Q_SIGNALS:
     void showRequested();
+    // "Quit Lightning" in the menu: quit for real, past close-to-tray.
+    void quitRequested();
     // The balloon shown by showMessage() was clicked.
     void messageClicked();
 
@@ -59,6 +71,7 @@ private:
     void refreshIcon();
 
     QSystemTrayIcon *m_icon = nullptr;
+    std::unique_ptr<QMenu> m_menu;
     int m_unread = 0;
     bool m_anyUnread = false;
     QString m_account;

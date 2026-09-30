@@ -8,6 +8,8 @@
 #include <QPixmap>
 #include <QImage>
 #include <QPixmap>
+#include <QAction>
+#include <QMenu>
 #include <QSystemTrayIcon>
 
 namespace {
@@ -148,22 +150,43 @@ void TrayIcon::setEnabled(bool enabled)
     if (!platformSupportsTray())
         return;
 
-    // No context menu by design: every activation brings the window back.
+    // A left click brings the window back; the right-click menu adds the way
+    // to quit that close-to-tray otherwise leaves only to Ctrl+Q (GitHub #17).
     //
-    // The XEmbed fallback (X11 without a StatusNotifier watcher) is a QWidget,
-    // which is why the process must be a QApplication (see main.cpp).
+    // The XEmbed fallback (X11 without a StatusNotifier watcher) and the menu
+    // are QWidgets, which is why the process must be a QApplication (see
+    // main.cpp).
     m_icon = new QSystemTrayIcon(this);
     // refreshIcon() so an icon created while unread starts with its badge.
     refreshIcon();
+    m_icon->setContextMenu(contextMenu());
     connect(m_icon, &QSystemTrayIcon::activated, this,
             [this](QSystemTrayIcon::ActivationReason reason) {
-                Q_UNUSED(reason);
-                Q_EMIT showRequested();
+                if (activationShowsWindow(reason))
+                    Q_EMIT showRequested();
             });
     connect(m_icon, &QSystemTrayIcon::messageClicked, this,
             &TrayIcon::messageClicked);
     refreshTooltip();
     m_icon->show();
+}
+
+QMenu *TrayIcon::contextMenu()
+{
+    if (m_menu)
+        return m_menu.get();
+    m_menu = std::make_unique<QMenu>();
+    QAction *show = m_menu->addAction(tr("Show Lightning"));
+    connect(show, &QAction::triggered, this, &TrayIcon::showRequested);
+    m_menu->addSeparator();
+    QAction *quit = m_menu->addAction(tr("Quit Lightning"));
+    connect(quit, &QAction::triggered, this, &TrayIcon::quitRequested);
+    return m_menu.get();
+}
+
+bool TrayIcon::activationShowsWindow(int reason)
+{
+    return reason != QSystemTrayIcon::Context;
 }
 
 QString TrayIcon::badgeLabel(int count, bool anyUnread)

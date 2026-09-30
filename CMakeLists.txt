@@ -5117,6 +5117,20 @@ if(TARGET lightning-app-testlib)
     endif()
 endif()
 
+# The tray icon's right-click menu (GitHub #17). A QMenu needs a QApplication,
+# so it is not in composer-spell-test's guiless main.
+if(BUILD_TESTING)
+    qt_add_executable(tray-menu-test
+        tests/TrayMenuTest.cpp
+        src/app/TrayIcon.h
+        src/app/TrayIcon.cpp
+    )
+    target_include_directories(tray-menu-test PRIVATE src)
+    target_link_libraries(tray-menu-test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
+    add_test(NAME tray-menu COMMAND tray-menu-test)
+    set_tests_properties(tray-menu PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
+
 # Spell checking and the tray badge. Standalone rather than linking
 # lightning-app-testlib: everything under test is pure, and the link list is
 # part of the contract (SpellChecker sees only Qt and its backend interface).
