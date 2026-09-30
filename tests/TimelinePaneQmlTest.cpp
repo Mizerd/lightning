@@ -366,6 +366,23 @@ private:
         return out.value<QQuickItem *>();
     }
 
+    // The first message row near the live edge that has an action key.
+    static QQuickItem *onScreenMessageRow(QQuickItem *timeline,
+                                          QString *actionKey)
+    {
+        for (int row = 0; row < 12; ++row) {
+            QQuickItem *candidate = itemAtViewRow(timeline, row);
+            if (!candidate)
+                continue;
+            const QString key = candidate->property("actionKey").toString();
+            if (key.isEmpty())
+                continue;
+            *actionKey = key;
+            return candidate;
+        }
+        return nullptr;
+    }
+
     // Rows on screen (drawn, and overlapping the viewport) whose delegate is
     // outside the media band, so their pictures would not be fetched; empty
     // when there are none. View rows ascend in content y.
@@ -8806,9 +8823,11 @@ private Q_SLOTS:
                      .arg(timeline->property("mediaBandLastRow").toInt())));
     }
 
-    // A quick middle click starts no autoscroll and leaves no marker;
-    // press-and-hold is the whole gesture.
-    void quickMiddleClickStartsNoAutoscrollAndLeavesNoMarker()
+    // Browser autoscroll: a quick middle click latches. The next click ends
+    // it and never reaches the row under it; idle, rows keep their clicks and
+    // hover. (The left-click swallow on the pane's own controls is in the next
+    // case.)
+    void quickMiddleClickLatchesAndTheExitClickNeverReachesARow()
     {
         AppController controller(AppController::MockBackend);
         QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
@@ -8832,21 +8851,207 @@ private Q_SLOTS:
             QStringLiteral("autoscrollAnchorMarker"));
         QVERIFY(marker != nullptr);
 
-        const QPoint at = scroller
-                              ->mapToScene(QPointF(scroller->width() / 2.0,
-                                                   scroller->height() / 2.0))
+        QString actionKey;
+        QQuickItem *messageRow = onScreenMessageRow(timeline, &actionKey);
+        QVERIFY2(messageRow != nullptr, "no message row on screen");
+        auto *content = messageRow->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        QVERIFY(content != nullptr);
+        const QPoint at = content
+                              ->mapToScene(QPointF(content->width() / 2.0,
+                                                   content->height() / 2.0))
                               .toPoint();
+        QVERIFY2(scroller->contains(scroller->mapFromScene(QPointF(at))),
+                 "premise: the row is not under the scroller");
+        // The row's own observable: its context menu (the body text takes a
+        // left press itself, so a left click has none).
+        auto menuOpen = [&] {
+            return !messageRow->property("menuEventId").toString().isEmpty();
+        };
+
+        // Idle, the row gets hover.
+        QTest::mouseMove(&window, at);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            timeline->property("hoveredActionsKey").toString(), actionKey,
+            2000);
+
+        // Latched, a left click ends it.
+        QTest::mouseClick(&window, Qt::MiddleButton, Qt::NoModifier, at);
+        QCoreApplication::processEvents();
+        QVERIFY2(scroller->property("latched").toBool(),
+                 "a quick middle click did not latch autoscroll");
+        QVERIFY2(marker->isVisible(), "a latched autoscroll shows no marker");
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, at);
+        QCoreApplication::processEvents();
+        QVERIFY2(!scroller->property("active").toBool(),
+                 "a left click did not end the latched autoscroll");
+        QVERIFY(!marker->isVisible());
+
+        // Latched, a right click ends it and opens no menu.
+        QTest::mouseClick(&window, Qt::MiddleButton, Qt::NoModifier, at);
+        QCoreApplication::processEvents();
+        QVERIFY(scroller->property("latched").toBool());
+        QTest::mouseClick(&window, Qt::RightButton, Qt::NoModifier, at);
+        QCoreApplication::processEvents();
+        QVERIFY(!scroller->property("active").toBool());
+        QVERIFY2(!menuOpen(),
+                 "the right click that ended the latch opened the row's menu");
+
+        // Idle, the right click reaches the row.
+        QTest::mouseClick(&window, Qt::RightButton, Qt::NoModifier, at);
+        QTRY_VERIFY2_WITH_TIMEOUT(menuOpen(), "idle right click opened no menu",
+                                  2000);
+    }
+
+    // A latched timeline autoscroll keeps the rotated view's direction and
+    // ends on Escape, programmatic navigation and a room switch.
+    void aLatchedTimelineAutoscrollEndsOnEscapeNavigationAndRoomSwitch()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(
+            controller, engine, window, roomId,
+            textFixture(roomId, 60, QStringLiteral("latch"),
+                        QStringLiteral("latch probe")),
+            /*paginationPages=*/0, /*viewportHeight=*/420, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        auto *scroller = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineMiddleClickScroller"));
+        QVERIFY(scroller != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(scroller->isVisible(), 4000);
+
+        const QPointF centre(scroller->width() / 2.0,
+                             scroller->height() / 2.0);
+        const QPoint anchor = scroller->mapToScene(centre).toPoint();
+        auto latch = [&] {
+            QTest::mouseClick(&window, Qt::MiddleButton, Qt::NoModifier,
+                              anchor);
+            QCoreApplication::processEvents();
+            return scroller->property("latched").toBool();
+        };
+
+        // Up the screen is older history: contentY grows on the rotated view.
+        QVERIFY(latch());
+        const qreal start = timeline->property("contentY").toReal();
+        QTest::mouseMove(&window,
+                         scroller->mapToScene(centre + QPointF(0, -120))
+                             .toPoint());
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("contentY").toReal() > start + 20,
+            "moving up did not scroll toward older messages", 4000);
+
+        // The exit click is swallowed over the pills too: a click on "Jump to
+        // latest" while latched only ends the latch.
+        scroller->setProperty("maxSpeed", 0);
+        auto *jump = root->findChild<QQuickItem *>(
+            QStringLiteral("jumpToLatestButton"));
+        QVERIFY(jump != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(jump->isVisible() && jump->opacity() > 0.99,
+                                 4000);
+        const QPoint onJump =
+            jump->mapToScene(QPointF(jump->width() / 2.0,
+                                     jump->height() / 2.0)).toPoint();
+        QTest::mouseMove(&window, onJump);
+        QVERIFY(scroller->property("latched").toBool());
+        const qreal away = timeline->property("contentY").toReal();
+        QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, onJump);
+        QCoreApplication::processEvents();
+        QVERIFY2(!scroller->property("active").toBool(),
+                 "a click on a pill did not end the latch");
+        QTest::qWait(400);
+        QVERIFY2(qAbs(timeline->property("contentY").toReal() - away) < 1.0,
+                 "the click that ended the latch reached Jump to latest");
+        QVERIFY(jump->isVisible());
+        QTest::mouseMove(&window, anchor);
+
+        // 1. Escape.
+        QTest::keyClick(&window, Qt::Key_Escape);
+        QCoreApplication::processEvents();
+        QVERIFY2(!scroller->property("active").toBool(),
+                 "Escape did not end a latched autoscroll");
+
+        // 2. Jump to latest.
+        QVERIFY(latch());
+        QVERIFY(QMetaObject::invokeMethod(timeline, "goToLatest"));
+        QCoreApplication::processEvents();
+        QVERIFY2(!scroller->property("active").toBool(),
+                 "jump to latest did not end a latched autoscroll");
+
+        // 3. Room switch, once the trip home has landed and nothing else
+        //    would end it.
+        QTest::qWait(600);
+        QVERIFY(latch());
+        QTest::qWait(100);
+        QVERIFY(scroller->property("latched").toBool());
+        controller.setCurrentRoomId(QStringLiteral("!devs:mock.local"));
+        QCoreApplication::processEvents();
+        QVERIFY2(!scroller->property("active").toBool(),
+                 "a room switch did not end a latched autoscroll");
+    }
+
+    // Middle click on a link in a message is the link's: no autoscroll, held
+    // or latched, starts there.
+    void aMiddleClickOnAMessageLinkStartsNothing()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QList<TimelineEvent> events = textFixture(
+            roomId, 40, QStringLiteral("lnk"), QStringLiteral("link probe"));
+        for (TimelineEvent &e : events) {
+            e.body = QStringLiteral("https://example.org/probe");
+            e.formattedBody = QStringLiteral(
+                "<a href=\"https://example.org/probe\">"
+                "https://example.org/probe</a>");
+        }
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                          events, /*paginationPages=*/0,
+                                          /*viewportHeight=*/420, &timeline);
+        QVERIFY(root != nullptr);
+        QVERIFY(timeline != nullptr);
+        auto *scroller = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineMiddleClickScroller"));
+        QVERIFY(scroller != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(scroller->isVisible(), 4000);
+
+        QString actionKey;
+        QQuickItem *messageRow = onScreenMessageRow(timeline, &actionKey);
+        QVERIFY2(messageRow != nullptr, "no message row on screen");
+        auto *body = messageRow->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(body != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(body->width() > 20, 2000);
+        // A point on the link, found by asking the text itself.
+        QPointF onLink(-1, -1);
+        const qreal y = qMin(body->height() / 2.0, 10.0);
+        for (qreal x = 2; x < body->width() && onLink.x() < 0; x += 4) {
+            QString href;
+            if (QMetaObject::invokeMethod(body, "linkAt",
+                                          Q_RETURN_ARG(QString, href),
+                                          Q_ARG(qreal, x), Q_ARG(qreal, y))
+                && !href.isEmpty())
+                onLink = QPointF(x + 4, y);
+        }
+        QVERIFY2(onLink.x() >= 0, "premise: the message body has no link");
+        const QPoint at = body->mapToScene(onLink).toPoint();
+        QVERIFY(scroller->contains(scroller->mapFromScene(QPointF(at))));
+
         QTest::mousePress(&window, Qt::MiddleButton, Qt::NoModifier, at);
         QCoreApplication::processEvents();
-        // The press alone engages it.
-        QVERIFY(scroller->property("active").toBool());
+        QVERIFY2(!scroller->property("active").toBool(),
+                 "a middle press on a link started autoscroll");
         QTest::mouseRelease(&window, Qt::MiddleButton, Qt::NoModifier, at);
         QCoreApplication::processEvents();
-
-        QVERIFY2(!scroller->property("active").toBool(),
-                 "a quick middle click latched autoscroll on");
-        QVERIFY2(!marker->isVisible(),
-                 "the autoscroll anchor marker survived the release");
+        QVERIFY2(!scroller->property("latched").toBool(),
+                 "a middle click on a link latched autoscroll");
     }
 
     // An active middle-drag scroll writes contentY directly, so Escape,

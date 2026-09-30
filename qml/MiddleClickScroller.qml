@@ -1,16 +1,29 @@
 import QtQuick
 import QtQuick.Window
 
-// Desktop autoscroll: hold the middle mouse button and move away from the press
-// point to scroll continuously, faster the further you go; releasing ends it.
-// There is deliberately no latched (click-to-toggle) mode. A latch triggered on
-// ordinary middle clicks, needed all buttons and hover to see its own exit
-// click (stealing clicks and hover from rows underneath), and kept scrolling
-// after the pointer left the pane. A press-and-hold gesture owns a real mouse
-// grab, accepts only the middle button and ends with it. Do not reintroduce the
-// latch. The MouseArea accepts only the middle button and never enables hover,
-// so all other interaction passes through. Usage: a sibling of the view over
-// the same area, with the view passed explicitly:
+// Desktop autoscroll, as browsers do it (Firefox, Chromium on Windows).
+// Middle-press and move away from the press point to scroll, faster the
+// further you go.
+// - Press, move, release: a hold. The release ends it.
+// - A middle click that did not travel past latchSlop LATCHES it: moving the
+//   pointer scrolls with no button held, and the next click of any button ends
+//   it and goes no further. Escape, the wheel, focus loss, the pointer leaving
+//   the pane, hiding, a view change and destruction end it too; hosts end it on
+//   navigation through stop().
+// Hold or latch is decided by travel alone, as in both browsers. There is no
+// time limit: a press clock is what made every ordinary click latch in the
+// first version (82794ed9).
+// Nothing starts over a link, editable text or a MouseArea that takes the
+// middle button, or when the view has nothing to scroll: the press is not
+// accepted, so middle click stays theirs (browsers do the same; on Linux it is
+// the primary-selection paste).
+// Idle, the area takes the middle button only and never hovers, so everything
+// else passes through. It takes every button, and tracks hover, only while
+// latched, and a latched scroll stops when the pointer leaves the pane, so it
+// never runs on a position it can no longer see.
+//
+// Usage: a sibling of the view over the same area, with the view passed
+// explicitly:
 //
 //     Item {
 //         Flickable { id: myFlick; ... }
@@ -36,20 +49,85 @@ Item {
     property real deadZone: 14
     property real fullSpeedDistance: 220
     property real maxSpeed: 2200  // px per second
+    // Travel (px, either axis) that makes a press a hold rather than a click.
+    // Qt's drag distance (10 by default, Firefox's figure), never above the
+    // dead zone, so a fresh latch sits still.
+    property real latchSlop: Math.min(deadZone, Qt.styleHints.startDragDistance)
+    // A wheel this soon after latching is swallowed without ending it:
+    // pressing a wheel button can send a stray notch (Firefox: 500 ms).
+    property int wheelCooldownMs: 500
 
     // Emitted after every step so a host can keep its scroll bookkeeping.
     signal scrolled()
 
-    // Live exactly while the middle button is held; `active` is the public
-    // name.
-    readonly property bool active: dragging
+    readonly property bool active: dragging || latched
+    // The middle button is held.
     property bool dragging: false
+    // Released without travelling: scrolling with no button held.
+    property bool latched: false
+    // The held press went past latchSlop at some point, so its release ends
+    // it. Sticky: out and back is still a drag.
+    property bool travelled: false
+    // The press that ended a latch is still down: keep every button until its
+    // release, so that release reaches this area and nothing below.
+    property bool swallowing: false
     property real anchorX: 0
     property real anchorY: 0
+    property real pointerX: 0
     property real pointerY: 0
 
     function stop() {
+        latched = false
         dragging = false
+        travelled = false
+    }
+
+    function track(x, y) {
+        if (!active)
+            return
+        pointerX = x
+        pointerY = y
+        if (dragging && beyondSlop(x, y))
+            travelled = true
+    }
+
+    function beyondSlop(x, y) {
+        return Math.abs(x - anchorX) > latchSlop
+               || Math.abs(y - anchorY) > latchSlop
+    }
+
+    // True when something under (x, y) in the view owns the middle button.
+    function ownsMiddleClickAt(x, y) {
+        if (!view || !view.contentItem)
+            return false
+        var p = root.mapToItem(view.contentItem, x, y)
+        return ownerIn(view.contentItem, p.x, p.y)
+    }
+    // Depth first through the children under the point, topmost first.
+    function ownerIn(item, x, y) {
+        var kids = item.children
+        for (var i = kids.length - 1; i >= 0; --i) {
+            var kid = kids[i]
+            if (!kid.visible || !kid.enabled)
+                continue
+            var p = item.mapToItem(kid, x, y)
+            if (!kid.contains(p))
+                continue
+            if (ownerIn(kid, p.x, p.y))
+                return true
+        }
+        return ownsMiddleClick(item, x, y)
+    }
+    function ownsMiddleClick(item, x, y) {
+        // A link (Text, TextEdit, Label).
+        if (typeof item.linkAt === "function" && item.linkAt(x, y) !== "")
+            return true
+        // Editable text: middle click pastes the primary selection there.
+        if (item.readOnly === false && item.cursorPosition !== undefined)
+            return true
+        // Anything that asked for the middle button itself.
+        return item.acceptedButtons !== undefined
+               && (item.acceptedButtons & Qt.MiddleButton) !== 0
     }
 
     function rangeMin() {
@@ -63,6 +141,10 @@ Item {
         if (!view)
             return 0
         return view.originY + Math.max(0, view.contentHeight - view.height)
+    }
+
+    function canScroll() {
+        return view !== null && rangeMax() - rangeMin() >= 1
     }
 
     function step(dtMs) {
@@ -96,15 +178,17 @@ Item {
     onViewChanged: stop()
     onEnabledChanged: if (!enabled) stop()
     Component.onDestruction: stop()
-    // Alt-tabbing away mid-gesture leaves no release event.
+    // Alt-tabbing away leaves no release or click event.
     readonly property bool hostWindowActive: Window.active === true
     onHostWindowActiveChanged: if (!hostWindowActive) stop()
     // Escape ends the gesture. Enabled only while it runs, so it never competes
-    // with the host's own Escape (two enabled ones make Qt fire neither).
+    // with the host's own Escape (two enabled ones make Qt fire neither, only
+    // an ambiguous activation in turn, which ends it too).
     Shortcut {
         sequence: "Escape"
         enabled: root.active
         onActivated: root.stop()
+        onActivatedAmbiguously: root.stop()
     }
 
     Timer {
@@ -115,38 +199,88 @@ Item {
         onTriggered: root.step(interval)
     }
 
+    Timer {
+        id: wheelCooldown
+        interval: root.wheelCooldownMs
+    }
+
     MouseArea {
         id: area
+        objectName: "autoscrollMouseArea"
         anchors.fill: parent
-        // Middle button only.
-        acceptedButtons: Qt.MiddleButton
-        // Hover stays off; the held gesture's grab delivers moves outside this
-        // item.
-        hoverEnabled: false
-        propagateComposedEvents: true
+        // Idle: middle button only. Latched: every button, so the exit click
+        // lands here and nowhere else.
+        acceptedButtons: root.latched || root.swallowing
+                         ? Qt.AllButtons : Qt.MiddleButton
+        // Hover only while latched: nothing is held, so hover is the only way
+        // to see the pointer, and it reports leaving the pane. (A MouseArea
+        // does not block hover, so rows keep theirs either way.)
+        hoverEnabled: root.latched
+        // The gesture's own clicks and the exit click never reach a MouseArea
+        // below (browsers suppress both).
+        propagateComposedEvents: false
         // No cursorShape here: a MouseArea applies its cursor whenever enabled,
         // which would replace every I-beam and link cursor over the view. The
         // gesture cursor lives on the overlay below, present only while
         // scrolling.
 
         onPressed: (mouse) => {
-            if (mouse.button !== Qt.MiddleButton) {
+            if (root.latched) {
+                // Any button ends a latched scroll and goes no further.
+                root.stop()
+                root.swallowing = true
+                mouse.accepted = true
+                return
+            }
+            // Nothing to scroll, or middle click is someone else's: start
+            // nothing and let the press through.
+            if (mouse.button !== Qt.MiddleButton || !root.canScroll()
+                    || root.ownsMiddleClickAt(mouse.x, mouse.y)) {
                 mouse.accepted = false
                 return
             }
             root.anchorX = mouse.x
             root.anchorY = mouse.y
+            root.pointerX = mouse.x
             root.pointerY = mouse.y
+            root.travelled = false
             root.dragging = true
             mouse.accepted = true
         }
-        onPositionChanged: (mouse) => {
-            if (root.active)
+        // Held: moves under the grab. Latched: hover moves.
+        onPositionChanged: (mouse) => root.track(mouse.x, mouse.y)
+        onReleased: (mouse) => {
+            if (!root.dragging)
+                return
+            if (mouse.button === Qt.MiddleButton && !root.travelled
+                    && !root.beyondSlop(mouse.x, mouse.y)
+                    && area.contains(Qt.point(mouse.x, mouse.y))) {
+                // A click, not a drag: latch. Set before dragging clears so
+                // `active` never blinks off.
+                root.pointerX = mouse.x
                 root.pointerY = mouse.y
+                root.latched = true
+                root.dragging = false
+                wheelCooldown.restart()
+                return
+            }
+            root.stop()
         }
-        // A quick click starts nothing: press, move, release is the gesture.
-        onReleased: root.stop()
         onCanceled: root.stop()
+        // The exit press is over, released or cancelled.
+        onPressedChanged: if (!pressed) root.swallowing = false
+        // Leaving the pane (or the window) ends a latched scroll. A held one
+        // keeps its grab and ends with the button.
+        onExited: if (root.latched) root.stop()
+        onWheel: (wheel) => {
+            if (!root.latched) {
+                wheel.accepted = false
+                return
+            }
+            wheel.accepted = true
+            if (!wheelCooldown.running)
+                root.stop()
+        }
     }
 
     // Gesture cursor, present only while scrolling.
@@ -160,8 +294,8 @@ Item {
         }
     }
 
-    // Anchor marker at the press point, as in browsers, present only while the
-    // button is held.
+    // Anchor marker at the press point, as in browsers, present while the
+    // gesture runs.
     Rectangle {
         objectName: "autoscrollAnchorMarker"
         visible: root.active

@@ -238,11 +238,23 @@ Item {
             }
         }
     }
-    // Middle-click autoscroll, a sibling of the view; middle button only.
+    // Middle-click autoscroll, a sibling of the view. A room or account
+    // switch ends it, as in the timeline.
     MiddleClickScroller {
+        id: middleClickScroller
         objectName: "roomListMiddleClickScroller"
         anchors.fill: parent
         z: 1
         view: roomList
+    }
+    Connections {
+        target: app
+        function onCurrentRoomIdChanged() {
+            middleClickScroller.stop()
+        }
+        function onAccountSwitchingChanged() {
+            if (app.accountSwitching)
+                middleClickScroller.stop()
+        }
     }
 }

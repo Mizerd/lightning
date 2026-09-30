@@ -2362,6 +2362,17 @@ if(BUILD_TESTING)
     set_tests_properties(smooth-wheel-area-runtime PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Middle-click autoscroll driven by a real pointer: latch, hold, the
+    # swallowed exit click, and no start over links or editable text.
+    qt_add_executable(middle-click-scroller-qml-test
+        tests/MiddleClickScrollerQmlTest.cpp)
+    lightning_configure_qml_test(middle-click-scroller-qml-test)
+    target_link_libraries(middle-click-scroller-qml-test PRIVATE Qt6::Test)
+    add_test(NAME middle-click-scroller-qml
+             COMMAND middle-click-scroller-qml-test)
+    set_tests_properties(middle-click-scroller-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # CodeBlock.qml: a long line becomes horizontal scroll range, never
     # geometry; the gutter is never copied; a vertical wheel notch still
     # scrolls the timeline.

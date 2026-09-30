@@ -4515,7 +4515,9 @@ Rectangle {
                 id: middleClickScroller
                 objectName: "timelineMiddleClickScroller"
                 anchors.fill: parent
-                z: 2
+                // Above the pills and the pagination header while latched, so
+                // the click that ends it lands here too.
+                z: middleClickScroller.latched ? 30 : 2
                 visible: app.currentRoomId !== "" && timeline.presentationReady
                 view: timeline
                 inverted: true
