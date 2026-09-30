@@ -890,6 +890,30 @@ for package in ("xkb-data", "fontconfig-config"):
           f"no {'keymaps' if package == 'xkb-data' else 'fontconfig'} and the "
           f"snap cannot start")
 
+# Files in the confined snap, measured under snapd 2026-09-30. Without the
+# portal theme Qt Quick's own dialog saw an empty home (the snap plugs no
+# `home`); without a MIME database a PNG was sent as application/octet-stream.
+check("shared-mime-info" in _snap_before,
+      "build-snap installs shared-mime-info, whose database the snap stages "
+      "(core24 has none)")
+check("qt6-xdgdesktopportal-platformtheme" in " ".join(
+          resolve_extends("build-appimage").get("before_script", [])),
+      "build-appimage installs qt6-xdgdesktopportal-platformtheme, the "
+      "snap's only route to a user's files")
+_portal_appimage = _strip_shell_comments(_read("scripts", "build-appimage.sh"))
+check("platformthemes/libqxdgdesktopportal.so" in _portal_appimage
+      and 'cp "$pt_src"' in _portal_appimage,
+      "build-appimage.sh stages the xdg-desktop-portal platform theme")
+_portal_snap = _strip_shell_comments(_read("scripts", "build-snap.sh"))
+check("usr/plugins/platformthemes/libqxdgdesktopportal.so" in _portal_snap,
+      "build-snap.sh refuses an AppDir without the portal platform theme")
+check('cp -a /usr/share/mime/. "$TREE/usr/share/mime/"' in _portal_snap
+      and "image/png" in _portal_snap,
+      "build-snap.sh stages the MIME database and asserts *.png maps to "
+      "image/png")
+check('XDG_DATA_DIRS="$SNAP/usr/share:' in _portal_snap,
+      "the snap launcher puts $SNAP/usr/share first, where Qt finds mime/")
+
 # The AppImage (and the snap built from it) bundles the runtime plugins.
 _appimage_before = " ".join(resolve_extends("build-appimage").get("before_script", []))
 for package in ("gstreamer1.0-plugins-base", "gstreamer1.0-plugins-good",

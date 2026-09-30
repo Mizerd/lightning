@@ -38,6 +38,10 @@ for img_plugin in libqwebp.so kimg_jxl.so; do
     test -f "$SNAP_WORK/appdir/usr/plugins/imageformats/$img_plugin" || \
         die "the AppDir has no $img_plugin; the snap would accept image formats it cannot decode"
 done
+# Without the portal theme Qt Quick's own file dialog runs, and strict
+# confinement shows it an empty home: no file could be attached.
+test -f "$SNAP_WORK/appdir/usr/plugins/platformthemes/libqxdgdesktopportal.so" || \
+    die "the AppDir has no platformthemes/libqxdgdesktopportal.so; the confined snap could attach no file"
 
 mkdir -p "$TREE"
 # Only usr/; AppRun, the top-level desktop file and .DirIcon stay behind.
@@ -152,6 +156,7 @@ while IFS= read -r plugin; do
         #     XWayland, where screen shares capture a black root window.
         "$TREE"/usr/bin/*|"$TREE"/usr/plugins/platforms/*|\
         "$TREE"/usr/plugins/tls/*|\
+        "$TREE"/usr/plugins/platformthemes/*|\
         "$TREE"/usr/plugins/wayland-shell-integration/*)
             qt_unresolved="$qt_unresolved
     $(basename "$plugin"):$missing" ;;
@@ -183,9 +188,14 @@ done < <({ echo "$TREE/usr/bin/lightning-matrix";
 # core24 has no xkb keymaps or fontconfig configuration, and the app crashes
 # after placing its window without them. Fonts themselves are not staged: the
 # `desktop` interface bind-mounts the host's, and fontconfig's <dir> entries
-# are absolute anyway.
+# are absolute anyway. It has no MIME database either: Qt then types every
+# file application/octet-stream, so a picture is sent as a file.
 stage_confined_data() {
     local staged=0 dangling rules rule
+    if [ -f /usr/share/mime/mime.cache ]; then
+        mkdir -p "$TREE/usr/share/mime"
+        cp -a /usr/share/mime/. "$TREE/usr/share/mime/" && staged=$((staged + 1))
+    fi
     if [ -d /usr/share/X11/xkb ]; then
         mkdir -p "$TREE/usr/share/X11/xkb"
         cp -a /usr/share/X11/xkb/. "$TREE/usr/share/X11/xkb/" && staged=$((staged + 1))
@@ -198,8 +208,11 @@ stage_confined_data() {
     fi
     # `cp -a src/. dst/` succeeds on an empty source, so assert the files the
     # app actually opens.
-    [ "$staged" -eq 2 ] || \
-        die "snap: expected xkb and fontconfig to stage; got $staged (does the build image install xkb-data and fontconfig-config?)"
+    [ "$staged" -eq 3 ] || \
+        die "snap: expected the MIME database, xkb and fontconfig to stage; got $staged (does the build image install shared-mime-info, xkb-data and fontconfig-config?)"
+    # The launcher puts $SNAP/usr/share first in XDG_DATA_DIRS, where Qt looks.
+    grep -qx '[0-9]*:image/png:\*\.png' "$TREE/usr/share/mime/globs2" 2>/dev/null || \
+        die "snap: the staged MIME database does not map *.png to image/png"
     [ -f "$TREE/usr/share/X11/xkb/rules/evdev.xml" ] || \
         die "snap: xkb staged without rules/evdev.xml — xkbcommon cannot build a keymap"
     [ -f "$TREE/etc/fonts/fonts.conf" ] || \
@@ -216,7 +229,18 @@ stage_confined_data() {
         [ -f "$TREE/etc/fonts/conf.d/$rule" ] || \
             die "snap: fontconfig rule $rule did not stage — generic-family or emoji fallback will be wrong"
     done
-    echo "snap: staged xkb + fontconfig for strict confinement"
+    # Their licences travel with them: the AppImage's licence harvest walks only
+    # shared libraries, so these data packages would otherwise ship without a
+    # copyright file (shared-mime-info is GPL-2.0-or-later).
+    local pkg
+    mkdir -p "$TREE/usr/share/licenses/third-party"
+    for pkg in shared-mime-info xkb-data fontconfig-config; do
+        [ -f "/usr/share/doc/$pkg/copyright" ] || \
+            die "snap: /usr/share/doc/$pkg/copyright is missing; the staged $pkg data would ship without its licence"
+        install -m 0644 "/usr/share/doc/$pkg/copyright" \
+            "$TREE/usr/share/licenses/third-party/$pkg.copyright"
+    done
+    echo "snap: staged the MIME database, xkb and fontconfig for strict confinement (with their copyright files)"
 }
 stage_confined_data
 # Mount points for the gpu-2404 content interface. mesa-2404's slot has two

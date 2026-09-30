@@ -308,6 +308,18 @@ done
 printf 'Qt Wayland integration plugins staged: %d required + %d optional dir(s)\n' \
     "${#QT_WAYLAND_REQUIRED_PLUGINS[@]}" "$wl_optional"
 
+# ── Qt xdg-desktop-portal platform theme ─────────────────────────────────
+# Qt loads it only in a Flatpak or a snap. The snap repacks this AppDir and
+# plugs no `home`: without the theme its file dialog is Qt Quick's own, which
+# sees an empty home, so no file can be attached. With it, file dialogs go
+# through the FileChooser portal. Measured under snapd, 2026-09-30.
+QT_PORTAL_THEME_PLUGIN="platformthemes/libqxdgdesktopportal.so"
+pt_src="$QT_PLUGIN_SRC_BASE/$QT_PORTAL_THEME_PLUGIN"
+[[ -f "$pt_src" ]] || die "Qt platform theme $QT_PORTAL_THEME_PLUGIN not found at $pt_src: the build job did not install qt6-xdgdesktopportal-platformtheme, so the snap could attach no file"
+mkdir -p "$APPDIR/usr/plugins/platformthemes"
+cp "$pt_src" "$APPDIR/usr/plugins/$QT_PORTAL_THEME_PLUGIN"
+LINUXDEPLOY_PLUGIN_ARGS+=(--library "$pt_src")
+
 # Declared to linuxdeploy so their NEEDED libraries are bundled into usr/lib.
 # Pass the source path: a file already inside the AppDir is treated as
 # deployed and its NEEDED list is never walked. The extra copies linuxdeploy

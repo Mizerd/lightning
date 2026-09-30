@@ -526,6 +526,11 @@ build-appimage:
     - >-
       apt-get install -y --no-install-recommends
       qt6-image-formats-plugins libjxl0.11
+    # The FileChooser portal theme (libqxdgdesktopportal.so): the snap built
+    # from this AppDir has no other way to open a user's file.
+    - >-
+      apt-get install -y --no-install-recommends
+      qt6-xdgdesktopportal-platformtheme
     - >-
       ( cd /tmp && apt-get download kimageformat6-plugins
       && dpkg-deb -x kimageformat6-plugins_*.deb /opt/kimageformats )
@@ -600,10 +605,11 @@ build-snap:
       libwayland-cursor0 libwayland-egl1
       libfribidi0 libthai0
     # xkb and fontconfig data: core24 has neither, and without them the confined
-    # snap segfaults when it places its window.
+    # snap segfaults when it places its window. shared-mime-info: core24 has no
+    # MIME database either, and without one every file is octet-stream.
     - >-
       apt-get install -y --no-install-recommends
-      xkb-data fontconfig-config
+      xkb-data fontconfig-config shared-mime-info
   script:
     - ./packaging-ci/scripts/build-snap.sh
 
