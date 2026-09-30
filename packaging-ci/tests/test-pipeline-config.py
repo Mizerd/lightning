@@ -913,6 +913,15 @@ check('cp -a /usr/share/mime/. "$TREE/usr/share/mime/"' in _portal_snap
       "image/png")
 check('XDG_DATA_DIRS="$SNAP/usr/share:' in _portal_snap,
       "the snap launcher puts $SNAP/usr/share first, where Qt finds mime/")
+# The AppImage's AppRun hook exports these; the snap's launcher replaces that
+# hook. Without them its pipewiresrc failed ("can't make support.system
+# handle") and the camera never started, measured under snapd 2026-09-30.
+for _pw_var, _pw_path in (("SPA_PLUGIN_DIR", "usr/lib/spa-0.2"),
+                          ("PIPEWIRE_MODULE_DIR", "usr/lib/pipewire-0.3"),
+                          ("PIPEWIRE_CONFIG_DIR", "usr/share/pipewire")):
+    check(f'export {_pw_var}="$SNAP/{_pw_path}"' in _portal_snap,
+          f"the snap launcher exports {_pw_var} so libpipewire finds the "
+          f"staged {_pw_path}")
 
 # The AppImage (and the snap built from it) bundles the runtime plugins.
 _appimage_before = " ".join(resolve_extends("build-appimage").get("before_script", []))

@@ -38,6 +38,13 @@ for img_plugin in libqwebp.so kimg_jxl.so; do
     test -f "$SNAP_WORK/appdir/usr/plugins/imageformats/$img_plugin" || \
         die "the AppDir has no $img_plugin; the snap would accept image formats it cannot decode"
 done
+# The PipeWire client stack the launcher points libpipewire at.
+for pw_file in lib/spa-0.2/support/libspa-support.so \
+               lib/pipewire-0.3/libpipewire-module-protocol-native.so \
+               share/pipewire/client.conf; do
+    test -f "$SNAP_WORK/appdir/usr/$pw_file" || \
+        die "the AppDir has no usr/$pw_file; pipewiresrc (portal camera and screen share) could not connect"
+done
 # Without the portal theme Qt Quick's own file dialog runs, and strict
 # confinement shows it an empty home: no file could be attached.
 test -f "$SNAP_WORK/appdir/usr/plugins/platformthemes/libqxdgdesktopportal.so" || \
@@ -283,6 +290,12 @@ export GST_PLUGIN_SCANNER_1_0="$SNAP/usr/libexec/gstreamer-1.0/gst-plugin-scanne
 export GST_PLUGIN_SCANNER="$SNAP/usr/libexec/gstreamer-1.0/gst-plugin-scanner"
 # $SNAP is read-only and changes on refresh: keep the registry in the cache.
 export GST_REGISTRY_1_0="${XDG_CACHE_HOME:-$HOME/.cache}/lightning/gst-registry.bin"
+# libpipewire looks for its SPA plugins, modules and client.conf at the build
+# image's paths; without these pipewiresrc (portal camera, portal screen
+# share) fails with "can't make support.system handle".
+export SPA_PLUGIN_DIR="$SNAP/usr/lib/spa-0.2"
+export PIPEWIRE_MODULE_DIR="$SNAP/usr/lib/pipewire-0.3"
+export PIPEWIRE_CONFIG_DIR="$SNAP/usr/share/pipewire"
 mkdir -p "$(dirname "$GST_REGISTRY_1_0")" 2>/dev/null || true
 # snapd moves XDG_RUNTIME_DIR one level down, so link the session's Wayland,
 # PipeWire and PulseAudio sockets into it. Best effort: a missing socket only
