@@ -812,6 +812,7 @@ set(APP_QML_FILES
     # A Space IS a Matrix room: this is the room-settings backend behind a
     # Space-shaped surface, reached from the rail's menu.
     qml/SpaceMemberActionDialog.qml
+    qml/SpaceMemberChip.qml
     qml/SpaceSettingsDialog.qml
     qml/RoomCloseDialog.qml
     qml/UnreadBadge.qml

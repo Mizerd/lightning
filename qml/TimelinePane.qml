@@ -5846,49 +5846,9 @@ Rectangle {
                                 Repeater {
                                     // Bounded: the Flow is not virtualized.
                                     model: (app.roomInfo.members || []).slice(0, 60)
-                                    delegate: Rectangle {
-                                        id: spaceMemberChip
-                                        required property var modelData
-                                        radius: AppTheme.radiusPill
-                                        color: chipHover.hovered ? AppTheme.hover
-                                                                 : AppTheme.surface
-                                        border.color: AppTheme.border
-                                        border.width: 1
-                                        implicitWidth: Math.min(
-                                            chipRow.implicitWidth + AppTheme.spacing12, 240)
-                                        implicitHeight: 34
-                                        HoverHandler {
-                                            id: chipHover
-                                            cursorShape: Qt.PointingHandCursor
-                                        }
-                                        TapHandler {
-                                            onTapped: senderProfilePopover.openFor(
-                                                          spaceMemberChip.modelData)
-                                        }
-                                        RowLayout {
-                                            id: chipRow
-                                            anchors.fill: parent
-                                            anchors.leftMargin: AppTheme.spacing4
-                                            anchors.rightMargin: AppTheme.spacing10
-                                            spacing: AppTheme.spacing6
-                                            Avatar {
-                                                size: 26
-                                                name: spaceMemberChip.modelData.displayName
-                                                      || spaceMemberChip.modelData.userId
-                                                mxc: spaceMemberChip.modelData.avatarUrl || ""
-                                                colorKey: spaceMemberChip.modelData.userId
-                                                circle: true
-                                            }
-                                            Label {
-                                                Layout.fillWidth: true
-                                                text: spaceMemberChip.modelData.displayName
-                                                      || spaceMemberChip.modelData.userId
-                                                textFormat: Text.PlainText
-                                                color: AppTheme.textPrimary
-                                                font.pixelSize: AppTheme.textMeta
-                                                elide: Label.ElideRight
-                                            }
-                                        }
+                                    delegate: SpaceMemberChip {
+                                        onProfileRequested: (member) =>
+                                            senderProfilePopover.openFor(member)
                                     }
                                 }
                             }

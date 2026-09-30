@@ -385,6 +385,23 @@ Rectangle {
         return nullptr;
     }
 
+    // Builds a SpaceMemberChip at its own width (not the Loader's) named NAME.
+    QQuickItem *buildSpaceMemberChip(Harness &h, const QString &name)
+    {
+        const QString body = QStringLiteral(R"(
+        Item {
+            height: 40
+            SpaceMemberChip {
+                objectName: "chip"
+                modelData: ({ userId: "@someone:example.org",
+                              displayName: "%1", avatarUrl: "" })
+            }
+        })").arg(name);
+        if (!build(h, body) || !h.item())
+            return nullptr;
+        return h.item()->findChild<QQuickItem *>(QStringLiteral("chip"));
+    }
+
 private Q_SLOTS:
     void channelRowHasRealHeightInsideAWidthAssignedLoader()
     {
@@ -587,6 +604,47 @@ private Q_SLOTS:
         // The star is left of the bell, which owns the rightmost slot.
         QVERIFY2(starRect.right() <= bellRect.left(),
                  "the favourite star is not left of the mute glyph");
+    }
+
+    // A Space Home member chip is as wide as its name: a short name is never
+    // elided, only one past the 240 px cap. The row's side margins (4 + 10)
+    // once outgrew the 12 px the chip added, so every name lost 2 px and "cfa"
+    // read "c…" (live, 2026-09-30).
+    void aSpaceMemberChipShowsAShortNameWhole()
+    {
+        const QStringList names = { QStringLiteral("cfa"), QStringLiteral("Alice"),
+                                    QStringLiteral("Wide Name Mm"),
+                                    QStringLiteral("iiiii") };
+        for (const QString &name : names) {
+            Harness h;
+            QQuickItem *chip = buildSpaceMemberChip(h, name);
+            QVERIFY2(chip, qPrintable(name));
+            auto *label = chip->findChild<QQuickItem *>(
+                QStringLiteral("spaceMemberChipName"));
+            QVERIFY(label);
+            // Until the row lays out, the label has its implicit width and
+            // could not be elided at all: wait for the avatar to push it right.
+            QTRY_VERIFY(label->x() > 20);
+            QCoreApplication::processEvents();
+            QVERIFY2(!label->property("truncated").toBool(),
+                     qPrintable(QStringLiteral("\"%1\" is elided: label %2 of %3 px")
+                                    .arg(name).arg(label->width())
+                                    .arg(label->implicitWidth())));
+            QVERIFY(chip->width() <= 240);
+        }
+    }
+
+    void aSpaceMemberChipStopsALongNameAtTheCap()
+    {
+        Harness h;
+        QQuickItem *chip = buildSpaceMemberChip(
+            h, QStringLiteral("A display name far too long to fit in any chip at all"));
+        QVERIFY(chip);
+        auto *label = chip->findChild<QQuickItem *>(QStringLiteral("spaceMemberChipName"));
+        QVERIFY(label);
+        QTRY_VERIFY(label->x() > 20);
+        QCOMPARE(chip->width(), 240.0);
+        QVERIFY(label->property("truncated").toBool());
     }
 
     // Sections stack, headers sit above their rows, every row is inside its
