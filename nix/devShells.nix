@@ -73,7 +73,10 @@
           # Split-prefix Qt: let Qt6Qml's CMake machinery see qtmultimedia's
           # QML-plugin configs (silences the harmless "quickmultimediaplugin
           # ... will not be linked" configure warning; loading stays dynamic).
-          export QT_ADDITIONAL_PACKAGES_PREFIX_PATH="${qt.qtmultimedia}"
+          # APPENDED, never replaced: the qtbase hook's list carries
+          # qtdeclarative, and without it qmlcachegen compiled ~2% of the QML
+          # ahead of time where packaged builds compile ~40%.
+          export QT_ADDITIONAL_PACKAGES_PREFIX_PATH="${qt.qtmultimedia}''${QT_ADDITIONAL_PACKAGES_PREFIX_PATH:+:$QT_ADDITIONAL_PACKAGES_PREFIX_PATH}"
           # nix develop does not put buildInputs on the loader path; expose
           # only pipewire so Qt Multimedia can dlopen libpipewire-0.3.
           export LD_LIBRARY_PATH="${pkgs.pipewire}/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

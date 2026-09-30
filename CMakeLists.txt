@@ -106,6 +106,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# A non-void function that can fall off its end is undefined behaviour, and
+# GCC turned exactly that into a stack-protector abort on the first desktop
+# notification of every session (2026-09-30): the warning was printed and
+# nothing stopped the build. GCC, Clang and MinGW all accept this flag.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Werror=return-type>)
+endif()
+
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
