@@ -4379,12 +4379,12 @@ void AppController::refreshTrayUnread()
                                 || room.markedUnread;
         if (roomUnread)
             anyUnread = true;
-        // A room that is no longer unread withdraws its notifications.
-        // Level-triggered so a read in another client (cleared via sync) is
-        // caught too; cheap, since rooms without a live notification return
-        // immediately.
-        if (!roomUnread && m_notifications)
-            m_notifications->closeRoomNotifications(room.id);
+        // A room that is no longer unread withdraws its notifications, a read
+        // in another client (cleared via sync) included. The manager waits
+        // until the room has read as unread since its latest card: a card can
+        // come before these fields catch up. Cheap for rooms without a card.
+        if (m_notifications)
+            m_notifications->observeRoomUnread(room.id, roomUnread);
     }
     if (m_tray.enabled())
         m_tray.setUnread(total, anyUnread);

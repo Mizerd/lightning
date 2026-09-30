@@ -183,6 +183,10 @@ struct TimelineEvent {
     // The rules' highlight tweak: a mention, a keyword, or @room from someone
     // allowed to use it. False without a verdict.
     bool pushHighlight = false;
+    // Re-delivered history rather than a new arrival: the open room's timeline
+    // was reset and re-filled after a limited sync (a room's first
+    // subscription, or a gap). Never notifies, whatever the verdict.
+    bool backlog = false;
 
     // Media. Non-empty only for media rows (Image/File/Video/Audio/Sticker).
     QString mediaMxcUrl;

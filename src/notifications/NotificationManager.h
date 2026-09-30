@@ -258,10 +258,27 @@ private:
 public:
     /// Withdraw every still-showing notification for a room that has been read
     /// (here or elsewhere), so the notification centre does not keep stale
-    /// entries.
+    /// entries. For an explicit read (mark-read, reply); the room list's walk
+    /// uses observeRoomUnread().
     void closeRoomNotifications(const QString &roomId);
+    /// The room list's unread state for a room. Read withdraws its cards, but
+    /// only once the list has shown the room unread since its latest card:
+    /// the card can come first, and a "read" that predates the message must
+    /// not withdraw it.
+    void observeRoomUnread(const QString &roomId, bool unread);
+    bool roomAwaitsUnreadForTest(const QString &roomId) const
+    { return m_roomsAwaitingUnread.contains(roomId); }
+    void setAwaitUnreadMsForTest(int ms) { m_awaitUnreadMs = ms; }
+    void setCapabilityRetryMsForTest(int ms) { m_capabilityRetryMs = ms; }
+    int capabilityRequestsForTest() const { return m_capabilityRequests; }
 private:
     void forgetPayload(quint32 id);
+    // CloseNotification without waiting for an answer.
+    void closeNotification(quint32 id);
+    // GetCapabilities, asynchronously; delivers what waited for it. True while
+    // a request is in flight; false in the pause after a failed one, when the
+    // caller goes on with the fallback (escaped body, no inline reply).
+    bool requestCapabilities();
     /// The one place openRequested is emitted; normalises the payload identity.
     void emitOpenFor(const QVariantMap &payload);
     // The incoming-call ring's tray delivery; see the definition.
@@ -282,15 +299,37 @@ private:
     // Monotonic time of the last sound; coalesces bursts into one alert.
     qint64 m_lastSoundMs = 0;
     // Escapes a body iff the daemon advertises body-markup. The only place a
-    // notification body is escaped; callers pass raw text.
-    QString bodyForServer(class QDBusInterface &notifications,
-                          const QString &body);
+    // notification body is escaped; callers pass raw text. Needs the
+    // capabilities.
+    QString bodyForServer(const QString &body) const;
 
     // Whether the server renders body markup. Queried once and cached.
     bool m_bodyMarkup = false;
     bool m_bodyMarkupKnown = false;
     // Whether the daemon advertises `inline-reply` (same GetCapabilities call).
     bool m_inlineReply = false;
+    bool m_capabilityRequestInFlight = false;
+    int m_capabilityRequests = 0;
+    qint64 m_capabilityRetryAtMs = 0;
+    int m_capabilityRetryMs = 30000;
+    struct CapabilityWait {
+        QString title;
+        QString body;
+        QVariantMap payload;
+        bool sound = false;
+        QImage avatar;
+    };
+    QList<CapabilityWait> m_capabilityWaits;
+    bool m_callWaitsForCapabilities = false;
+    // The call card's Notify is in flight; a redraw meanwhile waits for it.
+    bool m_callNotifyInFlight = false;
+    bool m_callRedrawPending = false;
+    // Bumped by clearPending(), so a reply for the previous account is dropped.
+    quint64 m_deliveryGeneration = 0;
+    // Rooms with a card raised since the room list last showed them unread,
+    // and until when a "read" from the list is not believed.
+    QHash<QString, qint64> m_roomsAwaitingUnread;
+    int m_awaitUnreadMs = 5000;
     QString m_accountUserId;
 
     // Incoming-call ring state: the active call, its notification id (for

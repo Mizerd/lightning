@@ -5136,4 +5136,32 @@ if(BUILD_TESTING AND TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
         Qt6::Core Qt6::DBus Qt6::Test)
     target_compile_definitions(camera-portal-test PRIVATE HAVE_QT_DBUS=1)
     add_test(NAME camera-portal COMMAND camera-portal-test)
+
+    # NotificationManager against a fake notification daemon on a private
+    # session bus: a daemon that never answers must not block the caller, and
+    # the asynchronous card, click and call-card paths still work.
+    qt_add_executable(notification-dbus-test
+        tests/NotificationDbusTest.cpp
+        src/notifications/NotificationManager.h
+        src/notifications/NotificationManager.cpp
+        src/app/TrayIcon.h
+        src/app/TrayIcon.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+        src/notifications/FallbackAvatar.h
+        src/notifications/FallbackAvatar.cpp
+        src/theme/IdentityColors.h
+        src/theme/IdentityColors.cpp
+        src/matrix/EventPreview.h
+        src/matrix/EventPreview.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
+    )
+    target_include_directories(notification-dbus-test PRIVATE src)
+    target_link_libraries(notification-dbus-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::DBus Qt6::Test)
+    target_compile_definitions(notification-dbus-test PRIVATE HAVE_QT_DBUS=1)
+    add_test(NAME notification-dbus COMMAND notification-dbus-test)
+    set_tests_properties(notification-dbus PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()

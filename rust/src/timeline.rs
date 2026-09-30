@@ -2313,6 +2313,8 @@ async fn open_room_task(
     shrink_first: bool,
     previous_task: Option<tokio::task::JoinHandle<()>>,
 ) {
+    // What reached the server before this instant is history; see BacklogMarker.
+    let opened_ms = crate::push_verdict::now_ms();
     let own_user = client.user_id().map(|u| u.to_string()).unwrap_or_default();
 
     let Ok(room_ref) = RoomId::parse(&room_id) else {
@@ -2469,6 +2471,10 @@ send queue owes nothing for them: {in_flight:?}"
 
     let snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
+    let mut backlog = crate::push_verdict::BacklogMarker::new(
+        opened_ms,
+        items.iter().filter_map(|item| crate::push_verdict::item_facts(item)),
+    );
     enqueue(
         &events,
         json!({
@@ -2514,6 +2520,7 @@ send queue owes nothing for them: {in_flight:?}"
                     break;
                 }
                 let mut push_context = None;
+                backlog.begin_batch();
                 for diff in diffs {
                     let changed = diff_items(&diff);
                     // Newly arrived replies with an unresolved target get one fetch; the
@@ -2533,6 +2540,12 @@ send queue owes nothing for them: {in_flight:?}"
                     );
                     annotate_push_verdicts(&room, &mut push_context, &diff, &mut value)
                         .await;
+                    backlog.mark(
+                        &diff,
+                        &mut value,
+                        crate::push_verdict::now_ms(),
+                        |item| crate::push_verdict::item_facts(item),
+                    );
                     enqueue(&events, value);
                 }
             }
@@ -2578,6 +2591,7 @@ async fn open_thread_task(
     lifecycle: u64,
     events: EventQueue,
 ) {
+    let opened_ms = crate::push_verdict::now_ms();
     let own_user = client.user_id().map(|u| u.to_string()).unwrap_or_default();
 
     let emit_error = |category: &str| {
@@ -2647,6 +2661,10 @@ async fn open_thread_task(
 
     let snapshot: Vec<serde_json::Value> =
         items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
+    let mut backlog = crate::push_verdict::BacklogMarker::new(
+        opened_ms,
+        items.iter().filter_map(|item| crate::push_verdict::item_facts(item)),
+    );
     let has_event_rows = items
         .iter()
         .any(|item| matches!(item.kind(), TimelineItemKind::Event(_)));
@@ -2734,6 +2752,7 @@ async fn open_thread_task(
                     break;
                 }
                 let mut push_context = None;
+                backlog.begin_batch();
                 for diff in diffs {
                     let changed = diff_items(&diff);
                     fetch_missing_reply_details(
@@ -2754,6 +2773,12 @@ async fn open_thread_task(
                     let mut value = fill_diff_json(base, &diff, &own_user, &registry);
                     annotate_push_verdicts(&room, &mut push_context, &diff, &mut value)
                         .await;
+                    backlog.mark(
+                        &diff,
+                        &mut value,
+                        crate::push_verdict::now_ms(),
+                        |item| crate::push_verdict::item_facts(item),
+                    );
                     enqueue(&events, value);
                 }
             }

@@ -270,6 +270,8 @@ TimelineEvent eventFromItemJson(const QJsonObject &item, const QString &roomId)
     e.mentionsMe = item.value(QStringLiteral("mentions_me")).toBool(false);
     e.mentionsRoom = item.value(QStringLiteral("mentions_room")).toBool(false);
     readPushVerdict(item, e);
+    // Set by the Rust diff loop on appends that re-fill a reset timeline.
+    e.backlog = item.value(QStringLiteral("backlog")).toBool(false);
 
     e.mediaMxcUrl = item.value(QStringLiteral("media_mxc")).toString();
     e.mediaMimetype =

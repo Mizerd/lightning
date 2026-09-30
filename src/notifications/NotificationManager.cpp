@@ -28,9 +28,11 @@
 #ifdef HAVE_QT_DBUS
 #include <QDBusArgument>
 #include <QDBusConnection>
-#include <QDBusInterface>
+#include <QDBusError>
+#include <QDBusMessage>
 #include <QDBusMetaType>
-#include <QDBusReply>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #endif
 
 #ifdef HAVE_QT_DBUS
@@ -83,6 +85,23 @@ constexpr int kAvatarWaitMs = 1200;
 constexpr int kFallbackAvatarEdge = 64;
 
 #ifdef HAVE_QT_DBUS
+// Every call to the daemon is asynchronous. A daemon that owns the name but
+// never answers held the GUI thread for Qt's 25 s default per call: 75 s for
+// one message (introspection, GetCapabilities, Notify; measured).
+constexpr int kCapabilitiesTimeoutMs = 3000;
+constexpr int kNotifyTimeoutMs = 10000;
+// A daemon not up yet (autostart order) or not answering is asked again,
+// after NotificationManager::m_capabilityRetryMs, this many times per session.
+constexpr int kMaxCapabilityRequests = 4;
+// Deliveries parked until the capabilities answer; a burst past this is
+// dropped rather than queued without bound.
+constexpr int kMaxCapabilityWaits = 32;
+
+QDBusMessage notificationsCall(const QString &method)
+{
+    return QDBusMessage::createMethodCall(kService, kPath, kInterface, method);
+}
+
 FreedesktopNotificationImage notificationImage(const QImage &source)
 {
     const int edge = qMin(source.width(), source.height());
@@ -210,6 +229,11 @@ NotificationManager::decide(const TimelineEvent &event, const Context &context)
         return decision;
     // Initial-sync backlog is history, not fresh activity.
     if (!context.initialSyncComplete)
+        return decision;
+    // So is a room's recent history re-delivered after the initial sync (its
+    // first subscription on this device, or a gap), even with a Notify
+    // verdict.
+    if (event.backlog)
         return decision;
     if (context.roomMode == Muted)
         return decision;
@@ -364,10 +388,14 @@ void NotificationManager::processEvent(const TimelineEvent &event,
     const Decision decision = decide(event, context);
     if (!decision.notify)
         return;
+    const QString roomId = routableRoomId(event.roomId);
+    // The room list may not show this room unread yet; see observeRoomUnread().
+    m_roomsAwaitingUnread.insert(
+        roomId, QDateTime::currentMSecsSinceEpoch() + m_awaitUnreadMs);
     QVariantMap payload;
     // Normalised where the payload is built, so every consumer sees a real room
     // id.
-    payload.insert(QStringLiteral("roomId"), routableRoomId(event.roomId));
+    payload.insert(QStringLiteral("roomId"), roomId);
     payload.insert(QStringLiteral("eventId"), event.eventId);
     payload.insert(QStringLiteral("threadRootId"),
                    routableThreadRootId(event.roomId, event.threadRootId));
@@ -412,15 +440,40 @@ void NotificationManager::clearPending()
     m_payloadOrder.clear();
     m_avatarWaits.clear();
     m_avatarWaitTimer.stop();
+    m_capabilityWaits.clear();
+    m_roomsAwaitingUnread.clear();
+    // A Notify still in flight belongs to the previous account; its reply must
+    // not record a click payload.
+    ++m_deliveryGeneration;
     // The tray balloon's payload is a pending click too; clear it so a balloon
     // left on screen cannot route into the previous account's room.
     m_lastFallbackPayload.clear();
+}
+
+void NotificationManager::observeRoomUnread(const QString &roomId, bool unread)
+{
+    if (roomId.isEmpty())
+        return;
+    if (unread) {
+        m_roomsAwaitingUnread.remove(roomId);
+        return;
+    }
+    // A message can notify before the room list's unread fields catch up, and
+    // that stale "read" withdrew the card it had just raised. Wait until the
+    // list has shown the room unread since its latest card, or a few seconds
+    // (a room read before the list ever showed it unread).
+    const auto awaiting = m_roomsAwaitingUnread.constFind(roomId);
+    if (awaiting != m_roomsAwaitingUnread.cend()
+        && QDateTime::currentMSecsSinceEpoch() < awaiting.value())
+        return;
+    closeRoomNotifications(roomId);
 }
 
 void NotificationManager::closeRoomNotifications(const QString &roomId)
 {
     if (roomId.isEmpty())
         return;
+    m_roomsAwaitingUnread.remove(roomId);
     // A delivery still waiting for its avatar has not been shown yet; drop it
     // for a room that has now been read.
     if (!m_avatarWaits.isEmpty()) {
@@ -439,6 +492,11 @@ void NotificationManager::closeRoomNotifications(const QString &roomId)
                 m_avatarWaitTimer.stop();
         }
     }
+    // Same for one waiting for the daemon's capabilities.
+    m_capabilityWaits.removeIf([&roomId](const CapabilityWait &waiting) {
+        return waiting.payload.value(QStringLiteral("roomId")).toString()
+            == roomId;
+    });
     if (m_pendingPayloads.isEmpty())
         return;
     QList<quint32> stale;
@@ -453,16 +511,8 @@ void NotificationManager::closeRoomNotifications(const QString &roomId)
     stale.removeOne(m_activeCallNotificationId);
     if (stale.isEmpty())
         return;
-#ifdef HAVE_QT_DBUS
-    QDBusInterface notifications(kService, kPath, kInterface,
-                                 QDBusConnection::sessionBus());
-    const bool valid = notifications.isValid();
-#endif
     for (const quint32 id : std::as_const(stale)) {
-#ifdef HAVE_QT_DBUS
-        if (valid)
-            notifications.call(QStringLiteral("CloseNotification"), id);
-#endif
+        closeNotification(id);
         forgetPayload(id);
     }
     qCInfo(lcNotify) << "withdrew" << stale.size()
@@ -487,6 +537,21 @@ void NotificationManager::forgetPayload(quint32 id)
 {
     if (m_pendingPayloads.remove(id) > 0)
         m_payloadOrder.removeOne(id);
+}
+
+void NotificationManager::closeNotification(quint32 id)
+{
+#ifdef HAVE_QT_DBUS
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (id == 0 || !bus.isConnected())
+        return;
+    QDBusMessage call = notificationsCall(QStringLiteral("CloseNotification"));
+    call << id;
+    // Nothing is waited for.
+    bus.send(call);
+#else
+    Q_UNUSED(id);
+#endif
 }
 
 void NotificationManager::deliver(const QString &title, const QString &body,
@@ -548,23 +613,71 @@ void NotificationManager::flushAvatarWaits(bool fallbackAll)
 // exactly once. The summary is plain text everywhere and is never escaped.
 // Guarded by HAVE_QT_DBUS: Windows and macOS build without QtDBus.
 #ifdef HAVE_QT_DBUS
-QString NotificationManager::bodyForServer(QDBusInterface &notifications,
-                                           const QString &body)
+QString NotificationManager::bodyForServer(const QString &body) const
 {
-    if (!m_bodyMarkupKnown) {
-        const QDBusReply<QStringList> caps =
-            notifications.call(QStringLiteral("GetCapabilities"));
-        m_bodyMarkup = caps.isValid()
-            && caps.value().contains(QStringLiteral("body-markup"));
-        // Offer inline reply only when advertised; otherwise it renders as a
-        // button that can never produce text.
-        m_inlineReply = caps.isValid()
-            && caps.value().contains(QStringLiteral("inline-reply"));
-        m_bodyMarkupKnown = true;
-        qCInfo(lcNotify) << "notification server body-markup =" << m_bodyMarkup
-                         << "inline-reply =" << m_inlineReply;
-    }
     return m_bodyMarkup ? body.toHtmlEscaped() : body;
+}
+
+bool NotificationManager::requestCapabilities()
+{
+    if (m_capabilityRequestInFlight)
+        return true;
+    if (QDateTime::currentMSecsSinceEpoch() < m_capabilityRetryAtMs)
+        return false;
+    m_capabilityRequestInFlight = true;
+    ++m_capabilityRequests;
+    auto *watcher = new QDBusPendingCallWatcher(
+        QDBusConnection::sessionBus().asyncCall(
+            notificationsCall(QStringLiteral("GetCapabilities")),
+            kCapabilitiesTimeoutMs),
+        this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher] {
+        watcher->deleteLater();
+        m_capabilityRequestInFlight = false;
+        const QDBusPendingReply<QStringList> caps = *watcher;
+        if (caps.isError()) {
+            // Until an answer: escape, since raw member text must never reach
+            // a daemon that renders markup, and offer no inline reply.
+            m_bodyMarkup = true;
+            m_inlineReply = false;
+            // Not up yet, or not answering: ask again later, bounded. Any
+            // other error is the daemon's answer.
+            const QDBusError::ErrorType type = caps.error().type();
+            const bool transient = type == QDBusError::ServiceUnknown
+                || type == QDBusError::NoReply || type == QDBusError::Timeout
+                || type == QDBusError::TimedOut
+                || type == QDBusError::Disconnected
+                || type == QDBusError::NoServer;
+            if (transient && m_capabilityRequests < kMaxCapabilityRequests)
+                m_capabilityRetryAtMs =
+                    QDateTime::currentMSecsSinceEpoch() + m_capabilityRetryMs;
+            else
+                m_bodyMarkupKnown = true;
+            qCWarning(lcNotify) << "notification server capabilities unknown:"
+                                << caps.error().name()
+                                << "asking again:" << !m_bodyMarkupKnown;
+        } else {
+            m_bodyMarkup = caps.value().contains(QStringLiteral("body-markup"));
+            // Offer inline reply only when advertised; otherwise it renders
+            // as a button that can never produce text.
+            m_inlineReply =
+                caps.value().contains(QStringLiteral("inline-reply"));
+            qCInfo(lcNotify) << "notification server body-markup ="
+                             << m_bodyMarkup << "inline-reply ="
+                             << m_inlineReply;
+        }
+        if (!caps.isError())
+            m_bodyMarkupKnown = true;
+        // Delivered now, with what is known; a retry only serves later ones.
+        const QList<CapabilityWait> waiting = std::exchange(m_capabilityWaits, {});
+        for (const CapabilityWait &wait : waiting)
+            deliverNow(wait.title, wait.body, wait.payload, wait.sound,
+                       wait.avatar);
+        if (std::exchange(m_callWaitsForCapabilities, false))
+            deliverCallNotification();
+    });
+    return true;
 }
 #endif
 
@@ -574,12 +687,19 @@ void NotificationManager::deliverNow(const QString &title,
                                      const QImage &avatar)
 {
 #ifdef HAVE_QT_DBUS
-    QDBusInterface notifications(kService, kPath, kInterface,
-                                 QDBusConnection::sessionBus());
-    if (!notifications.isValid()) {
-        // No daemon: fall back to the tray balloon.
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        // No session bus: fall back to the tray balloon.
         if (!deliverThroughTray(title, body, payload, avatar))
             qCInfo(lcNotify) << "notification service unavailable";
+        return;
+    }
+    if (!m_bodyMarkupKnown && requestCapabilities()) {
+        // The capabilities decide how the body is escaped; wait for them.
+        if (m_capabilityWaits.size() < kMaxCapabilityWaits)
+            m_capabilityWaits.append({ title, body, payload, sound, avatar });
+        else
+            qCWarning(lcNotify) << "notification dropped: daemon not answering";
         return;
     }
     const NotificationIdentity identity = notificationIdentity();
@@ -608,9 +728,8 @@ void NotificationManager::deliverNow(const QString &title,
     }
     // Escaped iff the daemon renders markup; see bodyForServer(). The title is
     // never escaped.
-    const QString safeBody = bodyForServer(notifications, body);
+    const QString safeBody = bodyForServer(body);
 
-    // Built after bodyForServer(), which caches whether inline reply exists.
     // Mark-as-read and Reply need a real event: generic notices (invites,
     // verification requests) have no eventId and cannot be read or replied to.
     QStringList actions{ QStringLiteral("default"), tr("Open") };
@@ -627,18 +746,32 @@ void NotificationManager::deliverNow(const QString &title,
         }
     }
 
-    QDBusReply<quint32> reply = notifications.call(
-        QStringLiteral("Notify"), QStringLiteral("Lightning"), quint32(0),
-        identity.appIcon, title, safeBody, actions, hints, int(-1));
-    if (reply.isValid()) {
-        recordPayload(reply.value(), payload);
-        return;
-    }
-    // A refusal is not an absence: log the error name only (never title or
-    // body) and fall back to the balloon.
-    qCWarning(lcNotify) << "notification server refused the notification:"
-                        << reply.error().name();
-    deliverThroughTray(title, body, payload, avatar);
+    QDBusMessage call = notificationsCall(QStringLiteral("Notify"));
+    call << QStringLiteral("Lightning") << quint32(0) << identity.appIcon
+         << title << safeBody << actions << hints << int(-1);
+    auto *watcher = new QDBusPendingCallWatcher(
+        bus.asyncCall(call, kNotifyTimeoutMs), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, title, body, payload, avatar,
+             generation = m_deliveryGeneration] {
+        watcher->deleteLater();
+        const QDBusPendingReply<quint32> reply = *watcher;
+        // Signed out meanwhile: the card is not this account's to route.
+        if (generation != m_deliveryGeneration)
+            return;
+        if (!reply.isError()) {
+            recordPayload(reply.value(), payload);
+            return;
+        }
+        // No daemon, or a refusal: log the error name only (never title or
+        // body) and fall back to the balloon.
+        if (reply.error().type() == QDBusError::ServiceUnknown)
+            qCInfo(lcNotify) << "notification service unavailable";
+        else
+            qCWarning(lcNotify) << "notification server refused the notification:"
+                                << reply.error().name();
+        deliverThroughTray(title, body, payload, avatar);
+    });
 #else
     // No QtDBus (Windows, macOS): the tray balloon carries the notification
     // (a toast on Windows, a user notification on macOS).
@@ -883,17 +1016,14 @@ void NotificationManager::stopIncomingCall(const QString &callId)
         || (!callId.isEmpty() && callId != m_activeCallId))
         return;
     m_callRingTimer.stop();
-#ifdef HAVE_QT_DBUS
     if (m_activeCallNotificationId != 0) {
-        QDBusInterface notifications(kService, kPath, kInterface,
-                                     QDBusConnection::sessionBus());
-        if (notifications.isValid())
-            notifications.call(QStringLiteral("CloseNotification"),
-                               m_activeCallNotificationId);
+        closeNotification(m_activeCallNotificationId);
         forgetPayload(m_activeCallNotificationId);
     }
-#endif
     m_activeCallNotificationId = 0;
+    // A card still being raised is retired when its id arrives.
+    m_callRedrawPending = false;
+    m_callWaitsForCapabilities = false;
     // Reset with the rest of the call state; these have caller-side defaults.
     m_activeCallAcceptOffered = false;
     m_activeCallRtcLane = false;
@@ -911,11 +1041,20 @@ void NotificationManager::deliverCallNotification()
     if (m_activeCallId.isEmpty())
         return;
 #ifdef HAVE_QT_DBUS
-    QDBusInterface notifications(kService, kPath, kInterface,
-                                 QDBusConnection::sessionBus());
-    if (!notifications.isValid()) {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
         qCInfo(lcNotify) << "notification service unavailable";
         deliverCallThroughTray();
+        return;
+    }
+    if (!m_bodyMarkupKnown && requestCapabilities()) {
+        m_callWaitsForCapabilities = true;
+        return;
+    }
+    // One Notify at a time: until it answers, the card's id (replaces_id) is
+    // unknown and a second one would raise a duplicate card.
+    if (m_callNotifyInFlight) {
+        m_callRedrawPending = true;
         return;
     }
     const QStringList actions = callActions(m_activeCallAcceptOffered,
@@ -934,26 +1073,48 @@ void NotificationManager::deliverCallNotification()
     }
     // Same single escape as deliverNow(); the body contains member-chosen
     // names.
-    const QDBusReply<quint32> reply = notifications.call(
-        QStringLiteral("Notify"), QStringLiteral("Lightning"),
-        m_activeCallNotificationId, identity.appIcon, m_activeCallTitle,
-        bodyForServer(notifications, m_activeCallBody), actions, hints,
-        int(-1));
-    if (reply.isValid()) {
-        if (m_activeCallNotificationId != 0
-            && reply.value() != m_activeCallNotificationId)
-            forgetPayload(m_activeCallNotificationId);
-        m_activeCallNotificationId = reply.value();
-        recordPayload(m_activeCallNotificationId,
-                      QVariantMap{
-                          { QStringLiteral("roomId"), m_activeCallRoomId },
-                          { QStringLiteral("eventId"), QString() },
-                          { QStringLiteral("threadRootId"), QString() },
-                      });
-        return;
-    }
-    qCWarning(lcNotify) << "notification server refused the call card:"
-                        << reply.error().name();
+    QDBusMessage call = notificationsCall(QStringLiteral("Notify"));
+    call << QStringLiteral("Lightning") << m_activeCallNotificationId
+         << identity.appIcon << m_activeCallTitle
+         << bodyForServer(m_activeCallBody) << actions << hints << int(-1);
+    m_callNotifyInFlight = true;
+    auto *watcher = new QDBusPendingCallWatcher(
+        bus.asyncCall(call, kNotifyTimeoutMs), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, callId = m_activeCallId] {
+        watcher->deleteLater();
+        m_callNotifyInFlight = false;
+        const QDBusPendingReply<quint32> reply = *watcher;
+        if (callId != m_activeCallId) {
+            // Stopped or replaced while it was being raised.
+            if (!reply.isError())
+                closeNotification(reply.value());
+        } else if (!reply.isError()) {
+            if (m_activeCallNotificationId != 0
+                && reply.value() != m_activeCallNotificationId)
+                forgetPayload(m_activeCallNotificationId);
+            m_activeCallNotificationId = reply.value();
+            recordPayload(m_activeCallNotificationId,
+                          QVariantMap{
+                              { QStringLiteral("roomId"), m_activeCallRoomId },
+                              { QStringLiteral("eventId"), QString() },
+                              { QStringLiteral("threadRootId"), QString() },
+                          });
+        } else {
+            if (reply.error().type() == QDBusError::ServiceUnknown)
+                qCInfo(lcNotify) << "notification service unavailable";
+            else
+                qCWarning(lcNotify) << "notification server refused the call card:"
+                                    << reply.error().name();
+            m_callRedrawPending = false;
+            deliverCallThroughTray();
+            return;
+        }
+        // A redraw asked for meanwhile, or the next call's first card.
+        if (std::exchange(m_callRedrawPending, false))
+            deliverCallNotification();
+    });
+    return;
 #endif
     // No freedesktop card (no daemon, or no QtDBus on Windows/macOS): announce
     // the call through the tray balloon. A balloon has no buttons, so the click

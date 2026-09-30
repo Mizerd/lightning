@@ -438,6 +438,112 @@ private Q_SLOTS:
         QVERIFY(NotificationManager::decide(incomingText(), context).notify);
     }
 
+    // A room's recent history re-delivered after the initial sync (its first
+    // subscription on this device, or a gap) is backlog too, whatever the push
+    // verdict, mention or room mode. Measured 2026-09-29: opening a room on a
+    // new device raised one popup per event, 20, on 0.9.9 and on #15.
+    void aResyncedBacklogNeverNotifiesWhateverTheVerdict()
+    {
+        auto context = baseContext();
+        TimelineEvent history = withVerdict(
+            incomingText(), TimelineEvent::PushVerdict::Notify, true);
+        history.mentionsMe = true;
+        history.backlog = true;
+        QVERIFY(!NotificationManager::decide(history, context).notify);
+
+        // Without a verdict (the local mode would decide) and with a mode
+        // saved only on this device.
+        history.pushVerdict = TimelineEvent::PushVerdict::Unknown;
+        QVERIFY(!NotificationManager::decide(history, context).notify);
+        context.localModeUnsynced = true;
+        QVERIFY(!NotificationManager::decide(history, context).notify);
+
+        // Nothing else was holding it back: the same event as a new arrival
+        // notifies.
+        history.backlog = false;
+        QVERIFY(NotificationManager::decide(history, context).notify);
+    }
+
+    // The card for a new message can arrive before the room list shows the
+    // room unread, and the list's walk read that stale "read" as the user
+    // reading the room: the card was withdrawn 0.3-0.6 s after it appeared.
+    void aReadThatPredatesTheCardDoesNotWithdrawIt()
+    {
+        NotificationManager manager;
+        const QString room = QStringLiteral("!room:example.org");
+        manager.processEvent(incomingText(), baseContext());
+        QVERIFY(manager.roomAwaitsUnreadForTest(room));
+        // Stands in for the Notify reply (no daemon here).
+        manager.recordPayloadForTest(
+            7, QVariantMap{ { QStringLiteral("roomId"), room },
+                            { QStringLiteral("eventId"),
+                              QStringLiteral("$ev:example.org") },
+                            { QStringLiteral("threadRootId"), QString() } });
+
+        // The list has not caught up: the room still reads as read.
+        manager.observeRoomUnread(room, false);
+        QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+        // It catches up, and then the user reads the room.
+        manager.observeRoomUnread(room, true);
+        QVERIFY(!manager.roomAwaitsUnreadForTest(room));
+        QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+        manager.observeRoomUnread(room, false);
+        QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+    }
+
+    // Review B3: a room read here or elsewhere before the list ever showed it
+    // unread would have kept its card until the next unread-then-read. The
+    // wait for the list is bounded.
+    void theWaitForTheListIsBounded()
+    {
+        NotificationManager manager;
+        manager.setAwaitUnreadMsForTest(50);
+        const QString room = QStringLiteral("!room:example.org");
+        manager.processEvent(incomingText(), baseContext());
+        manager.recordPayloadForTest(
+            7, QVariantMap{ { QStringLiteral("roomId"), room },
+                            { QStringLiteral("eventId"),
+                              QStringLiteral("$ev:example.org") },
+                            { QStringLiteral("threadRootId"), QString() } });
+        manager.observeRoomUnread(room, false);
+        QCOMPARE(manager.pendingPayloadCountForTest(), 1);
+        QTest::qWait(100);
+        manager.observeRoomUnread(room, false);
+        QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+    }
+
+    // What the walk must still do: a card whose room was read on another
+    // client goes when the list says so, and an explicit read (mark-read,
+    // reply) closes at once even before the list caught up.
+    void aReadRoomStillWithdrawsItsCard()
+    {
+        NotificationManager manager;
+        const QString room = QStringLiteral("!elsewhere:example.org");
+        const QVariantMap payload{ { QStringLiteral("roomId"), room },
+                                   { QStringLiteral("eventId"),
+                                     QStringLiteral("$e:example.org") },
+                                   { QStringLiteral("threadRootId"),
+                                     QString() } };
+        // Raised earlier; the list has shown it unread since.
+        manager.recordPayloadForTest(1, payload);
+        manager.observeRoomUnread(room, false);
+        QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+
+        TimelineEvent event = incomingText();
+        event.roomId = room;
+        manager.processEvent(event, baseContext());
+        manager.recordPayloadForTest(2, payload);
+        QVERIFY(manager.roomAwaitsUnreadForTest(room));
+        manager.closeRoomNotifications(room);
+        QCOMPARE(manager.pendingPayloadCountForTest(), 0);
+        QVERIFY(!manager.roomAwaitsUnreadForTest(room));
+
+        // Sign-out forgets which rooms were waiting.
+        manager.processEvent(event, baseContext());
+        manager.clearPending();
+        QVERIFY(!manager.roomAwaitsUnreadForTest(room));
+    }
+
     // Pending invites present at launch are seeded silently; only invites seen
     // after the initial sync (and not yet announced) notify.
     void invitePolicySuppressesBacklog()

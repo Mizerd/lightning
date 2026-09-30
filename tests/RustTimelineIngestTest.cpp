@@ -68,6 +68,7 @@ private Q_SLOTS:
     // Issue #15: the account's push-rule verdict rides on both producers.
     void readsThePushVerdictOnlyFromARealBoolean();
     void aLiveAppendCarriesItsPushVerdict();
+    void aResyncAppendCarriesTheBacklogMark();
     void parsesUndecryptableItem();
     void parsesLocalEchoStates();
     void parsesMediaUploadProgress();
@@ -285,6 +286,39 @@ void RustTimelineIngestTest::aLiveAppendCarriesItsPushVerdict()
     QVERIFY(outcome.items.at(0).pushHighlight);
     QCOMPARE(outcome.items.at(1).pushVerdict,
              TimelineEvent::PushVerdict::Unknown);
+}
+
+void RustTimelineIngestTest::aResyncAppendCarriesTheBacklogMark()
+{
+    // The shape a room's first subscription produced live: a clear, then the
+    // room's recent history appended with `backlog` (push_verdict.rs
+    // ResyncBatch). The mark must survive the diff path, and an ordinary
+    // append must not gain it.
+    auto mirror = mirrorOf(1);
+    QCOMPARE(applyTimelineDiff(mirror, diffJson(QStringLiteral("clear")), kRoom)
+                 .kind,
+             DiffOutcome::Cleared);
+    QJsonObject history = itemJson(QStringLiteral("h"), QStringLiteral("$h"),
+                                   QStringLiteral("old"));
+    history.insert(QStringLiteral("push_notify"), true);
+    history.insert(QStringLiteral("backlog"), true);
+    QJsonObject append = diffJson(QStringLiteral("append"));
+    append.insert(QStringLiteral("items"), QJsonArray{history});
+    auto outcome = applyTimelineDiff(mirror, append, kRoom);
+    QCOMPARE(outcome.kind, DiffOutcome::Appended);
+    QCOMPARE(outcome.items.size(), 1);
+    QVERIFY(outcome.items.first().backlog);
+    // The verdict is still read; the mark is what keeps it quiet.
+    QCOMPARE(outcome.items.first().pushVerdict,
+             TimelineEvent::PushVerdict::Notify);
+
+    QJsonObject pushBack = diffJson(QStringLiteral("push_back"));
+    pushBack.insert(QStringLiteral("item"),
+                    itemJson(QStringLiteral("n"), QStringLiteral("$n"),
+                             QStringLiteral("new")));
+    outcome = applyTimelineDiff(mirror, pushBack, kRoom);
+    QCOMPARE(outcome.kind, DiffOutcome::Appended);
+    QVERIFY(!outcome.items.first().backlog);
 }
 
 void RustTimelineIngestTest::parsesUndecryptableItem()

@@ -701,10 +701,54 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   cannot be withdrawn through Qt: read-dismissal on those platforms needs
   the native toast APIs and is a recorded follow-up.
 - **Reading a room withdraws its notifications.** `closeRoomNotifications`
-  runs when a room's unread clears, on Mark as read and on a reply, and it
-  reaches the desktop's HISTORY: an expired popup (freedesktop reason 1)
-  keeps its payload, since KDE and GNOME keep the entry, while a dismissed
-  or closed one is forgotten.
+  runs on Mark as read and on a reply, and it reaches the desktop's HISTORY:
+  an expired popup (freedesktop reason 1) keeps its payload, since KDE and
+  GNOME keep the entry, while a dismissed or closed one is forgotten. The
+  room list's walk (`refreshTrayUnread`) goes through `observeRoomUnread`,
+  which withdraws only once the list has shown the room UNREAD since its
+  latest card (2026-09-29), or five seconds have passed: a card can come
+  before the list's unread fields catch up, and that stale "read" withdrew
+  the card 0.3-0.6 s after it appeared. The bound keeps a card whose room
+  was read before the list ever showed it unread from staying for good.
+- **A room's history re-delivered after the initial sync never notifies
+  (2026-09-29).** Opening a room subscribes it with matrix-sdk-ui's
+  `timeline_limit` 20; the server re-sends its last 20 events (`initial`,
+  `num_live` 0, which matrix-sdk never reads), the event cache drops to its
+  last chunk, and the open room's timeline clears and APPENDS them as live.
+  A gap or an expired sync session produces the same batch, carrying NEW
+  messages, so the mark is per EVENT (`push_verdict::BacklogMarker`, one per
+  open room or thread timeline): after a `Clear` or `Reset` in a diff batch,
+  an append is `backlog` when it reached the server before the timeline
+  opened (`unsigned.age` against this device's clock, the timestamp without
+  one); an event the timeline already forwarded is `backlog` reset or not.
+  `decide` returns on it before the verdict. Measured before the fix: 20
+  popups on opening a room on a new device or after a restart whenever the
+  batch landed with the window unfocused or off the bottom, identical on the
+  published 0.9.9 (not a #15 regression). A first version marked every append
+  after a reset, which silenced the new messages of a gap in the open room
+  (review, 2026-09-30). The sync handlers (unopened rooms) are unchanged; a
+  fresh login with 24 rooms raised none. Live: the first version PASSED
+  2026-09-29 (same procedure, 20 popups on the old build and 0 on the fixed
+  one, the SDK's reset traced in both). The per-event rule PASSED live
+  2026-09-30 on a 1.5 s link: a room's first open, 0; a forced gap in the
+  open, unfocused room (30 new messages during a 30 s stall), 21 (the first
+  before the stall and the 20 re-appended after the reset), where the
+  per-batch rule gave 1; one message after it, 1. Against a daemon that never
+  answers: no stall, and GetCapabilities asked again after the pause.
+- **Every call to the notification daemon is asynchronous (2026-09-29).**
+  `Notify` and `GetCapabilities` go through `QDBusPendingCallWatcher`
+  (10 s and 3 s), `CloseNotification` is sent without waiting, and no
+  `QDBusInterface` is built (its constructor introspects synchronously). A
+  daemon that owned the name and never answered held the GUI thread for
+  75 s per message (measured). Deliveries wait for the capabilities, which
+  decide escaping; without an answer bodies are escaped and inline reply is
+  off. A daemon not up yet or not answering (`ServiceUnknown`, `NoReply`) is
+  asked again 30 s later, four times per session at most; any other error
+  is its answer. The call card has one `Notify` in flight at a time, and a card raised
+  for a call that ended meanwhile is closed when its id arrives. A daemon
+  that is D-Bus-activatable but not running is now started by the call,
+  where the old validity check wanted a current owner and fell back to the
+  tray balloon (by reading; NOT TESTED live).
 
 - Native freedesktop notifications when Qt DBus and a notification service
   are available

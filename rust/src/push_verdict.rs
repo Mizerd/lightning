@@ -16,7 +16,10 @@ use matrix_sdk::{
     ruma::{push::Action, OwnedRoomId, RoomId},
     Room,
 };
-use matrix_sdk_ui::{eyeball_im::VectorDiff, timeline::EventTimelineItem};
+use matrix_sdk_ui::{
+    eyeball_im::VectorDiff,
+    timeline::{EventTimelineItem, TimelineItem},
+};
 
 /// What the rules say about one event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,6 +126,124 @@ pub(crate) fn live_append_slots<'d, 'v, T: Clone>(
     }
 }
 
+/// What the backlog mark needs to know about one timeline item.
+pub(crate) struct ItemFacts {
+    pub(crate) event_id: String,
+    /// `origin_server_ts`, milliseconds.
+    pub(crate) timestamp_ms: u64,
+    /// `unsigned.age` as delivered, milliseconds, when the server sent one.
+    pub(crate) age_ms: Option<u64>,
+}
+
+/// Facts for a remote event item; `None` for a local echo or a virtual item.
+pub(crate) fn item_facts(item: &TimelineItem) -> Option<ItemFacts> {
+    #[derive(serde::Deserialize)]
+    struct Unsigned {
+        age: Option<i64>,
+    }
+    let event = item.as_event()?;
+    let event_id = event.event_id()?.to_string();
+    let age_ms = event
+        .original_json()
+        .and_then(|raw| raw.get_field::<Unsigned>("unsigned").ok().flatten())
+        .and_then(|unsigned| unsigned.age)
+        .map(|age| age.max(0) as u64);
+    Some(ItemFacts { event_id, timestamp_ms: u64::from(event.timestamp().get()), age_ms })
+}
+
+pub(crate) fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Marks `backlog` on live appends that are history rather than arrivals. One
+/// per open timeline (room or thread).
+///
+/// A limited sync (a room's first subscription, which re-sends its last 20
+/// events; a gap; an expired sync session) makes the event cache drop to its
+/// last chunk, and the timeline clears and appends that sync's events in one
+/// batch. Among them only the events that reached the server after the
+/// timeline opened are new, so after a `Clear` or `Reset` each append is
+/// judged on its own: by `unsigned.age` against this device's clock, or by
+/// its timestamp without one. An event this timeline already forwarded is
+/// never new, reset or not.
+pub(crate) struct BacklogMarker {
+    opened_ms: u64,
+    forwarded: HashSet<String>,
+    reset_in_batch: bool,
+}
+
+/// Bound on the ids remembered per open timeline.
+const MAX_FORWARDED: usize = 20_000;
+
+impl BacklogMarker {
+    /// `snapshot`: the items the timeline opened with.
+    pub(crate) fn new(opened_ms: u64, snapshot: impl IntoIterator<Item = ItemFacts>) -> Self {
+        let mut marker =
+            Self { opened_ms, forwarded: HashSet::new(), reset_in_batch: false };
+        for facts in snapshot {
+            marker.remember(facts.event_id);
+        }
+        marker
+    }
+
+    /// Called once per batch of diffs from the timeline stream.
+    pub(crate) fn begin_batch(&mut self) {
+        self.reset_in_batch = false;
+    }
+
+    pub(crate) fn mark<T: Clone>(
+        &mut self,
+        diff: &VectorDiff<T>,
+        payload: &mut serde_json::Value,
+        now_ms: u64,
+        facts: impl Fn(&T) -> Option<ItemFacts>,
+    ) {
+        if matches!(diff, VectorDiff::Clear | VectorDiff::Reset { .. }) {
+            self.reset_in_batch = true;
+        }
+        for (item, slot) in live_append_slots(diff, payload) {
+            let Some(facts) = facts(item) else { continue };
+            let backlog = self.forwarded.contains(&facts.event_id)
+                || (self.reset_in_batch && self.arrived_before_open(&facts, now_ms));
+            if let (true, Some(object)) = (backlog, slot.as_object_mut()) {
+                object.insert("backlog".to_owned(), true.into());
+            }
+        }
+        let values: Vec<&T> = match diff {
+            VectorDiff::Append { values } | VectorDiff::Reset { values } => values.iter().collect(),
+            VectorDiff::PushFront { value }
+            | VectorDiff::PushBack { value }
+            | VectorDiff::Insert { value, .. }
+            | VectorDiff::Set { value, .. } => vec![value],
+            _ => Vec::new(),
+        };
+        for value in values {
+            if let Some(facts) = facts(value) {
+                self.remember(facts.event_id);
+            }
+        }
+    }
+
+    fn arrived_before_open(&self, facts: &ItemFacts, now_ms: u64) -> bool {
+        match facts.age_ms {
+            // Measured by the server when it answered, so no clock skew.
+            Some(age) => now_ms.saturating_sub(age) < self.opened_ms,
+            None => facts.timestamp_ms < self.opened_ms,
+        }
+    }
+
+    fn remember(&mut self, event_id: String) {
+        if self.forwarded.len() >= MAX_FORWARDED {
+            // Past the bound only the time rule is left.
+            self.forwarded.clear();
+        }
+        self.forwarded.insert(event_id);
+    }
+}
+
 /// Verdict for a live timeline item. `None` for a local echo, which has no
 /// server JSON yet.
 pub(crate) async fn for_timeline_item(
@@ -149,7 +270,7 @@ mod tests {
     use matrix_sdk_ui::eyeball_im::{Vector, VectorDiff};
     use serde_json::json;
 
-    use super::{live_append_slots, PushVerdict, SyncVerdicts};
+    use super::{live_append_slots, BacklogMarker, ItemFacts, PushVerdict, SyncVerdicts};
 
     fn me() -> OwnedUserId {
         UserId::parse("@me:example.org").unwrap()
@@ -449,5 +570,150 @@ mod tests {
         // misplacing a verdict.
         let append = VectorDiff::Append { values: Vector::from(vec![1u32]) };
         assert!(live_append_slots(&append, &mut json!({ "op": "append" })).is_empty());
+    }
+
+    // A test item: (event id, origin_server_ts, unsigned.age); id "" = no event.
+    type Item = (&'static str, u64, Option<u64>);
+
+    fn facts(item: &Item) -> Option<ItemFacts> {
+        (!item.0.is_empty()).then(|| ItemFacts {
+            event_id: item.0.to_owned(),
+            timestamp_ms: item.1,
+            age_ms: item.2,
+        })
+    }
+
+    const OPENED: u64 = 100_000;
+    const NOW: u64 = 110_000;
+
+    fn marker(snapshot: &[Item]) -> BacklogMarker {
+        BacklogMarker::new(OPENED, snapshot.iter().filter_map(facts))
+    }
+
+    fn append(marker: &mut BacklogMarker, items: &[Item]) -> serde_json::Value {
+        let mut payload = json!({ "op": "append", "items": vec![json!({}); items.len()] });
+        let diff = VectorDiff::Append { values: items.iter().copied().collect::<Vector<_>>() };
+        marker.mark(&diff, &mut payload, NOW, facts);
+        payload
+    }
+
+    fn clear(marker: &mut BacklogMarker) {
+        marker.mark(&VectorDiff::<Item>::Clear, &mut json!({ "op": "clear" }), NOW, facts);
+    }
+
+    fn is_backlog(slot: &serde_json::Value) -> bool {
+        slot.get("backlog") == Some(&json!(true))
+    }
+
+    // The shape a room's first subscription produced live: the timeline
+    // cleared, then its last 20 events appended in the same batch, all of them
+    // older than the open.
+    #[test]
+    fn history_re_appended_after_a_clear_is_backlog() {
+        let mut marker = marker(&[("$latest", 99_000, Some(10))]);
+        marker.begin_batch();
+        clear(&mut marker);
+        let payload = append(
+            &mut marker,
+            &[
+                ("$old", 50_000, Some(60_000)),
+                ("$older", 40_000, None),
+                ("$latest", 99_000, Some(11_000)),
+            ],
+        );
+        for slot in payload["items"].as_array().unwrap() {
+            assert!(is_backlog(slot), "{slot}");
+        }
+    }
+
+    // Review B1: a gap or an expired sync session produces the same batch, and
+    // an event that reached the server after the open is a new message.
+    #[test]
+    fn an_unseen_event_after_the_open_is_not_backlog_even_after_a_clear() {
+        let mut marker = marker(&[("$latest", 99_000, None)]);
+        marker.begin_batch();
+        clear(&mut marker);
+        let payload = append(
+            &mut marker,
+            &[
+                ("$history", 90_000, Some(20_000)),
+                ("$new", 105_000, Some(4_000)),
+                ("$no_age", 105_000, None),
+            ],
+        );
+        assert!(is_backlog(&payload["items"][0]));
+        assert!(!is_backlog(&payload["items"][1]));
+        assert!(!is_backlog(&payload["items"][2]));
+    }
+
+    // The age is measured by the server when it answered, so a skewed
+    // timestamp does not decide when an age came with the event.
+    #[test]
+    fn the_age_decides_over_a_skewed_timestamp() {
+        let mut marker = marker(&[]);
+        marker.begin_batch();
+        clear(&mut marker);
+        let payload = append(
+            &mut marker,
+            // Server clock ahead: stamped after the open, reached the server
+            // 15 s ago (before it). Server clock behind: stamped long before,
+            // reached the server 100 ms ago.
+            &[("$ahead", 200_000, Some(15_000)), ("$behind", 1_000, Some(100))],
+        );
+        assert!(is_backlog(&payload["items"][0]));
+        assert!(!is_backlog(&payload["items"][1]));
+    }
+
+    // Without a reset the time is not consulted (a live message stamped early
+    // still notifies), but an event this timeline already forwarded is never
+    // new: here a live message notified once, then re-delivered after a
+    // clear, and a snapshot event moved to the end.
+    #[test]
+    fn a_forwarded_event_is_backlog_and_time_counts_only_after_a_reset() {
+        let mut marker = marker(&[("$snap", 99_000, None)]);
+        marker.begin_batch();
+        let first = append(&mut marker, &[("$live", 105_000, Some(10)), ("$early", 1_000, None)]);
+        assert!(!is_backlog(&first["items"][0]));
+        assert!(!is_backlog(&first["items"][1]));
+
+        marker.begin_batch();
+        marker.mark(&VectorDiff::<Item>::Remove { index: 0 }, &mut json!({}), NOW, facts);
+        let moved = append(&mut marker, &[("$snap", 99_000, None)]);
+        assert!(is_backlog(&moved["items"][0]));
+
+        marker.begin_batch();
+        clear(&mut marker);
+        let again = append(&mut marker, &[("$live", 105_000, Some(5_000))]);
+        assert!(is_backlog(&again["items"][0]));
+
+        // The reset does not carry into the next batch.
+        marker.begin_batch();
+        let next = append(&mut marker, &[("$later", 50_000, None)]);
+        assert!(!is_backlog(&next["items"][0]));
+    }
+
+    // Appends before the clear in the same batch, and items with no event
+    // (local echoes, virtual rows), are never marked.
+    #[test]
+    fn appends_before_the_clear_and_items_without_an_event_are_not_marked() {
+        let mut marker = marker(&[]);
+        marker.begin_batch();
+        let early = append(&mut marker, &[("$before", 10_000, None)]);
+        clear(&mut marker);
+        let virtual_rows = append(&mut marker, &[("", 10_000, None)]);
+        assert!(!is_backlog(&early["items"][0]));
+        assert!(!is_backlog(&virtual_rows["items"][0]));
+        // A reset the subscriber sends after lagging starts a resync too.
+        marker.begin_batch();
+        marker.mark(
+            &VectorDiff::Reset { values: Vector::from(vec![("$kept", 10_000, None)]) },
+            &mut json!({}),
+            NOW,
+            facts,
+        );
+        let mut push_back = json!({ "op": "push_back", "item": {} });
+        let old = VectorDiff::PushBack { value: ("$old", 10_000, None) };
+        marker.mark(&old, &mut push_back, NOW, facts);
+        assert!(is_backlog(&push_back["item"]));
     }
 }
