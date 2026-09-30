@@ -90,9 +90,10 @@ everything for a focused fix. Three QML/CTest suites (`timeline-pane-qml`,
 parallelism — re-run a failure alone before treating it as a regression.
 
 If your change touches anything behind the WebRTC guard in `src/calls/`, please
-also configure with `-DLIGHTNING_ENABLE_WEBRTC=OFF` and build every target: the
-Linux package jobs build without a media engine, and that configuration has
-broken releases twice.
+also configure with `-DLIGHTNING_ENABLE_WEBRTC=OFF` and build every target. No
+package job builds that way any more, but it is the only build that compiles
+the other half of those guards, and that configuration has broken releases
+twice.
 
 ## What makes a change easy to accept
 

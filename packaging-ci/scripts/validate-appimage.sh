@@ -108,11 +108,11 @@ test -x "$tree/usr/bin/lightning-matrix" || die "binary missing in payload"
 
 # The C/C++ runtime floor the host must meet: nothing here bundles libc or
 # libstdc++. This job runs on the build distro, so nothing else can see the
-# floor rise. README.md's Linux table promises these ceilings; raise both
+# floor rise. docs/install.md's Linux table promises these ceilings; raise both
 # together. Measured 2026-09-29 on pipeline 268: GLIBC_2.39 (libsystemd),
 # GLIBCXX_3.4.32, CXXABI_1.3.15; Debian 12 (2.36) stops on GLIBC_2.38.
-abi_max_glibc=2.39      # README: glibc >= 2.39
-abi_max_glibcxx=3.4.33  # README: libstdc++ from GCC 14 or newer
+abi_max_glibc=2.39      # docs/install.md: glibc >= 2.39
+abi_max_glibcxx=3.4.33  # docs/install.md: libstdc++ from GCC 14 or newer
 abi_max_cxxabi=1.3.15   # likewise
 find "$tree" -type f -print0 | xargs -0 file -N -F '|' > "$audit/file-types.txt"
 awk -F'|' '$2 ~ /ELF 64-bit/ { print $1 }' "$audit/file-types.txt" \
@@ -145,7 +145,7 @@ abi_check() {   # family floor ceiling
     echo "$family $floor (highest; required by: $needed_by)" \
         | tee -a dist/appimage-abi-floor.txt
     [ "$(printf '%s\n%s\n' "$floor" "$ceiling" | sort -V | tail -1)" = "$ceiling" ] \
-        || die "the AppImage now needs ${family}_$floor, above the ${family}_$ceiling that README.md promises (required by: $needed_by). Hosts between the two will not start it; raise README.md and this ceiling together, or find what raised it."
+        || die "the AppImage now needs ${family}_$floor, above the ${family}_$ceiling that docs/install.md promises (required by: $needed_by). Hosts between the two will not start it; raise docs/install.md and this ceiling together, or find what raised it."
 }
 echo "ELF objects read: $elf_objects" > dist/appimage-abi-floor.txt
 # Not checked above; an x86_64 payload should carry none.

@@ -1,492 +1,143 @@
 <div align="center">
 
-<img src="data/icons/lightning.svg" width="120" alt="Lightning logo"/>
+<img src="data/icons/lightning.svg" width="96" alt="">
 
 # Lightning
 
-**A native desktop Matrix client — Qt 6 on top of the official Rust Matrix SDK.**
+A native desktop Matrix client: Qt 6 on top of the official Rust Matrix SDK.
 
+[![Flathub](https://img.shields.io/flathub/v/org.lightning_matrix.Lightning?logo=flathub&label=flathub)](https://flathub.org/apps/org.lightning_matrix.Lightning)
+[![Latest release](https://img.shields.io/gitlab/v/release/Mizerd/lightning?gitlab_url=https%3A%2F%2Fgitlab.smetonis.net&label=release)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/badge/release-v0.9.9-2f6be0.svg)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
-[![Platform: Linux | Windows | macOS](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-4c8fdc.svg)](#install)
+[![Matrix room](https://img.shields.io/badge/matrix-%23lightning%3Amatrix.smetonis.net-0dbd8b?logo=matrix)](https://matrix.to/#/%23lightning%3Amatrix.smetonis.net)
 
 </div>
 
-Lightning is a desktop [Matrix](https://matrix.org/) client for Linux, Windows and
+Lightning is a [Matrix](https://matrix.org/) client for Linux, Windows and
 macOS. The interface is Qt 6 / QML with C++ for the application layer, and the
-official [`matrix-rust-sdk`](https://github.com/matrix-org/matrix-rust-sdk) owns
-synchronisation, timelines, end-to-end encryption, threads and media — Lightning
-implements no Matrix cryptography of its own. It is not Electron, not a web view,
-and not a fork of another client.
+official [`matrix-rust-sdk`](https://github.com/matrix-org/matrix-rust-sdk)
+does synchronisation, timelines, end-to-end encryption, threads and media.
+Lightning implements no Matrix cryptography of its own. It is not Electron,
+not a web view, and not a fork of another client.
 
-Linux is the primary development and support target. Windows (x86-64) packages ship
-with every release from v0.6.3, and macOS (Apple Silicon) from v0.7.5. Lightning is
-under active development: usable day to day, but not audited or certified — expect
-rough edges and occasional regressions.
+Linux is the primary target. Lightning is usable day to day but young: it is
+listed as **Alpha** in the [Matrix client
+directory](https://matrix.org/ecosystem/clients/lightning/), so expect rough
+edges.
 
-<img src="docs/screenshots/lightning-main-chat.png" alt="The Classic conversation list beside a room timeline with replies, reactions, an image and a pending invite">
+<p align="center">
+  <img src="docs/screenshots/flathub/01-conversation.png" width="800" alt="A room conversation with replies, reactions and a thread">
+</p>
 
-## What it does
+## Features
 
-**Messaging.** Live SDK timelines with replies, edits, reactions, redactions,
-mentions, typing indicators and read receipts, shown as clickable avatar chips.
-Pinned messages, polls (MSC3381), drafts that survive a room switch, and
-`@room` where your power level allows. Forward several messages to several
-rooms at once and be told which copies failed. Search uses the homeserver's
-index in unencrypted rooms and the loaded timeline in encrypted ones, and says
-which it is doing. Received locations, including live shares, render as a map
-card.
+- **Messaging:** replies, edits, reactions, mentions, read receipts, pinned
+  messages, polls, drafts, and forwarding to several rooms at once.
+- **Threads:** real Matrix threads in a side panel, encrypted rooms included.
+- **Encryption:** handled by the SDK. Cross-signing, emoji and QR verification,
+  key backup restore, and messages that decrypt in place when a key arrives.
+- **Search:** a local index on your computer, so encrypted rooms are
+  searchable too; server search where the server can read the room.
+- **Calls:** MatrixRTC group calls with audio, camera and screen sharing that
+  work with Element Call. Not yet tested on macOS.
+- **Spaces:** a single activity-ordered list, or a Spaces rail with nested
+  subspaces, drag-to-reorder and local folders.
+- **Accounts:** password or browser (OAuth 2.0 / OIDC) sign-in, several
+  accounts on different homeservers, and signing your other devices in from
+  this one with a code.
+- **Media:** inline images, video, audio and voice messages; stickers, custom
+  emoji and a GIF picker (GIPHY or KLIPY) that sends only your search term.
+- **Desktop:** eleven themes and a theme editor that checks contrast, eleven
+  languages including Arabic, native notifications (with reply where
+  supported), tray, Ctrl+K switcher and rebindable shortcuts.
+- **Updates:** checks for new releases and installs them where the package
+  format allows, verified against a signed manifest.
 
-**Threads.** Real Matrix threads on SDK thread timelines: side panel, per-room
-Threads view, summary cards, threaded receipts, follow/unfollow, and text,
-image, file and voice replies in encrypted rooms too.
-
-**Calls.** Group calls over MatrixRTC with audio, camera and screen sharing,
-interoperating with Element Call: raised hands, per-participant volume,
-speaking indication, mute. A share can carry the computer's audio as a
-separate encrypted track, at a volume the viewer controls. Resolution and
-frame rate are selectable, and the convert-and-scale stage runs on the GPU
-where the system supports it. Windows can share a single window. Windows and
-macOS packages bundle GStreamer.
-
-**Spaces and navigation.** Two layouts per account: Classic, one
-activity-ordered list; or Channels, a Spaces rail with Home, Direct Messages
-and one view per Space, with nested subspaces drawn as a tinted tree — or, if
-you prefer, turned back into a plain activity-ordered list — drag-to-reorder
-and local folders. A Space's front page lists its rooms and subspaces with in-place
-editing. Directory browsing, joining by address or `matrix:` URI, knocking,
-and role changes, all gated by what Matrix permits.
-
-**Encryption and accounts.** SDK-owned Olm/Megolm with cross-signing, SAS and
-QR verification, Secure Backup restore, key import and late in-place
-decryption. Sign in with a password or the homeserver's browser flow
-(OAuth 2.0 / OIDC), and sign your other devices in from this one with a code
-(MSC4108), arriving verified. Optionally refuse unverified devices (MSC4153),
-off by default. Per-room display name and avatar. Several accounts on
-different homeservers at once, each with an isolated store and its last known
-avatar kept on disk so it shows before it syncs; only the active
-one syncs.
-
-**Media and the composer.** Images, video and audio with inline playback,
-posters and waveforms; encrypted attachments throughout; voice messages
-(MSC3245); a two-provider GIF browser (GIPHY and KLIPY) that sends only your
-search term; emoji picker; MSC2545 sticker packs with editing; custom emoji
-with `:shortcode` completion; a media browser that walks a room's full history
-and reports how much it has read; JPEG XL; drag-and-drop. Images open in a
-viewer with click-to-zoom, wheel-pan and wrapping navigation, and long media
-or link embeds can collapse to a single line. Link previews are
-off by default, because Lightning fetches them itself rather than through your
-homeserver.
-
-**Moderation and safety.** Mjolnir-style policy lists: read a room's published
-ban rules, publish your own where permitted, and follow lists others maintain.
-Following a list never blocks anyone by itself. Lightning tells you when
-someone is covered by a list you follow, and you decide.
-
-**Desktop.** Eleven WCAG-AA themes plus an editor for your own that grades its
-own contrast as you work. Eleven
-languages, switchable without a restart, including right-to-left Arabic.
-Native notifications with per-room modes written to your account's server push
-rules, with reply and mark-as-read from the notification where supported.
-Floating always-on-top call window, close-to-tray, quick switcher (Ctrl-K),
-rebindable shortcuts, spell checking, imported fonts, and keyboard navigation
-throughout. Read receipts can be private or off; typing notices can be off.
-
-**Updates.** Settings, Updates checks for a new release and installs it where
-the package format allows. An Ed25519-signed manifest fixes the filename, size
-and SHA-256 before anything downloads, and a failed signature or hash is
-terminal. Checks are on by default, can be turned off, and send nothing but
-`Lightning/<version>`: no Matrix ID, homeserver, device ID, token or tracking
-identifier. See [Application updates](docs/updates.md).
-
-## Screenshots
-
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/screenshots/lightning-group-call.png" alt="A four-person call with a participant grid over the room timeline"><br>
-      <sub><b>Calls</b> — a four-person MatrixRTC call: speaking ring, raised hand, muted and camera-off badges, over the room.</sub>
-    </td>
-    <td width="50%">
-      <img src="docs/screenshots/lightning-thread-view.png" alt="A thread panel open beside the main timeline"><br>
-      <sub><b>Threads</b> — a dedicated panel beside the room, with the summary card inline.</sub>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="docs/screenshots/lightning-channels-space.png" alt="The Channels navigation layout showing a Space, its lobby and its rooms"><br>
-      <sub><b>Channels layout</b> — a Space's own view in the rail, with its lobby and rooms.</sub>
-    </td>
-    <td width="50%">
-      <img src="docs/screenshots/lightning-theme-editor.png" alt="The theme editor with a live sample window, the role list and a colour picker"><br>
-      <sub><b>Theme editor</b> — click any part of the sample window, or a role, to recolour it.</sub>
-    </td>
-  </tr>
-</table>
-
-> Every screenshot comes from Lightning's development-only
-> [screenshot-demo mode](docs/screenshot-demo.md): fictional `*.example` accounts
-> and locally generated media, never real conversations.
+The full tour, more screenshots and the known limits are in
+[docs/features.md](docs/features.md).
 
 ## Install
 
-Packages are attached to the
-[**Releases**](https://gitlab.smetonis.net/Mizerd/lightning/-/releases) page and
-mirrored to [GitHub Releases](https://github.com/Mizerd/lightning/releases). Every
-release ships a `SHA256SUMS` file; verifying is worth the one command, because no
-package is code-signed yet:
+<a href="https://flathub.org/apps/org.lightning_matrix.Lightning"><img width="200" alt="Get it on Flathub" src="https://flathub.org/api/badge?locale=en"></a>
 
-```sh
-sha256sum -c SHA256SUMS --ignore-missing
-```
+On Linux, Flathub is the easiest route. The Flatpak brings its own Qt,
+GStreamer and C library, so it also runs on distributions too old for the deb,
+the rpm and the AppImage.
 
-Replace `0.9.9` below with the version you downloaded.
+Every release also ships these on [GitLab](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+and the [GitHub mirror](https://github.com/Mizerd/lightning/releases/latest),
+with a `SHA256SUMS` file:
 
-### Linux
+| Platform | Packages |
+|---|---|
+| Linux (x86-64) | AppImage, `.deb` for Debian 13+ or Ubuntu 26.04+, `.rpm` for Fedora 44+, `.flatpak`, `.snap` |
+| NixOS | `nix run github:Mizerd/lightning`, or the flake with its Home Manager module |
+| Windows 10+ (x86-64) | MSI, Setup EXE or portable ZIP, per-user by default. Unsigned, so SmartScreen warns |
+| macOS 26+ (Apple Silicon) | ZIP. Not notarized, so the first launch needs *Open Anyway*. Does not update itself |
 
-**On an older distribution, install from
-[Flathub](https://flathub.org/apps/org.lightning_matrix.Lightning).** The
-Flatpak brings its own Qt, GStreamer and C library, so the host's versions do
-not matter.
-
-The deb and the rpm are each built against a recent Qt, and their declared
-dependencies say so. **If your distribution ships an older Qt the package will
-refuse to install rather than half-work.** The AppImage carries its own Qt but
-uses the host's C and C++ runtime, so it needs a recent distribution too.
-
-| package | needs | known good | known to FAIL |
-|---|---|---|---|
-| Flatpak | flatpak, and Flathub for the KDE 6.11 runtime | Debian 12 (its own flatpak 1.14.10) | — |
-| `.deb` | Qt >= 6.8.2, GStreamer >= 1.26.2, glibc >= 2.38, `QtQuick.Effects` (Qt 6.5+) | Debian 13 | **Debian 12** (Qt 6.4.2, glibc 2.36); **Ubuntu 24.04 LTS** (Qt 6.4.2), and its derivatives — Mint 22.x, Pop!_OS 24.04 |
-| `.rpm` | Qt 6.11 | Fedora 44 | **Fedora 43** (Qt 6.10.3) |
-| AppImage | glibc >= 2.39, libstdc++ from GCC 14 or newer | Debian 13, Ubuntu 24.04 | **Debian 12** (glibc 2.36: `GLIBC_2.38 not found`), and so Ubuntu 22.04 and Mint 21.x |
-| snap | snapd | Debian 12 (snapd 2.57.6, which updates itself on first install) | — |
-
-The deb and rpm rows are measured on a real installation of each distribution.
-The Debian 12 results, and the AppImage's Ubuntu 24.04 result, are measured in
-containers of those releases: the deb refused by `apt`, the AppImage stopping
-at the dynamic loader on Debian 12, and the Flatpak and the snap starting and
-passing their built-in checks. Ubuntu 22.04 and Mint 21.x are inferred from
-their glibc (2.35), not run. openSUSE and RHEL are **untested**;
-the rpm's Qt 6.11 floor makes any current RHEL unlikely to satisfy it.
-
-```sh
-sudo apt install ./lightning_0.9.9_amd64.deb            # Debian 13+
-sudo dnf install ./lightning-0.9.9-1.x86_64.rpm         # Fedora 44+
-sudo zypper install ./lightning-0.9.9-1.x86_64.rpm      # openSUSE (untested)
-
-# The VERSION stays in the pattern; only the suffix is globbed, because some
-# browsers and download managers lower-case .AppImage on the way in. Do not
-# widen it to Lightning-*: with two versions in the same directory the shell
-# expands to both, and the OLDER one becomes the command while the newer
-# becomes its argument — so you would silently run the build you just
-# replaced.
-chmod +x Lightning-0.9.9-x86_64.*pp[Ii]mage && ./Lightning-0.9.9-x86_64.*pp[Ii]mage
-
-flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak install --user flathub org.lightning_matrix.Lightning   # from Flathub
-flatpak install --user ./lightning_0.9.9_amd64.flatpak          # or the release file; it fetches its runtime itself
-flatpak run org.lightning_matrix.Lightning
-
-sudo snap install --dangerous ./lightning_0.9.9_amd64.snap
-```
-
-The leading `./` matters for `apt` and `dnf`, or they look for a package by that
-name in your repositories. The AppImage installs nothing — delete the file to
-remove it; if it will not start you may need FUSE, or run it with
-`--appimage-extract-and-run`. If it stops with `GLIBC_2.38' not found`, the
-distribution is older than the AppImage supports: use the Flatpak. The snap is
-not published to the Snap Store, so
-`--dangerous` means "this file is not signed by the store", not that the snap is
-unsafe; it is built with `strict` confinement.
-
-### NixOS
-
-If you want to use it without installing:
-
-```sh
-nix run github:Mizerd/lightning
-```
-
-**Installing using flakes**:
-
-Add lightning-matrix-client as an input:
-
-```nix
-{
-  inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
-    lightning-matrix-client = {
-      url = "github:Mizerd/lightning";
-      #url = "github:Mizerd/lightning/v0.9.9"; # Use this if you want a specific version
-    };
-  };
-  . . . # Your outputs config
-}
-```
-
-Add the package from the lightning-matrix-client input:
-
-```nix
-{ inputs, pkgs, ... }:
-{
-  environment.systemPackages = [
-    inputs.lightning-matrix-client.packages.${pkgs.stdenv.hostPlatform.system}.default
-  ];
-}
-```
-
-Optionally, the flake also provides a `homeManagerModules` output with settings
-(you don't need to add the package to `environment.systemPackages` if using this method):
-
-```nix
-# This is a module imported inside a home manager (https://github.com/nix-community/home-manager) configuration
-{ inputs, ... }:
-{
-  imports = [
-    inputs.lightning-matrix-client.homeManagerModules.default
-  ];
-  lightning-matrix-client.enable = true;
-}
-```
-
-### Windows (x86-64, Windows 10 or later)
-
-Three formats — **MSI**, **Setup EXE** and a **portable ZIP**. By default all
-three are per-user and need no administrator rights; none modifies `PATH`, file
-associations, URL protocols, services, scheduled tasks, firewall rules or
-autostart. MSI and Setup EXE install to `%LOCALAPPDATA%\Programs\Lightning` with
-a Start-menu shortcut and uninstall from Settings → Apps; the portable ZIP writes
-no registry keys, so deleting the folder removes it.
-
-**For all users** (Program Files, e.g. where policy only allows programs from
-trusted locations): choose *For all users* in the Setup EXE, or deploy silently
-from an elevated context — Intune, SCCM, WAPT and GPO all qualify:
-
-```bat
-Lightning-<version>-<sha>-windows-x86_64-setup.exe /S /ALLUSERS
-msiexec /i Lightning-<version>-<sha>-windows-x86_64.msi ALLUSERS=1 /qn
-```
-
-Each person's settings and account stay in their own profile. An all-users copy
-still updates itself, but Windows asks for administrator approval each time.
-Details, uninstall switches and exit codes:
-[Windows packaging](packaging-ci/docs/windows-packaging.md#install-scope-just-me-or-all-users-github-issue-14).
-
-Windows packages are **not code-signed**, so Windows shows an "unknown publisher"
-SmartScreen warning. Check the hash first
-(`Get-FileHash .\Lightning-0.9.9-<sha>-windows-x86_64.msi -Algorithm SHA256`),
-then choose *More info → Run anyway*. Signing through
-[SignPath Foundation](https://signpath.org/) is planned but has not been applied
-for or granted — see the [code signing policy](docs/code-signing-policy.md).
-
-### macOS (Apple Silicon, macOS 26 or newer)
-
-Apple Silicon only, and macOS 26 or newer: both limits are derived from the Qt
-frameworks the bundle links, not chosen. Unzip and drag **Lightning.app** into
-`/Applications`.
-
-The app is not signed with an Apple Developer ID and not notarized, so the first
-launch is refused. Double-click it and let macOS refuse — the button only appears
-after it has blocked the app once — then open **System Settings → Privacy &
-Security**, click **Open Anyway** next to the message, and confirm. macOS
-remembers the decision. Clearing the quarantine flag directly does the same thing:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/Lightning.app
-```
-
-Two honest limits: the macOS build **does not update itself** — Lightning will
-tell you a new version exists, but installing it means downloading the next zip —
-and **nobody has clicked through it on a Mac**. The pipeline proves the bundle's
-frameworks load and the binary runs; that is all. Please report what you find.
-
-### Afterwards
-
-Uninstalling removes the application and its shortcuts and deliberately leaves
-your Matrix session, settings and message stores alone: those live in your user
-profile, outside the install directory, and are removed by signing out of the
-account inside the app. Once installed, Lightning can update itself — see
-[Application updates](docs/updates.md).
-
-Packaging, cross-platform builds, publishing and verification live in a separate
-automation project,
-[**lightning-deploy**](https://gitlab.smetonis.net/Mizerd/lightning-deploy); this
-repository holds only the application source. Every package is built by CI from
-one exact, immutable source commit, never from a developer's machine
-([provenance](docs/signpath-build-provenance.md)).
+[docs/install.md](docs/install.md) has the commands, which distributions each
+package is known to work on, the NixOS flake, all-users installs on Windows and
+the macOS first-launch steps.
 
 ## Build from source
 
-The verified workflow uses the repository's Nix flake on Linux; the dev shell
-supplies Qt 6.5+ and a Rust toolchain.
+With the repository's Nix flake on Linux:
 
 ```sh
 git clone https://gitlab.smetonis.net/Mizerd/lightning.git
 cd lightning
-
 nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
 nix develop -c cmake --build build-rust
 scripts/run-dev.sh
 ```
 
-That is the real client: Rust SDK backend, real Matrix, E2EE, threads and calls.
-Release binaries are Rust-only (`-DLIGHTNING_RUST_ONLY=ON`).
-
-There is also a lighter tree with the development-only mock and experimental HTTP
-backends, for UI work and tests without a homeserver — it is compiled out of
-release builds:
-
-```sh
-nix develop -c cmake -S . -B build -G Ninja
-nix develop -c cmake --build build
-```
-
-Tests:
-
-```sh
-nix develop -c cargo test --manifest-path rust/Cargo.toml
-nix develop -c ctest --test-dir build-rust --output-on-failure
-nix develop -c ctest --test-dir build       --output-on-failure
-```
-
-Compilation and launch are not feature validation: live Matrix behaviour —
-interoperability, decryption, notifications, calls, physical scrolling — has to be
-tested against a real homeserver and reported honestly. See
-[`docs/build-and-test.md`](docs/build-and-test.md), and
-[`docs/screenshot-demo.md`](docs/screenshot-demo.md) for the demo mode the
-screenshots on this page come from.
-
-`ccache` and `mold` are in the dev shell and are opt-in per build tree
-(`-DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_LINKER_TYPE=MOLD`); they change
-nothing about the produced binaries, and official packages are built without them.
-
-## Architecture
-
-```text
-Qt 6 / QML  ──  presentation, interaction, theming, layout
-     │
-C++         ──  application state, Qt-facing models and controllers, lifecycle,
-     │          account/room/thread isolation, navigation, notification policy
-Rust bridge ──  FFI to…
-     │
-matrix-rust-sdk  ──  login/sync, timelines, threads, event cache, media,
-                     Olm/Megolm E2EE, verification, key backup, receipts
-```
-
-QML owns presentation and interaction only — never protocol, credentials, crypto
-or persistence. C++ owns the safe Qt-facing boundary and application state. The
-official Rust Matrix SDK owns all Matrix protocol and cryptography. See
-[`docs/architecture.md`](docs/architecture.md).
-
-## Security and privacy
-
-End-to-end encryption is handled entirely by the Rust Matrix SDK.
-Cryptographic material, tokens, recovery keys and message bodies are never
-logged.
-
-**Message content is stored on your disk unencrypted.** Once the SDK decrypts
-an encrypted-room message it keeps the decrypted body in its own event cache,
-in its room state, and — for rooms you have opened — in Lightning's local
-search index, all plain SQLite in your account's store directory. The files
-are readable only by your user account (0600, in a 0700 directory) and the
-whole directory is deleted when you remove the account, but anything that can
-read your home directory can read your messages. Full-disk encryption is what
-protects them at rest today; an encrypted store is
-[open work](docs/security-audit-2026-09-02.md), not a shipped feature.
-Lightning's own C++ cache (`CacheStore`) still refuses encrypted-room rows —
-that is a real and tested property, and it is narrower than it used to sound
-here.
-Access tokens go to the OS secret service (libsecret, Windows Credential Manager)
-where one is available, with a clearly flagged insecure fallback where it is not.
-
-Lightning collects nothing — no analytics, no telemetry, no crash reporting — and
-the project operates no server. Apart from the homeserver you sign in to, the only
-third parties it can contact are the GIF providers, and only while you have the
-GIF picker open. Automatic link-preview fetching is off by default, because
-Lightning fetches previews itself rather than through your homeserver, which would
-expose your IP address to a site the sender chose.
-
-GitLab is the release authority: it alone decides what version exists and what its
-bytes must hash to. Update downloads come from the read-only GitHub mirror first
-to keep that bandwidth off the project's server, falling back to GitLab. Lightning
-makes no GitHub API call and reads no GitHub metadata — the mirror's URL is part
-of the signed manifest, and whatever it returns is checked against a SHA-256 fixed
-before the download began, so a compromised mirror can break a download but cannot
-ship an update.
-
-- [**Privacy policy**](docs/privacy.md) — every network path, derived from source,
-  with what is sent and how to disable it
-- [**Application updates**](docs/updates.md) — the trust chain, per-package
-  behaviour, and the honest signing status
-- [**Code signing policy**](docs/code-signing-policy.md) — roles, approval, and
-  current (unsigned) status
-- [**Third-party notices**](docs/third-party-notices.md) — what ships inside a
-  release, and under which licence
-
-Lightning has **not** been formally security audited. Security-sensitive changes,
-especially anything touching E2EE, need explicit reasoning and tests — see
-[`docs/threat-model.md`](docs/threat-model.md).
-
-## Status and known limits
-
-Lightning is listed in the Matrix.org [client
-directory](https://matrix.org/ecosystem/clients/) as an **Alpha** client under
-GPL-3.0-or-later. That is a directory listing, not an endorsement or
-certification.
-
-Worth stating plainly:
-
-- Server-side message search covers **unencrypted rooms only**, because a
-  homeserver cannot search ciphertext; encrypted rooms search the loaded timeline.
-- Space-restricted join rules are displayed but not editable.
-- Group calls are live-validated against Element on Linux — AppImage, rpm and
-  Flatpak — and on a packaged Windows build. The **deb has not been tested**: it
-  declares the same GStreamer dependencies as the rpm, so it is expected to
-  behave the same way, but that is reasoning rather than a test. **macOS calling
-  has not been tested.**
-- A first join can occasionally distribute the call's media key before the
-  membership list has been read, and the key then reaches nobody; leaving and
-  rejoining the call fixes it.
-- Windows and macOS packages are **not signed**; the signed update manifest is the
-  integrity guarantee on every platform.
-- The macOS build has had **no GUI testing on a Mac** and cannot install its own
-  updates.
-
-APIs, UI and behaviour may change, some features are experimental, and Matrix
-interoperability should be verified rather than assumed.
+[docs/building.md](docs/building.md) covers the mock-backend tree, the tests,
+build options and how the layers fit together.
 
 ## Contributing
 
-Issues, focused patches, testing and bug reports are welcome.
-[CONTRIBUTING.md](CONTRIBUTING.md) is the full guide — how to send a change, the
-build and test commands, and the security rules. In short: keep commits scoped and
-run the relevant tests; keep security- and crypto-related changes especially
-focused, with explicit reasoning and tests; never commit credentials, provider
-keys, private stores or real conversations. `CLAUDE.md` documents the repository's
-operating conventions (primarily for coding agents).
+Bug reports, testing and focused patches are welcome. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) first.
 
-The canonical repository — the only one that accepts changes, runs releases, and
-is authoritative for provenance — is
-<https://gitlab.smetonis.net/Mizerd/lightning>. Anyone can clone it, but public
-registration is closed and its issue tracker, merge requests and forks are limited
-to members — so a change arrives either as a patch emailed to the maintainer or as
-a pull request on the mirror. Neither needs an account there.
+- The canonical repository is <https://gitlab.smetonis.net/Mizerd/lightning>.
+  Registration there is closed, so a change arrives as a pull request on the
+  GitHub mirror or as a patch emailed to the maintainer.
+- [github.com/Mizerd/lightning](https://github.com/Mizerd/lightning) is a
+  read-only mirror. A pull request there is applied on GitLab and then closed,
+  not merged, even when it ships. Its
+  [issue tracker](https://github.com/Mizerd/lightning/issues) is the place to
+  report a bug without an account.
+- Chat: [#lightning:matrix.smetonis.net](https://matrix.to/#/%23lightning%3Amatrix.smetonis.net).
+  Website: <https://www.lightning-matrix.org>.
 
-[github.com/Mizerd/lightning](https://github.com/Mizerd/lightning) is an
-automatically synchronised, force-pushed **read-only mirror** for discoverability
-and update downloads. A pull request opened there is read as a proposal and
-applied on GitLab, so it closes rather than merges even when the change ships;
-never push to the mirror's own branches, which the next release push overwrites.
-Its issue tracker is open, and is the place to file a bug report without an
-account. Lightning's home is <https://lightning-matrix.org>.
+## Security and privacy
+
+End-to-end encryption is handled entirely by the Rust Matrix SDK. Lightning
+collects nothing: no analytics, telemetry or crash reporting. Besides your
+homeserver it contacts the release host for an anonymous update check (on by
+default, sending only `Lightning/<version>`) and the GitHub mirror when you
+install an update, a GIF provider only while the GIF picker is open, and a
+linked site only for a link preview you ask for.
+
+Message content, from encrypted rooms too, is stored **unencrypted** on disk
+in your account's store directory, readable only by your user account;
+full-disk encryption is what protects it at rest. Lightning has **not** been
+formally security audited.
+
+- [Privacy policy](docs/privacy.md): every network path, what is sent, and how
+  to turn it off
+- [Application updates](docs/updates.md): how an update is verified
+- [Code signing policy](docs/code-signing-policy.md): Windows and macOS
+  packages are unsigned today; the Ed25519-signed update manifest is the
+  integrity check on every platform
+- [Third-party notices](docs/third-party-notices.md): what ships inside a
+  release, and under which licence
+- [Threat model](docs/threat-model.md) and the
+  [security rules for contributors](CONTRIBUTING.md#security-sensitive-areas)
 
 ## Licence
 
 Copyright © 2026 Rokas Smetonis. Lightning is free software licensed under the GNU
 General Public License v3.0 **or later** — see [LICENSE](LICENSE).
 
----
-
 **Maintainer:** Rokas Smetonis — [antrasrokas@gmail.com](mailto:antrasrokas@gmail.com)
-· Public source: <https://gitlab.smetonis.net/Mizerd/lightning>

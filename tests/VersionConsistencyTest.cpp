@@ -1,6 +1,6 @@
 // Every place that quotes the release version must quote the same one:
 // CMake's project() and APP_VERSION_LABEL, rust/Cargo.toml, rust/Cargo.lock
-// and the README.
+// and the install instructions (README.md and docs/install.md).
 //
 // A consistency check, not a value check: CMakeLists.txt is authoritative for
 // what the version is.
@@ -86,7 +86,7 @@ private slots:
         QCOMPARE(lockVersion, projectVersion);
     }
 
-    // ---- and the file a new user actually reads ----
+    // ---- and the files a new user actually reads ----
 
     void theReadmeDoesNotAdvertiseAnOlderRelease()
     {
@@ -95,51 +95,61 @@ private slots:
         const QString version = firstCapture(cmake, labelPattern());
         QVERIFY2(!version.isEmpty(), "could not read APP_VERSION_LABEL");
 
-        const QString readme = readFile(QStringLiteral("README.md"));
-        QVERIFY2(!readme.isEmpty(), "README.md is unreadable");
+        // The README links out to docs/install.md, which holds the install
+        // commands that name release files. Both are scanned.
+        const QStringList files = {QStringLiteral("README.md"),
+                                   QStringLiteral("docs/install.md")};
 
-        // Ours only: the README also quotes dependency versions (Qt,
+        // Ours only: these files also quote dependency versions (Qt,
         // GStreamer) that must not move with a release. A version counts if
-        // its line mentions Lightning (every install command, flake ref and
-        // badge URL does) or if it is in backticks.
+        // its line mentions Lightning (every install command and flake ref
+        // does) or if it is in backticks.
         const QRegularExpression triple(QStringLiteral("\\b") + kTriple
                                         + QStringLiteral("\\b"));
         QStringList wrong;
         int ours = 0;
-        const QStringList lines = readme.split(QLatin1Char('\n'));
-        for (const QString &line : lines) {
-            const bool mentionsProduct =
-                line.contains(QStringLiteral("lightning"), Qt::CaseInsensitive);
-            auto it = triple.globalMatch(line);
-            while (it.hasNext()) {
-                const QRegularExpressionMatch m = it.next();
-                const QString found = m.captured(1);
-                const int at = m.capturedStart(1);
-                const bool backticked =
-                    at > 0 && at + found.size() < line.size()
-                    && line.at(at - 1) == QLatin1Char('`')
-                    && line.at(at + found.size()) == QLatin1Char('`');
-                if (!mentionsProduct && !backticked)
-                    continue;   // a dependency's version, not ours
-                ++ours;
-                if (found != version && !wrong.contains(found))
-                    wrong.append(found);
+        for (const QString &file : files) {
+            const QString text = readFile(file);
+            QVERIFY2(!text.isEmpty(),
+                     qPrintable(file + QStringLiteral(" is unreadable")));
+            const QStringList lines = text.split(QLatin1Char('\n'));
+            for (const QString &line : lines) {
+                const bool mentionsProduct =
+                    line.contains(QStringLiteral("lightning"), Qt::CaseInsensitive);
+                auto it = triple.globalMatch(line);
+                while (it.hasNext()) {
+                    const QRegularExpressionMatch m = it.next();
+                    const QString found = m.captured(1);
+                    const int at = m.capturedStart(1);
+                    const bool backticked =
+                        at > 0 && at + found.size() < line.size()
+                        && line.at(at - 1) == QLatin1Char('`')
+                        && line.at(at + found.size()) == QLatin1Char('`');
+                    if (!mentionsProduct && !backticked)
+                        continue;   // a dependency's version, not ours
+                    ++ours;
+                    const QString where =
+                        QStringLiteral("%1 in %2").arg(found, file);
+                    if (found != version && !wrong.contains(where))
+                        wrong.append(where);
+                }
             }
         }
 
         // A scan that matches nothing passes vacuously, so require a floor.
         QVERIFY2(ours >= 5,
                  qPrintable(QStringLiteral(
-                     "only %1 Lightning version(s) found in README.md -- the "
-                     "install commands have been reworded and this check no "
-                     "longer reaches them").arg(ours)));
+                     "only %1 Lightning version(s) found in README.md and "
+                     "docs/install.md -- the install commands have been "
+                     "reworded or moved and this check no longer reaches "
+                     "them").arg(ours)));
 
         QVERIFY2(wrong.isEmpty(),
                  qPrintable(QStringLiteral(
-                     "README.md quotes version(s) %1 but this tree is %2. "
-                     "Every install command in the README then names a file "
-                     "the download page no longer serves. Bump them together "
-                     "-- that is what this case exists to force.")
+                     "found version(s) %1 but this tree is %2. Every install "
+                     "command there then names a file the download page no "
+                     "longer serves. Bump them together -- that is what this "
+                     "case exists to force.")
                                 .arg(wrong.join(QStringLiteral(", ")), version)));
     }
 };

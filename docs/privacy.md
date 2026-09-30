@@ -17,9 +17,10 @@ service the user explicitly invoked.
 - **Lightning collects nothing.** There is no analytics, no telemetry, no crash
   reporting, no usage measurement, and no advertising identifier. The project
   receives no personal data from installed clients, by any route.
-- **Lightning can check for its own updates, and that is off by default.** The
+- **Lightning checks for its own updates, and that is on by default.** The
   check is an anonymous request for two small public files and carries no
-  account, device or usage information — see section 5a.
+  account, device or usage information; it can be turned off in Settings →
+  Updates — see section 5a.
 - The **Matrix homeserver the user chooses** receives normal Matrix protocol
   traffic, because that is what a Matrix client does.
 - **Third parties** are contacted in exactly three situations, all listed below
@@ -171,9 +172,10 @@ corresponding integrations — there are none:
 
 - **No analytics or telemetry** of any kind.
 - **No crash reporting** — no Sentry, Crashpad, Breakpad, or equivalent.
-- **No silent update check.** Automatic update checks are **off by default**.
-  When enabled they run at most once every 24 hours; a manual check is always
-  available in Settings → Updates. See section 5a for exactly what is sent.
+- **An update check that says what it is.** Automatic update checks are **on
+  by default** and anonymous. They run at most once every 24 hours, can be
+  turned off in Settings → Updates, and a manual check is always available
+  there. See section 5a for exactly what is sent.
 - **No advertising, tracking, or fingerprinting services.**
 - **No hard-coded third-party endpoint other than the two GIF providers above
   and the update-download mirror in section 5a.** The mirror is contacted only
@@ -187,12 +189,12 @@ corresponding integrations — there are none:
 
 ## 5a. Update checks and downloads — GitLab, and the GitHub mirror
 
-Lightning can ask whether a newer release exists. This is the only route by
-which the project itself receives any request from an installed client, and it
-is disabled until the user enables it.
+Lightning asks whether a newer release exists. This is the only route by
+which the project itself receives any request from an installed client. It is
+on by default, since 2026-08-17 (`e7039812`), and the user can turn it off.
 
-**When it happens.** Never automatically unless the user turns on *Automatic
-update checks* in Settings → Updates (default off). When enabled: at most once
+**When it happens.** Automatically only while *Automatic update checks* in
+Settings → Updates is on (the default). Then: at most once
 per 24 hours, never within the first 30 seconds of launch, and never triggered
 by switching room or account. A manual *Check for updates* button is always
 available and is always an explicit user action.

@@ -253,11 +253,12 @@ command.
 ### Package channels versus a GitLab release
 
 A GitLab release existing does not mean every downstream channel has published
-it. Flatpak and Snap builds are produced today but are **not** published to
-Flathub or the Snap Store, so the signed manifest marks those channels
-unavailable and Lightning will not tell a Flatpak or Snap user that an update is
-ready to install. The same applies to the APT and DNF repositories, which do not
-exist yet.
+it. The Flatpak is published on Flathub, which builds and delivers its own
+updates on its own schedule; the Snap is produced but **not** published to the
+Snap Store. The signed manifest marks both channels unavailable, so Lightning
+never offers to install an update inside a Flatpak or a Snap: a Flatpak user
+updates through their software centre or `flatpak update`. The APT and DNF
+repositories do not exist yet.
 
 ## The updater helper
 

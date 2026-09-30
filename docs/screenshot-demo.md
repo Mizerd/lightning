@@ -326,10 +326,11 @@ scripts/run-screenshot-demo.sh --scenario responsive-chat --size narrow --hide-c
 
 ## AppStream / Flathub captures (`docs/screenshots/flathub/`)
 
-These are a **separate set** from `docs/screenshots/*.png`, which README uses
-and which are deliberately full resolution (`aaa759d`). Do not point the
-metainfo at those: Flathub caps a screenshot at **1000x700**, or **2000x1400**
-for a HiDPI capture, and the README set is 3830x2039 to 3838x2037.
+These are a **separate set** from `docs/screenshots/*.png`, which
+`docs/features.md` uses and which are deliberately full resolution
+(`aaa759d`). Do not point the metainfo at those: Flathub caps a screenshot at
+**1000x700**, or **2000x1400** for a HiDPI capture, and that set is 3830x2039
+to 3838x2037. The README's one picture is `01-conversation.png` from this set.
 
 The metainfo
 (`packaging-ci/packaging/common/lightning.metainfo.xml`) references this

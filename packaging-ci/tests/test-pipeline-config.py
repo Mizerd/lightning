@@ -1302,30 +1302,31 @@ check("gpu-2404-2" in snap_build and "gpu-2404-2" in snap_validate,
 check("*::*)" in snap_validate,
       "validate-snap rejects an empty LD_LIBRARY_PATH element in the launcher")
 
-# The AppImage's glibc/libstdc++ ceiling must be the one README.md promises.
+# The AppImage's glibc/libstdc++ ceiling must be the one docs/install.md
+# promises (its Linux table moved there from README.md).
 appimage_validate = _strip_shell_comments(_read("scripts", "validate-appimage.sh"))
-with open(os.path.join(HERE, "..", "..", "README.md"), encoding="utf-8") as _fh:
+with open(os.path.join(HERE, "..", "..", "docs", "install.md"), encoding="utf-8") as _fh:
     _readme = _fh.read()
 _readme_glibc = re.search(r"^\| AppImage \| glibc >= ([0-9.]+)", _readme, re.M)
 _script_glibc = re.search(r"^abi_max_glibc=([0-9.]+)", appimage_validate, re.M)
 check(_readme_glibc is not None and _script_glibc is not None
       and _readme_glibc.group(1) == _script_glibc.group(1),
-      "validate-appimage's glibc ceiling is the one README.md's table promises")
-# README names a GCC release; its libstdc++ fixes the two C++ ceilings. Read
-# from that release's libstdc++.so.6 (GCC 14.2 in Debian 13: 6.0.33). A README
-# naming another release needs its row here.
+      "validate-appimage's glibc ceiling is the one docs/install.md's table promises")
+# docs/install.md names a GCC release; its libstdc++ fixes the two C++
+# ceilings. Read from that release's libstdc++.so.6 (GCC 14.2 in Debian 13:
+# 6.0.33). A table naming another release needs its row here.
 _GCC_LIBSTDCXX = {14: ("3.4.33", "1.3.15")}
 _readme_gcc = re.search(r"^\| AppImage \|[^|\n]*libstdc\+\+ from GCC (\d+)",
                         _readme, re.M)
 _gcc_row = _GCC_LIBSTDCXX.get(int(_readme_gcc.group(1))) if _readme_gcc else None
 check(_gcc_row is not None,
-      "README.md's AppImage row names a GCC release this test knows the "
+      "docs/install.md's AppImage row names a GCC release this test knows the "
       "libstdc++ versions of")
 for _var, _index in (("abi_max_glibcxx", 0), ("abi_max_cxxabi", 1)):
     _script_value = re.search(rf"^{_var}=([0-9.]+)", appimage_validate, re.M)
     check(_gcc_row is not None and _script_value is not None
           and _script_value.group(1) == _gcc_row[_index],
-          f"validate-appimage's {_var} is what README.md's GCC release ships")
+          f"validate-appimage's {_var} is what docs/install.md's GCC release ships")
 for _family in ("GLIBC", "GLIBCXX", "CXXABI"):
     check(f"abi_check {_family} " in appimage_validate,
           f"validate-appimage checks the payload's {_family} floor")
