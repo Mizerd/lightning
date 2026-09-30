@@ -3550,9 +3550,16 @@ QString SfuMediaEngine::cameraSource(int pipewireFd)
     // the reason given in screenShareSource(). `do-timestamp=true` mirrors the
     // screen share; running-time stamps are handled by skip-to-first in
     // videoRateStage().
+    //
+    // `always-copy=true`: webrtcbin sends a RECONFIGURE upstream when the
+    // SFU's answer is applied, and pipewiresrc (1.4.9 and 1.6.2 measured)
+    // answers it by reconnecting and freeing its PipeWire buffers while
+    // frames made from them are still queued, so videoconvert reads freed
+    // memory and the process dies. A copy is ~0.6 MB per camera frame.
     if (pipewireFd >= 0) {
         return QStringLiteral(
-                   "pipewiresrc fd=%1 min-buffers=1 do-timestamp=true")
+                   "pipewiresrc fd=%1 min-buffers=1 always-copy=true "
+                   "do-timestamp=true")
             .arg(pipewireFd);
     }
 #else

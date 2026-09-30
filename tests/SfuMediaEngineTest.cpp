@@ -1282,6 +1282,19 @@ private slots:
         QVERIFY2(!portal.contains(QStringLiteral("keepalive-time")),
                  "keepalive-time is back; it was measured to freeze a "
                  "PipeWire capture on its first frame");
+
+        // The frames must not alias PipeWire's buffers: a RECONFIGURE
+        // (webrtcbin sends one when the answer lands) makes pipewiresrc free
+        // them while they are still queued. Measured in the Flatpak: the
+        // camera crashed 2 of 4 starts, and 8 of 8 under repeated
+        // reconfigures without the copy, 0 of 5 with it.
+        QVERIFY2(portal.contains(QStringLiteral("always-copy=true")),
+                 qPrintable(QStringLiteral(
+                     "the portal camera hands PipeWire's own buffers "
+                     "downstream; a renegotiation frees them under "
+                     "videoconvert: %1").arg(portal)));
+        // Not the direct route: v4l2src owns its pool.
+        QVERIFY(!direct.contains(QStringLiteral("always-copy")));
 #endif
     }
 
