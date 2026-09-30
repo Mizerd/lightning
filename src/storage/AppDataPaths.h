@@ -156,6 +156,13 @@ bool isSafeAccountIdentity(const AccountIdentity &identity);
 // count as successful/idempotent cleanup.
 RemovalSummary removeAccountRustState(const AccountIdentity &identity);
 
+// Removes ONLY identity.rustStorePath: the store a failed sign-in attempt
+// created and opened. No sibling quarantine (`.orphaned-*`, which may hold the
+// only copy of someone's room keys), no sidecar. A symlink is unlinked, never
+// followed. For rolling back one attempt; sign-out uses
+// removeAccountRustState().
+RemovalSummary removeAttemptRustStore(const AccountIdentity &identity);
+
 // Account cleanup for a repair: the SDK store is quarantined (moved aside)
 // rather than deleted, and the smoke-session sidecars (an access token, no
 // key material) are removed. A repair acts on the app's belief that a store is

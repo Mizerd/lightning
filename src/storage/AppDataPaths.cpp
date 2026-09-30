@@ -447,6 +447,25 @@ RemovalSummary removeAccountRustState(const AccountIdentity &identity)
     return summary;
 }
 
+RemovalSummary removeAttemptRustStore(const AccountIdentity &identity)
+{
+    RemovalSummary summary;
+    if (!isSafeAccountIdentity(identity)) {
+        summary.failed = 1;
+        return summary;
+    }
+    const QFileInfo storeInfo(identity.rustStorePath);
+    if (!storeInfo.exists() && !storeInfo.isSymLink())
+        ++summary.missing;
+    else if (storeInfo.isSymLink())
+        removeFileOrLink(identity.rustStorePath, &summary);
+    else if (storeInfo.isDir() && QDir(identity.rustStorePath).removeRecursively())
+        ++summary.deleted;
+    else
+        ++summary.failed;
+    return summary;
+}
+
 RemovalSummary quarantineAccountRustState(const AccountIdentity &identity)
 {
     RemovalSummary summary;

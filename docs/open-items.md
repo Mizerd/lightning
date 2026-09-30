@@ -79,9 +79,18 @@ Everything below was found or left open by that round's live testing and its
   providers round trip (cosmetic; the generic button still works).
 - The per-connection deadline timer is not stopped on the oversized and
   `stop()` paths (a counter can be off by one).
-- `adoptBrowserSession` saves the account record before the restore; a failed
+- ~~`adoptBrowserSession` saves the account record before the restore; a failed
   restore then blocks the next browser sign-in as ExistingStoreNeedsRestore
-  (D6). Persistence; needs evidence before a fix.
+  (D6).~~ FIXED 2026-09-29 after a live report (darkcoffee, .deb: "logged in, so
+  it won't allow me to relog in, but I also can't log out"): a failed restore
+  takes back exactly the store and record its attempt created
+  (`rollBackFailedAttempt`, never a quarantined sibling); a store with no
+  saved account is moved aside and the sign-in goes on; every other refusal
+  carries the account to a card with a way out; a removal that could not
+  finish offers "Try again". NOT live-validated against a real failing
+  restore. Still open: a device the server issued is not revoked when Phase B
+  refuses, and a crash mid-restore leaves record and store (the card is the
+  way out).
 - ~~darkcoffee's Firefox + matrix.org failure is UNEXPLAINED~~ EXPLAINED
   2026-09-29 by the reporter: the server was typed without `https://`
   (`sk.community`). Discovery accepted the bare name, the browser sign-in

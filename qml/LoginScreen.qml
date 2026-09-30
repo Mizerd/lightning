@@ -1,8 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Shapes
 import MatrixClient
 
+// Sign-in: the server first, then only the ways that server lets people in,
+// the most suitable one first (docs/feature-contracts.md, "Sign-in screen").
 Item {
     id: root
     // The startup-state suite checks this is never instantiated during a
@@ -20,10 +23,9 @@ Item {
     onVisibleChanged: if (!visible) passField.text = ""
 
     // The homeserver's bare host, for the browser button's label ("Continue
-    // with matrix.org"), which is what distinguishes it from the SSO button.
-    // Derived from what the user typed, never from server data, so no server
-    // chooses the words on our button. Scheme, port and path are stripped; an
-    // IPv6 literal keeps its colons.
+    // with matrix.org"). Derived from the discovered address, never from
+    // server data, so no server chooses the words on our button. Scheme, port
+    // and path are stripped; an IPv6 literal keeps its colons.
     readonly property string browserAuthorityName: {
         var raw = (app.auth.discoveredHomeserver || "").trim()
         if (raw.length === 0)
@@ -36,11 +38,170 @@ Item {
         }
         return host
     }
-    // True when a browser path is on offer, so the "Or" divider appears only
-    // when there is a choice.
-    readonly property bool offersBrowserPath:
-        (app.auth.serverOffersBrowserLogin || app.auth.serverOffersSso)
-        && !app.auth.browserLoginInProgress
+    // The server as the summary row shows it: the address without https://.
+    // A typed http:// stays visible, as Element X keeps it.
+    readonly property string serverDisplayName:
+        (app.auth.discoveredHomeserver || "").replace(/^https:\/\//, "")
+
+    // How this server lets people in, which decides what is shown:
+    //   "oauth"    its own sign-in page, the only choice shown. Element does
+    //              the same: its Login.ts getFlows() keeps only the OAuth
+    //              flow when the server publishes one (matrix.org, any MAS).
+    //   "password" a password form, with any single sign-on beside it, as
+    //              Element shows both.
+    //   "sso"      identity providers only (e.g. matrix.debian.social).
+    //   ""         nothing to show yet, or nothing this build can use.
+    readonly property string signInMode: {
+        if (app.auth.discoveryState !== "done")
+            return ""
+        if (app.auth.serverOffersBrowserLogin)
+            return "oauth"
+        if (app.auth.serverOffersPassword)
+            return "password"
+        if (app.auth.serverOffersSso)
+            return "sso"
+        return ""
+    }
+    // Single sign-on beside a password form, or on its own.
+    readonly property bool showsSso: (signInMode === "password" || signInMode === "sso")
+                                     && app.auth.serverOffersSso
+    readonly property int providerCount: app.auth.ssoProviders.length
+
+    // The field shows while the address is typed or asked about; once the
+    // server has answered, a one-line summary with "Change" replaces it. Both
+    // are one control tall, so nothing below moves when they swap.
+    property bool editingServer: false
+    property string serverTextBeforeEdit: ""
+    readonly property bool serverFieldShown: app.auth.discoveryState !== "done"
+                                             || homeserverField.activeFocus
+                                             || editingServer
+    // Set by Enter in the field: move on to the way in once it is known.
+    property bool advanceWhenServerAnswers: false
+
+    function editServer() {
+        serverTextBeforeEdit = homeserverField.text
+        editingServer = true
+        homeserverField.forceActiveFocus()
+        homeserverField.selectAll()
+    }
+
+    // Scroll so the whole repair card, its buttons included, is on screen.
+    // It sits below the sign-in form and, at the default 720 px window, its
+    // buttons ended up below the fold with nothing to say so. Only ever
+    // scrolls down, and only when the card appears or changes: right after
+    // a restore, a sign-in or a removal, not while a field is being aimed at.
+    function revealRepairCard() {
+        if (!repairCard.visible)
+            return
+        const top = repairCard.mapToItem(loginFlick.contentItem, 0, 0).y
+        const bottom = top + repairCard.height + AppTheme.spacingXL
+        const overflow = bottom - (loginFlick.contentY + loginFlick.height)
+        if (overflow <= 0)
+            return
+        const maxY = Math.max(0, loginFlick.contentHeight - loginFlick.height)
+        if (root.contentYBeforeReveal < 0)
+            root.contentYBeforeReveal = loginFlick.contentY
+        loginFlick.contentY = Math.min(maxY, loginFlick.contentY + overflow)
+    }
+    // Where the reader was before the card scrolled the view, or -1. When the
+    // card goes, the form goes back there: a view left scrolled for a card
+    // that is gone moves the fields at the next size change.
+    property real contentYBeforeReveal: -1
+    function returnFromRepairCard() {
+        if (repairCard.visible || root.contentYBeforeReveal < 0)
+            return
+        const back = root.contentYBeforeReveal
+        root.contentYBeforeReveal = -1
+        if (!loginFlick.dragging && !loginFlick.flicking)
+            loginFlick.contentY = Math.max(0, Math.min(back, loginFlick.contentY))
+    }
+
+    // The first control of the way in, for focus after the server answers.
+    function focusWayIn() {
+        if (signInMode === "password")
+            userField.forceActiveFocus()
+        else if (signInMode === "oauth")
+            browserLoginBtn.forceActiveFocus()
+        else if (signInMode === "sso" && ssoLoginBtn.visible)
+            ssoLoginBtn.forceActiveFocus()
+        else if (signInMode === "sso" && ssoProviderRepeater.count > 0)
+            ssoProviderRepeater.itemAt(0).forceActiveFocus()
+    }
+
+    Connections {
+        target: app.auth
+        function onDiscoveryChanged() {
+            if (!root.advanceWhenServerAnswers)
+                return
+            if (app.auth.discoveryState === "done") {
+                root.advanceWhenServerAnswers = false
+                root.editingServer = false
+                // Later: this handler can run before signInMode's binding has
+                // seen the same signal.
+                Qt.callLater(root.focusWayIn)
+            } else if (app.auth.discoveryState === "failed") {
+                root.advanceWhenServerAnswers = false
+            }
+        }
+    }
+
+    // A provider's logo, or a neutral glyph for a brand with none. Never a
+    // letter. A server-supplied icon is not fetched: nothing can fetch media
+    // before sign-in (see docs/feature-contracts.md).
+    component ProviderLogo: Item {
+        id: logo
+        property string brand: ""
+        property color ink: AppTheme.textPrimary
+        // Own keys only: "constructor" or "__proto__" must not reach the
+        // object's prototype.
+        readonly property string path: {
+            const key = brand.toLowerCase()
+            return Object.prototype.hasOwnProperty.call(brandPaths, key)
+                ? brandPaths[key] : ""
+        }
+        // "generic" when no bundled logo matches; read by tests.
+        readonly property string shownBrand: path.length > 0 ? brand.toLowerCase()
+                                                             : "generic"
+        // Bundled provider logos, by MSC2858 brand. Path data from Simple Icons
+        // 16.33.0 (https://simpleicons.org), CC0-1.0; the marks are trademarks of
+        // their owners and name the provider only. Drawn in the button's own ink,
+        // one colour, so they read on every theme. See docs/third-party-notices.md.
+        readonly property var brandPaths: ({
+            "apple": "M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701",
+            "facebook": "M9.101 23.691v-7.98H6.627v-3.667h2.474v-1.58c0-4.085 1.848-5.978 5.858-5.978.401 0 .955.042 1.468.103a8.68 8.68 0 0 1 1.141.195v3.325a8.623 8.623 0 0 0-.653-.036 26.805 26.805 0 0 0-.733-.009c-.707 0-1.259.096-1.675.309a1.686 1.686 0 0 0-.679.622c-.258.42-.374.995-.374 1.752v1.297h3.919l-.386 2.103-.287 1.564h-3.246v8.245C19.396 23.238 24 18.179 24 12.044c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.628 3.874 10.35 9.101 11.647Z",
+            "github": "M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12",
+            "gitlab": "m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z",
+            "google": "M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z",
+            // MSC2858 still calls it "twitter"; the brand is X now.
+            "twitter": "M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z",
+            "x": "M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"
+        })
+
+        objectName: "providerLogo"
+        implicitWidth: 18
+        implicitHeight: 18
+        Accessible.ignored: true
+        Shape {
+            anchors.fill: parent
+            visible: logo.path.length > 0
+            preferredRendererType: Shape.CurveRenderer
+            ShapePath {
+                fillColor: logo.ink
+                strokeColor: "transparent"
+                strokeWidth: 0
+                // Simple Icons draw on a 24x24 grid.
+                scale: Qt.size(logo.width / 24, logo.height / 24)
+                PathSvg { path: logo.path }
+            }
+        }
+        Icon {
+            anchors.centerIn: parent
+            visible: logo.path.length === 0
+            name: "account_circle"
+            size: 18
+            color: logo.ink
+        }
+    }
 
     // Prefill from the identity that actually failed (resolved server-
     // canonically in C++), never the raw typed text, so the repair card targets
@@ -51,8 +212,11 @@ Item {
             return
         if (app.localSessionFailureUserId !== "")
             userField.text = app.localSessionFailureUserId
-        if (app.localSessionFailureHomeserver !== "")
+        if (app.localSessionFailureHomeserver !== "") {
             homeserverField.text = app.localSessionFailureHomeserver
+            // The summary row shows the asked server, so ask about this one.
+            app.auth.discoverAuthMethods(homeserverField.text)
+        }
     }
     Component.onCompleted: applyFailureIdentityToFields()
     Connections {
@@ -71,9 +235,10 @@ Item {
     // width tracks the window between a min and max.
     Flickable {
         id: loginFlick
+        objectName: "loginFlick"
         anchors.fill: parent
         contentWidth: width
-        contentHeight: panel.implicitHeight + AppTheme.spacingXL * 2
+        contentHeight: panel.y + panel.implicitHeight + AppTheme.spacingXL
         boundsBehavior: Flickable.StopAtBounds
         clip: true
         ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }
@@ -86,23 +251,12 @@ Item {
             objectName: "loginPanel"
             anchors.horizontalCenter: parent.horizontalCenter
 
-            // Centred on the tallest height the form has reached, not its
-            // current height. The homeserver probe is async and can remove the
-            // browser/SSO sections, which would slide the card (and its fields)
-            // under the user's cursor mid-typing, e.g. putting a password into
-            // the clear-text homeserver field. `_tallest` only grows, and
-            // resets on a viewport resize.
-            property real _tallest: implicitHeight
-            onImplicitHeightChanged: {
-                if (implicitHeight > _tallest)
-                    _tallest = implicitHeight
-            }
-            Connections {
-                target: loginFlick
-                function onHeightChanged() { panel._tallest = panel.implicitHeight }
-            }
-            y: Math.max(AppTheme.spacingXL,
-                        (loginFlick.height - _tallest) / 2)
+            // Anchored near the top, never centred on the form's height: the
+            // server's answer adds and removes whole sections below the
+            // fields, and a centred card would slide them under the cursor
+            // mid-typing (a password landed in the clear-text server field that
+            // way). Element Web's card sits at a fixed offset too.
+            y: Math.max(AppTheme.spacingXL, Math.min(96, Math.round(loginFlick.height * 0.08)))
             width: Math.max(300, Math.min(loginFlick.width - AppTheme.spacingXL * 2, 420))
             implicitHeight: loginForm.implicitHeight + AppTheme.spacingXL * 2
             radius: AppTheme.radiusLg
@@ -116,7 +270,6 @@ Item {
                 y: AppTheme.spacingXL
                 width: parent.width - AppTheme.spacingXL * 2
                 spacing: AppTheme.spacingM
-
                 // Add-account flow: a way back that doesn't touch the existing
                 // session. Bound to the persisted active account, not
                 // app.loggedIn: a failed add-account releases the shared
@@ -201,14 +354,9 @@ Item {
                     lineHeightMode: Text.ProportionalHeight
                 }
                 Label {
-                    text: {
-                        // Backend-aware sub-heading.
-                        if (app.backendName === "mock")
-                            return qsTr("Mock backend — any credentials work")
-                        if (app.backendName === "rust")
-                            return qsTr("Native Matrix backend with end-to-end encryption")
-                        return qsTr("Sign in with your Matrix account")
-                    }
+                    text: app.backendName === "mock"
+                          ? qsTr("Mock backend — any credentials work")
+                          : qsTr("Sign in with your Matrix account")
                     color: AppTheme.textMuted
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
@@ -218,157 +366,387 @@ Item {
                     Layout.fillWidth: true
                     Layout.bottomMargin: AppTheme.spacingXS
                 }
-
-                Label {
-                    text: qsTr("Homeserver URL")
-                    color: AppTheme.textMuted
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.textMeta
-                }
-                AppTextField {
-                    id: homeserverField
-                    objectName: "homeserverField"
-                    Layout.fillWidth: true
-                    // Prefilled once from the account-independent login
-                    // prefill, not bound to a settings getter (which returns
-                    // the active account's server during add-account and would
-                    // revert typed input).
-                    //
-                    // Discovery runs without waiting for Enter: once for the
-                    // prefill on open, then debounced while typing. AuthManager
-                    // tags results by server, so a stale probe can't label a
-                    // newer one.
-                    Component.onCompleted: {
-                        text = app.settings.loginHomeserverPrefill
-                        if (text.length > 0)
-                            app.auth.discoverAuthMethods(text)
-                    }
-                    placeholderText: "https://matrix.org"
-                    Accessible.name: qsTr("Homeserver URL")
-                    onTextEdited: discoverDebounce.restart()
-                    Timer {
-                        id: discoverDebounce
-                        interval: 700
-                        onTriggered:
-                            app.auth.discoverAuthMethods(homeserverField.text)
-                    }
-                    onEditingFinished: {
-                        discoverDebounce.stop()
-                        app.settings.loginHomeserverPrefill = text
-                        // Ask the server what it offers; no auth choices are
-                        // shown until it answers.
-                        app.auth.discoverAuthMethods(text)
-                    }
-                    KeyNavigation.tab: userField
-                }
-
-                Label {
-                    text: qsTr("User")
-                    color: AppTheme.textMuted
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.textMeta
-                }
-                AppTextField {
-                    id: userField
-                    objectName: "userField"
-                    Layout.fillWidth: true
-                    //: Placeholder for the sign-in name field. The field
-                    //: takes a plain username - the homeserver is the field
-                    //: above it - so the placeholder says so rather than
-                    //: showing a full @user:server id, which suggested the
-                    //: server had to be typed twice.
-                    placeholderText: qsTr("username")
-                    Accessible.name: qsTr("User")
-                    KeyNavigation.tab: passField
-                }
-
-                Label {
-                    text: qsTr("Password")
-                    color: AppTheme.textMuted
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.textMeta
-                }
-                // Password field + reveal toggle share one row.
-                RowLayout {
+                // ── Server ── Where the account is. Label, one control-high
+                // row (the field, or the summary once the server answered) and
+                // a status line of fixed height: nothing below them moves when
+                // any of the three changes.
+                ColumnLayout {
+                    objectName: "serverBlock"
                     Layout.fillWidth: true
                     spacing: AppTheme.spacingXS
-                    AppTextField {
-                        id: passField
-                        objectName: "passField"
-                        Layout.fillWidth: true
-                        Accessible.name: qsTr("Password")
-                        echoMode: passReveal.checked ? TextInput.Normal
-                                                     : TextInput.Password
-                        // Enter submits from the password field.
-                        onAccepted: root.submit()
+
+                    Label {
+                        //: Label above the field for the Matrix server the
+                        //: account is on, e.g. matrix.org.
+                        text: qsTr("Server")
+                        color: AppTheme.textMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
                     }
-                    IconButton {
-                        id: passReveal
-                        objectName: "passwordRevealToggle"
-                        checkable: true
-                        implicitWidth: 34; implicitHeight: 34
-                        radius: AppTheme.radiusMd
-                        iconName: passReveal.checked ? "visibility_off"
-                                                     : "visibility"
-                        iconSize: 18
-                        Accessible.name: checked ? qsTr("Hide password")
-                                                 : qsTr("Show password")
-                        ToolTip.text: Accessible.name
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
+
+                    Item {
+                        Layout.fillWidth: true
+                        implicitHeight: AppTheme.buttonHeight
+
+                        AppTextField {
+                            id: homeserverField
+                            objectName: "homeserverField"
+                            anchors.fill: parent
+                            visible: root.serverFieldShown
+                            // Prefilled once from the account-independent login
+                            // prefill, not bound to a settings getter (which
+                            // returns the active account's server during
+                            // add-account and would revert typed input).
+                            //
+                            // Discovery runs without waiting for Enter: once for
+                            // the prefill on open, then debounced while typing.
+                            // AuthManager tags results by server, so a stale
+                            // probe can't label a newer one.
+                            Component.onCompleted: {
+                                text = app.settings.loginHomeserverPrefill
+                                if (text.length > 0)
+                                    app.auth.discoverAuthMethods(text)
+                            }
+                            placeholderText: "https://matrix.org"
+                            Accessible.name: qsTr("Server")
+                            onTextEdited: discoverDebounce.restart()
+                            Timer {
+                                id: discoverDebounce
+                                interval: 700
+                                onTriggered:
+                                    app.auth.discoverAuthMethods(homeserverField.text)
+                            }
+                            onEditingFinished: {
+                                discoverDebounce.stop()
+                                app.settings.loginHomeserverPrefill = text
+                                // Ask the server what it offers; no way in is
+                                // shown until it answers.
+                                app.auth.discoverAuthMethods(text)
+                            }
+                            // Enter: ask now, then go on to the way in.
+                            onAccepted: {
+                                discoverDebounce.stop()
+                                app.auth.discoverAuthMethods(text)
+                                if (app.auth.discoveryState === "done") {
+                                    root.editingServer = false
+                                    root.focusWayIn()
+                                } else if (app.auth.discoveryState === "probing") {
+                                    root.advanceWhenServerAnswers = true
+                                }
+                            }
+                            onActiveFocusChanged: {
+                                if (!activeFocus)
+                                    root.editingServer = false
+                            }
+                            // Escape leaves an edit of an answered server as it
+                            // was.
+                            Keys.onEscapePressed: function(event) {
+                                if (!root.editingServer) {
+                                    event.accepted = false
+                                    return
+                                }
+                                text = root.serverTextBeforeEdit
+                                discoverDebounce.stop()
+                                app.auth.discoverAuthMethods(text)
+                                root.editingServer = false
+                                serverChangeButton.forceActiveFocus()
+                            }
+                        }
+
+                        RowLayout {
+                            objectName: "serverSummary"
+                            anchors.fill: parent
+                            visible: !root.serverFieldShown
+                            spacing: AppTheme.spacingS
+
+                            Label {
+                                objectName: "serverNameLabel"
+                                Layout.fillWidth: true
+                                // Server-side text never: this is the address
+                                // the user typed, normalised.
+                                textFormat: Text.PlainText
+                                text: root.serverDisplayName
+                                elide: Text.ElideRight
+                                color: AppTheme.textPrimary
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.textBody
+                                font.weight: AppTheme.weightStrong
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: qsTr("Server: %1").arg(text)
+                            }
+                            // The connection the SDK resolved is plain http
+                            // and not on this machine. A warning only: a
+                            // development server needs http.
+                            StatusChip {
+                                id: insecureChip
+                                objectName: "serverNotEncryptedChip"
+                                visible: app.auth.serverConnectionInsecure
+                                tone: "warning"
+                                iconName: "lock_open"
+                                //: Shown next to the server when its connection
+                                //: uses http:// rather than https://.
+                                label: qsTr("Not encrypted")
+                                Accessible.role: Accessible.StaticText
+                                Accessible.name: qsTr("The connection to this server "
+                                                      + "is not encrypted (http).")
+                                HoverHandler { id: insecureHover }
+                                ToolTip.text: Accessible.name
+                                ToolTip.visible: insecureHover.hovered
+                                ToolTip.delay: 300
+                            }
+                            AppButton {
+                                id: serverChangeButton
+                                objectName: "serverChangeButton"
+                                kind: "ghost"
+                                size: "sm"
+                                minWidth: 0
+                                text: qsTr("Change")
+                                Accessible.name: qsTr("Change server")
+                                enabled: !app.auth.isLoggingIn
+                                onClicked: root.editServer()
+                            }
+                        }
+                    }
+
+                    // Status line: what the server check is doing, or why it
+                    // failed. Always this tall, even when empty.
+                    Item {
+                        id: statusLine
+                        Layout.fillWidth: true
+                        // One line at least, always reserved; a long failure
+                        // wraps (nothing below it is shown then).
+                        implicitHeight: Math.max(18, serverStatus.implicitHeight)
+
+                        readonly property string discovery: app.auth.discoveryState
+                        readonly property string problem: app.auth.discoveryProblem
+
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: AppTheme.spacingXS
+
+                            AppBusyIndicator {
+                                visible: statusLine.discovery === "probing"
+                                running: visible
+                                size: 14
+                                color: AppTheme.textMuted
+                            }
+                            Icon {
+                                visible: statusLine.discovery === "done"
+                                         || statusLine.discovery === "failed"
+                                name: statusLine.discovery === "done" ? "check_circle"
+                                                                     : "error"
+                                size: 14
+                                color: statusLine.discovery === "done" ? AppTheme.success
+                                                                      : AppTheme.danger
+                            }
+                            Label {
+                                id: serverStatus
+                                objectName: "serverStatusLabel"
+                                Layout.fillWidth: true
+                                wrapMode: Text.WordWrap
+                                maximumLineCount: 3
+                                elide: Text.ElideRight
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.textMeta
+                                color: statusLine.discovery === "failed" ? AppTheme.danger
+                                       : statusLine.discovery === "done" ? AppTheme.success
+                                       : AppTheme.textMuted
+                                text: {
+                                    switch (statusLine.discovery) {
+                                    case "probing":
+                                        return qsTr("Checking…")
+                                    case "done":
+                                        //: The server was found and answered.
+                                        return qsTr("Found")
+                                    case "failed":
+                                        if (statusLine.problem === "not_an_address")
+                                            return qsTr("That is not a server address. "
+                                                        + "Enter one like matrix.org.")
+                                        if (statusLine.problem === "unsupported")
+                                            return qsTr("This server has no sign-in method "
+                                                        + "Lightning supports.")
+                                        return qsTr("Can't reach this server. Check the address.")
+                                    default:
+                                        return qsTr("Where your account is, like matrix.org")
+                                    }
+                                }
+                                Accessible.role: statusLine.discovery === "failed"
+                                                 ? Accessible.AlertMessage
+                                                 : Accessible.StaticText
+                                Accessible.name: text
+                            }
+                        }
                     }
                 }
 
+                AppButton {
+                    objectName: "serverRetryButton"
+                    visible: app.auth.discoveryState === "failed"
+                             && app.auth.discoveryProblem === "unreachable"
+                    kind: "secondary"
+                    text: qsTr("Try again")
+                    Layout.fillWidth: true
+                    onClicked: app.auth.discoverAuthMethods(homeserverField.text)
+                }
+
+                // ── The server's own sign-in page (OAuth 2.0 / OIDC) ── The one
+                // way in on such a server.
+                AppButton {
+                    id: browserLoginBtn
+                    objectName: "browserLoginButton"
+                    kind: "primary"
+                    visible: root.signInMode === "oauth"
+                             && !app.auth.browserLoginInProgress
+                    // Named after the homeserver. Falls back to a bare
+                    // "Continue" when there is no host.
+                    text: root.browserAuthorityName.length > 0
+                          ? qsTr("Continue with %1").arg(root.browserAuthorityName)
+                          : qsTr("Continue")
+                    // Off while an edit of the field is waiting to be asked
+                    // about: a click does not end the edit, so the buttons would
+                    // still be the last server's.
+                    enabled: !app.auth.isLoggingIn && !discoverDebounce.running
+                    Layout.fillWidth: true
+                    Accessible.name: text
+                    // The server this button names, not the field's text,
+                    // which may have changed since it was asked.
+                    onClicked: app.auth.beginBrowserLogin(app.auth.discoveredHomeserver)
+                }
                 Label {
-                    objectName: "loginErrorLabel"
-                    // A classified reason without a dedicated card (info ===
-                    // null) still needs this fallback; only a rendered card
-                    // suppresses it.
-                    visible: app.auth.lastError !== ""
-                             && (!repair.active || repair.info === null)
-                    text: app.auth.lastError
-                    // Can carry a server's own error text; never markup.
+                    objectName: "browserLoginHint"
+                    visible: browserLoginBtn.visible
+                    Layout.fillWidth: true
+                    text: qsTr("Opens %1's sign-in page in your browser.")
+                          .arg(root.browserAuthorityName)
                     textFormat: Text.PlainText
-                    color: AppTheme.error
+                    color: AppTheme.textMuted
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
-                    Layout.fillWidth: true
                     wrapMode: Text.WordWrap
                     lineHeight: AppTheme.lineHeightBody
                     lineHeightMode: Text.ProportionalHeight
                 }
 
-                AppButton {
-                    id: loginBtn
-                    objectName: "loginSubmitButton"
-                    kind: "primary"
-                    // Staged progress (AuthManager.loginStage), falling back to
-                    // a fixed label for unknown stages.
-                    text: {
-                        if (!app.auth.isLoggingIn) return qsTr("Sign in")
-                        switch (app.auth.loginStage) {
-                        case "connecting":     return qsTr("Connecting…")
-                        case "opening_store":  return qsTr("Opening secure store…")
-                        case "authenticating": return qsTr("Signing in…")
-                        case "starting_sync":  return qsTr("Starting sync…")
-                        case "ready":          return qsTr("Signing in…")
-                        case "waiting_for_browser":
-                            return qsTr("Waiting for your browser…")
-                        default:               return qsTr("Signing in…")
+                // ── Password ── Only where the server takes one and has no
+                // sign-in page of its own.
+                ColumnLayout {
+                    id: passwordForm
+                    objectName: "passwordForm"
+                    visible: root.signInMode === "password"
+                             && !app.auth.browserLoginInProgress
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacingXS
+
+                    Label {
+                        text: qsTr("Username")
+                        color: AppTheme.textMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                    }
+                    AppTextField {
+                        id: userField
+                        objectName: "userField"
+                        Layout.fillWidth: true
+                        //: Placeholder for the sign-in name field. The field
+                        //: takes a plain username - the server is the field
+                        //: above it - so the placeholder says so rather than
+                        //: showing a full @user:server id, which suggested the
+                        //: server had to be typed twice.
+                        placeholderText: qsTr("username")
+                        Accessible.name: qsTr("Username")
+                    }
+
+                    Label {
+                        Layout.topMargin: AppTheme.spacingS
+                        text: qsTr("Password")
+                        color: AppTheme.textMuted
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                    }
+                    // Password field + reveal toggle share one row.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacingXS
+                        AppTextField {
+                            id: passField
+                            objectName: "passField"
+                            Layout.fillWidth: true
+                            Accessible.name: qsTr("Password")
+                            echoMode: passReveal.checked ? TextInput.Normal
+                                                         : TextInput.Password
+                            // Enter submits from the password field.
+                            onAccepted: root.submit()
+                        }
+                        IconButton {
+                            id: passReveal
+                            objectName: "passwordRevealToggle"
+                            checkable: true
+                            implicitWidth: 34; implicitHeight: 34
+                            radius: AppTheme.radiusMd
+                            iconName: passReveal.checked ? "visibility_off"
+                                                         : "visibility"
+                            iconSize: 18
+                            Accessible.name: checked ? qsTr("Hide password")
+                                                     : qsTr("Show password")
+                            ToolTip.text: Accessible.name
+                            ToolTip.visible: hovered
+                            ToolTip.delay: 500
                         }
                     }
-                    enabled: !app.auth.isLoggingIn
-                    Layout.fillWidth: true
-                    Layout.topMargin: AppTheme.spacingXS
-                    onClicked: root.submit()
+
+                    Label {
+                        objectName: "loginErrorLabel"
+                        // A classified reason without a dedicated card (info ===
+                        // null) still needs this fallback; only a rendered card
+                        // suppresses it.
+                        visible: app.auth.lastError !== ""
+                                 && (!repair.active || repair.info === null)
+                        text: app.auth.lastError
+                        // Can carry a server's own error text; never markup.
+                        textFormat: Text.PlainText
+                        color: AppTheme.error
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
+                        Accessible.role: Accessible.AlertMessage
+                        Accessible.name: text
+                    }
+
+                    AppButton {
+                        id: loginBtn
+                        objectName: "loginSubmitButton"
+                        kind: "primary"
+                        // Staged progress (AuthManager.loginStage), falling back
+                        // to a fixed label for unknown stages.
+                        text: {
+                            if (!app.auth.isLoggingIn) return qsTr("Sign in")
+                            switch (app.auth.loginStage) {
+                            case "connecting":     return qsTr("Connecting…")
+                            case "opening_store":  return qsTr("Opening secure store…")
+                            case "authenticating": return qsTr("Signing in…")
+                            case "starting_sync":  return qsTr("Starting sync…")
+                            case "ready":          return qsTr("Signing in…")
+                            case "waiting_for_browser":
+                                return qsTr("Waiting for your browser…")
+                            default:               return qsTr("Signing in…")
+                            }
+                        }
+                        enabled: !app.auth.isLoggingIn
+                        Layout.fillWidth: true
+                        Layout.topMargin: AppTheme.spacingS
+                        onClicked: root.submit()
+                    }
                 }
 
-                // ── "Or" ── The password form and the browser buttons are
-                // alternatives, not a sequence.
+                // ── "Or" ── Single sign-on beside a password form.
                 RowLayout {
-                    visible: root.offersBrowserPath
+                    visible: root.signInMode === "password" && root.showsSso
+                             && !app.auth.browserLoginInProgress
                     Layout.fillWidth: true
-                    Layout.topMargin: AppTheme.spacingS
+                    Layout.topMargin: AppTheme.spacingXS
                     spacing: AppTheme.spacingS
                     Rectangle {
                         Layout.fillWidth: true
@@ -378,8 +756,10 @@ Item {
                     Label {
                         objectName: "loginAlternativesDivider"
                         //: Separates the password form from the
-                        //: sign-in-with-your-browser buttons below it.
-                        text: qsTr("Or")
+                        //: sign-in-with-your-browser buttons below it. The
+                        //: longer form introduces a grid of provider names.
+                        text: root.providerCount > 2 ? qsTr("Or continue with")
+                                                     : qsTr("Or")
                         color: AppTheme.textMuted
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textMeta
@@ -391,41 +771,101 @@ Item {
                     }
                 }
 
-                // ── Browser sign-in (OAuth 2.0 / OIDC) ── Shown only when the
-                // homeserver's discovery offers OAuth and this build supports
-                // it. Nothing is hard-coded per provider.
+                // ── Single sign-on (legacy m.login.sso) ── See
+                // rust/src/sso.rs. Driven by what the server advertises, never
+                // hard-coded per vendor: no named providers gives one generic
+                // button (also the state while the list is loading); one or two
+                // give full-width "Continue with <name>" buttons; three or more
+                // a two-column grid of names. Each carries the provider's logo
+                // (by its MSC2858 brand) or a neutral glyph.
                 AppButton {
-                    id: browserLoginBtn
-                    objectName: "browserLoginButton"
-                    // Primary when the server accepts no password (the only way
-                    // in); secondary beside a usable password form.
-                    kind: app.auth.serverOffersPassword ? "secondary"
-                                                        : "primary"
-                    visible: app.auth.serverOffersBrowserLogin
+                    id: ssoLoginBtn
+                    objectName: "ssoLoginButton"
+                    // Primary only when nothing else can sign you in.
+                    kind: root.signInMode === "sso" ? "primary" : "secondary"
+                    visible: root.showsSso && root.providerCount === 0
                              && !app.auth.browserLoginInProgress
-                    // Named after the homeserver to distinguish it from SSO.
-                    // Falls back to a bare "Continue" when there is no host.
-                    text: root.browserAuthorityName.length > 0
-                          ? qsTr("Continue with %1").arg(root.browserAuthorityName)
-                          : qsTr("Continue")
-                    // Needs no typed user or password: the homeserver
-                    // identifies the account. Off while an edit of the field
-                    // is waiting to be asked about: a click does not end the
-                    // edit, so the buttons would still be the last server's.
+                    text: qsTr("Continue in browser")
                     enabled: !app.auth.isLoggingIn && !discoverDebounce.running
                     Layout.fillWidth: true
-                    Layout.topMargin: AppTheme.spacingXS
                     Accessible.name: text
-                    // The server this button names, not the field's text,
-                    // which may have changed since it was asked.
-                    onClicked: app.auth.beginBrowserLogin(app.auth.discoveredHomeserver)
+                    onClicked: app.auth.beginSsoLogin(app.auth.discoveredHomeserver, "")
+                }
+
+                GridLayout {
+                    objectName: "ssoProviderGrid"
+                    visible: root.showsSso && root.providerCount > 0
+                             && !app.auth.browserLoginInProgress
+                    Layout.fillWidth: true
+                    columns: root.providerCount > 2 ? 2 : 1
+                    columnSpacing: AppTheme.spacingS
+                    rowSpacing: AppTheme.spacingS
+
+                    Repeater {
+                        id: ssoProviderRepeater
+                        objectName: "ssoProviderList"
+                        model: root.showsSso && !app.auth.browserLoginInProgress
+                               ? app.auth.ssoProviders : []
+                        delegate: AppButton {
+                            id: providerButton
+                            required property var modelData
+                            required property int index
+                            objectName: "ssoProviderButton" + index
+                            readonly property bool compact: root.providerCount > 2
+                            // The only way in, one provider: the main button.
+                            kind: root.signInMode === "sso" && root.providerCount === 1
+                                  ? "primary" : "secondary"
+                            // Server-chosen name: plain text, never markup. An
+                            // unnamed provider falls back to the generic label.
+                            readonly property string providerName:
+                                (modelData.name && modelData.name.length > 0)
+                                ? modelData.name : ""
+                            text: providerName.length === 0
+                                  ? qsTr("Continue in browser")
+                                  : compact ? providerName
+                                  : qsTr("Continue with %1").arg(providerName)
+                            enabled: !app.auth.isLoggingIn && !discoverDebounce.running
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 1
+                            minWidth: 0
+                            leftPadding: 34
+                            rightPadding: compact ? AppTheme.spacingS : 34
+                            Accessible.name: providerName.length > 0
+                                             ? qsTr("Continue with %1").arg(providerName)
+                                             : qsTr("Continue in browser")
+                            ToolTip.text: Accessible.name
+                            ToolTip.visible: compact && hovered
+                            ToolTip.delay: 500
+                            onClicked: app.auth.beginSsoLogin(app.auth.discoveredHomeserver,
+                                                              modelData.id || "")
+
+                            ProviderLogo {
+                                anchors.left: parent.left
+                                anchors.leftMargin: AppTheme.spacingS + 2
+                                anchors.verticalCenter: parent.verticalCenter
+                                brand: providerButton.modelData.brand || ""
+                                // The label's own ink, disabled included.
+                                ink: !providerButton.enabled ? AppTheme.buttonDisabledInk
+                                     : providerButton.kind === "primary"
+                                     ? AppTheme.buttonPrimaryInk
+                                     : AppTheme.buttonNeutralInk
+                            }
+                        }
+                    }
                 }
                 Label {
-                    objectName: "browserLoginHint"
-                    visible: browserLoginBtn.visible
+                    objectName: "ssoLoginHint"
+                    visible: root.signInMode === "sso" && root.providerCount <= 1
+                             && !app.auth.browserLoginInProgress
                     Layout.fillWidth: true
-                    text: qsTr("Signs you in on your homeserver's own page, "
-                               + "in your browser. No password needed here.")
+                    textFormat: Text.PlainText
+                    text: root.providerCount === 1
+                          && (app.auth.ssoProviders[0].name || "").length > 0
+                          ? qsTr("%1 signs you in with %2, in your browser.")
+                                .arg(root.browserAuthorityName)
+                                .arg(app.auth.ssoProviders[0].name)
+                          : qsTr("Opens %1's sign-in page in your browser.")
+                                .arg(root.browserAuthorityName)
                     color: AppTheme.textMuted
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
@@ -434,14 +874,49 @@ Item {
                     lineHeightMode: Text.ProportionalHeight
                 }
 
+                // A sign-in error when there is no password form to put it
+                // under: a browser sign-in's, or a failed restore's.
+                Label {
+                    objectName: "loginErrorLabelNoForm"
+                    // Whenever the form's own label is hidden with it: a
+                    // browser sign-in's error during the wait included.
+                    visible: !passwordForm.visible
+                             && app.auth.lastError !== ""
+                             && (!repair.active || repair.info === null)
+                    text: app.auth.lastError
+                    textFormat: Text.PlainText
+                    color: AppTheme.error
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.textMeta
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    lineHeight: AppTheme.lineHeightBody
+                    lineHeightMode: Text.ProportionalHeight
+                    Accessible.role: Accessible.AlertMessage
+                    Accessible.name: text
+                }
+
                 // The waiting state always offers a way out. Cancel resolves it
                 // at once, and the backend also times the attempt out.
                 ColumnLayout {
                     visible: app.auth.browserLoginInProgress
                     Layout.fillWidth: true
-                    Layout.topMargin: AppTheme.spacingXS
-                    spacing: AppTheme.spacingXS
+                    spacing: AppTheme.spacingS
 
+                    RowLayout {
+                        spacing: AppTheme.spacingS
+                        AppBusyIndicator {
+                            running: parent.visible
+                            size: 16
+                        }
+                        Label {
+                            text: qsTr("Waiting for your browser…")
+                            color: AppTheme.textPrimary
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textBody
+                            font.weight: AppTheme.weightStrong
+                        }
+                    }
                     Label {
                         objectName: "browserLoginWaitingLabel"
                         Layout.fillWidth: true
@@ -464,72 +939,49 @@ Item {
                     }
                 }
 
-                // ── Single sign-on (legacy m.login.sso) ── See
-                // rust/src/sso.rs. Driven by what the server advertises, never
-                // hard-coded per vendor: no providers gives one generic button
-                // (also the state while the list is loading); otherwise one
-                // "Continue with <name>" per provider. Wording follows Element
-                // and avoids protocol terms and the "SSO" abbreviation.
-                AppButton {
-                    id: ssoLoginBtn
-                    objectName: "ssoLoginButton"
-                    // Primary only when nothing else can sign you in.
-                    kind: (app.auth.serverOffersPassword
-                           || app.auth.serverOffersBrowserLogin)
-                          ? "secondary" : "primary"
-                    visible: app.auth.serverOffersSso
-                             && app.auth.ssoProviders.length === 0
+                // ── Account links ── Only where the server's own page does
+                // them, as Element and Element X offer sign-up only when the
+                // server's metadata lists prompt=create (element-web
+                // isUserRegistrationSupported.ts; element-x-ios
+                // AuthenticationService.swift). A server without such a page
+                // has nothing here: Lightning has no registration or password
+                // reset of its own.
+                RowLayout {
+                    objectName: "accountLinks"
+                    visible: root.signInMode === "oauth"
                              && !app.auth.browserLoginInProgress
-                    // Element's wording for an unnamed provider.
-                    text: qsTr("Sign in with single sign-on")
-                    enabled: !app.auth.isLoggingIn && !discoverDebounce.running
+                             && (app.auth.serverCanCreateAccount
+                                 || app.auth.serverOffersAccountPage)
                     Layout.fillWidth: true
                     Layout.topMargin: AppTheme.spacingXS
-                    Accessible.name: text
-                    onClicked: app.auth.beginSsoLogin(app.auth.discoveredHomeserver, "")
-                }
-                Label {
-                    objectName: "ssoLoginHint"
-                    visible: ssoLoginBtn.visible
-                             || ssoProviderRepeater.count > 0
-                    Layout.fillWidth: true
-                    // Explains the difference: this goes to whoever the
-                    // homeserver trusts to identify you.
-                    text: qsTr("Signs you in through an identity provider "
-                               + "your homeserver trusts, in your browser.")
-                    color: AppTheme.textMuted
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.textMeta
-                    wrapMode: Text.WordWrap
-                    lineHeight: AppTheme.lineHeightBody
-                    lineHeightMode: Text.ProportionalHeight
-                }
+                    spacing: AppTheme.spacingS
 
-                Repeater {
-                    id: ssoProviderRepeater
-                    objectName: "ssoProviderList"
-                    model: app.auth.serverOffersSso
-                           && !app.auth.browserLoginInProgress
-                           ? app.auth.ssoProviders : []
-                    delegate: AppButton {
-                        required property var modelData
-                        required property int index
-                        objectName: "ssoProviderButton" + index
-                        kind: "secondary"
-                        // Server-chosen name: plain text, never markup. An
-                        // unnamed provider falls back to the generic label.
-                        // Same "Continue with" shape as the browser button:
-                        // both name the authority.
-                        text: (modelData.name && modelData.name.length > 0)
-                              ? qsTr("Continue with %1").arg(modelData.name)
-                              : qsTr("Sign in with single sign-on")
+                    Item { Layout.fillWidth: true }
+                    AppButton {
+                        objectName: "createAccountButton"
+                        visible: app.auth.serverCanCreateAccount
+                        kind: "ghost"
+                        size: "sm"
+                        minWidth: 0
+                        text: qsTr("Create account")
+                        Accessible.description: qsTr("Opens %1's sign-up page in your browser.")
+                                                .arg(root.browserAuthorityName)
                         enabled: !app.auth.isLoggingIn && !discoverDebounce.running
-                        Layout.fillWidth: true
-                        Layout.topMargin: AppTheme.spacingXS
-                        Accessible.name: text
-                        onClicked: app.auth.beginSsoLogin(app.auth.discoveredHomeserver,
-                                                          modelData.id || "")
+                        onClicked: app.auth.beginBrowserSignUp(app.auth.discoveredHomeserver)
                     }
+                    AppButton {
+                        objectName: "forgotPasswordButton"
+                        visible: app.auth.serverOffersAccountPage
+                        kind: "ghost"
+                        size: "sm"
+                        minWidth: 0
+                        text: qsTr("Forgot password?")
+                        Accessible.description: qsTr("Opens %1's account page in your browser.")
+                                                .arg(root.browserAuthorityName)
+                        enabled: !discoverDebounce.running
+                        onClicked: app.auth.openAccountPage()
+                    }
+                    Item { Layout.fillWidth: true }
                 }
 
                 // ── Local-session repair card ── Driven by AppController's
@@ -538,9 +990,7 @@ Item {
                 // right account even during add-account. classify() covers
                 // every reasonCode reachable from
                 // matrix::rust_session::StoreBlockReason
-                // (src/matrix/RustSessionPolicy.cpp) except
-                // "existing_store_requires_restore", which AppController
-                // intercepts. An unrecognised code falls back to
+                // (src/matrix/RustSessionPolicy.cpp). An unrecognised code falls back to
                 // loginErrorLabel so the form is never blank.
                 QtObject {
                     id: repair
@@ -624,8 +1074,8 @@ Item {
                                     + "afterwards."),
                                 // No primary action: there is no store to
                                 // quarantine, so the backend refuses a reset.
-                                // The remedy is the prefilled sign-in form
-                                // above.
+                                // The remedy is signing in again above, with
+                                // whichever way the server offers.
                                 primaryLabel: "",
                                 confirmTitle: "",
                                 confirmBody: "",
@@ -644,9 +1094,9 @@ Item {
                                     "This device's Matrix session is no longer valid on "
                                     + "the server — for example, it may have been signed "
                                     + "out from another client. Your local data, including "
-                                    + "this device's encryption keys, is intact. Try "
-                                    + "signing in again above with your password. If that "
-                                    + "keeps failing, you can remove this account below, "
+                                    + "this device's encryption keys, is intact. Sign in "
+                                    + "again above. If that keeps failing, you can remove "
+                                    + "this account below, "
                                     + "which does delete this device's local copy of your "
                                     + "encryption keys."),
                                 primaryLabel: "",
@@ -690,6 +1140,50 @@ Item {
                                 confirmTitle: "",
                                 confirmBody: "",
                                 showRemove: false
+                            }
+                        case "existing_store_requires_restore":
+                            // A sign-in found a session for this account already
+                            // on this device. Opening it is the first way out;
+                            // when it no longer opens (a restore that failed
+                            // left it behind), removing it and signing in again
+                            // is the second. Never a silent dead end (D6).
+                            return {
+                                headline: qsTr("This account already has a session here"),
+                                body: qsTr(
+                                    "Lightning keeps a session for %1 on this device. "
+                                    + "Open it. If it doesn't open, remove it from this "
+                                    + "device and sign in again: that deletes this "
+                                    + "device's copy of its encryption keys, and your "
+                                    + "messages stay on the server.")
+                                    .arg(repair.userId),
+                                primaryLabel: "",
+                                confirmTitle: "",
+                                confirmBody: "",
+                                showRemove: true,
+                                showOpen: true
+                            }
+                        case "removal_incomplete":
+                            // "Remove this account" could not delete every file
+                            // (an open database, a permission). Say what is
+                            // still here and try again; never a card whose
+                            // buttons no longer do anything.
+                            return {
+                                headline: qsTr("Some of this account's files are still here"),
+                                body: qsTr(
+                                    "%1 was removed from this device, but Lightning "
+                                    + "could not delete all of its files. Close anything "
+                                    + "that may be using them, then try again. Still "
+                                    + "here: %2")
+                                    .arg(repair.userId)
+                                    .arg((app.accountRemovalLeftovers || []).map(function(p) {
+                                        const parts = String(p).split(/[\\/]/)
+                                        return parts[parts.length - 1] || String(p)
+                                    }).join(", ")),
+                                primaryLabel: "",
+                                confirmTitle: "",
+                                confirmBody: "",
+                                showRemove: false,
+                                showRetryRemoval: true
                             }
                         case "invalid_saved_account_identity":
                             return {
@@ -781,6 +1275,10 @@ Item {
                     implicitHeight: repairColumn.implicitHeight + AppTheme.spacingM * 2
                     Accessible.role: Accessible.AlertMessage
                     Accessible.name: repair.info ? repair.info.headline : ""
+                    // Later, once the layout has placed and sized it.
+                    onVisibleChanged: visible ? Qt.callLater(root.revealRepairCard)
+                                              : root.returnFromRepairCard()
+                    onHeightChanged: if (visible) Qt.callLater(root.revealRepairCard)
 
                     ColumnLayout {
                         id: repairColumn
@@ -815,11 +1313,40 @@ Item {
                             font.pixelSize: AppTheme.textMeta
                         }
 
-                        RowLayout {
+                        // Wraps: three actions do not fit one line of the card.
+                        Flow {
+                            objectName: "loginRepairActions"
                             Layout.fillWidth: true
                             Layout.topMargin: AppTheme.spacingXS
                             spacing: AppTheme.spacingS
 
+                            AppButton {
+                                objectName: "loginRepairRetryRemoval"
+                                visible: repair.info && repair.info.showRetryRemoval === true
+                                // Never while a sign-in runs: the files may be its own.
+                                enabled: !repairPanel.running && !app.auth.isLoggingIn
+                                kind: "primary"
+                                text: qsTr("Try again")
+                                Accessible.name: qsTr("Try removing %1 again").arg(repair.userId)
+                                onClicked: app.retryAccountRemoval()
+                            }
+                            AppButton {
+                                objectName: "loginRepairOpenAccount"
+                                visible: repair.info && repair.info.showOpen === true
+                                enabled: !repairPanel.running
+                                kind: "primary"
+                                text: qsTr("Open it")
+                                Accessible.name: qsTr("Open %1").arg(repair.userId)
+                                // Already the running account (an add-account
+                                // sign-in as itself): back to it.
+                                onClicked: {
+                                    if (app.loggedIn && app.accounts
+                                            && app.accounts.activeUserId === repair.userId)
+                                        app.showMain()
+                                    else
+                                        app.switchToAccount(repair.userId)
+                                }
+                            }
                             AppButton {
                                 id: repairPrimaryButton
                                 objectName: "loginRepairPrimaryAction"

@@ -3495,6 +3495,19 @@ if(BUILD_TESTING)
     # though startSync() and the sync lane report Syncing on the way. Drives
     # the real event dispatcher; no FFI handle, store or network.
     if(ENABLE_RUST_SDK_BACKEND)
+        # A browser sign-in whose restore fails leaves nothing that blocks the
+        # next one (D6), and a session that does block it is reported with the
+        # account, for the login screen's way out. Real Phase B and login_failed
+        # handler; a stand-in restore, no network.
+        qt_add_executable(browser-sign-in-rollback-test
+            tests/BrowserSignInRollbackTest.cpp
+        )
+        lightning_configure_qml_test(browser-sign-in-rollback-test)
+        target_include_directories(browser-sign-in-rollback-test PRIVATE src)
+        add_test(NAME browser-sign-in-rollback COMMAND browser-sign-in-rollback-test)
+        set_tests_properties(browser-sign-in-rollback PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
         qt_add_executable(offline-restore-state-test
             tests/OfflineRestoreStateTest.cpp
         )
@@ -4113,6 +4126,32 @@ if(BUILD_TESTING)
     target_link_libraries(login-repair-qml-test PRIVATE Qt6::Test)
     add_test(NAME login-repair-qml COMMAND login-repair-qml-test)
     set_tests_properties(login-repair-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The sign-in screen: the server first, then only the ways that server
+    # lets people in; provider logos; the plain-http warning; fields that do
+    # not move when the choices below them change.
+    qt_add_executable(login-screen-qml-test
+        tests/LoginScreenQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(login-screen-qml-test)
+    target_link_libraries(login-screen-qml-test PRIVATE Qt6::Test)
+    add_test(NAME login-screen-qml COMMAND login-screen-qml-test)
+    set_tests_properties(login-screen-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # "Remove this account" from the login card that could not delete every
+    # file: a card that says what is left and tries again, from the identity
+    # resolved before the record went; never buttons that do nothing.
+    qt_add_executable(account-removal-retry-test
+        tests/AccountRemovalRetryTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(account-removal-retry-test)
+    target_link_libraries(account-removal-retry-test PRIVATE Qt6::Test)
+    add_test(NAME account-removal-retry COMMAND account-removal-retry-test)
+    set_tests_properties(account-removal-retry PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Main composer: one card, toolbar over input, control order and geometry,

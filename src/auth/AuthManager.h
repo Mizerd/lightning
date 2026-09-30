@@ -46,9 +46,24 @@ class AuthManager : public QObject
     Q_PROPERTY(bool serverOffersBrowserLogin READ serverOffersBrowserLogin NOTIFY discoveryChanged)
     // The server offers legacy Matrix SSO (m.login.sso); see rust/src/sso.rs.
     Q_PROPERTY(bool serverOffersSso READ serverOffersSso NOTIFY discoveryChanged)
-    // SSO identity providers as {id, name, icon} maps. Empty is common and
-    // means a single unnamed flow.
+    // SSO identity providers as {id, name, icon, brand} maps. Empty is common
+    // and means a single unnamed flow. `brand` is MSC2858's ("google", ...).
     Q_PROPERTY(QVariantList ssoProviders READ ssoProviders NOTIFY discoveryChanged)
+    // Why the state is "failed" or offers nothing: "" | "not_an_address" |
+    // "unreachable" | "unsupported" (answered, but no method this build has).
+    Q_PROPERTY(QString discoveryProblem READ discoveryProblem NOTIFY discoveryChanged)
+    // The client API base URL the SDK resolved is plain http and not on this
+    // machine: a password and everything after it travel unencrypted. A
+    // warning only; a local development server needs http.
+    Q_PROPERTY(bool serverConnectionInsecure READ serverConnectionInsecure
+                   NOTIFY discoveryChanged)
+    // The server's own sign-in page can create an account (prompt=create).
+    Q_PROPERTY(bool serverCanCreateAccount READ serverCanCreateAccount
+                   NOTIFY discoveryChanged)
+    // The server's sign-in page publishes an account page (where a password
+    // is reset); openAccountPage() opens it.
+    Q_PROPERTY(bool serverOffersAccountPage READ serverOffersAccountPage
+                   NOTIFY discoveryChanged)
     // True from the moment a browser sign-in starts until it resolves.
     Q_PROPERTY(bool browserLoginInProgress READ browserLoginInProgress
                    NOTIFY browserLoginInProgressChanged)
@@ -87,12 +102,28 @@ public:
     bool serverOffersBrowserLogin() const { return m_serverOauth; }
     bool serverOffersSso() const { return m_serverSso; }
     QVariantList ssoProviders() const { return m_ssoProviders; }
+    QString discoveryProblem() const;
+    bool serverConnectionInsecure() const { return m_serverInsecure; }
+    bool serverCanCreateAccount() const { return m_serverOauth && m_serverCanCreate; }
+    bool serverOffersAccountPage() const
+    {
+        return m_serverOauth && !m_accountManagementUrl.isEmpty();
+    }
     bool browserLoginInProgress() const { return m_browserLoginInProgress; }
+
+    // True for a plain-http URL whose host is not this machine.
+    static bool isInsecureRemoteUrl(const QString &url);
 
     // Ask the homeserver what it offers. Answers through discoveryChanged.
     Q_INVOKABLE void discoverAuthMethods(const QString &homeserver);
     // Start an OAuth browser sign-in against the entered homeserver.
     Q_INVOKABLE void beginBrowserLogin(const QString &homeserver);
+    // The same flow, asking the server's page to create an account. Refused
+    // unless discovery said the server can.
+    Q_INVOKABLE void beginBrowserSignUp(const QString &homeserver);
+    // Open the discovered server's account page in the browser. False when
+    // there is none.
+    Q_INVOKABLE bool openAccountPage();
     // User pressed Cancel, or closed the browser. Always resolves the UI.
     Q_INVOKABLE void cancelBrowserLogin();
 
@@ -132,6 +163,10 @@ private:
     // Refuses a sign-in whose server text is not an address, without asking
     // the backend.
     void refuseServerAddress();
+    // False, with the reason shown, when the account record at the end of a
+    // browser sign-in would refuse this address: said before the browser
+    // opens, never after the user has signed in there.
+    bool refuseBeforeTheBrowser(const QString &homeserver);
 
     MatrixClient *m_client = nullptr;
     bool m_loggingIn = false;
@@ -149,4 +184,11 @@ private:
     QString m_deferredDiscovery;
     // The answer of a probe abandoned for text that asks nothing.
     bool m_dropNextDiscovery = false;
+    // authDiscoveryDetails() for the answer that follows it.
+    QString m_detailsFor;
+    QVariantMap m_details;
+    bool m_serverReachable = true;
+    bool m_serverInsecure = false;
+    bool m_serverCanCreate = false;
+    QString m_accountManagementUrl;
 };

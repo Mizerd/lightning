@@ -46,11 +46,18 @@ public:
     {
         oauthStarts.append(homeserver);
     }
+    void beginOAuthSignUp(const QString &homeserver) override
+    {
+        signUps.append(homeserver);
+    }
     void beginSsoLogin(const QString &homeserver, const QString &idpId) override
     {
         ssoStarts.append(qMakePair(homeserver, idpId));
     }
-    void requestSsoProviders(const QString &) override {}
+    void requestSsoProviders(const QString &homeserver) override
+    {
+        providerRequests.append(homeserver);
+    }
     void cancelOAuthLogin() override {}
     void cancelSsoLogin() override {}
 
@@ -58,13 +65,53 @@ public:
     {
         Q_EMIT authMethodsDiscovered(homeserver, true, true, true);
     }
+    // As RustSdkMatrixClient does: the details, then the methods.
+    void answer(const QString &homeserver, bool password, bool oauth, bool sso,
+                const QVariantMap &details)
+    {
+        Q_EMIT authDiscoveryDetails(homeserver, details);
+        Q_EMIT authMethodsDiscovered(homeserver, password, oauth, sso);
+    }
+    void detailsOnly(const QString &homeserver, const QVariantMap &details)
+    {
+        Q_EMIT authDiscoveryDetails(homeserver, details);
+    }
+    void methodsOnly(const QString &homeserver, bool password, bool oauth, bool sso)
+    {
+        Q_EMIT authMethodsDiscovered(homeserver, password, oauth, sso);
+    }
     void endAttempt() { Q_EMIT loginFailed(QStringLiteral("Sign-in was cancelled.")); }
 
     QList<Login> logins;
     QStringList discoveries;
     QStringList oauthStarts;
+    QStringList signUps;
+    QStringList providerRequests;
     QList<QPair<QString, QString>> ssoStarts;
 };
+
+// A backend with no browser sign-in at all (the mock, the HTTP backend).
+class PasswordOnlyClient : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    void discoverAuthMethods(const QString &homeserver) override
+    {
+        discoveries.append(homeserver);
+    }
+    QStringList discoveries;
+};
+
+QVariantMap details(bool reachable, const QString &resolved = QString(),
+                    bool canCreate = false, const QString &account = QString())
+{
+    return {
+        { QStringLiteral("reachable"), reachable },
+        { QStringLiteral("resolvedHomeserver"), resolved },
+        { QStringLiteral("oauthCanCreate"), canCreate },
+        { QStringLiteral("accountManagementUrl"), account },
+    };
+}
 
 const QString kNotAnAddress =
     QStringLiteral("That is not a server address. Enter one like matrix.org.");
@@ -194,6 +241,17 @@ private slots:
         QTest::newRow("doubled, mixed") << QStringLiteral("http://https://matrix.org");
         QTest::newRow("doubled, one slash") << QStringLiteral("https://https:/matrix.org");
         QTest::newRow("doubled, no colon") << QStringLiteral("https://http//matrix.org");
+        // Checked on the path "." and ".." resolve to.
+        QTest::newRow("dots to a second host")
+            << QStringLiteral("https://matrix.org/a/..//evil.com");
+        QTest::newRow("dots out of an api path")
+            << QStringLiteral("matrix.org/_matrix/../../evil");
+        // Only a fixed point is an answer: an encoded slash would decode into
+        // a new separator on the next pass.
+        QTest::newRow("encoded slash to a second host")
+            << QStringLiteral("https://matrix.org/a/..%2F/evil.com");
+        QTest::newRow("encoded slashes climbing")
+            << QStringLiteral("https://matrix.org/x/..%2F..%2F");
         QTest::newRow("too long")
             << QStringLiteral("matrix.org/_matrix/") + QString(2100, QLatin1Char('a'));
         QTest::newRow("bad port") << QStringLiteral("https://matrix.org:99999");
@@ -350,6 +408,211 @@ private slots:
         QCOMPARE(client.discoveries, QStringList{ QStringLiteral("https://example.org") });
     }
 
+    // What the server's answer decides beyond its methods: a server with its
+    // own sign-in page that can create accounts and has an account page.
+    void theServersOwnPageBringsSignUpAndItsAccountPage()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        auth.discoverAuthMethods(QStringLiteral("matrix.org"));
+        client.answer(QStringLiteral("https://matrix.org"), true, true, true,
+                      details(true, QStringLiteral("https://matrix-client.matrix.org/"), true,
+                              QStringLiteral("https://account.matrix.org/account/")));
+        QCOMPARE(auth.discoveryState(), QStringLiteral("done"));
+        QVERIFY(auth.serverCanCreateAccount());
+        QVERIFY(auth.serverOffersAccountPage());
+        QVERIFY(!auth.serverConnectionInsecure());
+        QCOMPARE(auth.discoveryProblem(), QString());
+
+        // Such a server is signed in to on its page, as Element does, so its
+        // compatibility single sign-on is not asked about.
+        QCoreApplication::processEvents();
+        QVERIFY(client.providerRequests.isEmpty());
+
+        auth.beginBrowserSignUp(QStringLiteral("https://matrix.org"));
+        QCOMPARE(client.signUps, QStringList{ QStringLiteral("https://matrix.org") });
+        QVERIFY(client.oauthStarts.isEmpty());
+        QVERIFY(auth.browserLoginInProgress());
+    }
+
+    void signUpAndTheAccountPageNeedTheServerToOfferThem()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        QSignalSpy failed(&auth, &AuthManager::loginFailed);
+        auth.discoverAuthMethods(QStringLiteral("example.org"));
+        // No prompt=create, and an account page that is not https.
+        client.answer(QStringLiteral("https://example.org"), true, true, false,
+                      details(true, QStringLiteral("https://example.org/"), false,
+                              QStringLiteral("http://example.org/account/")));
+        QVERIFY(!auth.serverCanCreateAccount());
+        QVERIFY(!auth.serverOffersAccountPage());
+        QVERIFY(!auth.openAccountPage());
+        auth.beginBrowserSignUp(QStringLiteral("https://example.org"));
+        QVERIFY(client.signUps.isEmpty());
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(!auth.browserLoginInProgress());
+
+        // prompt=create means nothing without the server's own page.
+        RecordingClient other;
+        AuthManager auth2(&other);
+        auth2.discoverAuthMethods(QStringLiteral("example.org"));
+        other.answer(QStringLiteral("https://example.org"), true, false, true,
+                     details(true, QString(), true,
+                             QStringLiteral("https://example.org/account/")));
+        QVERIFY(!auth2.serverCanCreateAccount());
+        QVERIFY(!auth2.serverOffersAccountPage());
+    }
+
+    void theProblemSaysWhyNothingIsOffered()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        auth.discoverAuthMethods(QStringLiteral("example.org"));
+        client.answer(QStringLiteral("https://example.org"), false, false, false,
+                      details(false));
+        QCOMPARE(auth.discoveryState(), QStringLiteral("failed"));
+        QCOMPARE(auth.discoveryProblem(), QStringLiteral("unreachable"));
+
+        auth.discoverAuthMethods(QStringLiteral("other.example"));
+        client.answer(QStringLiteral("https://other.example"), false, false, false,
+                      details(true, QStringLiteral("https://other.example/")));
+        QCOMPARE(auth.discoveryProblem(), QStringLiteral("unsupported"));
+
+        auth.discoverAuthMethods(QStringLiteral("Summer2026?"));
+        QCOMPARE(auth.discoveryProblem(), QStringLiteral("not_an_address"));
+
+        // Details for another server decide nothing about this one; without
+        // them a server offering nothing reads as unreachable.
+        auth.discoverAuthMethods(QStringLiteral("third.example"));
+        client.detailsOnly(QStringLiteral("https://elsewhere.example"), details(true));
+        client.methodsOnly(QStringLiteral("https://third.example"), false, false, false);
+        QCOMPARE(auth.discoveryProblem(), QStringLiteral("unreachable"));
+    }
+
+    void isInsecureRemoteUrl_data()
+    {
+        QTest::addColumn<QString>("url");
+        QTest::addColumn<bool>("insecure");
+        QTest::newRow("https") << QStringLiteral("https://matrix.org/") << false;
+        QTest::newRow("http remote") << QStringLiteral("http://matrix.example.org/") << true;
+        QTest::newRow("http lan") << QStringLiteral("http://192.168.1.20:8008/") << true;
+        QTest::newRow("HTTP remote") << QStringLiteral("HTTP://Matrix.Example.org") << true;
+        QTest::newRow("localhost") << QStringLiteral("http://localhost:8008/") << false;
+        QTest::newRow("dev.localhost") << QStringLiteral("http://matrix.localhost/") << false;
+        QTest::newRow("127.0.0.1") << QStringLiteral("http://127.0.0.1:8008/") << false;
+        QTest::newRow("127.x") << QStringLiteral("http://127.1.2.3/") << false;
+        QTest::newRow("::1") << QStringLiteral("http://[::1]:8008/") << false;
+        QTest::newRow("empty") << QString() << false;
+    }
+
+    void isInsecureRemoteUrl()
+    {
+        QFETCH(QString, url);
+        QFETCH(bool, insecure);
+        QCOMPARE(AuthManager::isInsecureRemoteUrl(url), insecure);
+    }
+
+    // The warning follows the RESOLVED base URL, not the typed scheme: a
+    // server name's well-known may point at plain http, and a typed http://
+    // may redirect to https.
+    void theNotEncryptedWarningFollowsTheResolvedUrl()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        auth.discoverAuthMethods(QStringLiteral("example.org"));
+        client.answer(QStringLiteral("https://example.org"), true, false, false,
+                      details(true, QStringLiteral("http://matrix.example.org:8008/")));
+        QVERIFY(auth.serverConnectionInsecure());
+
+        auth.discoverAuthMethods(QStringLiteral("http://matrix.org"));
+        client.answer(QStringLiteral("http://matrix.org"), true, false, false,
+                      details(true, QStringLiteral("https://matrix-client.matrix.org/")));
+        QVERIFY(!auth.serverConnectionInsecure());
+    }
+
+    // Asking about the server already answered (or being asked) changes
+    // nothing: the choices do not blink when the field loses focus.
+    void theSameServerIsNotAskedTwice()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        auth.discoverAuthMethods(QStringLiteral("matrix.org"));
+        auth.discoverAuthMethods(QStringLiteral("https://matrix.org/"));
+        QCOMPARE(client.discoveries.size(), 1);
+        client.announce(QStringLiteral("https://matrix.org"));
+        QSignalSpy changed(&auth, &AuthManager::discoveryChanged);
+        auth.discoverAuthMethods(QStringLiteral("Matrix.org"));
+        QCOMPARE(client.discoveries.size(), 1);
+        QCOMPARE(changed.count(), 0);
+        QVERIFY(auth.serverOffersBrowserLogin());
+
+        // A failed one is asked again ("Try again").
+        auth.discoverAuthMethods(QStringLiteral("example.org"));
+        client.answer(QStringLiteral("https://example.org"), false, false, false,
+                      details(false));
+        auth.discoverAuthMethods(QStringLiteral("example.org"));
+        QCOMPARE(client.discoveries.size(), 3);
+    }
+
+    // What the account record at the end of a browser sign-in would refuse is
+    // refused before the browser opens, never after the user signed in there
+    // and the server issued a device (sk.community typed without https://,
+    // reported 2026-09-29). Here: no data folder to keep an account in.
+    void aSignInTheAccountRecordWouldRefuseStopsBeforeTheBrowser()
+    {
+#ifdef Q_OS_WIN
+        QSKIP("The data folder comes from LOCALAPPDATA there.");
+#endif
+        RecordingClient client;
+        AuthManager auth(&client);
+        auth.discoverAuthMethods(QStringLiteral("matrix.org"));
+        client.announce(QStringLiteral("https://matrix.org"));
+
+        const QByteArray home = qgetenv("HOME");
+        const QByteArray data = qgetenv("XDG_DATA_HOME");
+        qunsetenv("HOME");
+        qunsetenv("XDG_DATA_HOME");
+        auth.beginBrowserLogin(QStringLiteral("matrix.org"));
+        auth.beginSsoLogin(QStringLiteral("matrix.org"), QString());
+        const QString error = auth.lastError();
+        qputenv("HOME", home);
+        qputenv("XDG_DATA_HOME", data);
+
+        QVERIFY(client.oauthStarts.isEmpty());
+        QVERIFY(client.ssoStarts.isEmpty());
+        QVERIFY2(error.contains(QStringLiteral("did not open your browser")), qPrintable(error));
+        QVERIFY(!auth.browserLoginInProgress());
+
+        // With somewhere to keep it, the same sign-in goes ahead.
+        auth.beginBrowserLogin(QStringLiteral("matrix.org"));
+        QCOMPARE(client.oauthStarts, QStringList{ QStringLiteral("https://matrix.org") });
+    }
+
+    void anErrorGoesWhenTheServerChanges()
+    {
+        RecordingClient client;
+        AuthManager auth(&client);
+        auth.login(QStringLiteral("matrix .org"), QStringLiteral("a"), QStringLiteral("b"));
+        QCOMPARE(auth.lastError(), kNotAnAddress);
+        auth.discoverAuthMethods(QStringLiteral("example.org"));
+        QVERIFY(auth.lastError().isEmpty());
+    }
+
+    // A backend without browser sign-in has nothing to ask: the password form
+    // shows at once, as it always did there.
+    void aBackendWithoutBrowserSignInOffersThePasswordAtOnce()
+    {
+        PasswordOnlyClient client;
+        AuthManager auth(&client);
+        auth.discoverAuthMethods(QStringLiteral("mock.local"));
+        QVERIFY(client.discoveries.isEmpty());
+        QCOMPARE(auth.discoveryState(), QStringLiteral("done"));
+        QVERIFY(auth.serverOffersPassword());
+        QVERIFY(!auth.serverOffersBrowserLogin());
+        QCOMPARE(auth.discoveredHomeserver(), QStringLiteral("https://mock.local"));
+    }
+
     // A browser button names the discovered server ("Continue with
     // matrix.org"), so it must sign in there, not wherever the field's text
     // has moved on to since.
@@ -364,8 +627,10 @@ private slots:
         QVERIFY(!qml.contains(QStringLiteral("beginSsoLogin(homeserverField")));
         // A click does not end an edit of the field, so for the debounce's
         // 700 ms the buttons would still belong to the last server.
+        // Continue with <server>, the unnamed and the named single sign-on
+        // buttons, and Create account.
         QCOMPARE(qml.count(QStringLiteral(
-                     "enabled: !app.auth.isLoggingIn && !discoverDebounce.running")), 3);
+                     "enabled: !app.auth.isLoggingIn && !discoverDebounce.running")), 4);
     }
 };
 

@@ -1191,10 +1191,15 @@ pub unsafe extern "C" fn mx_rust_login(
                                 // Release SDK/store ownership before C++ reacts to login_failed with a
                                 // local reset.
                                 drop(client);
+                                // A fixed token (HTTP status + errcode, or the transport class) so the
+                                // login screen can say "wrong password" in words; never the server's text.
+                                let reason = oauth::sdk_failure_reason(&err);
                                 enqueue(
                                     &events,
                                     json!({
                                         "type": "login_failed",
+                                        "stage": "password",
+                                        "reason": reason,
                                         "message": format_matrix_error("Matrix Rust SDK login failed", err),
                                     }),
                                 );
@@ -1203,7 +1208,12 @@ pub unsafe extern "C" fn mx_rust_login(
                     }
                     Err(err) => enqueue(
                         &events,
-                        json!({ "type": "login_failed", "message": err }),
+                        json!({
+                            "type": "login_failed",
+                            "stage": "password",
+                            "reason": "client_build_failed",
+                            "message": err,
+                        }),
                     ),
                 }
             });
@@ -9192,9 +9202,9 @@ async fn build_client_for_restore(
     };
     let client = build_client_with(HomeserverInput::Url(&url), store_path)
         .await
-        // Report the original failure; a second error would describe the same
-        // outage.
-        .map_err(|_| reason)?;
+        // Keep both: the original failure says why the server was not used,
+        // the fallback's says why the store could not be opened without it.
+        .map_err(|fallback| format!("{reason}; restoring from the recorded homeserver URL failed too: {fallback}"))?;
     // No URL, server name or account id: C++ only needs to know the data came
     // off the disk.
     enqueue(events, json!({ "type": "session_restored_offline" }));

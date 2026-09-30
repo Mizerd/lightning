@@ -32,7 +32,10 @@ backend capability checks and honest live-test status.
   `SessionChange::UnknownToken` surfaces as the existing `AccessTokenRevoked`
   state, not an endless sync-failure loop. Added surface is only the
   system-browser launch and `src/auth/OAuthCallbackServer.*` — loopback-only
-  (127.0.0.1), ephemeral port, single-shot, size-bounded, timed out; hand-
+  (127.0.0.1), ephemeral port, consumes exactly one request on the exact
+  `/callback/<nonce>` path (up to 16 connections wait at once, 10 s each for a
+  complete head of at most 16 KiB — Chromium-family browsers send the callback
+  on a spare connection, 8483516f), 15-minute attempt timeout; hand-
   rolled because matrix-sdk's `local-server` helper needs `sso-login`/`axum`,
   not vendored in this offline `--locked` build. Costs no dependency change.
   **Two-phase store lifecycle, mandatory.** OAuth learns the user id only
@@ -47,10 +50,17 @@ backend capability checks and honest live-test status.
   live device whose keys are still valid.
   Sessions carry an `authType` discriminator in **QSettings, not the
   SecretStore**, so restore routes correctly even with a locked keyring:
-  `password` → `matrix_auth()`, `oauth` → `oauth()`. Refresh tokens and the
-  dynamic-registration client id are CREDENTIALS in the SecretStore, never
-  in QSettings, never exposed to QML, never logged. Legacy Matrix SSO is
-  detected and disclosed as unsupported, never offered. Live validation
+  `password` and `sso` → `matrix_auth()`, `oauth` → `oauth()`. Refresh tokens
+  and the dynamic-registration client id are CREDENTIALS in the SecretStore,
+  never in QSettings, never exposed to QML, never logged. **Legacy Matrix SSO
+  (`m.login.sso`) IS offered** (`rust/src/sso.rs`, on the ungated
+  `get_sso_login_url` / `login_token` primitives), on servers without their
+  own sign-in page; the single-use `loginToken` is never logged and shares
+  OAuth's two-phase store lifecycle. Live: debian.social's "Salsa" provider
+  and Synapse SSO in Vivaldi, Chromium and Firefox PASS (8483516f); the
+  Firefox + matrix.org failures a user reported were UNEXPLAINED at that
+  commit and later explained by a server typed without `https://` (fixed by
+  the address normalisation below, `docs/open-items.md`). Live validation
   (2026-08-15): **PASSED against matrix.org** (MAS/OIDC) end-to-end incl.
   Google-IdP registration, refresh, restart restoration and sign-out — the
   OAuth path is fully live-validated.
@@ -68,6 +78,105 @@ backend capability checks and honest live-test status.
 - Secret Service/libsecret token storage when available, with an explicit
   insecure QSettings fallback warning
 - Rust-backed unified sync/Sliding Sync behavior with compatibility fallback
+
+### Sign-in screen (2026-09-29, Rokas chose option A)
+
+- **The typed server address** is normalised once, in
+  `AuthManager::normalizedServerAddress()`, for discovery, password, OAuth
+  and SSO alike: optional scheme (none means https, a typed `http://` is
+  kept, never upgraded or downgraded), case, spaces, trailing slash, a pasted
+  `/_matrix/...` or `/.well-known/...` path and a pasted `@you:server` are
+  accepted. Without a scheme the text must be a Matrix server name, so a
+  password typed into the field by mistake is not looked up; text with an
+  `@` (name:password@host), another or a doubled scheme, or a bad host is
+  refused and never sent anywhere. The result still goes through
+  `server_name_or_homeserver_url()`, which strips the scheme again; it is
+  never a guessed client API URL (CLAUDE.md §16, "A restore must not need a
+  live server").
+- **Refuse before the browser, explain after it.** Whatever the account
+  record at the end of a browser sign-in would refuse is refused BEFORE the
+  browser opens (`AuthManager::refuseBeforeTheBrowser`). Before this, a bare
+  `matrix.org` / `sk.community` completed sign-in in the browser, the server
+  issued a device, and Phase B refused with a message about "saved account
+  details" (reported by darkcoffee, 2026-09-29). What can only be known after
+  (the user id the server returns, a device the store belongs to) is said in
+  plain words, never a generic failure. The issued device is still not
+  revoked on such a refusal: open item.
+- **A failed restore leaves nothing behind (D6).** Phase B writes the account
+  record before its restore (so a crash leaves a store with its record), and
+  opening the handle creates the store directory. When the restore then fails,
+  the store and the record THIS attempt created are taken back
+  (`m_freshLoginIdentity` / `m_freshBrowserRecord`): the store through
+  `removeAttemptRustStore`, which removes that one directory and never a
+  quarantined `.orphaned-*` sibling (the account-wide `removeAccountRustState`
+  is for sign-out; used here it deleted "moved aside, never deleted" copies,
+  on the password path too), after waiting for the retiring handle; the
+  record only on an exact match, and only when `saveSession()` really wrote
+  it. A record or store that existed before is never touched, and the message
+  says honestly whether the rollback completed. A browser sign-in whose
+  account's storage name collides with another saved one is refused before
+  anything is written, as `login()` does. Before, they refused every later
+  browser sign-in as "already signed in on this device" with no way out
+  (reported live 2026-09-29). A session that really is there and blocks a
+  sign-in as a new device is reported with the account
+  (`existing_store_requires_restore`), and the login screen's card offers
+  "Open it" and "Remove this account" (with its confirmation). A removal that
+  could not delete every file turns the card into "removal_incomplete": it
+  lists what is still here and "Try again" deletes from the identity resolved
+  before the record went (`AppController::retryAccountRemoval`, never a
+  re-derived path); the card goes only when nothing is left.
+- **No dead end on the sign-in screen.** A store with no saved account beside
+  it (a rollback or removal that could not finish, a crash before the save,
+  an older build) is moved aside exactly as `login()` does, never deleted, and
+  the browser sign-in goes on: a server with its own sign-in page shows no
+  password form, so `login()`'s own quarantine was unreachable and the old
+  "Sign in again to continue" refusal could never help. It is left alone only
+  when a saved account differs from this one by case alone or records this
+  store (on a case-insensitive file system it may be theirs); that refusal
+  says to remove the other account. Every remaining Phase B refusal names an
+  exact saved record and carries it to the login screen's card (open or
+  remove it; rebuild a record with no device). Tests:
+  `browser-sign-in-rollback`, `account-removal-retry`, `login-screen-qml`.
+- **Layout (option A).** The server first, as one row: the field while it is
+  typed or asked, then a summary ("matrix.org · Change") with a status line
+  that always keeps at least one line ("Checking…", "Found"); a failure
+  ("Can't reach this server. Check the address.", "This server has no sign-in
+  method Lightning supports.") wraps to at most three, and nothing is shown
+  below it then. Then
+  only the ways that server lets people in, the most suitable first:
+  * a server with its own sign-in page (OAuth 2.0 / MAS, e.g. matrix.org):
+    ONLY "Continue with <server>", as Element Web does (its `Login.ts`
+    `getFlows()` keeps only the OAuth flow when the server publishes one), plus
+    "Create account" when the metadata lists `prompt=create` (Element Web
+    `isUserRegistrationSupported.ts`, Element X iOS
+    `AuthenticationService.swift`) and "Forgot password?", which opens the
+    metadata's `account_management_uri` (https only);
+  * a password server: the form, then "Or" and its single sign-on providers,
+    as Element shows both; three or more providers become a two-column grid;
+  * single sign-on only: the provider button(s), no password form.
+  Lightning has no registration or password reset of its own, so a server
+  without its own page shows neither link.
+- **Provider logos** come from the IdP's MSC2858 `brand` (apple, facebook,
+  github, gitlab, google, twitter/x), drawn from Simple Icons paths (CC0-1.0,
+  `docs/third-party-notices.md`) in the button's ink; any other provider gets
+  a neutral glyph, never a letter. A server-supplied `icon` (mxc) is NOT
+  fetched: nothing can fetch media before sign-in (MediaBridge needs a
+  session, and authenticated media needs a token).
+- **"Not encrypted"** shows when the base URL discovery RESOLVED is plain http
+  and not loopback (`AuthManager::isInsecureRemoteUrl`). A warning only: a
+  development server needs http. It follows the resolved URL, not the typed
+  scheme: `http://matrix.org` redirects to https.
+- **Nothing moves under the cursor.** The card is anchored near the top, never
+  centred on its height, and the server row keeps its height in every state
+  (the status line only grows on a failure, when no field is below it), so a
+  server answering cannot slide a field (a password landed in the clear-text
+  server field that way, twice).
+- A password sign-in's common failures read in words ("Wrong username or
+  password.", "Too many attempts…", "This account has been deactivated.",
+  "Can't reach the server…") from a fixed reason token rust/src/lib.rs
+  attaches; anything else keeps the backend's message.
+- Tests: `server-address-input` (AuthManager), `login-screen-qml` (the screen
+  loaded for real). Live: NOT TESTED against a real MAS sign-up.
 
 ### Rooms and navigation
 

@@ -142,6 +142,11 @@ class AppController : public QObject
     Q_PROPERTY(QString localSessionFailureHomeserver
                READ localSessionFailureHomeserver
                NOTIFY localSessionFailureChanged)
+    // What "Remove this account" could not delete, for the login screen's
+    // "removal_incomplete" card. Empty otherwise.
+    Q_PROPERTY(QStringList accountRemovalLeftovers
+               READ accountRemovalLeftovers
+               NOTIFY localSessionFailureChanged)
     // True while an account switch is in flight; the previous session is
     // already detached.
     Q_PROPERTY(bool accountSwitching READ accountSwitching
@@ -483,6 +488,7 @@ public:
     { return m_localSessionFailureUserId; }
     QString localSessionFailureHomeserver() const
     { return m_localSessionFailureHomeserver; }
+    QStringList accountRemovalLeftovers() const { return m_removalLeftovers; }
     bool accountSwitching() const { return m_accountSwitching; }
 
     SettingsManager *settings() const;
@@ -775,6 +781,11 @@ public:
     // otherwise delete its local store, token and record. Other accounts are
     // unaffected.
     Q_INVOKABLE void removeAccount(const QString &userId);
+    // After a removal from the login screen's card could not delete every
+    // file: try again, from the identity resolved before the record went
+    // (a store path is never re-derived). The card clears once nothing is
+    // left.
+    Q_INVOKABLE void retryAccountRemoval();
 
     // Open Settings on a category; SettingsScreen consumes it once on load.
     Q_INVOKABLE void showSettingsSection(const QString &section);
@@ -1060,7 +1071,11 @@ private:
     // Delete every local trace of a resolved account (SDK store, account
     // directory, cache.sqlite, starred GIFs, bridge labels). Shared by both
     // removal paths. Logs deleted, absent and failed distinctly.
-    void removeAccountLocalState(const matrix::app_data::AccountIdentity &identity);
+    // True when everything it tried to remove is gone.
+    bool removeAccountLocalState(const matrix::app_data::AccountIdentity &identity);
+    // Which of the directories that removal deletes are still there.
+    QStringList accountRemovalLeftoversFor(
+        const matrix::app_data::AccountIdentity &identity) const;
 
     // Rate-limited own-identity-key check and its answer, shared by every
     // caller.
@@ -1095,6 +1110,9 @@ private:
     QString m_localSessionFailureReason;
     QString m_localSessionFailureUserId;
     QString m_localSessionFailureHomeserver;
+    // A removal the login screen's card asked for that left files behind.
+    matrix::app_data::AccountIdentity m_removalRetryIdentity;
+    QStringList m_removalLeftovers;
     bool m_resetResultPending = false;
     bool m_accountSwitching = false;
     // The account to fall back to if activating the switch target fails.

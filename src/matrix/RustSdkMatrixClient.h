@@ -181,6 +181,7 @@ public:
     bool supportsOAuthLogin() const override { return true; }
     void discoverAuthMethods(const QString &homeserver) override;
     void beginOAuthLogin(const QString &homeserver) override;
+    void beginOAuthSignUp(const QString &homeserver) override;
     void cancelOAuthLogin() override;
     // Legacy Matrix SSO. A separate flow from OAuth (see rust/src/sso.rs) that
     // shares the loopback listener and the two-phase store lifecycle.
@@ -854,6 +855,9 @@ private:
     // session. It has no store and so no generation; m_oauthInFlight is the
     // guard.
     bool ensureOAuthBootstrapHandle();
+    // beginOAuthLogin()/beginOAuthSignUp(): one flow, `createAccount` adds
+    // prompt=create.
+    void startOAuthAttempt(const QString &homeserver, bool createAccount);
     void releaseAuthHandle();
     // Drains the bootstrap handle's queue on the same poll timer but
     // independently, since a sign-in may have no session handle at all.
@@ -867,6 +871,14 @@ private:
                             const QString &refreshToken);
     // Tear down the callback listener and any in-flight authorization.
     void endOAuthAttempt();
+    // A failed sign-in attempt takes back the store it opened (that directory
+    // only, never a quarantined sibling) and a browser sign-in's record (exact
+    // match only). True when nothing it created is left behind.
+    bool rollBackFailedAttempt(const matrix::app_data::AccountIdentity &store,
+                               const matrix::app_data::AccountIdentity &record);
+    // Plain words after a browser sign-in whose restore failed, honest about
+    // whether the rollback completed.
+    QString browserRestoreFailureText(bool rolledBack, const QString &detail) const;
 
     // Legacy SSO. completeSsoLogin() and completeOAuthLogin() both delegate
     // the account-store decision to adoptBrowserSession() below.
@@ -930,6 +942,7 @@ private:
         handleRustEvent(event, m_lifecycle.activeGeneration());
     }
     friend class OfflineRestoreStateTest;
+    friend class BrowserSignInRollbackTest;
     friend class RoomNotificationModeTest;
     friend class RtcBridgePayloadTest;
     friend class SyncMessageRowTest;
@@ -1030,8 +1043,13 @@ private:
     QString m_storePathOverride;
     // Identity of an in-flight password login whose store did not exist
     // before the attempt; a failure removes that fresh store so it cannot
-    // poison later logins. Cleared on login_ok.
+    // poison later logins. Cleared on login_ok. A browser sign-in arms it too.
     matrix::app_data::AccountIdentity m_freshLoginIdentity;
+    // A browser sign-in writes the account record before its restore; when
+    // this attempt created that record, a failed restore takes it back, or it
+    // would refuse every later sign-in as "already signed in" (D6). Cleared
+    // with m_freshLoginIdentity.
+    matrix::app_data::AccountIdentity m_freshBrowserRecord;
     // The account whose store this client is currently opening. Set by
     // login()/restoreSession() before the handle exists, so a failure can name
     // the right account even when m_userId is still empty and the settings

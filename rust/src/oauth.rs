@@ -26,7 +26,7 @@
 //! sent to QML. The callback URL carries a `code` and is never logged.
 
 use std::collections::VecDeque;
-use std::ffi::{c_char, c_void};
+use std::ffi::{c_char, c_int, c_void};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -40,6 +40,7 @@ use matrix_sdk::authentication::oauth::registration::{
 };
 use matrix_sdk::authentication::oauth::{ClientId, OAuthSession, UserSession};
 use matrix_sdk::authentication::SessionTokens;
+use matrix_sdk::ruma::api::client::discovery::get_authorization_server_metadata::v1::Prompt;
 use matrix_sdk::ruma::api::client::session::get_login_types::v3::LoginType;
 use matrix_sdk::ruma::serde::Raw;
 use matrix_sdk::ruma::{OwnedDeviceId, OwnedUserId, UserId};
@@ -329,8 +330,14 @@ pub extern "C" fn mx_rust_oauth_bootstrap_create() -> *mut c_void {
 ///
 /// `oauth` is true when the server publishes OAuth authorization server
 /// metadata; `password`/`sso` come from `/login` flows. Nothing is
-/// hard-coded per provider. `sso` is informational only: the SDK's SSO
-/// helper needs `axum`, which this build lacks.
+/// hard-coded per provider.
+///
+/// Also, on success: `resolved_homeserver`, the client API base URL the SDK
+/// resolved (the login screen warns when it is plain http off loopback);
+/// `oauth_can_create`, whether the metadata lists `prompt=create` (sign-up
+/// through the server's own page, as Element does); `account_management_uri`,
+/// the metadata's account page, https only. `error` is set only when the
+/// client could not be built, i.e. the server could not be reached.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_oauth_discover(
     ptr: *mut c_void,
@@ -365,7 +372,21 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
                 };
 
                 // An error here means "not an OAuth server", not a failure.
-                let oauth_supported = client.oauth().server_metadata().await.is_ok();
+                let metadata = client.oauth().server_metadata().await.ok();
+                let oauth_supported = metadata.is_some();
+                // `Prompt` has no PartialEq; compare its wire string.
+                let oauth_can_create = metadata.as_ref().is_some_and(|m| {
+                    m.prompt_values_supported
+                        .iter()
+                        .any(|p| p.as_str() == Prompt::Create.as_str())
+                });
+                // Opened in the browser from the login screen: https only.
+                let account_management_uri = metadata
+                    .as_ref()
+                    .and_then(|m| m.account_management_uri.as_ref())
+                    .filter(|uri| uri.scheme() == "https" && uri.host().is_some())
+                    .map(|uri| uri.to_string())
+                    .unwrap_or_default();
 
                 // Not fatal: an OAuth-only server may not answer /login.
                 let (password, sso) = match client.matrix_auth().get_login_types().await {
@@ -392,6 +413,9 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
                         "oauth": oauth_supported,
                         "password": password,
                         "sso": sso,
+                        "resolved_homeserver": client.homeserver().to_string(),
+                        "oauth_can_create": oauth_can_create,
+                        "account_management_uri": account_management_uri,
                         "error": serde_json::Value::Null,
                     }),
                 );
@@ -403,7 +427,9 @@ pub unsafe extern "C" fn mx_rust_oauth_discover(
 }
 
 /// Begin an OAuth login: register the client if needed and build the
-/// authorization URL. Enqueues `{"type": "oauth_url", "url": "..."}` or
+/// authorization URL. `prompt_create` non-zero asks the server's page to
+/// create an account (`prompt=create`); the rest of the flow is identical.
+/// Enqueues `{"type": "oauth_url", "url": "..."}` or
 /// `{"type": "oauth_failed", "message": "..."}`. The bootstrap Client is
 /// parked in the client slot because the SDK stores this attempt's PKCE
 /// verifier and CSRF state in it; `finish_login()` must use the same
@@ -413,6 +439,7 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
     ptr: *mut c_void,
     homeserver: *const c_char,
     redirect_uri: *const c_char,
+    prompt_create: c_int,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
@@ -451,11 +478,41 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
 
                 // device_id None: the SDK generates one, encoded in the scope, and returns
                 // it from finish_login(); Phase B's store must belong to it.
-                let mut built = client
-                    .oauth()
-                    .login(redirect.clone(), None, Some(metadata.into()), None)
-                    .build()
-                    .await;
+                // A sign-up only where the server's metadata lists it; C++ asks
+                // only then, and this keeps the rule where the request is built.
+                if prompt_create != 0 {
+                    let supported = client.oauth().server_metadata().await.is_ok_and(|m| {
+                        m.prompt_values_supported
+                            .iter()
+                            .any(|p| p.as_str() == Prompt::Create.as_str())
+                    });
+                    if !supported {
+                        drop(client);
+                        enqueue(&events, json!({
+                            "type": "oauth_failed",
+                            "stage": "begin",
+                            "reason": "prompt_create_unsupported",
+                            "message": "This server does not create accounts from Lightning.",
+                        }));
+                        return;
+                    }
+                }
+                // Only a sign-up sets `prompt`; a sign-in leaves it out entirely.
+                let with_prompt = |request: matrix_sdk::authentication::oauth::OAuthAuthCodeUrlBuilder| {
+                    if prompt_create != 0 {
+                        request.prompt(vec![Prompt::Create])
+                    } else {
+                        request
+                    }
+                };
+                let mut built = with_prompt(client.oauth().login(
+                    redirect.clone(),
+                    None,
+                    Some(metadata.into()),
+                    None,
+                ))
+                .build()
+                .await;
 
                 // A server enforcing RFC 8252 §7.3 refuses a pinned loopback port: retry
                 // once with the port removed from the metadata only. Reusing this client is
@@ -471,11 +528,14 @@ pub unsafe extern "C" fn mx_rust_oauth_begin(
                         "type": "oauth_registration_retry",
                         "reason": reason,
                     }));
-                    built = client
-                        .oauth()
-                        .login(request_redirect, None, Some(retry_metadata.into()), None)
-                        .build()
-                        .await;
+                    built = with_prompt(client.oauth().login(
+                        request_redirect,
+                        None,
+                        Some(retry_metadata.into()),
+                        None,
+                    ))
+                    .build()
+                    .await;
                 }
 
                 match built {

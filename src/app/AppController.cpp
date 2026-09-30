@@ -4107,6 +4107,12 @@ void AppController::setLocalSessionFailure(const QString &reasonCode,
         && m_localSessionFailureHomeserver == homeserver) {
         return;
     }
+    // A retry belongs to the removal_incomplete card only; any other outcome
+    // (a sign-in that succeeded, another failure) ends it.
+    if (reasonCode != QLatin1String("removal_incomplete")) {
+        m_removalRetryIdentity = {};
+        m_removalLeftovers.clear();
+    }
     m_localSessionFailureReason = reasonCode;
     m_localSessionFailureUserId = userId;
     m_localSessionFailureHomeserver = homeserver;
@@ -4910,7 +4916,7 @@ bool AppController::resolveRemovalIdentity(
     return matrix::app_data::resolveAccountIdentity(hs, userId, identity);
 }
 
-void AppController::removeAccountLocalState(
+bool AppController::removeAccountLocalState(
     const matrix::app_data::AccountIdentity &identity)
 {
     // Retiring a Rust client is asynchronous, so its SQLite store may still be
@@ -4988,6 +4994,7 @@ void AppController::removeAccountLocalState(
                   << "rust_removed_anything=" << removed.removedAnything()
                   << "rust_deleted=" << removed.deleted
                   << "failed=" << removed.failed;
+    return rootsFailed == 0 && removed.failed == 0;
 }
 
 void AppController::removeAccount(const QString &userId)
@@ -5019,8 +5026,9 @@ void AppController::removeAccount(const QString &userId)
     // Background (or signed-out) account: delete its local state without
     // touching the active session.
     matrix::app_data::AccountIdentity identity;
+    bool filesRemoved = false;
     if (resolveRemovalIdentity(target, &identity)) {
-        removeAccountLocalState(identity);
+        filesRemoved = removeAccountLocalState(identity);
     } else {
         qCWarning(lcApp) << "removal could not resolve an account layout"
                          << "slug=" << matrix::app_data::safeUserSlug(target);
@@ -5028,6 +5036,63 @@ void AppController::removeAccount(const QString &userId)
     m_accounts->removeAccount(target); // record + secrets
     if (isActive)
         m_lastSessionUserId.clear();
+    // The login screen's card named this account. A complete removal ends
+    // it; otherwise it becomes a card that says what is still here and
+    // tries again, never one whose buttons no longer do anything.
+    if (m_localSessionFailureUserId == target && !m_settings->hasSavedAccount(target)) {
+        setLocalRustResetRequired(false);
+        m_auth->clearLastError();
+        if (filesRemoved) {
+            m_removalRetryIdentity = {};
+            m_removalLeftovers.clear();
+            clearLocalSessionFailure();
+        } else if (identity.isValid()) {
+            m_removalRetryIdentity = identity;
+            m_removalLeftovers = accountRemovalLeftoversFor(identity);
+            setLocalSessionFailure(QStringLiteral("removal_incomplete"), target,
+                                   identity.homeserver);
+            Q_EMIT localSessionFailureChanged();
+        }
+    }
+}
+
+QStringList AppController::accountRemovalLeftoversFor(
+    const matrix::app_data::AccountIdentity &identity) const
+{
+    // The directories removeAccountLocalState() deletes, as recorded.
+    QStringList out;
+    for (const QString &path : { identity.rustStorePath, identity.accountRoot,
+                                 matrix::app_data::accountRoot(identity.userId) }) {
+        if (!path.isEmpty() && !out.contains(path) && QFileInfo::exists(path))
+            out.append(path);
+    }
+    return out;
+}
+
+void AppController::retryAccountRemoval()
+{
+    if (m_localSessionFailureReason != QLatin1String("removal_incomplete")
+        || !m_removalRetryIdentity.isValid()) {
+        return;
+    }
+    const auto identity = m_removalRetryIdentity;
+    // The card tells the user they can sign in again. If they did, or are
+    // doing so now, those files are the NEW session's: never delete them.
+    if (m_settings->hasSavedAccount(identity.userId) || m_auth->isLoggingIn()) {
+        qCInfo(lcApp) << "removal retry skipped: the account is signing in or saved again"
+                      << "slug=" << matrix::app_data::safeUserSlug(identity.userId);
+        return;
+    }
+    const bool complete = removeAccountLocalState(identity);
+    m_removalLeftovers = accountRemovalLeftoversFor(identity);
+    if (complete && m_removalLeftovers.isEmpty()) {
+        m_removalRetryIdentity = {};
+        clearLocalSessionFailure();
+        m_auth->clearLastError();
+        return;
+    }
+    // The same card; its list says what is still here.
+    Q_EMIT localSessionFailureChanged();
 }
 
 // Resolved in C++ because Qt's automatic per-character font fallback is

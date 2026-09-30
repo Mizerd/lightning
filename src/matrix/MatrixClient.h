@@ -59,6 +59,9 @@ public:
     // loginSucceeded()/loginFailed(). The user id is unknown until this
     // completes, so no account store is opened before then.
     virtual void beginOAuthLogin(const QString &homeserver) { Q_UNUSED(homeserver); }
+    // The same browser flow, asking the server's page to create an account
+    // (prompt=create). Only offered when discovery reported oauthCanCreate.
+    virtual void beginOAuthSignUp(const QString &homeserver) { Q_UNUSED(homeserver); }
     // User cancelled or the wait timed out. Safe when nothing is in flight;
     // must leave the UI resolved, never in "Signing in".
     virtual void cancelOAuthLogin() {}
@@ -1516,14 +1519,18 @@ Q_SIGNALS:
     void loginSucceeded(const QString &userId);
     void loginFailed(const QString &reason);
     void loggedOut();
-    // Authentication methods this homeserver offers. `sso` reports legacy
-    // Matrix SSO for UI copy only and must not be presented as usable here: the
-    // SDK helper needs sso-login/local-server features whose axum dependency is
-    // not vendored.
+    // Authentication methods this homeserver offers: password, OAuth 2.0 (the
+    // server's own sign-in page) and legacy Matrix SSO (see rust/src/sso.rs).
     void authMethodsDiscovered(const QString &homeserver,
                                bool password,
                                bool oauth,
                                bool sso);
+    // Emitted just before authMethodsDiscovered() for the same homeserver:
+    //   reachable            bool, false when the server could not be asked
+    //   resolvedHomeserver   the client API base URL the SDK resolved
+    //   oauthCanCreate       the server's page can create accounts
+    //   accountManagementUrl its account page (https), or empty
+    void authDiscoveryDetails(const QString &homeserver, const QVariantMap &details);
     // Authorization URL for the system browser. No credentials, but single-use,
     // so not logged.
     void oauthBrowserUrlReady(const QString &url);

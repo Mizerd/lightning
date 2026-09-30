@@ -52,7 +52,7 @@ fn require_loopback(redirect: &Url) -> Result<(), String> {
 ///
 /// No providers is common (one unnamed flow). Names come from the server.
 /// `icon` passes only as an `mxc:` URI, so the login screen never fetches
-/// from a host the server chose.
+/// from a host the server chose. `brand` is the MSC2858 brand token, or "".
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_sso_providers(
     ptr: *mut c_void,
@@ -97,10 +97,29 @@ pub unsafe extern "C" fn mx_rust_sso_providers(
                                     .map(|uri| uri.to_string())
                                     .filter(|uri| uri.starts_with("mxc://"))
                                     .unwrap_or_default();
+                                // MSC2858 brand ("google", "github", ...): the
+                                // login screen picks a bundled logo by it, so
+                                // only a short lowercase token passes.
+                                let brand = idp
+                                    .brand
+                                    .as_ref()
+                                    .map(|brand| brand.as_str().to_ascii_lowercase())
+                                    .filter(|brand| {
+                                        brand.len() <= 32
+                                            && brand.bytes().all(|b| {
+                                                b.is_ascii_lowercase()
+                                                    || b.is_ascii_digit()
+                                                    || b == b'.'
+                                                    || b == b'_'
+                                                    || b == b'-'
+                                            })
+                                    })
+                                    .unwrap_or_default();
                                 providers.push(json!({
                                     "id": idp.id,
                                     "name": idp.name,
                                     "icon": icon,
+                                    "brand": brand,
                                 }));
                             }
                         }

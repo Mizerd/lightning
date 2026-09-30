@@ -76,10 +76,13 @@ void *mx_rust_oauth_bootstrap_create(void);
  * offers. Never hard-codes behaviour for a particular homeserver. */
 char *mx_rust_oauth_discover(void *client, const char *homeserver);
 /* Enqueues `oauth_url` (open it in the system browser) or `oauth_failed`.
- * redirect_uri must be a loopback address; anything else is refused. */
+ * redirect_uri must be a loopback address; anything else is refused.
+ * prompt_create non-zero asks the server's page to create an account
+ * (prompt=create); only offered when discovery reported oauth_can_create. */
 char *mx_rust_oauth_begin(void *client,
                           const char *homeserver,
-                          const char *redirect_uri);
+                          const char *redirect_uri,
+                          int prompt_create);
 /* `callback` is the full redirect URI the loopback listener received. It
  * carries the authorization code — never log it. Enqueues `oauth_ok` (with
  * the canonical user/device and the session material) or `oauth_failed`. */

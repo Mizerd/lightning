@@ -37,6 +37,7 @@
 #include <QLoggingCategory>
 #include <QSet>
 #include <QTimeZone>
+#include <QCoreApplication>
 #include <QUrl>
 
 #include <algorithm>
@@ -52,6 +53,30 @@ QString takeRustString(char *raw)
     QString out = QString::fromUtf8(raw);
     mx_rust_free_cstring(raw);
     return out;
+}
+
+// Words for a password sign-in's common failures, from the fixed reason token
+// rust/src/lib.rs attaches (HTTP status + errcode, or the transport class).
+// Anything else keeps the backend's own message, as before.
+QString passwordLoginFailureText(const QString &reason, const QString &message)
+{
+    qCInfo(lcRust) << "password sign-in failed reason=" << reason;
+    // Literal per call so lupdate finds each string.
+    if (reason.endsWith(QLatin1String("_M_FORBIDDEN")))
+        return QCoreApplication::translate("RustSdkMatrixClient",
+                                           "Wrong username or password.");
+    if (reason.contains(QLatin1String("M_LIMIT_EXCEEDED")))
+        return QCoreApplication::translate(
+            "RustSdkMatrixClient", "Too many attempts. Wait a minute and try again.");
+    if (reason.contains(QLatin1String("M_USER_DEACTIVATED")))
+        return QCoreApplication::translate("RustSdkMatrixClient",
+                                           "This account has been deactivated.");
+    if (reason == QLatin1String("timeout") || reason == QLatin1String("connect")
+        || reason == QLatin1String("network"))
+        return QCoreApplication::translate(
+            "RustSdkMatrixClient",
+            "Can't reach the server. Check your connection and try again.");
+    return message;
 }
 
 // Serializes a formatted-body spec for the FFI. An empty map yields empty
@@ -484,16 +509,15 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         // Split the two empty-input cases the resolver folds together.
         QString message;
         if (!resolved && homeserver.trimmed().isEmpty()) {
-            message = tr("Enter your homeserver, for example "
-                         "https://matrix.org");
+            message = tr("Enter a server, for example matrix.org.");
         } else if (!resolved && user.trimmed().isEmpty()) {
             message = tr("Enter your username.");
         } else if (!resolved
                    && why == QLatin1String("invalid homeserver or empty user")) {
-            // Both fields are set and the resolver still refused: in practice a
-            // missing scheme.
-            message = tr("That homeserver address is not a full URL. Include "
-                         "https://, for example https://matrix.org");
+            // Both fields are set and the resolver still refused the address.
+            // AuthManager normalises it first, so this needs a caller that
+            // did not.
+            message = tr("That is not a server address. Enter one like matrix.org.");
         } else if (!resolved) {
             message = tr("That username is not a valid Matrix id. Use your "
                          "username, or the full @you:server form.");
@@ -631,6 +655,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     // Remember fresh-store attempts so a failure can clean up after itself.
     m_freshLoginIdentity = storeExists ? matrix::app_data::AccountIdentity{}
                                        : identity;
+    m_freshBrowserRecord = {};
     // A record and store exist but the secret backend cannot be read. The
     // session may be intact, so this must not be classified as "store with no
     // session metadata" and routed to a destructive repair. The condition lives
@@ -668,6 +693,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
         // This attempt never started, so nothing may remain marked as its fresh
         // store; the marker is armed only while an attempt is in flight.
         m_freshLoginIdentity = {};
+        m_freshBrowserRecord = {};
         setState(Error);
         Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
         return;
@@ -731,6 +757,7 @@ bool RustSdkMatrixClient::detachSession()
     // A detach abandons any running login attempt and drops its callbacks as
     // stale, so its fresh-store marker must go with it.
     m_freshLoginIdentity = {};
+    m_freshBrowserRecord = {};
     m_callSdpStore.clear();
     // Stale callbacks from this session become unobservable immediately;
     // releaseRustHandle() then retires the handle.
@@ -812,6 +839,17 @@ void RustSdkMatrixClient::discoverAuthMethods(const QString &homeserver)
 
 void RustSdkMatrixClient::beginOAuthLogin(const QString &homeserver)
 {
+    startOAuthAttempt(homeserver, false);
+}
+
+void RustSdkMatrixClient::beginOAuthSignUp(const QString &homeserver)
+{
+    startOAuthAttempt(homeserver, true);
+}
+
+void RustSdkMatrixClient::startOAuthAttempt(const QString &homeserver,
+                                            bool createAccount)
+{
     const QString hs = homeserver.trimmed();
     if (hs.isEmpty()) {
         Q_EMIT loginFailed(tr("A homeserver is required."));
@@ -883,7 +921,8 @@ void RustSdkMatrixClient::beginOAuthLogin(const QString &homeserver)
     const QByteArray hsBytes = hs.toUtf8();
     const QByteArray redirectBytes = m_oauthCallback->redirectUri().toUtf8();
     const QString result = takeRustString(
-        mx_rust_oauth_begin(m_authHandle, hsBytes.constData(), redirectBytes.constData()));
+        mx_rust_oauth_begin(m_authHandle, hsBytes.constData(), redirectBytes.constData(),
+                            createAccount ? 1 : 0));
     if (!result.isEmpty()) {
         endOAuthAttempt();
         releaseAuthHandle();
@@ -1044,6 +1083,19 @@ void RustSdkMatrixClient::drainAuthEvents()
         const QString type = event.value(QStringLiteral("type")).toString();
 
         if (type == QLatin1String("auth_discovery")) {
+            const QString homeserver = event.value(QStringLiteral("homeserver")).toString();
+            // `error` is set only when no client could be built for the server.
+            const QJsonValue error = event.value(QStringLiteral("error"));
+            QVariantMap details;
+            details.insert(QStringLiteral("reachable"),
+                           error.isNull() || error.isUndefined());
+            details.insert(QStringLiteral("resolvedHomeserver"),
+                           event.value(QStringLiteral("resolved_homeserver")).toString());
+            details.insert(QStringLiteral("oauthCanCreate"),
+                           event.value(QStringLiteral("oauth_can_create")).toBool());
+            details.insert(QStringLiteral("accountManagementUrl"),
+                           event.value(QStringLiteral("account_management_uri")).toString());
+            Q_EMIT authDiscoveryDetails(homeserver, details);
             // A slot must not start the next request from inside this signal:
             // the release below would destroy the new handle, and comparing
             // addresses cannot tell, because a new handle can reuse the freed
@@ -1136,6 +1188,9 @@ void RustSdkMatrixClient::drainAuthEvents()
                              row.value(QStringLiteral("name")).toString());
                 entry.insert(QStringLiteral("icon"),
                              row.value(QStringLiteral("icon")).toString());
+                // MSC2858 brand token; the login screen picks a bundled logo.
+                entry.insert(QStringLiteral("brand"),
+                             row.value(QStringLiteral("brand")).toString());
                 providers.append(entry);
             }
             Q_EMIT ssoProvidersReceived(
@@ -1275,16 +1330,23 @@ void RustSdkMatrixClient::adoptBrowserSession(
 {
     // Phase B: the homeserver has named the account, so a store can be chosen.
 
+    // Every refusal from here on comes after the user signed in on the
+    // server's page, so it says what went wrong in plain words. Anything that
+    // can be known earlier is refused before the browser opens (AuthManager).
     if (userId.isEmpty() || deviceId.isEmpty() || accessToken.isEmpty()) {
-        Q_EMIT loginFailed(tr("The server completed sign-in without returning a "
-                              "usable session."));
+        Q_EMIT loginFailed(tr("The server finished the sign-in but did not say "
+                              "which account or device it was for. Nothing was "
+                              "saved on this device."));
         return;
     }
 
     matrix::app_data::AccountIdentity identity;
     if (!matrix::app_data::resolveAccountIdentity(homeserver, userId, &identity)) {
-        Q_EMIT loginFailed(matrix::rust_session::userMessage(
-            matrix::rust_session::StoreBlockReason::InvalidSavedIdentity));
+        // The address was checked before the browser opened, so this is the
+        // account name the server returned.
+        Q_EMIT loginFailed(tr("The server signed you in as %1, an account name "
+                              "Lightning can't store on this device. Nothing was "
+                              "saved here.").arg(userId));
         return;
     }
 
@@ -1304,7 +1366,58 @@ void RustSdkMatrixClient::adoptBrowserSession(
     }
 
     const QString storePath = identity.rustStorePath;
-    const bool storeExists = QFileInfo::exists(storePath);
+    bool storeExists = QFileInfo::exists(storePath);
+
+    // Slug flattening is not injective: as login() does, refuse an account
+    // whose storage name collides with a different saved one. Without this,
+    // saveSession() below would write no record at all.
+    if (m_settings && m_settings->accountSlugConflicts(identity.userId)) {
+        qCWarning(lcRust) << "Browser sign-in refused: account slug collision"
+                          << "slug=" << identity.slug;
+        Q_EMIT loginFailed(tr(
+            "This account's local storage name collides with a different "
+            "account already saved on this device. Remove that account "
+            "first if you want to sign in with this one."));
+        return;
+    }
+
+    // A store with no saved account beside it (a rollback or removal that
+    // could not finish, a crash before the record was written, an older
+    // build) is moved aside exactly as login() does, never deleted, and the
+    // sign-in goes on. On a server with its own sign-in page there is no
+    // password form to reach login()'s own quarantine, so refusing was a dead
+    // end. Only when no saved account differs from this one by case alone and
+    // none records this store: on a case-insensitive file system it could be
+    // theirs.
+    if (storeExists && !hasSavedSession && m_settings) {
+        bool ambiguous = false;
+        const QString variant =
+            m_settings->canonicalUserIdForTypedIdentity(identity.userId, &ambiguous);
+        const QString owner =
+            m_settings->accountOwningStoreSlug(identity.effectiveStoreSlug());
+        if (ambiguous || !variant.isEmpty() || !owner.isEmpty()) {
+            qCWarning(lcRust) << "Browser sign-in refused: the store belongs to a "
+                                 "saved account"
+                              << "slug=" << identity.effectiveStoreSlug();
+            Q_EMIT loginFailed(tr(
+                "Another account saved on this device, with the same name in "
+                "different upper and lower case, uses this account's storage. "
+                "Remove that account first if you want to sign in with this one."));
+            return;
+        }
+        const QString moved = matrix::app_data::quarantineRustStore(identity);
+        qCInfo(lcRust) << "quarantined unclaimed store before browser sign-in"
+                       << "slug=" << identity.effectiveStoreSlug()
+                       << "moved=" << !moved.isEmpty();
+        storeExists = QFileInfo::exists(storePath);
+        if (storeExists) {
+            setState(Error);
+            Q_EMIT loginFailed(tr(
+                "An unusable local store for this account could not be moved "
+                "aside. Check filesystem permissions and try again."));
+            return;
+        }
+    }
 
     // A device the authorization server just created must never be attached to
     // a store belonging to a different device.
@@ -1315,7 +1428,12 @@ void RustSdkMatrixClient::adoptBrowserSession(
                           << "authType=" << authType
                           << "slug=" << identity.effectiveStoreSlug()
                           << "reason=" << matrix::rust_session::diagnosticName(reason);
-        Q_EMIT loginFailed(matrix::rust_session::userMessage(reason));
+        // Every refusal left here names an exact saved record for this very
+        // account (a store without one was moved aside above), so the login
+        // screen's card is safe to offer and is the way out: open it or remove
+        // it (a session already here, D6), or rebuild it (a record with no
+        // device). Never a bare "sign in again" that cannot help.
+        failWithBlockReason(reason, identity);
         return;
     }
 
@@ -1324,9 +1442,21 @@ void RustSdkMatrixClient::adoptBrowserSession(
     // and a stale value would target a different account's store.
     m_openingIdentity = identity;
 
+    // What this attempt creates, a failed restore takes back (login_failed
+    // below, and the synchronous failure at the end): only that. A record or
+    // store that existed before belongs to a session that may still work. The
+    // record is marked once saveSession() has really written it.
+    m_freshLoginIdentity = storeExists ? matrix::app_data::AccountIdentity{}
+                                       : identity;
+    m_freshBrowserRecord = {};
+
     if (!ensureRustHandleForIdentity(identity)) {
+        m_freshLoginIdentity = {};
+        m_freshBrowserRecord = {};
         setState(Error);
-        Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
+        Q_EMIT loginFailed(tr("You signed in, but Lightning could not open this "
+                              "account's storage on this device. Nothing was "
+                              "saved here."));
         return;
     }
 
@@ -1356,6 +1486,17 @@ void RustSdkMatrixClient::adoptBrowserSession(
         m_settings->saveSession(identity.homeserver, identity.userId, deviceId,
                                 accessToken, refreshToken,
                                 authType, clientId);
+        // saveSession() writes no record when it refuses; then nothing may be
+        // left for a looser match to roll back later.
+        if (!m_settings->hasSavedAccount(identity.userId)) {
+            rollBackFailedAttempt(std::exchange(m_freshLoginIdentity, {}), {});
+            setState(Error);
+            Q_EMIT loginFailed(tr("You signed in, but Lightning could not save this "
+                                  "account on this device, so it did not open it."));
+            return;
+        }
+        if (!hasSavedSession)
+            m_freshBrowserRecord = identity;
         m_settings->setSyncToken({});
         // Record the store location (the store an account uses is recorded,
         // never re-derived). The password path records it from login_ok, which
@@ -1365,16 +1506,77 @@ void RustSdkMatrixClient::adoptBrowserSession(
 
     const QString result = restore(identity, deviceId);
     if (!result.isEmpty()) {
+        const auto store = matrix::app_data::AccountIdentity(
+            std::exchange(m_freshLoginIdentity, {}));
+        const auto record = matrix::app_data::AccountIdentity(
+            std::exchange(m_freshBrowserRecord, {}));
+        const bool complete = rollBackFailedAttempt(store, record);
         setState(Error);
-        Q_EMIT loginFailed(result.startsWith(QLatin1String("error: ")) ? result.mid(7)
-                                                                       : result);
+        Q_EMIT loginFailed(browserRestoreFailureText(
+            complete, result.startsWith(QLatin1String("error: ")) ? result.mid(7)
+                                                                  : result));
     }
+}
+
+bool RustSdkMatrixClient::rollBackFailedAttempt(
+    const matrix::app_data::AccountIdentity &store,
+    const matrix::app_data::AccountIdentity &record)
+{
+    bool complete = true;
+    if (store.isValid()) {
+        // The store this attempt opened, and only that directory: a
+        // quarantined sibling (".orphaned-*") may hold the only copy of
+        // someone's room keys. Wait for the retiring handle first, as every
+        // other deleter does, or an open database survives on Windows.
+        releaseRustHandle();
+        if (!waitForRustRetirement(kStoreCloseBudgetMs))
+            qCWarning(lcRust) << "a failed attempt's store was still open after the "
+                                 "close budget";
+        const auto removed = matrix::app_data::removeAttemptRustStore(store);
+        complete = removed.failed == 0;
+        qCInfo(lcRust) << "cleaned fresh store after failed login"
+                       << "slug=" << store.effectiveStoreSlug()
+                       << "deleted=" << removed.deleted
+                       << "failed=" << removed.failed;
+    }
+    if (record.isValid()) {
+        // Exactly the record this attempt wrote, with its tokens; a case
+        // variant or a slug neighbour is another account.
+        if (m_settings && m_settings->hasSavedAccount(record.userId)) {
+            bool matched = false;
+            if (!clearPersistedAccount(record, &matched))
+                complete = false;
+            qCInfo(lcRust) << "rolled back the record of a failed browser sign-in"
+                           << "slug=" << record.slug << "matched=" << matched;
+        }
+        m_userId.clear();
+        m_deviceId.clear();
+        m_homeserver.clear();
+    }
+    return complete;
+}
+
+QString RustSdkMatrixClient::browserRestoreFailureText(bool rolledBack,
+                                                       const QString &detail) const
+{
+    if (rolledBack)
+        return tr("You signed in, but Lightning could not open this account on "
+                  "this device, so nothing was kept. You can try again. (%1)")
+            .arg(detail);
+    return tr("You signed in, but Lightning could not open this account on this "
+              "device, and could not remove all of what it had started to save "
+              "here. Check the log before trying again. (%1)")
+        .arg(detail);
 }
 
 bool RustSdkMatrixClient::restoreSession()
 {
     // Named scope for the stall tracer, as in detachSession().
     stalltrace::Scope stallScope("session-restore");
+    // A restore replaces whatever attempt was running; nothing of that
+    // attempt may be rolled back against the store this one opens.
+    m_freshLoginIdentity = {};
+    m_freshBrowserRecord = {};
     if (!m_settings || !m_settings->hasSession())
         return false;
 
@@ -4001,6 +4203,7 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
 
     if (type == QLatin1String("login_ok")) {
         m_freshLoginIdentity = {};
+        m_freshBrowserRecord = {};
         // SENSITIVE: this event carries `access_token`. Never log `event` or
         // `accessToken`; the token goes only to SettingsManager::saveSession.
         matrix::app_data::AccountIdentity identity;
@@ -4060,26 +4263,43 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             m_freshLoginIdentity.isValid() && !m_storePath.isEmpty()
             && QFileInfo(m_freshLoginIdentity.rustStorePath).absoluteFilePath()
                    == QFileInfo(m_storePath).absoluteFilePath();
+        // A browser sign-in's record, written before its restore, goes with
+        // its store (D6). Only when it names the store this attempt opened.
+        const bool browserRecordMatchesThisAttempt =
+            m_freshBrowserRecord.isValid() && !m_storePath.isEmpty()
+            && QFileInfo(m_freshBrowserRecord.rustStorePath).absoluteFilePath()
+                   == QFileInfo(m_storePath).absoluteFilePath();
+        const matrix::app_data::AccountIdentity browserRecord =
+            browserRecordMatchesThisAttempt ? m_freshBrowserRecord
+                                            : matrix::app_data::AccountIdentity{};
+        m_freshBrowserRecord = {};
         if (m_freshLoginIdentity.isValid() && !freshMatchesThisAttempt) {
             qCWarning(lcRust)
                 << "discarding a fresh-store marker that names a different "
                    "account than this attempt; no store was removed";
             m_freshLoginIdentity = {};
         }
-        if (m_freshLoginIdentity.isValid()) {
-            const auto identity = m_freshLoginIdentity;
-            m_freshLoginIdentity = {};
-            releaseRustHandle();
-            const auto removed =
-                matrix::app_data::removeAccountRustState(identity);
-            qCInfo(lcRust) << "cleaned fresh store after failed login"
-                           << "slug=" << identity.slug
-                           << "deleted=" << removed.deleted
-                           << "failed=" << removed.failed;
-        }
+        // Only what this attempt created; a store quarantined before it (by
+        // login() a moment ago, or by a repair) is never touched.
+        const auto freshStore = matrix::app_data::AccountIdentity(
+            std::exchange(m_freshLoginIdentity, {}));
+        const bool rolledBack = (freshStore.isValid() || browserRecord.isValid())
+            ? rollBackFailedAttempt(freshStore, browserRecord)
+            : true;
         const QString message = event.value(QStringLiteral("message")).toString(
             tr("Rust SDK login failed."));
-        if (matrix::rust_session::isStoreOwnershipMismatch(message)) {
+        // The reason reaches the UI as text only, and a failed startup restore
+        // shows just the login page; without this line it is lost.
+        qCWarning(lcRust) << "sign-in or restore failed"
+                          << "stage=" << event.value(QStringLiteral("stage")).toString()
+                          << "reason=" << event.value(QStringLiteral("reason")).toString()
+                          << "message=" << message.left(400);
+        if (browserRecord.isValid()) {
+            // A browser sign-in's restore, after the user signed in on the
+            // server's page. What it created is gone, so no repair applies:
+            // say so, and that nothing blocks another try.
+            Q_EMIT loginFailed(browserRestoreFailureText(rolledBack, message));
+        } else if (matrix::rust_session::isStoreOwnershipMismatch(message)) {
             // The SDK is the authority on store ownership: drop a
             // divergent-directory recording it just rejected so the next start
             // re-evaluates. Only the mapping is cleared; no store is touched.
@@ -4105,6 +4325,10 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                 m_openingIdentity.userId, m_openingIdentity.homeserver);
             Q_EMIT loginFailed(matrix::rust_session::userMessage(
                 matrix::rust_session::StoreBlockReason::AccessTokenRevoked));
+        } else if (event.value(QStringLiteral("stage")).toString()
+                   == QLatin1String("password")) {
+            Q_EMIT loginFailed(passwordLoginFailureText(
+                event.value(QStringLiteral("reason")).toString(), message));
         } else {
             Q_EMIT loginFailed(message);
         }

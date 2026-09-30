@@ -1,7 +1,10 @@
 #include "auth/AuthManager.h"
 
+#include "app/UrlLauncher.h"
 #include "matrix/MatrixClient.h"
+#include "storage/AppDataPaths.h"
 
+#include <QHostAddress>
 #include <QRegularExpression>
 #include <QUrl>
 
@@ -35,8 +38,17 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         runDeferredDiscovery();
     });
 
+    // Arrives just before the answer below, for the same server.
+    connect(m_client, &MatrixClient::authDiscoveryDetails, this,
+            [this](const QString &homeserver, const QVariantMap &details) {
+        m_detailsFor = homeserver;
+        m_details = details;
+    });
+
     connect(m_client, &MatrixClient::authMethodsDiscovered, this,
             [this](const QString &homeserver, bool password, bool oauth, bool sso) {
+        const bool haveDetails = std::exchange(m_detailsFor, QString()) == homeserver;
+        const QVariantMap details = std::exchange(m_details, QVariantMap());
         // The field has since been cleared or changed to text that is not an
         // address, which asks nothing, so this answers an earlier server.
         if (std::exchange(m_dropNextDiscovery, false))
@@ -46,9 +58,26 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         m_serverOauth = oauth && m_client->supportsOAuthLogin();
         // Gated on backend capability, as OAuth is.
         m_serverSso = sso && m_client->supportsSsoLogin();
+        // Without details, a server that offers nothing is most likely one
+        // that could not be asked.
+        m_serverReachable = haveDetails
+            ? details.value(QStringLiteral("reachable"), true).toBool()
+            : (password || oauth || sso);
+        m_serverInsecure = haveDetails
+            && isInsecureRemoteUrl(details.value(QStringLiteral("resolvedHomeserver")).toString());
+        m_serverCanCreate = haveDetails
+            && details.value(QStringLiteral("oauthCanCreate")).toBool();
+        // Opened in the browser: https with a host, or nothing.
+        const QUrl account(details.value(QStringLiteral("accountManagementUrl")).toString());
+        m_accountManagementUrl = haveDetails && account.scheme() == QLatin1String("https")
+                && !account.host().isEmpty() && account.userInfo().isEmpty()
+            ? account.toString(QUrl::FullyEncoded) : QString();
         // A previous server's provider list must not survive into this one.
         m_ssoProviders.clear();
-        if (m_serverSso) {
+        // A server with its own sign-in page is signed in to there, as Element
+        // does (its Login.ts keeps only the OAuth flow when the server has
+        // one), so its compatibility SSO providers are not asked for.
+        if (m_serverSso && !m_serverOauth) {
             // Until providers arrive the UI shows the generic single action.
             // Asked on the next turn of the event loop, never from inside this
             // signal: the backend releases the handle that answered discovery
@@ -63,10 +92,10 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
                     m_client->requestSsoProviders(homeserver);
             }, Qt::QueuedConnection);
         }
-        // A server offering nothing is indistinguishable from an unreachable
-        // one here, so report "failed" and let the user retry.
-        m_discoveryState = (password || oauth || sso) ? QStringLiteral("done")
-                                                      : QStringLiteral("failed");
+        // Nothing this build can use is "failed"; discoveryProblem says whether
+        // the server could not be reached or answered with nothing usable.
+        m_discoveryState = (m_serverPassword || m_serverOauth || m_serverSso)
+            ? QStringLiteral("done") : QStringLiteral("failed");
         Q_EMIT discoveryChanged();
     });
 
@@ -117,7 +146,10 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     });
 }
 
-QString AuthManager::normalizedServerAddress(const QString &typed)
+namespace {
+
+// One pass of AuthManager::normalizedServerAddress(); see there.
+QString normalizeServerAddressOnce(const QString &typed)
 {
     QString text = typed.trimmed();
     // No address is this long; a paste this size is not one.
@@ -152,7 +184,15 @@ QString AuthManager::normalizedServerAddress(const QString &typed)
         QStringLiteral("/(?:_matrix|\\.well-known)(?:/|$)"),
         QRegularExpression::CaseInsensitiveOption);
 
+    // Without a scheme, the text must be a server name with at most slashes
+    // or a pasted API path after it; checked on the path as typed and again
+    // once "." and ".." are resolved.
+    const auto nameOnlyPath = [](const QString &path) {
+        return path.isEmpty() || path.indexOf(apiPath) == 0
+            || path == QString(path.size(), QLatin1Char('/'));
+    };
     QString scheme = QStringLiteral("https");
+    bool schemeless = false;
     const QRegularExpressionMatch match = schemeRe.match(text);
     if (match.hasMatch()) {
         // A typed http:// is kept, never upgraded or downgraded; any other
@@ -171,12 +211,9 @@ QString AuthManager::normalizedServerAddress(const QString &typed)
         // pasted API path or slashes: a password typed here by mistake
         // ("Summer2026?", "Winter/2026") is never looked up.
         const QRegularExpressionMatch name = serverName.match(text);
-        if (!name.hasMatch())
+        if (!name.hasMatch() || !nameOnlyPath(name.captured(3)))
             return {};
-        const QString path = name.captured(3);
-        if (!path.isEmpty() && path.indexOf(apiPath) != 0
-            && path != QString(path.size(), QLatin1Char('/')))
-            return {};
+        schemeless = true;
         // A Matrix ID's server with no dot, port or brackets ("@me:Secret99")
         // is likelier a password; localhost is the exception.
         if (fromUserId && name.captured(2).isEmpty()
@@ -191,11 +228,15 @@ QString AuthManager::normalizedServerAddress(const QString &typed)
     static const QRegularExpression secondHost(QStringLiteral("^//+[^/]"));
     // QUrl lowercases the host.
     QUrl url(scheme + QLatin1String("://") + text, QUrl::StrictMode);
-    if (!url.isValid() || url.host().isEmpty()
-        || secondHost.match(url.path()).hasMatch())
+    if (!url.isValid() || url.host().isEmpty())
         return {};
-    // "/a/../_matrix" resolves before the API path is looked for.
+    // "." and ".." first, so every check below sees the path that will be
+    // sent: "/a/..//evil.com" is "//evil.com", "/_matrix/../../evil" is
+    // "/evil".
     url = url.adjusted(QUrl::NormalizePathSegments);
+    if (secondHost.match(url.path()).hasMatch()
+        || (schemeless && !nameOnlyPath(url.path())))
+        return {};
 
     // Any other path is kept: a homeserver can live under one (typed with its
     // scheme), and discovery checks it.
@@ -209,6 +250,19 @@ QString AuthManager::normalizedServerAddress(const QString &typed)
     url.setQuery(QString());
     url.setFragment(QString());
     return url.toString(QUrl::FullyEncoded);
+}
+
+} // namespace
+
+QString AuthManager::normalizedServerAddress(const QString &typed)
+{
+    // Only a fixed point is an answer: an address that would normalise to
+    // something else next time (an encoded "%2F" that decodes into a new path
+    // separator) is not one address, so it is refused.
+    const QString once = normalizeServerAddressOnce(typed);
+    if (once.isEmpty() || normalizeServerAddressOnce(once) != once)
+        return {};
+    return once;
 }
 
 bool AuthManager::isLoggedIn() const
@@ -281,21 +335,42 @@ void AuthManager::discoverAuthMethods(const QString &homeserver)
         return;
     }
     const QString hs = normalizedServerAddress(typed);
+    // The same server, answered or being asked: nothing changes, so the
+    // sign-in choices do not blink when the field loses focus.
+    if (!hs.isEmpty() && hs == m_discoveredHomeserver
+        && (m_discoveryState == QLatin1String("done")
+            || m_discoveryState == QLatin1String("probing")))
+        return;
     // Asking nothing leaves a probe in flight answering for a server no
     // longer on screen; a new probe replaces it in the backend.
     if (!hs.isEmpty())
         m_dropNextDiscovery = false;
     else if (m_discoveryState == QLatin1String("probing"))
         m_dropNextDiscovery = true;
+    // Another server: the last one's error no longer applies.
+    if (hs != m_discoveredHomeserver)
+        setLastError({});
     // Reset first so a previous server's results never show against this one.
     m_discoveredHomeserver = hs;
     m_serverPassword = false;
     m_serverOauth = false;
     m_serverSso = false;
+    m_serverReachable = true;
+    m_serverInsecure = false;
+    m_serverCanCreate = false;
+    m_accountManagementUrl.clear();
     // Text that is not an address is never sent to be probed.
     m_discoveryState = typed.isEmpty() ? QStringLiteral("idle")
                        : hs.isEmpty()  ? QStringLiteral("failed")
                                        : QStringLiteral("probing");
+    // A backend that has no browser sign-in has nothing to ask either: it
+    // signs in with a password (the mock and the HTTP backends).
+    if (!hs.isEmpty() && !m_client->supportsOAuthLogin() && !m_client->supportsSsoLogin()) {
+        m_serverPassword = true;
+        m_discoveryState = QStringLiteral("done");
+        Q_EMIT discoveryChanged();
+        return;
+    }
     Q_EMIT discoveryChanged();
     if (hs.isEmpty())
         return;
@@ -316,11 +391,65 @@ void AuthManager::beginBrowserLogin(const QString &homeserver)
         refuseServerAddress();
         return;
     }
+    if (!refuseBeforeTheBrowser(hs))
+        return;
     setLoggingIn(true);
     setBrowserLoginInProgress(true);
     setLastError({});
     setLoginStage(QStringLiteral("connecting"));
     m_client->beginOAuthLogin(hs);
+}
+
+void AuthManager::beginBrowserSignUp(const QString &homeserver)
+{
+    if (!m_client || m_loggingIn || m_browserLoginInProgress)
+        return;
+    const QString hs = normalizedServerAddress(homeserver);
+    // Only for the server discovery said can do it; the button is shown for
+    // nothing else.
+    if (hs.isEmpty() || hs != m_discoveredHomeserver || !serverCanCreateAccount()) {
+        setLastError(tr("This server does not create accounts from Lightning."));
+        Q_EMIT loginFailed(m_lastError);
+        return;
+    }
+    if (!refuseBeforeTheBrowser(hs))
+        return;
+    setLoggingIn(true);
+    setBrowserLoginInProgress(true);
+    setLastError({});
+    setLoginStage(QStringLiteral("connecting"));
+    m_client->beginOAuthSignUp(hs);
+}
+
+bool AuthManager::openAccountPage()
+{
+    if (!serverOffersAccountPage())
+        return false;
+    return lightning::urls::openExternally(QUrl(m_accountManagementUrl));
+}
+
+QString AuthManager::discoveryProblem() const
+{
+    if (m_discoveryState != QLatin1String("failed"))
+        return {};
+    if (m_discoveredHomeserver.isEmpty())
+        return QStringLiteral("not_an_address");
+    return m_serverReachable ? QStringLiteral("unsupported")
+                             : QStringLiteral("unreachable");
+}
+
+bool AuthManager::isInsecureRemoteUrl(const QString &url)
+{
+    const QUrl parsed(url);
+    if (parsed.scheme().compare(QLatin1String("http"), Qt::CaseInsensitive) != 0)
+        return false;
+    const QString host = parsed.host().toLower();
+    if (host.isEmpty())
+        return false;
+    if (host == QLatin1String("localhost") || host.endsWith(QLatin1String(".localhost")))
+        return false;
+    const QHostAddress address(host);
+    return address.isNull() || !address.isLoopback();
 }
 
 void AuthManager::cancelBrowserLogin()
@@ -347,6 +476,8 @@ void AuthManager::beginSsoLogin(const QString &homeserver, const QString &idpId)
         refuseServerAddress();
         return;
     }
+    if (!refuseBeforeTheBrowser(hs))
+        return;
     // Shares browserLoginInProgress with OAuth; cancelBrowserLogin() cancels
     // either.
     setLoggingIn(true);
@@ -373,6 +504,26 @@ void AuthManager::runDeferredDiscovery()
         && m_discoveryState == QLatin1String("done"))
         return;
     discoverAuthMethods(typed);
+}
+
+bool AuthManager::refuseBeforeTheBrowser(const QString &homeserver)
+{
+    // Empty goes on to the backend's own "a homeserver is required".
+    if (homeserver.isEmpty())
+        return true;
+    // The browser round-trip ends with the account record, keyed on this
+    // address (RustSdkMatrixClient::adoptBrowserSession). Whatever that step
+    // would refuse is refused here, before the user signs in on the server's
+    // page and the server issues a device nobody will use. The user id is
+    // not known yet, so a stand-in checks the address and the data folder.
+    matrix::app_data::AccountIdentity identity;
+    if (matrix::app_data::resolveAccountIdentity(
+            homeserver, QStringLiteral("@check:example.org"), &identity))
+        return true;
+    setLastError(tr("Lightning can't keep an account for this server on this "
+                    "device, so it did not open your browser."));
+    Q_EMIT loginFailed(m_lastError);
+    return false;
 }
 
 void AuthManager::refuseServerAddress()
