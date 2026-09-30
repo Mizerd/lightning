@@ -128,6 +128,15 @@ What shipped instead: encrypted-room media is not admitted to the SDK media
 cache (`use_cache=false` for `MediaSource::Encrypted`), and the store
 directory and files are 0700/0600.
 
+**Implemented 2026-09-30, the route recorded above:** the media store is opened
+separately through `ClientBuilder::store_config`, as a `SqliteMediaStore` in
+`lightning-media-store/` keyed with `SqliteStoreConfig::key` (32 bytes, no KDF)
+from a per-account key in the SecretStore; the other three stores are opened as
+`sqlite_store(path, None)` opened them, and the cross-process lock holder stays
+`"main"`. Encrypted-room media is admitted to it only under a key held by a
+secure keyring. See `rust/src/mediastore.rs`, `src/matrix/MediaStoreKey.cpp`
+and docs/feature-contracts.md.
+
 ## NOT TESTED from this round (both sessions)
 
 - An ANSWERED legacy 1:1 call after the sender binding.

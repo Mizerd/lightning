@@ -3,6 +3,11 @@
 ## 2026-09-30 — OPEN after the overnight live-test campaign
 
 **Decisions for Rokas.**
+- **CLOSED (Rokas, 2026-09-30): the call sounds are signed off.** After three
+  rounds he chose set E3 ("fuller") with a gentler `disconnected.wav`; it ships
+  in `data/sounds/` from `scripts/generate-call-sounds.py` (default direction
+  E3). Stereo, ~5.6 MB; loading stereo WAVs through QSoundEffect is NOT TESTED
+  live. They can be switched off under Settings > Sound & video > Call sounds.
 - The server-admin "Delete from server" path was NOT TESTED: it needs a
   server-admin grant on the production homeserver, which was not given.
 - `validate-rpm-opensuse` is a HARD gate installing from live Tumbleweed
@@ -174,7 +179,13 @@ Everything below was found or left open by that round's live testing and its
 
 ### Packaging
 
-- **OPEN DECISION (Rokas): how Flathub updates are automated.** Flathub's
+- **DECIDED (Rokas, 2026-09-30): the release pipeline copies the two root
+  files into a Flathub PR** (`flathub-update-pr`; see
+  `docs/release-operations.md`). Rokas read the policy below as a grey zone,
+  given that his own AI-disclosed submission was accepted, and chose this. The
+  job waits on him to create `FLATHUB_GITHUB_TOKEN`. The text below records
+  what was weighed.
+- **Superseded — OPEN DECISION (Rokas): how Flathub updates are automated.** Flathub's
   requirements (2026-09-21) bar AI tools from writing manifests or opening,
   automating or describing Flathub pull requests, and the repo
   `github.com/flathub/org.lightning_matrix.Lightning` falls under them.
@@ -231,8 +242,41 @@ Since this round each install keeps its own Secret Service items (schema
 `org.lightning_matrix.Lightning.Secret`, attribute `install` = the id kept in
 its own settings file), so the Flatpak, the snap and a native build can no
 longer overwrite or, on sign-out, delete each other's tokens (live PASS
-2026-09-29 on a private keyring; the old build reproduced the report). What
-remains open:
+2026-09-29 on a private keyring; the old build reproduced the report).
+
+**CORRECTED 2026-09-30: the Flatpak and the snap do NOT always share the
+Secret Service.** libsecret 0.21's password API (which `LibSecretStore` uses
+for every read and write) picks its backend per process: inside a Flatpak
+(`/.flatpak-info`) or a snap (`SNAP_NAME`), whenever the Secret portal answers
+its version check, it keeps the items in a sandbox-private FILE keyring
+(`$XDG_DATA_HOME/keyrings/default.keyring`) encrypted with a secret the portal
+hands out, and only falls back to the Secret Service when the portal does not
+answer (read in libsecret 0.21.7's source, measured by emulation with a fake
+portal on a private bus). Install scoping still matters for the native builds
+and for a sandbox without the portal. Two consequences, both measured by that
+emulation and both reading as "this account's sign-in is gone": the portal
+handing out a different secret (for instance a KWallet re-created), and the
+portal missing at one launch while the Secret Service is up, which silently
+switches libsecret to the Secret Service, where the items are not. A launch
+with the keyring simply absent writes nothing and restores once it is back
+(measured, native and emulated sandbox). Since the keyring-down fix such a
+miss, for a sign-in this install saved for the recorded device, is the
+`keyring_lost_session` card and a same-device password sign-in, never the
+store rebuild; NOT TESTED live on a real Flatpak or snap.
+
+What remains open:
+
+- **Record which libsecret backend holds each account's items** (file or
+  Secret Service), so a miss under the other one is "cannot tell" rather than
+  a lost sign-in; until then a sandbox whose portal comes and goes asks for a
+  sign-in again after each switch (non-destructive, same device).
+- **"Try again" from the signed-out path.** The keyring notice and its retry
+  appear when a launch lands on the login screen; a sign-out that leaves other
+  accounts unreadable still says "restart Lightning".
+- **A browser-sign-in account (OAuth, SSO) whose keyring lost its sign-in**
+  gets the card but no way to continue as the same device: its sign-in here
+  cannot ask for a device, so it still ends in "already signed in on this
+  device".
 
 - **Adopted sessions are UNVERIFIED.** An item written by an older build
   (`net.smetonis.matrixclient.Secret`) is copied into the install's own items

@@ -470,6 +470,49 @@ backend capability checks and honest live-test status.
   cancellable end-to-end (QML card → MediaBridge → `mx_rust_media_cancel`),
   and the SDK media store runs a retention policy (max_file_size 24 MiB) so
   large payloads no longer enter or stall matrix-sdk-media.sqlite3
+- **The SDK media store is encrypted at rest, and encrypted-room media is
+  kept in it (2026-09-30).** `rust/src/mediastore.rs` opens the media store
+  on its own, in `lightning-media-store/` inside the account's store
+  directory, with a 32-byte per-account key that `src/matrix/MediaStoreKey.cpp`
+  keeps in the SecretStore beside the tokens (so sign-out and account removal
+  delete it with them). The state, event-cache and crypto stores are opened
+  exactly as `sqlite_store(path, None)` opened them; only the media store has
+  a key. Binding rules:
+  * a key is made only when its record is PROVABLY absent — the read
+    succeeded, the store can vouch for its misses, and the account's own
+    access token reads back from the same store. A locked keyring, a
+    fallback standing in for one, a damaged value, or a key that could not be
+    written and read back all give NO key;
+  * no key means an IN-MEMORY media store for the session: nothing kept,
+    nothing on disk, never a plaintext file. The encrypted store on disk is
+    left exactly as it is for the next start;
+  * a store recorded for another key (`lightning-key-id`, a one-way id) is
+    unreadable and is deleted: it is only a cache;
+  * encrypted-room media is cached only in that store and only when the key
+    is in a secure keyring (`isSecure()`: Secret Service, Credential
+    Manager). Never as a kept file (`lightning-media-files/`), which is plain;
+  * the old plaintext `matrix-sdk-media.sqlite3` is deleted (database first,
+    then -wal/-shm) at the first start where no row is pinned by the send
+    queue (`ignore_policy`); while one is, it is used as before for that
+    session so the upload can finish, and new attachments sent then are
+    written to it unencrypted. BOUNDED: pins not accessed for 7 days
+    (`ABANDONED_AFTER`) count as abandoned, and a file that is not a readable
+    database is deleted at once;
+  * nothing from an encrypted room becomes a plain kept file, judged by the
+    ROOM (unknown counts as encrypted), not by the media's own encryption;
+  * the key is read through `SettingsManager::secretStore()` on every handle,
+    never cached: `setSecretStore()` can swap it after a keyring outage, and
+    no key is made while `secretBackendUnavailable()` or
+    `secretMissesAreInconclusive()`. A session already open keeps the media
+    store it opened; the swap applies from the next handle;
+  * `mediaStoreKey` is one of the keys `migrateInsecureSecretsGroup` moves, so
+    a fallback group holding it still migrates whole.
+  On an insecure store (macOS, portable) sent attachments, encrypted rooms
+  included, are still kept by the send queue, encrypted with a key on the same
+  disk; disclosed in docs/privacy.md and the Settings note. A first sign-in has
+  no saved record yet, so its first session runs in memory and the key is made
+  at the next start; a memory session loses an upload still running at quit.
+  Live validation: NOT TESTED.
 - **Outgoing videos carry a real poster thumbnail.** `AttachmentQueueModel`
   drives the same `VideoPosterExtractor` the receive side uses; the decoded
   frame is also the only honest source of the video's width/height and
@@ -1162,6 +1205,9 @@ store at rest is a separate, open decision** — `sqlite_store` builds ONE confi
 for the state, event-cache, media and crypto stores, and matrix-sdk-sqlite
 mints a new cipher when it finds none, so a passphrase would leave every
 existing install unable to decode its own account pickle.
+(2026-09-30: the MEDIA store alone now has its own key, through
+`ClientBuilder::store_config` — see "The SDK media store is encrypted at rest"
+above. The event cache this index duplicates is unchanged.)
 
 * **The index lives in the account's own store directory**, so it is deleted
   with the account and inherits the same 0700 protection as the SDK store.
@@ -1190,6 +1236,31 @@ existing install unable to decode its own account pickle.
   because `events()` returns the in-memory chunk and the history trim shrinks
   it back.
 * **Bounded at 250,000 rows**, evicting oldest first.
+* **"Index all rooms"** (Settings → Privacy & security → Message search index,
+  and a one-time offer after a sign-in made on this device) walks every joined
+  room with the SAME bounded per-room walk, `deep_index_room_gated` — there is
+  no second indexer and no second history bound. Strictly one room and one
+  `/messages` page at a time, 2 s between pages and 2 s between rooms; a
+  rate limit matrix-sdk's own retries did not absorb backs the whole queue off
+  by the server's `retry_after_ms`. A call or a scrolling timeline HOLDS it
+  between pages. The queue, its position and the rooms already done persist in
+  `lightning-index-all.json` in the account's store directory (room ids and
+  counters only; 0600; deleted with the account, reset when the index is
+  cleared), so a restart continues and a finished room is skipped next time.
+  Undecryptable history is never indexed; a room that still holds any is not
+  recorded as done, so the next run revisits it — by then matrix-sdk's
+  redecryptor has rewritten whatever keys arrived for, in the event-cache
+  store the walk re-reads. "Finished" means every room was walked to that
+  bound or its start, not that all history is searchable: failed rooms and
+  rooms with undecryptable history are reported and revisited next run. A
+  "Clear index" wins over any writer in flight — every writer (this pass,
+  "Index this room", the sweep) captures the index generation before its
+  first await and writes only while it matches, under the mutex `clear`
+  holds. The offer is asked once per account record, never
+  for a restored session, and waits while a verification or recovery prompt
+  is up. Runs on the room-action pool and stops on sign-out, account switch or
+  teardown through `index_shutdown` and the lifecycle generation. NOT
+  live-tested.
 * The find bar prefers local and offers server as an explicit CHOICE where the
   server can read the room — they answer different questions, and switching
   silently would make "no results" mean two things on consecutive keystrokes.
