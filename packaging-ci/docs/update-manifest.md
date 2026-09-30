@@ -196,15 +196,26 @@ available that they must not take (and that would not update their installation
 if they took it). The same is true of Snap. They belong in `channels`, which
 describes ecosystem state without offering a download.
 
-All four channels are `available: false` today, and each carries a `note` saying
-plainly why:
+All four channels are `available: false` by default, and each carries a `note`
+saying plainly why:
 
 - **`linux-flatpak`** — there is no Flathub publication. The `.flatpak` on the
   release page is a manual download.
 - **`linux-snap`** — there is no Snap Store publication. Same situation.
 - **`linux-deb-repo`** — there is no APT repository. The `.deb` is a direct
   download, which is why it *is* in `artifacts`.
-- **`linux-rpm-repo`** — there is no DNF/YUM repository, same reasoning.
+- **`linux-rpm-repo`** — Fedora COPR (`mizerd/lightning`). Only an install
+  built by COPR reads it: `lightning-copr.spec.in` compiles in the
+  `linux-rpm-repo` install type, which the client treats as dnf-managed, while
+  the GitLab `.rpm` stays `linux-rpm` and updates from `artifacts`. It is
+  `false` by default because COPR builds a release only after this manifest
+  is published (a tag-push webhook), and the default note tells a COPR user
+  so. Two ways to say `true`, both with `UPDATE_CHANNEL_RPM_REPO_AVAILABLE=true`
+  and `UPDATE_CHANNEL_RPM_REPO_VERSION=<version>`: in the release trigger
+  itself, which costs nothing but tells COPR users about the update an hour or
+  two before dnf can see it; or, once the COPR build is green, in a refresh as
+  described under "Refreshing without a release" above, which is exact but
+  runs the whole pipeline again.
 
 Every one of these is driven by a CI variable
 (`UPDATE_CHANNEL_<NAME>_AVAILABLE` / `_VERSION` / `_NOTE`), so publishing to

@@ -390,6 +390,10 @@ StrategyResult planForMode(const UpdaterArguments &args,
         return strategyFail(StrategyError::NotSelfInstallable,
                             QStringLiteral("updates for this installation are "
                                            "managed by Snap"));
+    case UpdaterMode::LinuxRpmRepo:
+        return strategyFail(StrategyError::NotSelfInstallable,
+                            QStringLiteral("updates for this installation are "
+                                           "managed by dnf"));
     case UpdaterMode::MacosDmg:
         return strategyFail(StrategyError::UnsupportedPlatform,
                             QStringLiteral("macOS disk images are not installed by "

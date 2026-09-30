@@ -11,8 +11,8 @@ import MatrixClient
 // switching categories. Trust-chain rules:
 //   - a hash/signature failure is terminal: only Retry and dismissing the
 //     banner text are offered;
-//   - Flatpak/Snap installs (packageManaged) never get download/install, only a
-//     disclosure and help;
+//   - Flatpak/Snap/dnf-repository installs (packageManaged) never get
+//     download/install, only a disclosure and help;
 //   - development/unknown installs never get install either;
 //   - restarting is always one explicit click, never automatic.
 ColumnLayout {
@@ -384,7 +384,7 @@ ColumnLayout {
                           .arg(root.um ? root.um.installTypeLabel : "")
                 }
 
-                // Package-managed (Flatpak/Snap): no download/install, only the
+                // Package-managed (Flatpak/Snap/dnf): no download/install, only the
                 // disclosure and a help action.
                 ColumnLayout {
                     objectName: "updateManagedBlock"
@@ -402,7 +402,9 @@ ColumnLayout {
                             ? qsTr("Updates for this installation are managed by Flatpak.")
                             : root.installType === "linux-snap"
                                 ? qsTr("Updates for this installation are managed by Snap.")
-                                : ""
+                                : root.installType === "linux-rpm-repo"
+                                    ? qsTr("Updates for this installation are managed by dnf.")
+                                    : ""
                     }
                     AppButton {
                         storm: true

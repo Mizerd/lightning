@@ -102,14 +102,16 @@ Only manually created `web` and `api` pipelines are accepted.
 | test | `config-tests` | Shell + pipeline-config tests; gates the rest |
 | resolve | `resolve-source` | Validate the request, pin the source SHA, resolve the version |
 | build | `build-deb` | Debian 13.6 build |
-| build | `build-rpm` | Fedora 44 build |
+| build | `build-rpm` | Fedora 44 build, bytecode-only QML (one `.rpm` for Fedora and openSUSE) |
+| build | `copr-srpm` | Assembles the Fedora COPR source RPM from the pinned source and checks it against the release spec (compiles nothing, gates nothing) |
 | build | `build-flatpak` | KDE-runtime sandbox build → single-file bundle |
 | build | `build-appimage` | Debian staged build → self-contained AppImage |
 | build | `build-snap` | Snap packed from the AppImage job's AppDir |
 | build | `windows-package-test` | Opt-in unsigned Windows cross-build (never publishes) |
 | build | `macos-package-test` | Opt-in unsigned macOS arm64 `.app` on the Mac mini (never publishes) |
 | validate | `validate-deb` | Clean Debian install/run/uninstall audit |
-| validate | `validate-rpm` | Clean Fedora install/run/uninstall audit |
+| validate | `validate-rpm` | Clean Fedora install/run/uninstall audit, plus the portable Qt ABI (no private symbol, version tag kept) |
+| validate | `validate-rpm-opensuse` | The same `.rpm` and script on openSUSE Tumbleweed |
 | validate | `validate-flatpak` | Bundle install into a disposable installation, run, uninstall |
 | validate | `validate-appimage` | extract-and-run on a Qt-less image, payload audit |
 | validate | `validate-snap` | Structural + payload audit, launcher run (no snapd in fleet) |
@@ -704,7 +706,33 @@ Install downloaded packages with:
 ```bash
 sudo apt install ./lightning_<version>_amd64.deb
 sudo dnf install ./lightning-<version>-1.x86_64.rpm
+sudo zypper install --allow-unsigned-rpm ./lightning-<version>-1.x86_64.rpm  # openSUSE Tumbleweed
 ```
+
+**One `.rpm` for Fedora and openSUSE Tumbleweed.** Two things stood in the way,
+both measured on 0.9.9 (2026-09-29): Fedora-only package names in `Requires:`,
+and two Qt private-ABI imports (`QQmlPrivate::AOTCompiledContext::mark`, from
+qmlcachegen's ahead-of-time C++), which Fedora's Qt versions per minor
+(`Qt_6.11_PRIVATE_API`) and openSUSE's per patch (`Qt_6.11.2_PRIVATE_API`), so
+the Fedora binary would not even start there. The spec now requires
+capabilities both distributions provide (`gstreamer1(element-…)`, rich
+`qt6qml(…) or qt6qmlimport(…)` for the QML modules openSUSE packages
+separately, `(qt6-qtimageformats or qt6-imageformats)`), and `build-rpm.sh`
+configures `LIGHTNING_PORTABLE_QT_ABI=ON`, which compiles QML to bytecode only.
+Qt's version tag is kept on purpose: it is what makes zypper refuse Leap 16.0
+(Qt 6.9.1) instead of installing a binary that dies at exec. Measured on the
+current tree, bytecode-only is not slower (GUI-thread CPU 5-8% lower while
+scrolling). `assert_portable_qt_abi` in `scripts/lib.sh` holds the line on
+every package; `validate-rpm-opensuse` installs and runs it on Tumbleweed.
+
+**Fedora COPR** (`mizerd/lightning`) builds the same dependencies from source:
+`.copr/Makefile` (COPR's `make_srpm` method) runs
+`scripts/build-copr-srpm.sh`, which vendors the crates and stamps
+`packaging/rpm/lightning-copr.spec.in`. That build reports the
+`linux-rpm-repo` install type, so the in-app updater leaves it to dnf.
+`tests/test-copr-spec-parity.py` keeps the two specs' dependencies and
+fail-closed options in step; `copr-srpm` proves the source RPM assembles. The
+maintainer's one-time COPR setup is in [`docs/copr.md`](docs/copr.md).
 
 ### The call media engine (GStreamer)
 
@@ -750,7 +778,7 @@ which is why it also proves each format's plugin story:
 | Format | How the plugins arrive |
 |---|---|
 | deb | `Depends:` — `gstreamer1.0-plugins-{base,good,bad}`, `gstreamer1.0-nice`, `gstreamer1.0-pipewire`, `gstreamer1.0-alsa` (`CALL_DEPENDS` in `build-deb.sh`) |
-| rpm | `Requires:` — `gstreamer1-plugins-{base,good,bad-free}`, `libnice-gstreamer1`, `pipewire-gstreamer` (`packaging/rpm/lightning.spec`) |
+| rpm | `Requires:` — one GStreamer element per plugin package, by the `gstreamer1(element-…)` capability Fedora and openSUSE both generate: `webrtcbin` (-bad), `opusenc` (-base), `vp8enc` and `autoaudiosrc` (-good), `nicesrc` (libnice), `pipewiresrc` (PipeWire) (`packaging/rpm/lightning.spec`) |
 | flatpak | the `org.kde.Platform//6.11` runtime, which carries all of them |
 | AppImage | **bundled** into `usr/lib/gstreamer-1.0` plus an AppRun hook setting `GST_PLUGIN_SYSTEM_PATH_1_0` — an AppImage has nobody to depend on |
 | snap | inherits the AppImage's AppDir; `bin/lightning-launch` sets the same variables, because the snap takes only `usr/` and linuxdeploy's AppRun stays behind |

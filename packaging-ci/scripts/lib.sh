@@ -236,6 +236,41 @@ assert_image_formats() {
     fi
 }
 
+# --- portable Qt ABI (the RPM) -----------------------------------------------
+#
+# One .rpm is published for Fedora and openSUSE. Fedora versions Qt's private
+# symbols per minor (Qt_6.11_PRIVATE_API), openSUSE per patch
+# (Qt_6.11.2_PRIVATE_API), so ONE such import makes the binary unloadable on
+# the other; LIGHTNING_PORTABLE_QT_ABI (bytecode-only QML, set by build-rpm.sh)
+# removes the only ones Lightning has. qt_version_tag must stay: it is the
+# floor that makes dnf and zypper refuse a Qt older than the build's.
+#
+#   $1  format label for the error message
+#   $2  the packaged executable
+#   $3  the package's `rpm -qpR` output
+#   $4  where to keep the `objdump -T` listing
+assert_portable_qt_abi() {
+    local label="$1" binary="$2" requires="$3" dynsym="$4" qt_imports private_imports
+    objdump -T "$binary" >"$dynsym" || die "$label: objdump could not read $binary"
+    # Counted first: an empty or foreign listing would pass every check below.
+    qt_imports="$(grep -cE '[(]Qt_6[)]' "$dynsym" || true)"
+    (( qt_imports >= 100 )) || \
+        die "$label: objdump read only $qt_imports Qt imports from $binary; the Qt ABI checks would prove nothing"
+    private_imports="$(grep -cE '[(]Qt_[0-9._]*PRIVATE_API[)]' "$dynsym" || true)"
+    if (( private_imports != 0 )); then
+        grep -E '[(]Qt_[0-9._]*PRIVATE_API[)]' "$dynsym" >&2
+        die "$label: the packaged binary imports $private_imports Qt private-ABI symbols (above); it will not load on a distribution whose Qt is not this build's. Was it configured with -DLIGHTNING_PORTABLE_QT_ABI=ON?"
+    fi
+    grep -qE '[(]Qt_6[.][0-9]+[)][[:space:]]+qt_version_tag$' "$dynsym" || \
+        die "$label: the packaged binary lost qt_version_tag: dnf and zypper would install it on an older Qt, where it dies at exec"
+    if grep -q 'PRIVATE_API' "$requires"; then
+        die "$label: the package requires a Qt private-ABI version node"
+    fi
+    grep -qE '^libQt6Core[.]so[.]6[(]Qt_6[.][0-9]+[)][(]64bit[)]$' "$requires" || \
+        die "$label: the package does not require the Qt minor it was built against"
+    printf '%s: %s Qt imports, none private, qt_version_tag kept\n' "$label" "$qt_imports"
+}
+
 # --- desktop launcher entry and icons ----------------------------------------
 #
 # On native Wayland, Qt implements no icon protocol, so setWindowIcon() is

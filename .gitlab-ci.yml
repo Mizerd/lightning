@@ -136,6 +136,7 @@ config-tests:
     - ./packaging-ci/tests/test-update-manifest.sh
     - ./packaging-ci/tests/test-gif-key-injection.sh
     - ./packaging-ci/tests/test-windows-version-resources.sh
+    - ./packaging-ci/tests/test-portable-qt-abi.sh
     - python3 ./packaging-ci/tests/test-pipeline-config.py
     - python3 ./packaging-ci/tests/test-windows-metadata.py
     # The Flathub submission manifest in the repository root.
@@ -149,6 +150,9 @@ config-tests:
     # `appstreamcli validate --no-net`, which cannot see a dead URL; this
     # checks the pinned files offline with `git ls-tree`.
     - python3 ./packaging-ci/tests/test-metainfo-consistency.py
+    # The COPR source spec declares the release RPM's dependencies and builds
+    # with the same fail-closed options.
+    - python3 ./packaging-ci/tests/test-copr-spec-parity.py
 
 # Proves the GitHub mirror token works before anything is published, since the
 # mirror job only runs after the GitLab tag and release exist. Refuses a token
@@ -373,6 +377,43 @@ build-rpm:
     - ./packaging-ci/scripts/prepare-pinned-source.sh
     - ./packaging-ci/scripts/build-rpm.sh
     - ./packaging-ci/scripts/write-build-info.sh rpm
+
+# Fedora COPR (mizerd/lightning) compiles Lightning from .copr/Makefile when a
+# release tag is pushed, and no pipeline watches that build. This assembles
+# the same source RPM from the pinned source and checks that its spec declares
+# the release RPM's runtime dependencies, so a COPR build that would break
+# shows here first. Compiles nothing, and gates no publication.
+copr-srpm:
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+    - when: never
+  extends: .trusted-pipeline
+  stage: build
+  interruptible: true
+  timeout: 30m
+  # Gates nothing: COPR builds from the tag on its own. A red run here must
+  # not turn a clean release pipeline red (0.9.6's red reporter).
+  allow_failure: true
+  image: fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 # fedora:44
+  tags: [dnf, rpm, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+  before_script:
+    # .copr/Makefile installs what COPR's own chroot lacks (git, cargo,
+    # rpm-build); make and cpio are this job's.
+    - dnf install -y cpio git-core make
+  script:
+    - ./packaging-ci/scripts/prepare-pinned-source.sh
+    - ./packaging-ci/scripts/check-copr-srpm.sh
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/copr/
+      - dist/copr-*.txt
 
 build-flatpak:
   # Build-only pipelines may select formats via BUILD_FORMATS;
@@ -732,9 +773,10 @@ validate-deb:
 
 # The Ubuntu lane's validator: same script, different target.
 #
-# Like every validator here it runs on the same image that built the package,
-# so it cannot catch a package that installs only where it was built. Covering
-# that needs a cross-image install job per format.
+# Like every validator here but validate-rpm-opensuse, it runs on the same
+# image that built the package, so it cannot catch a package that installs
+# only where it was built. Covering that needs a cross-image install job per
+# format; the RPM has one.
 validate-deb-ubuntu:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
@@ -809,6 +851,46 @@ validate-rpm:
       - dist/source-info.json
       - dist/version.env
       - dist/version.json
+
+# The one .rpm is published for Fedora AND openSUSE Tumbleweed
+# (docs/install.md), so it is installed and run on Tumbleweed too: the one
+# validator here that installs a package on an image other than the one that
+# built it. Same script; it tells the two distributions apart. Leap 16 is not
+# a target: its Qt 6.9 is older than the build's, and the package's Qt version
+# tag makes zypper refuse it there. Tumbleweed rolls, so this also installs
+# from whatever the snapshot is today; the pin fixes only the starting image.
+validate-rpm-opensuse:
+  # Build-only pipelines may select formats via BUILD_FORMATS;
+  # publishing pipelines always include every format.
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+    - when: never
+  extends: .trusted-pipeline
+  stage: validate
+  image: registry.opensuse.org/opensuse/tumbleweed@sha256:c6b3ce17382064218b6a41514f248ef72ad4ae66da40b12ebba9e83582f33139 # opensuse/tumbleweed 20260924
+  tags: [dnf, rpm, package]
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-rpm
+      artifacts: true
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - zypper --non-interactive refresh
+    - >-
+      zypper --non-interactive install --no-recommends
+      AppStream binutils ca-certificates cpio desktop-file-utils file procps
+  script: [./packaging-ci/scripts/validate-rpm.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    # Reports only: publish-packages takes the .rpm from validate-rpm.
+    paths:
+      - dist/*rpm*.log
+      - dist/*rpm*.txt
 
 validate-flatpak:
   # Build-only pipelines may select formats via BUILD_FORMATS;
@@ -964,6 +1046,9 @@ publish-packages:
       artifacts: true
     - job: validate-rpm
       artifacts: true
+    # A gate only: the same .rpm, installed and run on openSUSE Tumbleweed.
+    - job: validate-rpm-opensuse
+      artifacts: false
     - job: validate-flatpak
       artifacts: true
     - job: validate-appimage

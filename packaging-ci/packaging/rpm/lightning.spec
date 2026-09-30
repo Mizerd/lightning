@@ -11,30 +11,48 @@ URL:            https://gitlab.smetonis.net/Mizerd/lightning
 
 Requires:       desktop-file-utils
 
-# GStreamer plugins are dlopen'd, so rpm's dependency generator cannot see
-# them; without them every call is refused by the engine's element probe.
-#   plugins-base     : opus, audioconvert/resample, videoconvert/scale/rate
-#   plugins-good     : rtpopus/rtpvp8 pay+depay, autoaudiosrc/sink, vp8,
-#                      ximagesrc (X11 screen share)
-#   plugins-bad-free : webrtcbin, dtlssrtpenc/dec, srtp
-#   libnice          : ICE transport
-#   pipewire         : pipewiresrc (portal screen capture) and pipewiresink
-# Unlike Debian, Fedora ships the ALSA and Pulse sinks in plugins-base/good,
-# so no separate audio sink package is needed.
-Requires:       gstreamer1-plugins-base
-Requires:       gstreamer1-plugins-good
-Requires:       gstreamer1-plugins-bad-free
-Requires:       libnice-gstreamer1
-Requires:       pipewire-gstreamer
+# Everything below is dlopen'd, so rpm's dependency generator cannot see it,
+# and it is named so that one RPM resolves on Fedora AND openSUSE: package
+# names differ there (gstreamer1-plugins-bad-free vs gstreamer-plugins-bad,
+# libnice-gstreamer1 vs gstreamer-libnice, ...), the capabilities below do not.
+#
+# GStreamer: one element per plugin package the call engine probes, by the
+# gstreamer1(element-...) provides both distributions generate.
+#   webrtcbin    : -bad(-free) — webrtcbin, dtlssrtpenc/dec, srtp
+#   nicesrc      : the libnice plugin (ICE transport)
+#   opusenc      : -base — opus, audio/videoconvert, videoscale, videorate
+#   vp8enc       : -good — vp8, rtpopus/rtpvp8 pay+depay, ximagesrc
+#   autoaudiosrc : -good — autoaudiosrc/sink (plus pulse; ALSA is in -base)
+#   pipewiresrc  : the PipeWire plugin (portal screen capture)
+%global gst_element() gstreamer1(element-%1)()(%{__isa_bits}bit)
+Requires:       %{gst_element webrtcbin}
+Requires:       %{gst_element nicesrc}
+Requires:       %{gst_element opusenc}
+Requires:       %{gst_element vp8enc}
+Requires:       %{gst_element autoaudiosrc}
+Requires:       %{gst_element pipewiresrc}
 # enchant-2 is dlopen'd for spell checking; optional.
-Recommends:     enchant2
+Recommends:     libenchant-2.so.2()(%{__isa_bits}bit)
 
-# Qt image-format plugins are dlopen'd too; qt6-qtbase-gui carries only
-# gif/ico/jpeg. WebP (qt6-qtimageformats) is required because the client's
-# MIME sniffers accept it. JPEG XL comes only from kf6-kimageformats, which
-# pulls a large chain, so it is a Recommends; missing formats are reported by
-# --image-format-status.
-Requires:       qt6-qtimageformats
+# QML modules the UI imports. Fedora ships them inside the Qt library
+# packages (provides qt6qml(<module>)); openSUSE ships them separately
+# (provides qt6qmlimport(<module>)). Without them no window loads.
+%global qml_module() (qt6qml(%1) or qt6qmlimport(%1))
+Requires:       %{qml_module QtQuick}
+Requires:       %{qml_module QtQuick.Controls}
+Requires:       %{qml_module QtQuick.Controls.Basic}
+Requires:       %{qml_module QtQuick.Layouts}
+Requires:       %{qml_module QtQuick.Effects}
+Requires:       %{qml_module QtQuick.Dialogs}
+Requires:       %{qml_module QtQuick.Window}
+Requires:       %{qml_module QtQuick.Shapes}
+Requires:       %{qml_module QtMultimedia}
+
+# Qt image-format plugins: WebP is required because the client's MIME
+# sniffers accept it (no common provide, so a rich dependency). JPEG XL comes
+# only from kf6-kimageformats, which pulls a large chain, so it is a
+# Recommends; missing formats are reported by --image-format-status.
+Requires:       (qt6-qtimageformats or qt6-imageformats)
 Recommends:     kf6-kimageformats
 
 %description

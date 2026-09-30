@@ -529,7 +529,7 @@ void UpdateManager::decideFromManifest(const Version &installed)
         m_totalBytes = 0;
         m_downloadedBytes = 0;
         setStatusDetail(QStringLiteral("Updates for this installation are managed by %1.")
-                            .arg(lightning::update::installTypeLabel(m_detection.type)));
+                            .arg(lightning::update::packageManagerName(m_detection.type)));
         Q_EMIT downloadProgressChanged();
         Q_EMIT updateInfoChanged();
         setState(UpdateAvailable);
@@ -1360,7 +1360,7 @@ void UpdateManager::startInstall(bool restartAfterwards)
     if (!m_detection.automaticInstallAllowed) {
         const QString reason = isPackageManaged(m_detection.type)
             ? QStringLiteral("Updates for this installation are managed by %1.")
-                  .arg(installTypeLabel())
+                  .arg(packageManagerName(m_detection.type))
             : QStringLiteral("Lightning does not install updates for %1 installations.")
                   .arg(installTypeLabel());
         Q_EMIT installRefused(reason);
@@ -1534,6 +1534,8 @@ QString UpdateManager::managedUpdateCommand() const
         return name.isEmpty() ? QStringLiteral("snap refresh")
                               : QStringLiteral("snap refresh %1").arg(name);
     }
+    case InstallType::LinuxRpmRepo:
+        return QStringLiteral("sudo dnf upgrade --refresh lightning");
     default:
         break;
     }
@@ -1554,6 +1556,11 @@ void UpdateManager::openManagedUpdateHelp()
         explanation = QStringLiteral(
             "Updates for this installation are managed by Snap. Use your software centre, or "
             "run the command below.");
+        break;
+    case InstallType::LinuxRpmRepo:
+        explanation = QStringLiteral(
+            "Updates for this installation are managed by dnf, from the repository it was "
+            "installed from. Use your software centre, or run the command below.");
         break;
     default:
         explanation = QStringLiteral(

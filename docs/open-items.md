@@ -139,6 +139,39 @@ Everything below was found or left open by that round's live testing and its
   (`generate-update-manifest.sh`); flipping the Flatpak channel changes what
   clients are told and is a decision for Rokas.
 
+- **DECIDED (Rokas, 2026-09-29): one `.rpm` for Fedora and openSUSE.** Reported
+  by an openSUSE user: "nothing provides gstreamer1-plugins-bad-free", and a
+  forced install died on `libQt6Qml.so.6: version Qt_6.11_PRIVATE_API not
+  found`. Both reproduced on Tumbleweed; a third gap (openSUSE packages the QML
+  modules apart, so the UI would not load) was found the same day. Now:
+  `Requires:` by capability, and `LIGHTNING_PORTABLE_QT_ABI` (bytecode-only
+  QML, zero Qt private-ABI imports) for the rpm lane only; the Qt version tag
+  is kept, so **Leap 16.0 (Qt 6.9.1) is refused at install and pointed at
+  Flathub**. Bytecode-only was measured NOT slower on the current tree
+  (GUI-thread CPU 5-8% lower while scrolling). Measured in containers with the
+  new spec around an earlier portable binary: dnf on Fedora 44 and 45 and
+  zypper on Tumbleweed 20260924 install it, it starts headless, calls engine
+  "can be placed and answered", every image format. **NOT TESTED**: a
+  CI-built portable rpm (the first comes from the next rpm pipeline, whose
+  `validate-rpm-opensuse` is that job's first run), and any openSUSE session
+  with an account, a call or a GUI.
+- **DECIDED: Fedora COPR `mizerd/lightning` (Rokas's) builds from
+  `.copr/Makefile` on tag push; OBS is not pursued unless there is demand;
+  Packit is out (it does not serve `gitlab.smetonis.net`).** A COPR install
+  reports `linux-rpm-repo` and is updated by dnf. The one-time setup is the
+  maintainer's (`packaging-ci/docs/copr.md`). OPEN, for Rokas: whether the
+  release trigger sets the manifest's `linux-rpm-repo` channel `true` at once
+  (COPR users hear of it an hour or two before dnf can see it) or a refresh
+  does after the COPR build is green; that COPR builds carry no GIF keys (the
+  SRPM is public). NOT TESTED: any build on COPR itself, any COPR build after
+  v0.9.9.
+- Follow-up: a Tumbleweed Qt behind Fedora's refuses the rpm until it catches
+  up (the version tag is a floor). Tumbleweed has led so far (6.11.2 on both on
+  2026-09-24).
+- Follow-up: the GitLab rpm's automatic update on openSUSE goes through
+  `rpm -U` (no zypper arm in `rpmFrontendCandidates`), which cannot pull in a
+  dependency a new release adds. Not exercised.
+
 ### Keyring: install scoping (phase 1 landed, phase 2 open)
 
 Since this round each install keeps its own Secret Service items (schema

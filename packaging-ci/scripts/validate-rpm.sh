@@ -15,34 +15,52 @@ expected="lightning-${RPM_VERSION}-${RPM_RELEASE}.x86_64.rpm"
 [[ ! -e "$ROOT/work/lightning" ]] || die "validation must not receive a source checkout"
 command -v nix >/dev/null 2>&1 && die "Nix must be absent from the validation environment"
 
+# One .rpm is published for Fedora AND openSUSE Tumbleweed, so this runs on
+# both: validate-rpm on the Fedora image that built it, validate-rpm-opensuse
+# on Tumbleweed. rpmlint runs on Fedora only; its checks and the waivers below
+# are Fedora's.
+distro="$(. /etc/os-release && printf '%s' "${ID:-}")"
+case "$distro" in
+    fedora)
+        pkg_install=(dnf install -y)
+        pkg_remove=(dnf remove -y lightning)
+        ;;
+    opensuse-tumbleweed)
+        # The package is unsigned (the signed update manifest carries its
+        # hash), and zypper installs recommends only when asked in a container.
+        pkg_install=(zypper --non-interactive install --allow-unsigned-rpm --recommends)
+        pkg_remove=(zypper --non-interactive remove lightning)
+        ;;
+    *) die "validate-rpm runs on Fedora or openSUSE Tumbleweed, not '${distro:-unknown}'" ;;
+esac
+printf 'validate-rpm: validating on %s\n' "$distro"
+
 rpm -qpi "$package" | tee "$ROOT/dist/rpm-info.txt"
 rpm -qpl "$package" | tee "$ROOT/dist/rpm-contents.txt"
 rpm -qpR "$package" | tee "$ROOT/dist/rpm-requires.txt"
-rpmlint "$package" >"$ROOT/dist/rpm-rpmlint.log" 2>&1 || true
-cat "$ROOT/dist/rpm-rpmlint.log"
+if [[ "$distro" == fedora ]]; then
+    rpmlint "$package" >"$ROOT/dist/rpm-rpmlint.log" 2>&1 || true
+    cat "$ROOT/dist/rpm-rpmlint.log"
 
-# Waived rpmlint errors as exact "<check> <argument>" pairs, each with a
-# reason. A waiver that stops firing fails the build so it cannot go stale.
-#
-# explicit-lib-dependency libnice-gstreamer1
-#   It ships a dlopen'd GStreamer plugin (libgstnice.so) that rpm's soname
-#   generator cannot see, so the explicit Requires is needed.
-rpmlint_waivers=(
-    "explicit-lib-dependency libnice-gstreamer1"
-)
+    # Waived rpmlint errors as exact "<check> <argument>" pairs, each with a
+    # reason. A waiver that stops firing fails the build so it cannot go stale.
+    # None today: the dlopen'd plugins are required by capability
+    # (gstreamer1(element-...)), which explicit-lib-dependency does not flag.
+    rpmlint_waivers=()
 
-errors="$(grep -E '(^|: )E: ' "$ROOT/dist/rpm-rpmlint.log" || true)"
-for waiver in "${rpmlint_waivers[@]}"; do
-    if ! grep -qF ": E: $waiver" <<<"$errors"; then
-        die "stale rpmlint waiver (no longer reported): $waiver"
+    errors="$(grep -E '(^|: )E: ' "$ROOT/dist/rpm-rpmlint.log" || true)"
+    for waiver in "${rpmlint_waivers[@]}"; do
+        if ! grep -qF ": E: $waiver" <<<"$errors"; then
+            die "stale rpmlint waiver (no longer reported): $waiver"
+        fi
+        printf 'validate-rpm: waived rpmlint error: %s\n' "$waiver"
+        errors="$(grep -vF ": E: $waiver" <<<"$errors" || true)"
+    done
+
+    if [[ -n "${errors//[[:space:]]/}" ]]; then
+        printf '%s\n' "$errors"
+        die "rpmlint reported errors"
     fi
-    printf 'validate-rpm: waived rpmlint error: %s\n' "$waiver"
-    errors="$(grep -vF ": E: $waiver" <<<"$errors" || true)"
-done
-
-if [[ -n "${errors//[[:space:]]/}" ]]; then
-    printf '%s\n' "$errors"
-    die "rpmlint reported errors"
 fi
 (cd "$ROOT/dist" && sha256sum -c "$(basename "$package").sha256")
 
@@ -60,6 +78,10 @@ readelf -d "$binary" "$updater" | tee "$ROOT/dist/rpm-readelf.txt"
 if grep -E '(RPATH|RUNPATH)' "$ROOT/dist/rpm-readelf.txt"; then
     die "RPM executable contains an RPATH or RUNPATH"
 fi
+
+# One .rpm for Fedora and openSUSE: no Qt private-ABI import, version tag
+# kept. See assert_portable_qt_abi in lib.sh.
+assert_portable_qt_abi RPM "$binary" "$ROOT/dist/rpm-requires.txt" "$ROOT/dist/rpm-dynsym.txt"
 if grep -RIlE '/nix/store|/home/roksme|/builds/|LIGHTNING_(GIPHY|KLIPY)_API_KEY=|PRIVATE-TOKEN:|recovery_key=' "$audit_root" | grep -q . || \
    strings "$binary" | grep -qE '/nix/store|/home/roksme|/builds/|LIGHTNING_(GIPHY|KLIPY)_API_KEY=|PRIVATE-TOKEN:|recovery_key='; then
     die "RPM contains a forbidden path or credential marker"
@@ -74,7 +96,7 @@ if find "$audit_root" -xdev -type f \( -perm -4000 -o -perm -2000 \) -print -qui
     die "RPM contains setuid or setgid files"
 fi
 
-dnf install -y "$package"
+"${pkg_install[@]}" "$package"
 test -x /usr/bin/lightning-matrix
 test -x /usr/bin/lightning-updater
 desktop-file-validate /usr/share/applications/lightning.desktop
@@ -132,7 +154,8 @@ set +e
     >"$ROOT/dist/rpm-image-format-status.txt" 2>&1
 image_format_status=$?
 set -e
-# jxl is expected: dnf installs weak dependencies (kf6-kimageformats) by default.
+# jxl is expected: dnf installs weak dependencies (kf6-kimageformats) by
+# default, and zypper is asked to above.
 assert_image_formats RPM "$ROOT/dist/rpm-image-format-status.txt" "$image_format_status" jxl
 
 # The generated build-only key header must never ship inside the package.
@@ -171,9 +194,11 @@ else
     printf 'Build-only RPM: GIF providers are keyless (informational only)\n'
 fi
 
-dnf remove -y lightning
-dnf check
+"${pkg_remove[@]}"
+if [[ "$distro" == fedora ]]; then
+    dnf check
+fi
 if rpm -q lightning >/dev/null 2>&1; then
     die "RPM package remains installed after removal"
 fi
-printf 'RPM clean install, runtime, headless launch, and uninstall passed\n'
+printf 'RPM clean install, runtime, headless launch, and uninstall passed on %s\n' "$distro"

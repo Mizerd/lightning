@@ -228,6 +228,22 @@ find_package(Qt6 6.5 COMPONENTS DBus)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
+# No symbol from Qt's PRIVATE ABI in the binary. Distributions tag Qt's private
+# symbols per minor (Fedora: Qt_6.11_PRIVATE_API) or per patch (openSUSE:
+# Qt_6.11.2_PRIVATE_API), so one such symbol ties a package to one Qt build. The
+# only ones Lightning references come from qmlcachegen's ahead-of-time C++
+# (QQmlPrivate::AOTCompiledContext). With bytecode only, QML runs through the
+# interpreter and JIT instead, and a Qt whose bytecode version differs compiles
+# the embedded source on first start and keeps it in its disk cache.
+#
+# Qt's version tag (qt_version_tag@Qt_6.<minor>) stays: it is what stops a
+# package manager installing this on a Qt older than the one it was built with.
+option(LIGHTNING_PORTABLE_QT_ABI
+    "Keep Qt private-ABI symbols out of the binary (QML as bytecode only)" OFF)
+if(LIGHTNING_PORTABLE_QT_ABI)
+    message(STATUS "QML compilation: bytecode only (no AOT C++)")
+endif()
+
 # ---------------------------------------------------------------------------
 # Localization (Qt Linguist).
 #
@@ -1014,6 +1030,12 @@ function(_lightning_configure_qml_module target _scope)
         # needs a distinct output directory.
         OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qml-modules/${target}"
     )
+    # Read by Qt through a generator expression, so setting it after
+    # qt_add_qml_module still reaches every qmlcachegen call for this target.
+    if(LIGHTNING_PORTABLE_QT_ABI)
+        set_property(TARGET ${target} APPEND PROPERTY
+            QT_QMLCACHEGEN_ARGUMENTS --only-bytecode)
+    endif()
 
     target_include_directories(${target} ${_scope} src)
 

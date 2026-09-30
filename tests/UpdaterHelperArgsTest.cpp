@@ -116,6 +116,7 @@ private slots:
     void awkwardPathSurvivesAsASingleArgvElement();
     void planForModeRefusesEcosystemManagedTypes_data();
     void planForModeRefusesEcosystemManagedTypes();
+    void aRepositoryRpmIsLeftToDnf();
 
     // --- the digest contract ---
     void digestMustBeSixtyFourLowercaseHex_data();
@@ -195,8 +196,8 @@ void UpdaterHelperArgsTest::modeStringsRoundTrip()
         QStringLiteral("windows-portable"), QStringLiteral("linux-appimage"),
         QStringLiteral("linux-deb"),     QStringLiteral("linux-rpm"),
         QStringLiteral("linux-flatpak"), QStringLiteral("linux-snap"),
-        QStringLiteral("macos-dmg"),     QStringLiteral("development"),
-        QStringLiteral("unknown"),
+        QStringLiteral("linux-rpm-repo"), QStringLiteral("macos-dmg"),
+        QStringLiteral("development"),   QStringLiteral("unknown"),
     };
     for (const QString &name : canonical) {
         const UpdaterMode mode = modeFromString(name);
@@ -228,8 +229,9 @@ void UpdaterHelperArgsTest::selfInstallableSetIsExactlySix()
         UpdaterMode::WindowsPortable, UpdaterMode::LinuxAppImage,
         UpdaterMode::LinuxDeb,        UpdaterMode::LinuxRpm,
         UpdaterMode::LinuxFlatpak,    UpdaterMode::LinuxSnap,
-        UpdaterMode::MacosDmg,        UpdaterMode::Development,
-        UpdaterMode::UnknownInstall,  UpdaterMode::Invalid,
+        UpdaterMode::LinuxRpmRepo,    UpdaterMode::MacosDmg,
+        UpdaterMode::Development,     UpdaterMode::UnknownInstall,
+        UpdaterMode::Invalid,
     };
     for (UpdaterMode mode : all) {
         if (isSelfInstallable(mode))
@@ -238,6 +240,7 @@ void UpdaterHelperArgsTest::selfInstallableSetIsExactlySix()
     QCOMPARE(count, 6);
     QVERIFY(!isSelfInstallable(UpdaterMode::LinuxFlatpak));
     QVERIFY(!isSelfInstallable(UpdaterMode::LinuxSnap));
+    QVERIFY(!isSelfInstallable(UpdaterMode::LinuxRpmRepo));
     QVERIFY(!isSelfInstallable(UpdaterMode::Development));
     QVERIFY(!isSelfInstallable(UpdaterMode::UnknownInstall));
 }
@@ -640,6 +643,7 @@ void UpdaterHelperArgsTest::nonSelfInstallableModesRefused_data()
     QTest::addColumn<QString>("mode");
     QTest::newRow("flatpak") << "linux-flatpak";
     QTest::newRow("snap") << "linux-snap";
+    QTest::newRow("rpm-repo") << "linux-rpm-repo";
     QTest::newRow("dmg") << "macos-dmg";
     QTest::newRow("development") << "development";
     QTest::newRow("unknown") << "unknown";
@@ -1261,6 +1265,8 @@ void UpdaterHelperArgsTest::planForModeRefusesEcosystemManagedTypes_data()
                              << int(StrategyError::NotSelfInstallable);
     QTest::newRow("snap") << int(UpdaterMode::LinuxSnap)
                           << int(StrategyError::NotSelfInstallable);
+    QTest::newRow("rpm-repo") << int(UpdaterMode::LinuxRpmRepo)
+                              << int(StrategyError::NotSelfInstallable);
     QTest::newRow("development") << int(UpdaterMode::Development)
                                  << int(StrategyError::NotSelfInstallable);
     QTest::newRow("unknown") << int(UpdaterMode::UnknownInstall)
@@ -1285,6 +1291,25 @@ void UpdaterHelperArgsTest::planForModeRefusesEcosystemManagedTypes()
     QCOMPARE(int(result.error), expected);
     QVERIFY(result.plan.program.isEmpty());
     QVERIFY(result.plan.arguments.isEmpty());
+}
+
+void UpdaterHelperArgsTest::aRepositoryRpmIsLeftToDnf()
+{
+    // A COPR install is dnf's. Even with every package manager present, the
+    // helper plans nothing and says who owns the update.
+    UpdaterArguments args;
+    args.mode = UpdaterMode::LinuxRpmRepo;
+    args.artifactPath = QStringLiteral("/staging/lightning-0.8.0-1.x86_64.rpm");
+    const StrategyResult result = planForMode(args, [](const QString &) { return true; });
+    QCOMPARE(int(result.error), int(StrategyError::NotSelfInstallable));
+    QVERIFY(result.message.contains(QStringLiteral("managed by dnf")));
+    QVERIFY(result.plan.program.isEmpty());
+    QVERIFY(result.plan.arguments.isEmpty());
+    QCOMPARE(modeToString(UpdaterMode::LinuxRpmRepo), QStringLiteral("linux-rpm-repo"));
+
+    // The GitLab .rpm, same probe, is still installed through dnf.
+    args.mode = UpdaterMode::LinuxRpm;
+    QVERIFY(planForMode(args, [](const QString &) { return true; }).ok());
 }
 
 

@@ -29,6 +29,7 @@ using lightning::update::installTypeFromId;
 using lightning::update::installTypeId;
 using lightning::update::installTypeLabel;
 using lightning::update::isPackageManaged;
+using lightning::update::packageManagerName;
 using lightning::update::sameInstallDirectory;
 
 namespace {
@@ -36,8 +37,8 @@ namespace {
 const QList<InstallType> kAllTypes{
     InstallType::WindowsMsi,    InstallType::WindowsSetup,  InstallType::WindowsPortable,
     InstallType::LinuxAppImage, InstallType::LinuxDeb,      InstallType::LinuxRpm,
-    InstallType::LinuxFlatpak,  InstallType::LinuxSnap,     InstallType::MacosDmg,
-    InstallType::Development,   InstallType::Unknown,
+    InstallType::LinuxFlatpak,  InstallType::LinuxSnap,     InstallType::LinuxRpmRepo,
+    InstallType::MacosDmg,      InstallType::Development,   InstallType::Unknown,
 };
 
 // A fully synthetic environment: nothing is read from the real process.
@@ -91,7 +92,8 @@ private slots:
     void labelsAreDistinctAndNonEmpty();
     void automaticInstallPolicyIsExplicit_data();
     void automaticInstallPolicyIsExplicit();
-    void packageManagedIsFlatpakAndSnapOnly();
+    void packageManagedIsFlatpakSnapAndTheDnfRepositoryOnly();
+    void aRepositoryRpmIsUpdatedByDnfAndADownloadedOneIsNot();
     void compileTimeValueIsUsedForConcretePackages_data();
     void compileTimeValueIsUsedForConcretePackages();
     void unsetCompileTimeValueIsDevelopment();
@@ -164,8 +166,8 @@ void UpdateInstallTypeTest::idsRoundTripForEveryType()
         QStringLiteral("windows-portable"), QStringLiteral("linux-appimage"),
         QStringLiteral("linux-deb"),      QStringLiteral("linux-rpm"),
         QStringLiteral("linux-flatpak"),  QStringLiteral("linux-snap"),
-        QStringLiteral("macos-dmg"),      QStringLiteral("development"),
-        QStringLiteral("unknown"),
+        QStringLiteral("linux-rpm-repo"), QStringLiteral("macos-dmg"),
+        QStringLiteral("development"),    QStringLiteral("unknown"),
     };
     QCOMPARE(kAllTypes.size(), expected.size());
     for (int i = 0; i < kAllTypes.size(); ++i) {
@@ -213,6 +215,8 @@ void UpdateInstallTypeTest::automaticInstallPolicyIsExplicit_data()
     QTest::newRow("macos-dmg") << int(InstallType::MacosDmg) << false;
     QTest::newRow("linux-flatpak") << int(InstallType::LinuxFlatpak) << false;
     QTest::newRow("linux-snap") << int(InstallType::LinuxSnap) << false;
+    // dnf updates a COPR install; the in-app installer must not compete.
+    QTest::newRow("linux-rpm-repo") << int(InstallType::LinuxRpmRepo) << false;
     QTest::newRow("development") << int(InstallType::Development) << false;
     QTest::newRow("unknown") << int(InstallType::Unknown) << false;
 }
@@ -224,13 +228,50 @@ void UpdateInstallTypeTest::automaticInstallPolicyIsExplicit()
     QCOMPARE(canInstallAutomatically(static_cast<InstallType>(type)), automatic);
 }
 
-void UpdateInstallTypeTest::packageManagedIsFlatpakAndSnapOnly()
+void UpdateInstallTypeTest::packageManagedIsFlatpakSnapAndTheDnfRepositoryOnly()
 {
+    int managed = 0;
     for (const InstallType type : kAllTypes) {
-        const bool expected =
-            type == InstallType::LinuxFlatpak || type == InstallType::LinuxSnap;
+        const bool expected = type == InstallType::LinuxFlatpak
+            || type == InstallType::LinuxSnap || type == InstallType::LinuxRpmRepo;
         QCOMPARE(isPackageManaged(type), expected);
+        // "managed by %1" always has a name to show, and only then.
+        QCOMPARE(!packageManagerName(type).isEmpty(), expected);
+        managed += expected ? 1 : 0;
     }
+    QCOMPARE(managed, 3);
+    QCOMPARE(packageManagerName(InstallType::LinuxFlatpak), QStringLiteral("Flatpak"));
+    QCOMPARE(packageManagerName(InstallType::LinuxSnap), QStringLiteral("Snap"));
+    QCOMPARE(packageManagerName(InstallType::LinuxRpmRepo), QStringLiteral("dnf"));
+}
+
+// The COPR spec compiles in linux-rpm-repo; the GitLab .rpm compiles in
+// linux-rpm. Nothing at runtime tells them apart, so the compile-time value
+// alone decides who updates the installation.
+void UpdateInstallTypeTest::aRepositoryRpmIsUpdatedByDnfAndADownloadedOneIsNot()
+{
+    const InstallDetection repository =
+        detectInstall(makeEnvironment({}, {}, QStringLiteral("linux-rpm-repo")));
+    QCOMPARE(repository.type, InstallType::LinuxRpmRepo);
+    QVERIFY(!repository.diagnosticOverride);
+    QVERIFY2(!repository.automaticInstallAllowed,
+             "a COPR install must never download and install a GitLab .rpm");
+    QVERIFY(isPackageManaged(repository.type));
+    QCOMPARE(installTypeId(repository.type), QStringLiteral("linux-rpm-repo"));
+
+    const InstallDetection downloaded =
+        detectInstall(makeEnvironment({}, {}, QStringLiteral("linux-rpm")));
+    QCOMPARE(downloaded.type, InstallType::LinuxRpm);
+    QVERIFY2(downloaded.automaticInstallAllowed,
+             "the GitLab .rpm keeps its automatic install");
+    QVERIFY(!isPackageManaged(downloaded.type));
+
+    // The diagnostic override may name it, but it never authorises anything
+    // and never outranks what the package was built as.
+    const InstallDetection overridden = detectInstall(makeEnvironment(
+        { { QStringLiteral("LIGHTNING_INSTALL_TYPE_OVERRIDE"), QStringLiteral("linux-rpm-repo") } },
+        {}, QStringLiteral("linux-rpm")));
+    QCOMPARE(overridden.type, InstallType::LinuxRpm);
 }
 
 void UpdateInstallTypeTest::compileTimeValueIsUsedForConcretePackages_data()
@@ -246,6 +287,7 @@ void UpdateInstallTypeTest::compileTimeValueIsUsedForConcretePackages_data()
     QTest::newRow("linux-rpm") << "linux-rpm" << int(InstallType::LinuxRpm);
     QTest::newRow("linux-flatpak") << "linux-flatpak" << int(InstallType::LinuxFlatpak);
     QTest::newRow("linux-snap") << "linux-snap" << int(InstallType::LinuxSnap);
+    QTest::newRow("linux-rpm-repo") << "linux-rpm-repo" << int(InstallType::LinuxRpmRepo);
     QTest::newRow("macos-dmg") << "macos-dmg" << int(InstallType::MacosDmg);
 }
 

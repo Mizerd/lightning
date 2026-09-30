@@ -400,6 +400,7 @@ private slots:
     void developmentBuildsDoNotCheckWithoutOptIn();
     void flatpakNeedsItsChannelToSayAvailable();
     void flatpakInstallIsRefusedWithoutRunningAnything();
+    void aRepositoryRpmIsUpdatedByDnfNeverFromTheDownload();
     void developmentInstallIsRefusedWithoutRunningAnything();
     void diagnosticOverrideDoesNotAuthoriseInstallation();
     void installLaunchesTheHelperWithAnArgumentVector();
@@ -678,6 +679,75 @@ void UpdateManagerStateTest::flatpakInstallIsRefusedWithoutRunningAnything()
     QVERIFY(refusedSpy.at(0).at(0).toString().contains(QStringLiteral("managed")));
     // No hidden state change and no "install anyway" path.
     QCOMPARE(manager->state(), UpdateManager::ReadyToInstall);
+}
+
+// A COPR install (linux-rpm-repo) is dnf's: it reads its channel, never the
+// GitLab .rpm the same release publishes, and runs nothing itself.
+void UpdateManagerStateTest::aRepositoryRpmIsUpdatedByDnfNeverFromTheDownload()
+{
+    QJsonObject manifest = manifestWithArtifact(QStringLiteral("0.8.0"),
+                                                QStringLiteral("linux-rpm"),
+                                                QStringLiteral("lightning-0.8.0-1.x86_64.rpm"));
+    manifest.insert(QStringLiteral("channels"),
+                    QJsonObject{ { QStringLiteral("linux-rpm-repo"),
+                                   QJsonObject{ { QStringLiteral("available"), false },
+                                                { QStringLiteral("version"),
+                                                  QJsonValue(QJsonValue::Null) },
+                                                { QStringLiteral("note"),
+                                                  QStringLiteral("not in the COPR yet") } } } });
+    const auto waiting = makeManager(InstallType::LinuxRpmRepo, QStringLiteral("0.7.0"));
+    ingest(waiting.get(), manifest);
+    // A download exists for linux-rpm, and none of it is for this install.
+    QCOMPARE(waiting->state(), UpdateManager::UpToDate);
+    QVERIFY(!waiting->updateAvailable());
+    QCOMPARE(waiting->statusDetail(), QStringLiteral("not in the COPR yet"));
+
+    manifest.insert(QStringLiteral("channels"),
+                    QJsonObject{ { QStringLiteral("linux-rpm-repo"),
+                                   QJsonObject{ { QStringLiteral("available"), true },
+                                                { QStringLiteral("version"),
+                                                  QStringLiteral("0.8.0") } } } });
+    const auto manager = makeManager(InstallType::LinuxRpmRepo, QStringLiteral("0.7.0"));
+    ingest(manager.get(), manifest);
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+    QVERIFY(manager->packageManaged());
+    QVERIFY(!manager->canInstallAutomatically());
+    QCOMPARE(manager->statusDetail(),
+             QStringLiteral("Updates for this installation are managed by dnf."));
+
+    // Neither the download nor the install runs.
+    QSignalSpy refusedSpy(manager.get(), &UpdateManager::installRefused);
+    manager->downloadUpdate();
+    QCOMPARE(refusedSpy.count(), 1);
+    QCOMPARE(manager->state(), UpdateManager::UpdateAvailable);
+    bool launched = false;
+    manager->setProcessLauncherForTest([&launched](const QString &, const QStringList &) {
+        launched = true;
+        return true;
+    });
+    manager->setStagedArtifactForTest(m_artifactPath);
+    manager->installUpdate();
+    QCOMPARE(refusedSpy.count(), 2);
+    QVERIFY(!launched);
+    QCOMPARE(refusedSpy.at(1).at(0).toString(),
+             QStringLiteral("Updates for this installation are managed by dnf."));
+    QCOMPARE(manager->state(), UpdateManager::ReadyToInstall);
+
+    // The help hands over the command.
+    QSignalSpy helpSpy(manager.get(), &UpdateManager::managedUpdateHelpRequested);
+    manager->openManagedUpdateHelp();
+    QCOMPARE(helpSpy.count(), 1);
+    QCOMPARE(helpSpy.at(0).at(0).toString(),
+             QStringLiteral("sudo dnf upgrade --refresh lightning"));
+    QVERIFY(helpSpy.at(0).at(1).toString().contains(QStringLiteral("managed by dnf")));
+
+    // The GitLab .rpm, same manifest: its own download, installed by the helper.
+    const auto downloaded = makeManager(InstallType::LinuxRpm, QStringLiteral("0.7.0"));
+    ingest(downloaded.get(), manifest);
+    QCOMPARE(downloaded->state(), UpdateManager::UpdateAvailable);
+    QVERIFY(!downloaded->packageManaged());
+    QVERIFY(downloaded->canInstallAutomatically());
+    QVERIFY(downloaded->managedUpdateCommand().isEmpty());
 }
 
 void UpdateManagerStateTest::developmentInstallIsRefusedWithoutRunningAnything()
@@ -1936,6 +2006,7 @@ void UpdateManagerStateTest::everyInstallTypeBuildsArgumentsTheHelperAccepts()
         { InstallType::LinuxRpm, "linux-rpm" },
         { InstallType::LinuxFlatpak, "linux-flatpak" },
         { InstallType::LinuxSnap, "linux-snap" },
+        { InstallType::LinuxRpmRepo, "linux-rpm-repo" },
         { InstallType::MacosDmg, "macos-dmg" },
         { InstallType::Development, "development" },
         { InstallType::Unknown, "unknown" },

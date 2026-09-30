@@ -220,7 +220,9 @@ and a valid `APPIMAGE` path means AppImage.
 
 Identifiers: `windows-msi`, `windows-setup`, `windows-portable`,
 `linux-appimage`, `linux-deb`, `linux-rpm`, `linux-flatpak`, `linux-snap`,
-`macos-dmg`, `development`, `unknown`. The current type is shown in
+`linux-rpm-repo`, `macos-dmg`, `development`, `unknown`. `linux-rpm-repo` is the
+rpm Fedora COPR builds from `packaging-ci/packaging/rpm/lightning-copr.spec.in`:
+the same package as `linux-rpm` at runtime, so only its build can say it. The current type is shown in
 Settings → Updates.
 
 **A development build never installs an update.** A build from source reports
@@ -237,7 +239,8 @@ packaged installation.
 | Windows portable ZIP | Downloads and verifies the ZIP, extracts it to a staging directory with strict path checks, validates that the result really is a Lightning layout, then swaps directories and rolls back on any failure. |
 | Linux AppImage | Downloads and verifies the new AppImage, preserves the executable bit, and atomically replaces the running AppImage, restoring the previous file if the replacement fails. |
 | Linux DEB | Downloads and verifies the `.deb`, then hands it to the system package manager through PolicyKit. dpkg/APT stays the owner of every installed file. |
-| Linux RPM | Downloads and verifies the `.rpm`, then hands it to `dnf5`/`dnf`/`rpm-ostree` (whichever exists) through PolicyKit. RPM stays the owner of every installed file. |
+| Linux RPM | Downloads and verifies the `.rpm`, then hands it to `dnf5`/`dnf`/`rpm-ostree` (whichever exists) through PolicyKit. RPM stays the owner of every installed file. openSUSE has none of the three, so there it is `rpm -U`, which cannot pull in a dependency a new release adds; that path has not been exercised. |
+| Linux RPM from COPR | Nothing is downloaded. dnf owns this installation; Lightning says so and offers `sudo dnf upgrade --refresh lightning`. |
 | Linux Flatpak | Nothing is downloaded. Flatpak owns this installation; Lightning says so and offers the correct command. |
 | Linux Snap | Nothing is downloaded. Snap owns this installation and refreshes it itself; Lightning says so and offers the correct command. |
 
@@ -257,8 +260,10 @@ it. The Flatpak is published on Flathub, which builds and delivers its own
 updates on its own schedule; the Snap is produced but **not** published to the
 Snap Store. The signed manifest marks both channels unavailable, so Lightning
 never offers to install an update inside a Flatpak or a Snap: a Flatpak user
-updates through their software centre or `flatpak update`. The APT and DNF
-repositories do not exist yet.
+updates through their software centre or `flatpak update`. There is no APT
+repository. The DNF one is Fedora COPR (`mizerd/lightning`), which builds each
+release after it is published; its `linux-rpm-repo` channel stays unavailable
+until that build is green, and only an install from COPR reads it.
 
 ## The updater helper
 

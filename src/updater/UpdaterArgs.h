@@ -55,6 +55,7 @@ enum class UpdaterMode {
     LinuxRpm,        // "linux-rpm"
     LinuxFlatpak,    // "linux-flatpak"     — ecosystem managed
     LinuxSnap,       // "linux-snap"        — ecosystem managed
+    LinuxRpmRepo,    // "linux-rpm-repo"    — ecosystem managed (dnf)
     MacosDmg,        // "macos-dmg"         — no helper strategy yet
     Development,     // "development"       — never installs
     UnknownInstall,  // "unknown"           — never installs
@@ -79,6 +80,7 @@ inline constexpr ModeName kModeNames[] = {
     {UpdaterMode::LinuxRpm, "linux-rpm"},
     {UpdaterMode::LinuxFlatpak, "linux-flatpak"},
     {UpdaterMode::LinuxSnap, "linux-snap"},
+    {UpdaterMode::LinuxRpmRepo, "linux-rpm-repo"},
     {UpdaterMode::MacosDmg, "macos-dmg"},
     {UpdaterMode::Development, "development"},
     {UpdaterMode::UnknownInstall, "unknown"},
@@ -112,6 +114,7 @@ inline bool isSelfInstallable(UpdaterMode mode)
     case UpdaterMode::Invalid:
     case UpdaterMode::LinuxFlatpak:
     case UpdaterMode::LinuxSnap:
+    case UpdaterMode::LinuxRpmRepo:
     case UpdaterMode::MacosDmg:
     case UpdaterMode::Development:
     case UpdaterMode::UnknownInstall:

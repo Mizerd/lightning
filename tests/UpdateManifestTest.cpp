@@ -269,6 +269,7 @@ private slots:
     void ignoresUnknownFieldsAndArtifactKeys();
     void manifestCanNeverCarryACommand();
     void modelsEcosystemChannels();
+    void aRepositoryRpmReadsItsChannelAndNeverAnArtifact();
     void validatesHashAndFilenameHelpers();
     void validatesUpdateUrls();
     void expiryIsOptionalAndInformational();
@@ -990,6 +991,31 @@ void UpdateManifestTest::modelsEcosystemChannels()
                                  { QStringLiteral("version"), QStringLiteral("latest") } });
     manifest.insert(QStringLiteral("channels"), channels);
     QCOMPARE(verify(manifest).error, ManifestError::ChannelMalformed);
+}
+
+void UpdateManifestTest::aRepositoryRpmReadsItsChannelAndNeverAnArtifact()
+{
+    // A COPR install reads the linux-rpm-repo channel, as Flatpak and Snap read
+    // theirs.
+    QCOMPARE(UpdateManifest::channelIdForInstallType(InstallType::LinuxRpmRepo),
+             QStringLiteral("linux-rpm-repo"));
+    QCOMPARE(UpdateManifest::channelIdForInstallType(InstallType::LinuxFlatpak),
+             QStringLiteral("linux-flatpak"));
+    QCOMPARE(UpdateManifest::channelIdForInstallType(InstallType::LinuxSnap),
+             QStringLiteral("linux-snap"));
+
+    // An artifact keyed for it is ignored: nothing in a manifest can hand a
+    // repository install a file to install.
+    QJsonObject manifest = baseManifest();
+    QJsonObject artifacts = manifest.value(QStringLiteral("artifacts")).toObject();
+    const QJsonObject rpm = artifactObject(QStringLiteral("lightning-0.8.0-1.x86_64.rpm"));
+    artifacts.insert(QStringLiteral("linux-rpm-repo"), rpm);
+    artifacts.insert(QStringLiteral("linux-rpm"), rpm);
+    manifest.insert(QStringLiteral("artifacts"), artifacts);
+    const UpdateManifest::Result result = verify(manifest);
+    QVERIFY2(result.ok, qPrintable(result.message));
+    QVERIFY(!result.manifest.artifactFor(InstallType::LinuxRpmRepo).has_value());
+    QVERIFY(result.manifest.artifactFor(InstallType::LinuxRpm).has_value());
 }
 
 void UpdateManifestTest::validatesHashAndFilenameHelpers()

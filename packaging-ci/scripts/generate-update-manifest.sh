@@ -119,8 +119,11 @@ done
 # --- Ecosystem channels ------------------------------------------------------
 #
 # Driven by variables so enabling a channel needs no code change. All four are
-# false: no Flathub, Snap Store, APT or DNF/YUM publication exists, and the
-# release bundles are manual downloads.
+# false: no Flathub, Snap Store or APT publication exists, and the release
+# bundles are manual downloads. The DNF one is Fedora COPR (mizerd/lightning),
+# read only by a COPR-built install (linux-rpm-repo). It stays false by default
+# because COPR builds a release after it is published: flip it with a manifest
+# refresh once that build is green (packaging-ci/docs/update-manifest.md).
 : "${UPDATE_CHANNEL_FLATPAK_AVAILABLE:=false}"
 : "${UPDATE_CHANNEL_FLATPAK_VERSION:=}"
 : "${UPDATE_CHANNEL_FLATPAK_NOTE:=No Flathub publication exists. The .flatpak bundle on the release page is a manual download, not an update source.}"
@@ -132,7 +135,7 @@ done
 : "${UPDATE_CHANNEL_DEB_REPO_NOTE:=No APT repository exists. Install the published .deb directly.}"
 : "${UPDATE_CHANNEL_RPM_REPO_AVAILABLE:=false}"
 : "${UPDATE_CHANNEL_RPM_REPO_VERSION:=}"
-: "${UPDATE_CHANNEL_RPM_REPO_NOTE:=No DNF/YUM repository exists. Install the published .rpm directly.}"
+: "${UPDATE_CHANNEL_RPM_REPO_NOTE:=The COPR repository builds each release after it is published; dnf offers it once that build has finished.}"
 
 channel_entry() { # available version note
     local available="$1" version="$2" note="$3"

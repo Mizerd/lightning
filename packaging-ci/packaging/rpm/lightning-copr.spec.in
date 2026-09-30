@@ -1,0 +1,175 @@
+# Compiles Lightning from source, for Fedora COPR (mizerd/lightning) or any
+# mock chroot. packaging-ci/scripts/build-copr-srpm.sh fills @VERSION@ and
+# @COMMIT@. The release pipeline keeps using lightning.spec, which repacks a
+# staged tree; tests/test-copr-spec-parity.py keeps the two in step.
+
+%global commit @COMMIT@
+%global shortcommit %(c=%{commit}; echo ${c:0:12})
+
+# No -debuginfo subpackage, as in the release RPM.
+%global debug_package %{nil}
+# Fedora turns on GCC LTO for C++; no release lane uses it, and on top of the
+# Rust fat-LTO link it raises the build's peak memory.
+%global _lto_cflags %{nil}
+
+Name:           lightning
+Version:        @VERSION@
+# %%buildtag is Copr's build id (".copr<N>"), so a rebuild of the same
+# version still reaches users.
+Release:        1%{?dist}%{?buildtag}
+Summary:        Native Matrix desktop client
+# Lightning is GPL-3.0-or-later. The statically linked Rust crates in Source1
+# carry their own licences (mostly MIT OR Apache-2.0).
+License:        GPL-3.0-or-later
+URL:            https://gitlab.smetonis.net/Mizerd/lightning
+Source0:        lightning-%{shortcommit}.tar.gz
+Source1:        lightning-%{shortcommit}-vendor.tar.xz
+
+ExclusiveArch:  x86_64 aarch64
+
+BuildRequires:  cmake >= 3.21
+BuildRequires:  ninja-build
+BuildRequires:  gcc-c++
+BuildRequires:  cargo
+BuildRequires:  rust
+BuildRequires:  pkgconf-pkg-config
+BuildRequires:  qt6-qtbase-devel >= 6.5
+BuildRequires:  qt6-qtbase-private-devel
+BuildRequires:  qt6-qtdeclarative-devel
+BuildRequires:  qt6-qtmultimedia-devel
+BuildRequires:  qt6-qtsvg-devel
+BuildRequires:  qt6-qttools-devel
+BuildRequires:  openssl-devel >= 3.0
+BuildRequires:  zlib-devel
+BuildRequires:  libsecret-devel
+BuildRequires:  gstreamer1-devel
+BuildRequires:  gstreamer1-plugins-base-devel
+BuildRequires:  gstreamer1-plugins-bad-free-devel
+BuildRequires:  desktop-file-utils
+BuildRequires:  appstream
+
+# The runtime dependencies below are the release spec's, line for line (the
+# parity test compares them); see lightning.spec for why each is there. The
+# release spec also requires desktop-file-utils, for its %%post scriptlet
+# only; a repository install is covered by Fedora's file triggers.
+%global gst_element() gstreamer1(element-%1)()(%{__isa_bits}bit)
+Requires:       %{gst_element webrtcbin}
+Requires:       %{gst_element nicesrc}
+Requires:       %{gst_element opusenc}
+Requires:       %{gst_element vp8enc}
+Requires:       %{gst_element autoaudiosrc}
+Requires:       %{gst_element pipewiresrc}
+Recommends:     libenchant-2.so.2()(%{__isa_bits}bit)
+
+%global qml_module() (qt6qml(%1) or qt6qmlimport(%1))
+Requires:       %{qml_module QtQuick}
+Requires:       %{qml_module QtQuick.Controls}
+Requires:       %{qml_module QtQuick.Controls.Basic}
+Requires:       %{qml_module QtQuick.Layouts}
+Requires:       %{qml_module QtQuick.Effects}
+Requires:       %{qml_module QtQuick.Dialogs}
+Requires:       %{qml_module QtQuick.Window}
+Requires:       %{qml_module QtQuick.Shapes}
+Requires:       %{qml_module QtMultimedia}
+
+Requires:       (qt6-qtimageformats or qt6-imageformats)
+Recommends:     kf6-kimageformats
+
+%description
+A native C++ and Qt Matrix desktop client with the Matrix Rust SDK backend.
+
+%prep
+%autosetup -n lightning-%{shortcommit} -a1
+# CMake runs `cargo build --offline --locked`; point crates.io at the vendored
+# copy. Cargo finds this file from the build directory by walking up.
+mkdir -p .cargo
+cat >.cargo/config.toml <<'CARGO'
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "rust/vendor"
+
+[net]
+offline = true
+CARGO
+
+%build
+export CARGO_HOME="$PWD/.cargo"
+# The crate's release profile (fat LTO, one codegen unit) decides the Rust
+# code generation. Fedora's default RUSTFLAGS add -Cdebuginfo=2, which only
+# inflates that link while this package ships no debuginfo.
+export RUSTFLAGS="--cap-lints=warn --remap-path-prefix=$PWD=/usr/src/debug/%{name}"
+# No install RPATH: qt_standard_project_setup() asks for $ORIGIN ones, which
+# configure-build.sh strips with patchelf for the release RPM.
+# linux-rpm-repo: dnf owns updates, so the in-app updater only points at it.
+# The portable Qt ABI keeps Qt private-ABI imports out, so a Fedora Qt minor
+# update does not have to wait for a rebuild here.
+%cmake \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_SKIP_INSTALL_RPATH=ON \
+    -DBUILD_TESTING=OFF \
+    -DLIGHTNING_DISABLE_CCACHE=ON \
+    -DENABLE_RUST_SDK_BACKEND=ON \
+    -DLIGHTNING_RUST_ONLY=ON \
+    -DLIGHTNING_ENABLE_WEBRTC=ON \
+    -DLIGHTNING_REQUIRE_WEBRTC=ON \
+    -DLIGHTNING_REQUIRE_QT_SVG=ON \
+    -DLIGHTNING_REQUIRE_GIF_KEYS=OFF \
+    -DLIGHTNING_ARTIFACT_KIND=release \
+    -DLIGHTNING_INSTALL_TYPE=linux-rpm-repo \
+    -DLIGHTNING_PORTABLE_QT_ABI=ON \
+    -DLIGHTNING_UPDATE_PUBKEY_2026A=pnNX0yQfhr66fpbMJ89MCNWkHVtfAr+WwI9c4OHzz50= \
+    -DLIGHTNING_SOURCE_SHA=%{commit}
+# CMake has cached Fedora's LDFLAGS for the C++ link by now. Cargo must not
+# see them: aws-lc-sys links a feature probe with LDFLAGS but without CFLAGS,
+# so redhat-hardened-ld asks for a PIE link of a non-PIE object and the probe
+# fails ("recompile with -fPIE").
+unset LDFLAGS
+# Rust first, alone and two crates at a time. At four crates beside the C++
+# compile the build passed the 8 GB of a standard Copr builder and was
+# OOM-killed compiling matrix-sdk.
+export CARGO_BUILD_JOBS=2
+%cmake_build --target matrix-client-rust-build
+%cmake_build
+
+%install
+%cmake_install
+install -Dpm0644 packaging-ci/packaging/common/lightning.metainfo.xml \
+    %{buildroot}%{_metainfodir}/lightning.metainfo.xml
+
+%check
+if readelf -d %{buildroot}%{_bindir}/lightning-matrix %{buildroot}%{_bindir}/lightning-updater \
+        | grep -E 'RPATH|RUNPATH'; then exit 1; fi
+desktop-file-validate %{buildroot}%{_datadir}/applications/lightning.desktop
+appstreamcli validate --no-net %{buildroot}%{_metainfodir}/lightning.metainfo.xml
+# The same fail-closed assertions configure-build.sh makes on the staged binary.
+%{buildroot}%{_bindir}/lightning-matrix --version
+%{buildroot}%{_bindir}/lightning-matrix --build-info >build-info.txt
+cat build-info.txt
+grep -qx 'matrix_backend: rust' build-info.txt
+grep -qx 'http_backend_compiled: false' build-info.txt
+grep -qx 'mock_backend_compiled: false' build-info.txt
+timeout 60s %{buildroot}%{_bindir}/lightning-matrix --call-media-status >call-media.txt 2>&1 || :
+cat call-media.txt
+grep -qx 'call media engine built in: yes' call-media.txt
+# The portable Qt ABI, as validate-rpm.sh asserts on the release RPM: no Qt
+# private-ABI import, and the Qt version tag kept.
+objdump -T %{buildroot}%{_bindir}/lightning-matrix >dynsym.txt
+if grep -E '[(]Qt_[0-9._]*PRIVATE_API[)]' dynsym.txt; then exit 1; fi
+grep -qE '[(]Qt_6[.][0-9]+[)][[:space:]]+qt_version_tag$' dynsym.txt
+
+%files
+%license LICENSE
+%doc README.md
+%{_bindir}/lightning-matrix
+%{_bindir}/lightning-updater
+%{_datadir}/applications/lightning.desktop
+%{_datadir}/icons/hicolor/*/apps/lightning.png
+%{_datadir}/icons/hicolor/scalable/apps/lightning.svg
+%{_metainfodir}/lightning.metainfo.xml
+
+%changelog
+* Wed Sep 30 2026 Mizerd <rsmetonis@gmail.com> - @VERSION@-1
+- Built from source %{commit}

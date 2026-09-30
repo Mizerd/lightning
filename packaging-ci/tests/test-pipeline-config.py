@@ -48,7 +48,7 @@ required_jobs = [
     "resolve-source", "build-deb", "build-rpm",
     "build-flatpak", "build-appimage", "build-snap",
     "build-deb-ubuntu", "validate-deb-ubuntu",
-    "validate-deb", "validate-rpm",
+    "validate-deb", "validate-rpm", "validate-rpm-opensuse", "copr-srpm",
     "validate-flatpak", "validate-appimage", "validate-snap",
     "publish-packages", "verify-published-packages", "finalize-release",
     "sign-update-manifest", "mirror-release-to-github", "publish-update-manifest",
@@ -85,8 +85,9 @@ FORMAT_SELECTOR = {
 }
 # Cross-check the hard-coded list against the file: several checks below
 # iterate FORMAT_SELECTOR, so a new format missing here would skip them.
-# validate-deb-ubuntu reuses validate-deb.sh.
-_UBUNTU_REUSES = {"deb-ubuntu": "deb"}
+# validate-deb-ubuntu reuses validate-deb.sh, and validate-rpm-opensuse
+# validate-rpm.sh (the one .rpm, installed on Tumbleweed as well).
+_UBUNTU_REUSES = {"deb-ubuntu": "deb", "rpm-opensuse": "rpm"}
 _derived_formats = {
     _UBUNTU_REUSES.get(j[len("validate-"):], j[len("validate-"):])
     for j in validators
@@ -476,6 +477,9 @@ check(build_included("snap", v) and build_included("appimage", v),
 v = {"PUBLISH_PACKAGES": "true", "BUILD_FORMATS": "deb"}
 check(all(build_included(f, v) for f in all_fmts),
       "publishing pipelines build every format regardless of BUILD_FORMATS")
+for job in ("validate-rpm-opensuse", "copr-srpm"):
+    check(doc[job].get("rules") == doc["build-rpm"].get("rules"),
+          f"{job} runs exactly when build-rpm does")
 for fmt in all_fmts:
     check(doc["validate-" + fmt].get("rules") == doc["build-" + fmt].get("rules"),
           f"validate-{fmt} carries the same selection rules as its build")
@@ -715,8 +719,19 @@ with open(os.path.join(HERE, "..", "packaging", "rpm", "lightning.spec"),
     spec_src = handle.read()
 _rpm_requires = "\n".join(
     line for line in spec_src.splitlines() if line.startswith("Requires:"))
-for needle in _PLUGIN_SUBSTRINGS + ("libnice", "pipewire"):
-    check(needle in _rpm_requires, f"rpm requires gstreamer {needle}")
+# One .rpm for Fedora and openSUSE, so by the gstreamer1(element-...)
+# capability both generate, one element per plugin package, never by a
+# package name only one of them has.
+check("%global gst_element() gstreamer1(element-%1)()(%{__isa_bits}bit)" in spec_src,
+      "the rpm spec requires GStreamer elements by capability")
+for element, package in (("webrtcbin", "plugins-bad"), ("opusenc", "plugins-base"),
+                         ("vp8enc", "plugins-good"), ("autoaudiosrc", "plugins-good"),
+                         ("nicesrc", "libnice"), ("pipewiresrc", "pipewire")):
+    check(f"%{{gst_element {element}}}" in _rpm_requires,
+          f"rpm requires gstreamer {package} (by its {element} element)")
+for fedora_only in ("gstreamer1-plugins", "libnice-gstreamer1", "pipewire-gstreamer"):
+    check(fedora_only not in _rpm_requires,
+          f"rpm names no Fedora-only package ({fedora_only})")
 
 with open(os.path.join(HERE, "..", "scripts", "build-appimage.sh"),
           encoding="utf-8") as handle:
@@ -1013,6 +1028,57 @@ check("Lightning-GPL-3.0.txt" in _macos_validator,
       "the macOS validator asserts the GPL-3 text is in the BUNDLE")
 check("gst-plugins-good-1.0" in _macos_validator,
       "the macOS validator asserts the gst-plugins-good licence is in the BUNDLE")
+
+# --- one .rpm for Fedora and openSUSE Tumbleweed -----------------------------
+#
+# The RPM is built bytecode-only (LIGHTNING_PORTABLE_QT_ABI), so it imports no
+# Qt private-ABI symbol: Fedora versions those per Qt minor, openSUSE per
+# patch. validate-rpm asserts it on the package; validate-rpm-opensuse installs
+# and runs the same package on Tumbleweed.
+_rpm_validate = _strip_shell_comments(_read("scripts", "validate-rpm.sh"))
+check('assert_portable_qt_abi RPM "$binary"' in _rpm_validate,
+      "validate-rpm asks the packaged binary for its Qt ABI")
+_abi_helper = _strip_shell_comments(_read("scripts", "lib.sh"))
+_abi_helper = _abi_helper[_abi_helper.index("assert_portable_qt_abi()"):]
+_abi_helper = _abi_helper[:_abi_helper.index("\n}\n")]
+for needle in ('objdump -T "$binary"', "PRIVATE_API", "qt_version_tag", "qt_imports >= 100"):
+    check(needle in _abi_helper, f"assert_portable_qt_abi checks {needle}")
+for needle in ("opensuse-tumbleweed)", "zypper --non-interactive install --allow-unsigned-rpm --recommends",
+               'if [[ "$distro" == fedora ]]; then\n    rpmlint'):
+    check(needle in _rpm_validate,
+          f"validate-rpm runs on Tumbleweed as well as Fedora ({needle.splitlines()[0]})")
+_suse = resolve_extends_dict(doc["validate-rpm-opensuse"])
+check(str(_suse.get("image", "")).startswith("registry.opensuse.org/opensuse/tumbleweed@sha256:"),
+      "validate-rpm-opensuse runs on the pinned openSUSE Tumbleweed image")
+check(_suse.get("script") == ["./packaging-ci/scripts/validate-rpm.sh"],
+      "validate-rpm-opensuse runs the same validator as validate-rpm")
+check("build-rpm" in needs_names("validate-rpm-opensuse")
+      and "resolve-source" in needs_names("validate-rpm-opensuse"),
+      "validate-rpm-opensuse installs the package build-rpm made")
+_suse_before = " ".join(str(x) for x in _suse.get("before_script", []))
+for package in ("AppStream", "binutils", "cpio", "desktop-file-utils", "file"):
+    check(package in _suse_before, f"validate-rpm-opensuse installs {package}")
+_publish_suse = [n for n in doc["publish-packages"]["needs"]
+                 if isinstance(n, dict) and n.get("job") == "validate-rpm-opensuse"]
+check(len(_publish_suse) == 1 and _publish_suse[0].get("artifacts") is False,
+      "publish-packages waits for the Tumbleweed install but takes the .rpm from validate-rpm")
+check(not any(p.endswith(".rpm") for p in _suse.get("artifacts", {}).get("paths", [])),
+      "validate-rpm-opensuse hands on reports only, never a second copy of the .rpm")
+
+# COPR: the source RPM is assembled from the pinned source on every rpm
+# pipeline, and never gates a publication.
+_copr = resolve_extends_dict(doc["copr-srpm"])
+check(_copr.get("script") == ["./packaging-ci/scripts/prepare-pinned-source.sh",
+                              "./packaging-ci/scripts/check-copr-srpm.sh"],
+      "copr-srpm assembles the COPR source RPM from the pinned source")
+check(_copr.get("image") == doc["build-rpm"].get("image"),
+      "copr-srpm uses build-rpm's pinned Fedora image")
+check("copr-srpm" not in needs_names("publish-packages"),
+      "copr-srpm is not a publication gate")
+_copr_check = _strip_shell_comments(_read("scripts", "check-copr-srpm.sh"))
+for needle in ('make -f "$SOURCE_DIR/.copr/Makefile" srpm', "rpmspec -q --requires",
+               "diff -u", ">= 15"):
+    check(needle in _copr_check, f"check-copr-srpm.sh: {needle}")
 
 # --- 3. every format asks the shipped artifact ------------------------------
 #
@@ -1411,8 +1477,8 @@ check(_deb_recommends is not None
 check("Recommends: %s" in deb_src,
       "build-deb writes a Recommends field into the control file")
 
-check("qt6-qtimageformats" in _rpm_requires,
-      "rpm requires the Qt image-format plugins (webp)")
+check("(qt6-qtimageformats or qt6-imageformats)" in _rpm_requires,
+      "rpm requires the Qt image-format plugins (webp) under Fedora's or openSUSE's name")
 _rpm_recommends = "\n".join(
     line for line in spec_src.splitlines() if line.startswith("Recommends:"))
 check("kf6-kimageformats" in _rpm_recommends,

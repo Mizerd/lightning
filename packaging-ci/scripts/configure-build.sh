@@ -26,6 +26,15 @@ case "$LIGHTNING_INSTALL_TYPE" in
     *) die "unsupported LIGHTNING_INSTALL_TYPE for a Linux package: $LIGHTNING_INSTALL_TYPE" ;;
 esac
 
+# Bytecode-only QML, so the binary imports no Qt private-ABI symbol. Only the
+# RPM asks for it (build-rpm.sh): one .rpm must load on Fedora's Qt and on
+# openSUSE's, which version those symbols differently. Every other format
+# ships with, or is built for, the Qt it runs on, and keeps the AOT C++.
+: "${LIGHTNING_PORTABLE_QT_ABI:=OFF}"
+[[ "$LIGHTNING_PORTABLE_QT_ABI" == ON || "$LIGHTNING_PORTABLE_QT_ABI" == OFF ]] || \
+    die "LIGHTNING_PORTABLE_QT_ABI must be ON or OFF, not '$LIGHTNING_PORTABLE_QT_ABI'"
+printf 'Portable Qt ABI (bytecode-only QML): %s\n' "$LIGHTNING_PORTABLE_QT_ABI"
+
 # Public update-manifest signing key. Empty fails closed: the build can check
 # for updates but never accept one. The private key never reaches this job.
 if [[ -n "${UPDATE_SIGNING_PUBKEY_2026A:-}" ]]; then
@@ -115,6 +124,7 @@ cmake -S "$SOURCE_DIR" -B "$BUILD_DIR" -G Ninja \
     -DLIGHTNING_REQUIRE_QT_SVG=ON \
     -DLIGHTNING_ARTIFACT_KIND=release \
     -DLIGHTNING_INSTALL_TYPE="$LIGHTNING_INSTALL_TYPE" \
+    -DLIGHTNING_PORTABLE_QT_ABI="$LIGHTNING_PORTABLE_QT_ABI" \
     -DLIGHTNING_UPDATE_PUBKEY_2026A="${UPDATE_SIGNING_PUBKEY_2026A:-}" \
     -DLIGHTNING_SOURCE_SHA="${SOURCE_SHA:-}" \
     "${CCACHE_ARGS[@]}"

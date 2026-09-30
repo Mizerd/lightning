@@ -33,6 +33,9 @@ enum class InstallType {
     LinuxRpm,
     LinuxFlatpak,
     LinuxSnap,
+    // An RPM installed from a DNF repository (Fedora COPR): dnf owns updates.
+    // Only the COPR spec compiles it in; a downloaded .rpm is LinuxRpm.
+    LinuxRpmRepo,
     MacosDmg,
     Development,
     Unknown,
@@ -58,14 +61,20 @@ QString installTypeLabel(InstallType type);
 // Strict id -> enum. Unknown text yields nullopt (never Unknown-by-guess).
 std::optional<InstallType> installTypeFromId(QStringView id);
 
-// False for flatpak, snap, macos-dmg, development and unknown; a hard refusal
-// with no override. macos-dmg is false because the helper has no strategy for
-// it; a test keeps the two sides in step.
+// False for flatpak, snap, linux-rpm-repo, macos-dmg, development and unknown;
+// a hard refusal with no override. macos-dmg is false because the helper has
+// no strategy for it; a test keeps the two sides in step.
 bool canInstallAutomatically(InstallType type);
 
-// True where another package manager owns updates. Repo-managed .deb/.rpm
-// installs cannot be detected and report false.
+// True where another package manager owns updates. A repository RPM is known
+// by its compile-time type alone (the COPR spec builds linux-rpm-repo); a
+// downloaded .deb/.rpm cannot tell it went through a repository and reports
+// false.
 bool isPackageManaged(InstallType type);
+
+// The tool that owns updates for a package-managed type, for "managed by %1":
+// Flatpak, Snap or dnf. Empty for every other type.
+QString packageManagerName(InstallType type);
 
 // Injectable inputs so every branch is testable without setenv races.
 // Defaults read the real environment and filesystem.

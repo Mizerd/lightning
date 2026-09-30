@@ -163,9 +163,12 @@ QString UpdateManifest::channelIdForInstallType(InstallType type)
         return QStringLiteral("linux-flatpak");
     case InstallType::LinuxSnap:
         return QStringLiteral("linux-snap");
+    // A downloaded .deb or .rpm is not package-managed and never reads its
+    // channel; a COPR install (LinuxRpmRepo) does.
     case InstallType::LinuxDeb:
         return QStringLiteral("linux-deb-repo");
     case InstallType::LinuxRpm:
+    case InstallType::LinuxRpmRepo:
         return QStringLiteral("linux-rpm-repo");
     default:
         break;

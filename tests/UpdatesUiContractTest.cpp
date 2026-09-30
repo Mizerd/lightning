@@ -247,6 +247,11 @@ private Q_SLOTS:
                 "Updates for this installation are managed by Flatpak.")));
             QVERIFY(source.contains(QStringLiteral(
                 "Updates for this installation are managed by Snap.")));
+            // A COPR install (linux-rpm-repo) is dnf's.
+            QVERIFY(source.contains(QStringLiteral(
+                "root.installType === \"linux-rpm-repo\"\n")));
+            QVERIFY(source.contains(QStringLiteral(
+                "? qsTr(\"Updates for this installation are managed by dnf.\")")));
             QVERIFY(source.contains(QStringLiteral("openManagedUpdateHelp()")));
         }
 

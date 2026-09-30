@@ -172,7 +172,7 @@ Dialog {
                   ? root.um.releaseNotesUrl.toString() : ""
         }
 
-        // Package-managed installs (Flatpak/Snap): no self-download, as in
+        // Package-managed installs (Flatpak/Snap/dnf): no self-download, as in
         // Settings -> Updates.
         Label {
             objectName: "updateDialogManagedMessage"
@@ -186,7 +186,9 @@ Dialog {
                 ? qsTr("Updates for this installation are managed by Flatpak.")
                 : root.installType === "linux-snap"
                     ? qsTr("Updates for this installation are managed by Snap.")
-                    : ""
+                    : root.installType === "linux-rpm-repo"
+                        ? qsTr("Updates for this installation are managed by dnf.")
+                        : ""
         }
         // The exact command and explanation from UpdateManager, revealed after
         // "Get update instructions".

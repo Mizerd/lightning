@@ -20,6 +20,7 @@ unset GIPHY_API_KEY KLIPY_API_KEY \
     LIGHTNING_GIPHY_API_KEY LIGHTNING_KLIPY_API_KEY \
     LIGHTNING_BUILD_GIPHY_API_KEY LIGHTNING_BUILD_KLIPY_API_KEY \
     UPDATE_SIGNING_KEY_ID UPDATE_SIGNING_KEY_B64 UPDATE_SIGNING_PUBKEY_2026A \
+    LIGHTNING_PORTABLE_QT_ABI \
     2>/dev/null || true
 
 CANARY_G="CANARY_GIPHY_injx_11"
@@ -215,5 +216,40 @@ if run_cfg PUBLISH_PACKAGES=false LIGHTNING_INSTALL_TYPE=linux-deb; then
 else
     bad "configure-build rejected a binary that HAS the engine: $(tail -3 "$WORK/cfg.log")"
 fi
+
+# --- 5. the portable Qt ABI is the RPM's alone --------------------------------
+# Bytecode-only QML keeps Qt private-ABI imports out of the binary so one .rpm
+# loads on Fedora and openSUSE; every other lane keeps the AOT C++.
+printf '== portable Qt ABI ==\n'
+if run_cfg PUBLISH_PACKAGES=false LIGHTNING_INSTALL_TYPE=linux-deb; then
+    grep -q 'LIGHTNING_PORTABLE_QT_ABI=OFF' "$ARGLOG" \
+        && ok "a lane that does not ask stays on the AOT build" \
+        || bad "the portable flag is not OFF by default: $(cat "$ARGLOG")"
+else
+    bad "configure-build without the portable flag failed: $(tail -3 "$WORK/cfg.log")"
+fi
+if run_cfg PUBLISH_PACKAGES=false LIGHTNING_INSTALL_TYPE=linux-rpm LIGHTNING_PORTABLE_QT_ABI=ON; then
+    grep -q 'LIGHTNING_PORTABLE_QT_ABI=ON' "$ARGLOG" \
+        && ok "the portable flag reaches cmake" || bad "the portable flag did not reach cmake"
+else
+    bad "configure-build with the portable flag failed: $(tail -3 "$WORK/cfg.log")"
+fi
+if run_cfg PUBLISH_PACKAGES=false LIGHTNING_PORTABLE_QT_ABI=yes; then
+    bad "a portable flag that is neither ON nor OFF was accepted"
+else
+    grep -q 'LIGHTNING_PORTABLE_QT_ABI must be ON or OFF' "$WORK/cfg.log" \
+        && ok "a malformed portable flag is refused by name" \
+        || bad "a malformed portable flag failed for the wrong reason: $(tail -3 "$WORK/cfg.log")"
+fi
+# build-rpm.sh is the one caller that turns it on.
+grep -q 'LIGHTNING_PORTABLE_QT_ABI=ON' "$ROOT/scripts/build-rpm.sh" \
+    && ok "build-rpm.sh asks for the portable ABI" || bad "build-rpm.sh does not ask for the portable ABI"
+for script in build-deb.sh build-appimage.sh build-flatpak.sh build-snap.sh; do
+    if grep -q 'LIGHTNING_PORTABLE_QT_ABI' "$ROOT/scripts/$script"; then
+        bad "$script touches the portable ABI; only the RPM needs it"
+    else
+        ok "$script keeps the AOT build"
+    fi
+done
 
 if [[ "$fail" == 0 ]]; then printf 'GIF key injection tests passed\n'; else printf 'GIF key injection tests FAILED\n' >&2; exit 1; fi

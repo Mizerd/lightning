@@ -42,6 +42,7 @@ constexpr InstallTypeEntry kInstallTypes[] = {
     { InstallType::LinuxRpm, "linux-rpm", "RPM package" },
     { InstallType::LinuxFlatpak, "linux-flatpak", "Flatpak" },
     { InstallType::LinuxSnap, "linux-snap", "Snap" },
+    { InstallType::LinuxRpmRepo, "linux-rpm-repo", "RPM package (DNF repository)" },
     { InstallType::MacosDmg, "macos-dmg", "macOS disk image" },
     { InstallType::Development, "development", "Development build" },
     { InstallType::Unknown, "unknown", "Unknown installation" },
@@ -135,6 +136,7 @@ bool canInstallAutomatically(InstallType type)
     switch (type) {
     case InstallType::LinuxFlatpak:
     case InstallType::LinuxSnap:
+    case InstallType::LinuxRpmRepo:
     case InstallType::Development:
     case InstallType::Unknown:
         return false;
@@ -154,7 +156,23 @@ bool canInstallAutomatically(InstallType type)
 
 bool isPackageManaged(InstallType type)
 {
-    return type == InstallType::LinuxFlatpak || type == InstallType::LinuxSnap;
+    return type == InstallType::LinuxFlatpak || type == InstallType::LinuxSnap
+        || type == InstallType::LinuxRpmRepo;
+}
+
+QString packageManagerName(InstallType type)
+{
+    switch (type) {
+    case InstallType::LinuxFlatpak:
+        return QStringLiteral("Flatpak");
+    case InstallType::LinuxSnap:
+        return QStringLiteral("Snap");
+    case InstallType::LinuxRpmRepo:
+        return QStringLiteral("dnf");
+    default:
+        break;
+    }
+    return {};
 }
 
 bool fileLooksLikeAppImage(const QString &path)

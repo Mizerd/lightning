@@ -7,7 +7,10 @@ source "$SCRIPT_DIR/lib.sh"
 ROOT="$(project_dir)"
 load_versions
 
-LIGHTNING_INSTALL_TYPE=linux-rpm "$SCRIPT_DIR/configure-build.sh"
+# One .rpm for Fedora and openSUSE: no Qt private-ABI import (validate-rpm.sh
+# asserts it on the package).
+LIGHTNING_INSTALL_TYPE=linux-rpm LIGHTNING_PORTABLE_QT_ABI=ON \
+    "$SCRIPT_DIR/configure-build.sh"
 
 TOPDIR="$ROOT/work/rpmbuild"
 mkdir -p "$TOPDIR"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}

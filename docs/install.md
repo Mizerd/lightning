@@ -30,6 +30,13 @@ dependencies say so. **If your distribution ships an older Qt the package will
 refuse to install rather than half-work.** The AppImage carries its own Qt but
 uses the host's C and C++ runtime, so it needs a recent distribution too.
 
+There is one rpm, for **Fedora and openSUSE Tumbleweed** alike. It asks for its
+GStreamer plugins, QML modules and image plugins by what they provide rather
+than by Fedora's package names, and its QML is compiled to bytecode only, so it
+uses nothing from Qt's private interface: Fedora and openSUSE version that
+interface differently, and a single such symbol would make the binary refuse
+to start on the other one.
+
 There are two debs. `lightning_<version>_amd64.deb` is built on Debian 13 and
 `lightning_<version>_ubuntu2604_amd64.deb` on Ubuntu 26.04: `dpkg-shlibdeps`
 writes the build host's library versions into a deb's dependencies, so each one
@@ -40,7 +47,7 @@ installs only on the distribution it was built for, or a newer one.
 | Flatpak | flatpak, and Flathub for the KDE 6.11 runtime | Debian 12 (its own flatpak 1.14.10) | — |
 | `.deb` | Qt >= 6.8.2, GStreamer >= 1.26.2, glibc >= 2.38, `QtQuick.Effects` (Qt 6.5+) | Debian 13 | **Debian 12** (Qt 6.4.2, glibc 2.36); **Ubuntu 24.04 LTS** (Qt 6.4.2), and its derivatives — Mint 22.x, Pop!_OS 24.04 |
 | `.deb` (`_ubuntu2604_`) | the library versions of Ubuntu 26.04, which it is built on | Ubuntu 26.04 | not measured elsewhere |
-| `.rpm` | Qt 6.11 | Fedora 44 | **Fedora 43** (Qt 6.10.3) |
+| `.rpm` | Qt >= 6.11 | Fedora 44, Fedora 45, openSUSE Tumbleweed | **Fedora 43** (Qt 6.10.3); **openSUSE Leap 16.0** (Qt 6.9.1) |
 | AppImage | glibc >= 2.39, libstdc++ from GCC 14 or newer | Debian 13, Ubuntu 24.04 | **Debian 12** (glibc 2.36: `GLIBC_2.38 not found`), and so Ubuntu 22.04 and Mint 21.x |
 | snap | snapd | Debian 12 (snapd 2.57.6, which updates itself on first install) | — |
 
@@ -51,14 +58,19 @@ AppImage's Ubuntu 24.04 result, are measured in containers of those releases:
 the deb refused by `apt`, the AppImage stopping at the dynamic loader on
 Debian 12, and the Flatpak and the snap starting and passing their built-in
 checks. Ubuntu 22.04 and Mint 21.x are inferred from their glibc (2.35), not
-run. openSUSE and RHEL are **untested**; the rpm's Qt 6.11 floor makes any
-current RHEL unlikely to satisfy it.
+run. The rpm on Fedora 45 and openSUSE Tumbleweed (snapshot 20260924) was
+installed, started without a display and asked for its call engine and image
+decoders in containers (2026-09-30), not used with an account; every release
+pipeline now repeats that on Tumbleweed. openSUSE Leap 16.0 refuses it at
+install, because its Qt is older than the one the rpm was built with: use the
+Flatpak there. RHEL is **untested**; the Qt 6.11 floor makes any current RHEL
+unlikely to satisfy it.
 
 ```sh
 sudo apt install ./lightning_0.9.9_amd64.deb            # Debian 13+
 sudo apt install ./lightning_0.9.9_ubuntu2604_amd64.deb # Ubuntu 26.04+
 sudo dnf install ./lightning-0.9.9-1.x86_64.rpm         # Fedora 44+
-sudo zypper install ./lightning-0.9.9-1.x86_64.rpm      # openSUSE (untested)
+sudo zypper install --allow-unsigned-rpm ./lightning-0.9.9-1.x86_64.rpm  # openSUSE Tumbleweed
 
 # Keep the version in the pattern: only the suffix is globbed, because some
 # browsers lower-case .AppImage. Lightning-* would match two downloads and run
@@ -73,8 +85,10 @@ flatpak run org.lightning_matrix.Lightning
 sudo snap install --dangerous ./lightning_0.9.9_amd64.snap
 ```
 
-The leading `./` matters for `apt` and `dnf`, or they look for a package by that
-name in your repositories. The AppImage installs nothing — delete the file to
+The leading `./` matters for `apt`, `dnf` and `zypper`, or they look for a
+package by that name in your repositories. zypper asks for
+`--allow-unsigned-rpm` because the rpm is not signed; check it against
+`SHA256SUMS` first. The AppImage installs nothing — delete the file to
 remove it; if it will not start you may need FUSE, or run it with
 `--appimage-extract-and-run`. If it stops with `GLIBC_2.38' not found`, the
 distribution is older than the AppImage supports: use the Flatpak. The snap is
