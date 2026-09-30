@@ -45,6 +45,25 @@ ApplicationWindow {
         anchors.centerIn: parent
     }
 
+    // The timeline's shape: a surface whose TapHandler takes focus, with an
+    // affordance inside whose own TapHandler opens the card. Both see a tap.
+    Item {
+        id: focusSurface
+        objectName: "focusSurface"
+        width: 200
+        height: 60
+        TapHandler { onTapped: focusSurface.forceActiveFocus() }
+        Rectangle {
+            objectName: "cardOpener"
+            anchors.fill: parent
+            color: "transparent"
+            TapHandler {
+                onTapped: popover.openFor({ userId: "@carol:mock.local",
+                                            displayName: "Carol", avatarUrl: "" })
+            }
+        }
+    }
+
     function openFor(userId, displayName, membership, role, isOwn) {
         popover.openFor({
             userId: userId,
@@ -761,6 +780,60 @@ private slots:
         QVERIFY(at > 0);
         QVERIFY(src.mid(at, 300).contains(
             QStringLiteral("app.roomInfo.ownPowerLevel < 9007199254740992")));
+    }
+
+    // Escape closes the card, however it was opened. A popup handles
+    // CloseOnEscape only while it holds active focus, and nothing on the card
+    // takes focus by itself (live, 2026-09-30: Escape left it open).
+    void escapeClosesTheCard()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        m_window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(m_window));
+        if (popover->property("visible").toBool()) {
+            QMetaObject::invokeMethod(popover, "close");
+            QTRY_VERIFY(!popover->property("visible").toBool());
+        }
+
+        QMetaObject::invokeMethod(m_root, "openFor",
+                                  Q_ARG(QVariant, QStringLiteral("@carol:mock.local")),
+                                  Q_ARG(QVariant, QStringLiteral("Carol")),
+                                  Q_ARG(QVariant, QStringLiteral("join")),
+                                  Q_ARG(QVariant, QString{}),
+                                  Q_ARG(QVariant, false));
+        QTRY_VERIFY(popover->property("opened").toBool());
+
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY2_WITH_TIMEOUT(!popover->property("visible").toBool(),
+                                  "Escape left the member card open", 2000);
+    }
+
+    // The same when the tap that opened the card also reached a TapHandler
+    // above it that takes focus (the timeline's, live 2026-09-30: a card opened
+    // from a Space Home chip or a sender name kept ignoring Escape).
+    void escapeClosesACardOpenedByATapAFocusTakerAlsoSaw()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        auto *opener = qobject_cast<QQuickItem *>(find(QStringLiteral("cardOpener")));
+        QVERIFY(popover);
+        QVERIFY(opener);
+        m_window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(m_window));
+        if (popover->property("visible").toBool()) {
+            QMetaObject::invokeMethod(popover, "close");
+            QTRY_VERIFY(!popover->property("visible").toBool());
+        }
+
+        const QPoint at = opener->mapToScene(QPointF(opener->width() / 2,
+                                                     opener->height() / 2)).toPoint();
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, at);
+        QTRY_VERIFY(popover->property("opened").toBool());
+        QTest::qWait(50);
+
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY2_WITH_TIMEOUT(!popover->property("visible").toBool(),
+                                  "Escape left a tap-opened member card open", 2000);
     }
 };
 

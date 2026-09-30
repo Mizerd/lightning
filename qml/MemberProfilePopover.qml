@@ -41,6 +41,9 @@ Popup {
     scale: cardScale
     transformOrigin: Item.Center
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    // A popup sees Escape only while it holds focus, and nothing on the card
+    // takes it when it opens.
+    focus: true
 
     property string userId: ""
     property string displayName: ""
@@ -212,6 +215,14 @@ Popup {
         _refreshModeration()
         _refreshIgnored()
         open()
+        // The tap that opened the card can also reach a TapHandler above its
+        // caller (the timeline's takes focus for keyboard scrolling), after
+        // this one: take focus once that tap is delivered, or Escape goes there.
+        Qt.callLater(root._takeFocus)
+    }
+    function _takeFocus() {
+        if (root.visible)
+            root.forceActiveFocus(Qt.PopupFocusReason)
     }
 
     // Opens straight onto the confirm step for `op` ("kick", "ban" or
