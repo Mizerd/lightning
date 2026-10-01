@@ -1252,6 +1252,7 @@ Rectangle {
         // In-call controls under the room header, for both the legacy 1:1 lane
         // and MatrixRTC. Zero height when no call is live in this room.
         CallHeaderBar {
+            id: timelineCallHeaderBar
             objectName: "timelineCallHeaderBar"
             Layout.fillWidth: true
             // Opens the room's side panel rather than a second participant
@@ -1829,6 +1830,7 @@ Rectangle {
 
         // Timeline
         Item {
+            id: timelineArea
             // Stays visible through a call; the call panel has a bounded
             // height.
             visible: true
@@ -6353,6 +6355,37 @@ Rectangle {
                     }
                 }
             }
+        }
+    }
+
+    // The floating mini-player for a voice/audio clip playing from a room that
+    // is not on screen (app.voicePlayback keeps it playing through a room
+    // switch). It floats over the chat column between the header controls and
+    // the composer, and never covers either.
+    VoiceMiniPlayer {
+        id: voiceMiniPlayer
+        anchors.fill: parent
+        z: 300
+        safeArea: {
+            if (!roomColumn.visible)
+                return Qt.rect(0, AppTheme.headerBandHeight, root.width,
+                               Math.max(0, root.height
+                                           - AppTheme.headerBandHeight - 96))
+            var top = roomColumn.y + roomHeaderBand.height + 1
+                + (timelineCallHeaderBar.visible
+                   ? timelineCallHeaderBar.height : 0)
+                + (callStageHost.visible ? callStageHost.height : 0)
+            // The timeline's own bottom edge, so the bars between it and the
+            // composer (typing indicator, forward selection) stay clear.
+            var bottom = roomColumn.y + timelineArea.y + timelineArea.height
+            // The Save As strip overflows upward over the timeline's foot.
+            if (saveResult.text.length > 0)
+                bottom -= saveResult.implicitHeight + AppTheme.spacing8
+            // Clear the jump-to-latest button, which sits in the same corner.
+            if (jumpToLatestButton.visible)
+                bottom -= jumpToLatestButton.height + AppTheme.spacingM + 8
+            return Qt.rect(roomColumn.x, top, roomColumn.width,
+                           Math.max(0, bottom - top))
         }
     }
 

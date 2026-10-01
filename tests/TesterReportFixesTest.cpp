@@ -505,11 +505,15 @@ private Q_SLOTS:
         QVERIFY(!card.isEmpty());
         QVERIFY2(card.contains(QStringLiteral("id: seekSlider")),
                  "the seek slider needs its own compact handle to fit");
-        QVERIFY2(card.contains(QStringLiteral("volume: app.settings.mediaVolume")),
-                 "playback volume must come from the remembered setting");
+        // The card plays through the app-owned player, which applies the
+        // remembered volume and speed (VoicePlaybackTest asserts that); the
+        // card's controls drive that player's output.
         QVERIFY2(card.contains(
-                     QStringLiteral("playbackRate: app.settings.mediaPlaybackRate")),
-                 "playback speed must come from the remembered setting");
+                     QStringLiteral("audio: root.isCurrent ? root.voice.audioOutput : null")),
+                 "the volume control must drive the app-owned player");
+        QVERIFY2(card.contains(
+                     QStringLiteral("onTriggered: app.settings.mediaPlaybackRate = modelData")),
+                 "the speed menu must write the remembered setting");
         QVERIFY2(card.contains(QStringLiteral("audioSpeedMenu")),
                  "the speed control must be selectable, not cycle-only");
     }
@@ -539,8 +543,9 @@ private Q_SLOTS:
         }
 
         // Present-token control: if `AudioOutput {` stops matching, this sweep
-        // would pass vacuously.
-        QVERIFY2(players.size() >= 3,
+        // would pass vacuously. Voice and audio clips play in C++
+        // (VoicePlaybackController), so two QML players remain.
+        QVERIFY2(players.size() >= 2,
                  qPrintable(QStringLiteral("only %1 AudioOutput declarations "
                                            "found — the sweep is matching the "
                                            "wrong thing")

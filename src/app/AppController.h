@@ -47,6 +47,7 @@
 #include "media/StagedImageStore.h"
 #include "media/ImageCropper.h"
 #include "media/MediaPlaybackController.h"
+#include "media/VoicePlaybackController.h"
 #include "media/MediaManager.h"
 #include "media/VoiceRecorder.h"
 #include "models/MessageComposer.h"
@@ -384,6 +385,10 @@ class AppController : public QObject
     // One audible media card at a time; stopped on room/account switch and
     // sign-out.
     Q_PROPERTY(MediaPlaybackController* playback READ playback CONSTANT)
+    // The one app-owned voice/audio player. Survives room switches; stopped
+    // on sign-out, account switch, shutdown and redaction; paused by a call.
+    Q_PROPERTY(VoicePlaybackController* voicePlayback READ voicePlayback
+                   CONSTANT)
     // Backward-pagination policy and automatic read receipts.
     Q_PROPERTY(PaginationController* pagination READ pagination CONSTANT)
     Q_PROPERTY(ReadReceiptCoordinator* readReceipts READ readReceipts CONSTANT)
@@ -683,6 +688,10 @@ public:
     // a file the recorder itself produced, never an arbitrary QML path.
     Q_INVOKABLE bool discardPreparedVoice(const QString &localPath);
     MediaPlaybackController *playback() const { return m_playback.get(); }
+    VoicePlaybackController *voicePlayback() const
+    {
+        return m_voicePlayback.get();
+    }
     PaginationController *pagination() const { return m_pagination.get(); }
     ReadReceiptCoordinator *readReceipts() const { return m_readReceipts.get(); }
     LinkPreviewController *linkPreviews() const { return m_linkPreviews.get(); }
@@ -1387,6 +1396,7 @@ private:
     // none seen yet, so the first transition into Syncing counts.
     int m_lastConnectionState = -1;
     std::unique_ptr<MediaPlaybackController> m_playback;
+    std::unique_ptr<VoicePlaybackController> m_voicePlayback;
     std::unique_ptr<PaginationController> m_pagination;
     std::unique_ptr<ReadReceiptCoordinator> m_readReceipts;
     std::unique_ptr<LinkPreviewController> m_linkPreviews;

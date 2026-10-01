@@ -353,6 +353,10 @@ public:
     // The real Matrix room id for an event; thread timelines carry the
     // composite id, which must never reach a protocol call.
     Q_INVOKABLE QString realRoomIdForEvent(const QString &eventId) const;
+    // True when `eventId` is loaded in this timeline of `roomId` and has been
+    // redacted. False when the room is not this one or the event is not
+    // loaded, so a caller cannot read "unknown" as "redacted".
+    bool isEventRedacted(const QString &roomId, const QString &eventId) const;
     /// Source row of the SDK's read-marker ("New messages") virtual row, or -1
     /// when the loaded timeline does not carry one.
     ///

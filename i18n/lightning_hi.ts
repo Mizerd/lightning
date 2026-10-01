@@ -403,7 +403,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5196"/>
+        <location filename="../src/app/AppController.cpp" line="+5251"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -418,7 +418,7 @@
         <translation>आपको %1 में आमंत्रित किया गया</translation>
     </message>
     <message>
-        <location line="-4102"/>
+        <location line="-4146"/>
         <source>Incoming voice call</source>
         <translation>आने वाली वॉइस कॉल</translation>
     </message>
@@ -454,7 +454,7 @@
         <translation>%1 में आपसे एक वॉइस कॉल छूट गई</translation>
     </message>
     <message>
-        <location line="+388"/>
+        <location line="+423"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>रूम बन गया, लेकिन उसे स्पेस में जोड़ा नहीं जा सका।</translation>
     </message>
@@ -486,13 +486,13 @@
     <message>
         <location line="+1"/>
         <location line="+45"/>
-        <location line="+3006"/>
-        <location line="+657"/>
+        <location line="+3014"/>
+        <location line="+658"/>
         <source>Not connected</source>
         <translation>कनेक्ट नहीं है</translation>
     </message>
     <message>
-        <location line="-3705"/>
+        <location line="-3714"/>
         <source>Connecting…</source>
         <translation>कनेक्ट हो रहा है…</translation>
     </message>
@@ -553,24 +553,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1921"/>
+        <location line="+1927"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning चुनी गई फ़ाइल पढ़ नहीं सका।</translation>
     </message>
     <message>
-        <location line="-1927"/>
+        <location line="-1933"/>
         <source>A room-key import is already in progress.</source>
         <translation>रूम-कुंजी आयात पहले से चल रहा है।</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2704"/>
+        <location line="+2713"/>
         <source>Not signed in.</source>
         <translation>साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="-2702"/>
+        <location line="-2711"/>
         <source>Room-key import failed.</source>
         <translation>रूम-कुंजी आयात विफल रहा।</translation>
     </message>
@@ -585,7 +585,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+532"/>
+        <location line="+534"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>वीडियो कॉल के लिए MatrixRTC सेवा की आवश्यकता होती है, जो अभी तक यहां उपलब्ध नहीं है।</translation>
     </message>
@@ -641,7 +641,7 @@
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1083"/>
+        <location line="+1087"/>
         <location line="+44"/>
         <location line="+192"/>
         <source>This build has no Rust SDK backend.</source>
@@ -785,12 +785,12 @@
         <translation>इस डिवाइस का स्थानीय डेटा मिटाने से यह ठीक नहीं होगा, और वे एन्क्रिप्शन कुंजियाँ नष्ट हो जाएँगी जिनकी आपको अब भी ज़रूरत है।</translation>
     </message>
     <message>
-        <location line="+406"/>
+        <location line="+408"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+112"/>
+        <location line="+113"/>
         <source>This backend cannot change your display name.</source>
         <translation>यह बैकएंड आपका प्रदर्शित नाम नहीं बदल सकता।</translation>
     </message>
@@ -837,8 +837,8 @@
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+365"/>
-        <location filename="../src/app/AppController.cpp" line="-1035"/>
-        <location line="+814"/>
+        <location filename="../src/app/AppController.cpp" line="-1038"/>
+        <location line="+817"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -983,7 +983,7 @@
 <context>
     <name>AudioPlayerCard</name>
     <message>
-        <location filename="../qml/AudioPlayerCard.qml" line="+333"/>
+        <location filename="../qml/AudioPlayerCard.qml" line="+210"/>
         <source>Audio cover artwork</source>
         <translation>ऑडियो कवर आर्टवर्क</translation>
     </message>
@@ -1019,12 +1019,12 @@
         <translation>ऑडियो</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+71"/>
         <source>Seek position</source>
         <translation>प्लेबैक स्थिति</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+67"/>
         <source>Playback speed %1x</source>
         <translation>प्लेबैक गति %1x</translation>
     </message>
@@ -1034,7 +1034,7 @@
         <translation>प्लेबैक गति</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+52"/>
         <source>Save %1 as…</source>
         <translation>%1 इस रूप में सहेजें…</translation>
     </message>
@@ -6034,24 +6034,24 @@ Signing out and signing in again is the only fix.</source>
         <translation>क्लिपबोर्ड की इमेज पढ़ी नहीं जा सकी।</translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+113"/>
         <source>The attachment could not be queued.</source>
         <translation>अटैचमेंट कतार में नहीं लगाया जा सका।</translation>
     </message>
     <message>
         <location line="+16"/>
         <location line="+27"/>
-        <location line="+24"/>
+        <location line="+41"/>
         <source>The voice message could not be sent.</source>
         <translation>वॉइस संदेश भेजा नहीं जा सका।</translation>
     </message>
     <message>
-        <location line="-41"/>
+        <location line="-58"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>वॉइस संदेश सर्वर की अपलोड सीमा (%1) से बड़ा है।</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+76"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>अपलोड विफल। फिर कोशिश करें या हटाएं।</translation>
     </message>
@@ -6080,7 +6080,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished">रद्द करें</translation>
     </message>
     <message>
-        <location line="+447"/>
+        <location line="+451"/>
         <source>The GIF could not be sent.</source>
         <translation>GIF भेजा नहीं जा सका।</translation>
     </message>
@@ -6372,7 +6372,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>वॉइस संदेश रिकॉर्ड करें</translation>
     </message>
     <message>
-        <location line="-2883"/>
+        <location line="-2887"/>
         <source>A recording is already in progress.</source>
         <translation>एक रिकॉर्डिंग पहले से चल रही है।</translation>
     </message>
@@ -6382,7 +6382,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>वॉइस रिकॉर्डिंग उपलब्ध नहीं है।</translation>
     </message>
     <message>
-        <location line="+2619"/>
+        <location line="+2623"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">और</translation>
@@ -6831,12 +6831,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+19"/>
-        <location line="+2354"/>
+        <location line="+2362"/>
         <source>Save as…</source>
         <translation>इस रूप में सहेजें…</translation>
     </message>
     <message>
-        <location line="-2327"/>
+        <location line="-2335"/>
         <source>Show image</source>
         <translation>छवि दिखाएँ</translation>
     </message>
@@ -7179,12 +7179,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-944"/>
         <location line="+961"/>
-        <location line="+210"/>
+        <location line="+218"/>
         <source>Save %1 as…</source>
         <translation>%1 को इस रूप में सहेजें…</translation>
     </message>
     <message>
-        <location line="-209"/>
+        <location line="-217"/>
         <source>video</source>
         <translation>वीडियो</translation>
     </message>
@@ -7192,7 +7192,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="-5386"/>
         <location line="+477"/>
         <location line="+3926"/>
-        <location line="+1105"/>
+        <location line="+1113"/>
         <location line="+31"/>
         <source>File</source>
         <translation>फ़ाइल</translation>
@@ -7213,8 +7213,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>सहेजना विफल</translation>
     </message>
     <message>
-        <location line="-1131"/>
-        <location line="+1171"/>
+        <location line="-1139"/>
+        <location line="+1179"/>
         <source>file</source>
         <translation>फ़ाइल</translation>
     </message>
@@ -7362,7 +7362,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+41"/>
-        <location line="+414"/>
+        <location line="+481"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>अज्ञात रूम: %1</translation>
@@ -17729,7 +17729,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+593"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+599"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>इस बैकएंड पर अटैचमेंट समर्थित नहीं हैं।</translation>
     </message>
@@ -17739,24 +17739,24 @@ Note: importing keys does not verify this session.</source>
         <translation>क्लिपबोर्ड की इमेज पढ़ी नहीं जा सकी।</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+70"/>
         <source>The attachment could not be queued.</source>
         <translation>अटैचमेंट कतार में नहीं जोड़ा जा सका।</translation>
     </message>
     <message>
         <location line="+17"/>
         <location line="+29"/>
-        <location line="+23"/>
+        <location line="+25"/>
         <source>The voice message could not be sent.</source>
         <translation>वॉइस मैसेज नहीं भेजा जा सका।</translation>
     </message>
     <message>
-        <location line="-44"/>
+        <location line="-46"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>वॉइस मैसेज सर्वर की अपलोड सीमा (%1) से बड़ा है।</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+61"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>अपलोड विफल। फिर से कोशिश करें या हटा दें।</translation>
     </message>
@@ -18239,7 +18239,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 ने कॉल प्रारंभ की.</translation>
     </message>
     <message>
-        <location line="+1221"/>
+        <location line="+1230"/>
         <source>%1 is typing…</source>
         <translation>%1 लिख रहे हैं…</translation>
     </message>
@@ -18282,12 +18282,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-474"/>
         <location filename="../qml/TimelinePane.qml" line="+202"/>
-        <location line="+4801"/>
+        <location line="+4802"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-4800"/>
+        <location filename="../qml/TimelinePane.qml" line="-4801"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
@@ -18342,18 +18342,18 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3503"/>
+        <location line="+3504"/>
         <source>Room information</source>
         <translation>कक्ष जानकारी</translation>
     </message>
     <message>
-        <location line="-3490"/>
+        <location line="-3491"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+207"/>
+        <location line="+208"/>
         <source>This room has been upgraded.</source>
         <translation>यह कक्ष अपग्रेड कर दिया गया है।</translation>
     </message>
@@ -18969,13 +18969,13 @@ Note: importing keys does not verify this session.</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-5341"/>
+        <location line="-5342"/>
         <location line="+81"/>
         <source>View profile</source>
         <translation type="unfinished">प्रोफ़ाइल देखें</translation>
     </message>
     <message>
-        <location line="+5241"/>
+        <location line="+5242"/>
         <source>Leave %1?</source>
         <translation>%1 छोड़ें?</translation>
     </message>
@@ -19031,7 +19031,7 @@ Note: importing keys does not verify this session.</source>
         <translation>बंद करें</translation>
     </message>
     <message>
-        <location line="+61"/>
+        <location line="+90"/>
         <source>Drop files to attach</source>
         <translation>संलग्न करने के लिए फ़ाइलें छोड़ें</translation>
     </message>
@@ -19823,6 +19823,54 @@ Note: importing keys does not verify this session.</source>
     </message>
 </context>
 <context>
+    <name>VoiceMiniPlayer</name>
+    <message>
+        <location filename="../qml/VoiceMiniPlayer.qml" line="+257"/>
+        <source>Now playing: %1 in %2. Go to the message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Now playing: %1. Go to the message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+84"/>
+        <source>This audio cannot be played</source>
+        <translation type="unfinished">यह ऑडियो चलाया नहीं जा सकता</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Voice message</source>
+        <translation type="unfinished">वॉइस संदेश</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Audio</source>
+        <translation type="unfinished">ऑडियो</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>%1 of %2</source>
+        <translation type="unfinished">%2 में से %1</translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Pause playback</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Resume playback</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Stop playback</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>VoicePreviewBar</name>
     <message>
         <location filename="../qml/VoicePreviewBar.qml" line="+85"/>
@@ -20075,7 +20123,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2095"/>
+        <location filename="../src/main.cpp" line="+2098"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>नेटिव Qt/QML Matrix क्लाइंट। बैकएंड: --backend={mock,http,rust}। डिफ़ॉल्ट: rust (Rust SDK रहित बिल्ड में http)।</translation>
     </message>

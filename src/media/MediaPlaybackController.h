@@ -5,11 +5,14 @@
 
 // Shared inline-playback coordinator for video, audio and voice cards.
 //
-// Players live in QML, one per card. This decides which card may be audible:
-// a card acquire()s its stable owner key (event identity, never a visual
+// Video players live in QML, one per card; voice and audio clips play in the
+// one app-owned VoicePlaybackController. This decides which may be audible: a
+// player acquire()s its stable owner key (event identity, never a visual
 // index) when playback starts and pauses when audibleOwnerChanged names
 // another. AppController calls stopAll() on room switch, account switch and
-// sign-out so no playback or decrypted media access survives the change.
+// sign-out, so no inline video survives the change; the voice player is
+// stopped explicitly on account switch and sign-out and deliberately keeps
+// playing through a room switch.
 class MediaPlaybackController : public QObject
 {
     Q_OBJECT

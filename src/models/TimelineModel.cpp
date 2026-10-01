@@ -1806,6 +1806,15 @@ void TimelineModel::onEventEdited(const QString &roomId, const QString &eventId)
                                    MessageSegmentsRole, EditedRole });
 }
 
+bool TimelineModel::isEventRedacted(const QString &roomId,
+                                    const QString &eventId) const
+{
+    if (roomId.isEmpty() || eventId.isEmpty() || roomId != m_realRoomId)
+        return false;
+    const TimelineEvent *event = eventForId(eventId);
+    return event && event->redacted;
+}
+
 void TimelineModel::onEventRedacted(const QString &roomId, const QString &eventId)
 {
     if (roomId != m_roomId) return;

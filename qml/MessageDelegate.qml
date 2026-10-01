@@ -5743,7 +5743,15 @@ Item {
             objectName: "audioMedia"
             hostContentWidth: root.contentInnerCap
             mediaKey: model.mediaKey || ""
-            ownerKey: root.actionKey + "\u001f" + (model.mediaKey || "")
+            // The app-owned player is keyed by the event, so this row finds a
+            // clip that kept playing while the room was closed. A local echo
+            // has no event id yet and plays under its item id.
+            eventId: model.eventId || root.actionKey
+            roomId: typeof app !== "undefined" ? app.currentRoomId : ""
+            senderName: model.senderDisplayName || model.sender || ""
+            senderId: model.sender || ""
+            senderAvatarMxc: model.senderAvatarMxc || ""
+            threadRootId: model.threadRootId || ""
             filename: model.mediaFilename || model.body || ""
             mimetype: model.mediaMimetype || ""
             fileSize: model.mediaSize || 0

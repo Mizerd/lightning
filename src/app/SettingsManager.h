@@ -319,6 +319,12 @@ class SettingsManager : public QObject
                    NOTIFY mediaVolumeChanged)
     Q_PROPERTY(qreal mediaPlaybackRate READ mediaPlaybackRate
                    WRITE setMediaPlaybackRate NOTIFY mediaPlaybackRateChanged)
+    // The corner the voice/audio mini-player snaps to: 0 bottom-right (the
+    // default), 1 bottom-left, 2 top-right, 3 top-left. A value this build
+    // does not know reads as the default, never as the nearest corner.
+    Q_PROPERTY(int voiceMiniPlayerCorner READ voiceMiniPlayerCorner
+                   WRITE setVoiceMiniPlayerCorner
+                   NOTIFY voiceMiniPlayerCornerChanged)
     // Whole-interface zoom percent (75..150). Global: main() turns it into
     // QT_SCALE_FACTOR before the app exists, so it applies on next launch.
     Q_PROPERTY(int interfaceZoom READ interfaceZoom WRITE setInterfaceZoom
@@ -706,6 +712,8 @@ public:
     void setMediaVolume(qreal v);
     qreal mediaPlaybackRate() const;
     void setMediaPlaybackRate(qreal v);
+    int voiceMiniPlayerCorner() const;
+    void setVoiceMiniPlayerCorner(int corner);
 
     QStringList recentEmoji() const;
     void recordRecentEmoji(const QString &emoji);
@@ -921,6 +929,7 @@ Q_SIGNALS:
     void timelineWheelSpeedChanged();
     void mediaVolumeChanged();
     void mediaPlaybackRateChanged();
+    void voiceMiniPlayerCornerChanged();
     void interfaceZoomChanged();
     void sessionChanged();
     void secretBackendChanged();

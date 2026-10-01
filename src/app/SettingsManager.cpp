@@ -66,6 +66,7 @@ constexpr auto kStartInTray       = "shell/startInTray";
 constexpr auto kVerifyWarningDismissed = "security/verifyWarningDismissed";
 constexpr auto kMediaVolume         = "media/volume";       // 0..1
 constexpr auto kMediaPlaybackRate   = "media/playbackRate";  // 0.25..4.0
+constexpr auto kVoiceMiniPlayerCorner = "media/miniPlayerCorner"; // 0..3
 // GIF browser policy.
 constexpr auto kGifAutoplay         = "gif/autoplay";       // 0/1/2
 constexpr auto kGifSafeSearch       = "gif/safeSearch";     // gif::Rating id
@@ -2624,6 +2625,24 @@ void SettingsManager::setMediaPlaybackRate(qreal v)
         return;
     m_store->setValue(kMediaPlaybackRate, clamped);
     Q_EMIT mediaPlaybackRateChanged();
+}
+
+int SettingsManager::voiceMiniPlayerCorner() const
+{
+    bool ok = false;
+    const int v = m_store->value(kVoiceMiniPlayerCorner, 0).toInt(&ok);
+    // An enum, not a quantity: an unknown value falls back to the default
+    // corner rather than clamping to the nearest one (CLAUDE.md §16).
+    return (ok && v >= 0 && v <= 3) ? v : 0;
+}
+
+void SettingsManager::setVoiceMiniPlayerCorner(int corner)
+{
+    const int valid = (corner >= 0 && corner <= 3) ? corner : 0;
+    if (voiceMiniPlayerCorner() == valid)
+        return;
+    m_store->setValue(kVoiceMiniPlayerCorner, valid);
+    Q_EMIT voiceMiniPlayerCornerChanged();
 }
 
 int SettingsManager::gifAutoplay() const

@@ -486,6 +486,17 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     m_notifications->avatarCacheChanged();
             });
     m_playback     = std::make_unique<MediaPlaybackController>(this);
+    // The voice/audio player outlives the timeline rows that start it.
+    m_voicePlayback = std::make_unique<VoicePlaybackController>(this);
+    m_voicePlayback->setMediaBridge(m_mediaBridge.get());
+    m_voicePlayback->setAudibility(m_playback.get());
+    m_voicePlayback->setSettings(m_settings.get());
+    m_voicePlayback->setRoomNameResolver([this](const QString &roomId) {
+        return m_allRooms
+            ? m_allRooms->findRoom(roomId).value(QStringLiteral("name"))
+                  .toString()
+            : QString();
+    });
     m_pagination   = std::make_unique<PaginationController>(this);
     m_readReceipts = std::make_unique<ReadReceiptCoordinator>(this);
     m_linkPreviews = std::make_unique<LinkPreviewController>(this);
@@ -1414,6 +1425,61 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         if (m_client && !eventId.isEmpty())
             m_client->forgetIndexedEvent(eventId);
     });
+    // Nor may a redacted voice message keep playing. Backends that signal the
+    // redaction (HTTP, mock) say so here. The Rust SDK never does: it rewrites
+    // the event in a timeline instead, so the clip is also re-checked against
+    // the open room timeline and the thread timeline whenever either changes
+    // (a row rewritten, rows inserted, a reload) and on every room switch.
+    // That covers a redaction seen live, one that landed while another room
+    // was open, and a clip whose event was already redacted when its room is
+    // reopened. A redaction in a room that is open in neither timeline is
+    // caught when that room is next opened.
+    connect(m_client.get(), &MatrixClient::eventRedacted, this,
+            [this](const QString &roomId, const QString &eventId) {
+        m_voicePlayback->handleRedaction(roomId, eventId);
+    });
+    const auto checkVoiceRedaction = [this] {
+        if (!m_voicePlayback->active())
+            return;
+        const QString eventId = m_voicePlayback->eventId();
+        const QString roomId = m_voicePlayback->roomId();
+        if (m_timeline->isEventRedacted(roomId, eventId)
+            || m_thread->model()->isEventRedacted(roomId, eventId))
+            m_voicePlayback->handleRedaction(roomId, eventId);
+    };
+    for (TimelineModel *model : { m_timeline.get(), m_thread->model() }) {
+        connect(model, &QAbstractItemModel::dataChanged, this,
+                [checkVoiceRedaction](const QModelIndex &, const QModelIndex &,
+                                      const QList<int> &roles) {
+            if (roles.isEmpty() || roles.contains(TimelineModel::RedactedRole))
+                checkVoiceRedaction();
+        });
+        connect(model, &QAbstractItemModel::rowsInserted, this,
+                checkVoiceRedaction);
+        connect(model, &QAbstractItemModel::modelReset, this,
+                checkVoiceRedaction);
+    }
+    connect(this, &AppController::currentRoomIdChanged, this,
+            checkVoiceRedaction);
+    // A call going live pauses the clip, once, on the edge into the call: a
+    // clip the user resumes mid-call is not paused again by the call's later
+    // state changes. Not stopped, so its row or the mini-player can resume it.
+    const auto voiceCallWasLive = std::make_shared<bool>(false);
+    const auto pauseVoiceForCall = [this, voiceCallWasLive] {
+        using CallState = CallController::State;
+        const auto oneToOne = m_calls->state();
+        const bool callLive = oneToOne == CallState::Inviting
+            || oneToOne == CallState::Connecting
+            || oneToOne == CallState::Active
+            || m_groupCall->active();
+        if (callLive && !*voiceCallWasLive)
+            m_voicePlayback->pause();
+        *voiceCallWasLive = callLive;
+    };
+    connect(m_calls.get(), &CallController::stateChanged, this,
+            pauseVoiceForCall);
+    connect(m_groupCall.get(), &SfuCallController::stateChanged, this,
+            pauseVoiceForCall);
     m_thread->setClient(m_client.get());
     m_thread->setDraftStore(m_draftStore.get());
     m_draftStore->setClient(m_client.get());
@@ -2448,6 +2514,8 @@ void AppController::prepareForShutdown()
     // teardown.
     if (m_playback) {
         stalltrace::Scope stallScope("quit-stop-playback");
+        if (m_voicePlayback)
+            m_voicePlayback->stop();
         m_playback->stopAll();
     }
 
@@ -3182,8 +3250,12 @@ void AppController::setCurrentRoomId(const QString &roomId)
     m_currentRoomId = roomId;
     // Close the thread panel before the timeline switches rooms.
     m_thread->handleCurrentRoomChanged(roomId);
-    // Inline media playback never survives a room switch.
+    // Inline video never survives a room switch: its row is destroyed. The
+    // voice/audio player is app-owned and keeps playing (the floating
+    // mini-player carries it while its room is elsewhere), so it takes
+    // audibility back.
     m_playback->stopAll();
+    m_voicePlayback->reclaimAudibility();
     // Queued speculative fetches belong to the destroyed delegates; dropping
     // them keeps a heavy GIF room from starving the next room's media.
     m_mediaBridge->dropQueuedSpeculative();
@@ -4749,7 +4821,9 @@ void AppController::onLoggedOut()
     // Closed on both paths, switch included, so a late answer cannot write
     // into the next account's file.
     m_bridgeLabels.close();
-    m_playback->stopAll(); // no playback (or decrypted-media handle) survives
+    // No playback (or decrypted-media handle) survives sign-out.
+    m_voicePlayback->stop();
+    m_playback->stopAll();
     // Unsent clipboard images belong to the session. The composers release
     // them individually; this sweep catches anything left behind.
     m_stagedImages.clear();
@@ -4898,6 +4972,7 @@ void AppController::clearCrossAccountCaches()
 {
     // Playback stops before the decrypted media files are wiped, so no
     // player holds an open handle into the previous account's cache.
+    m_voicePlayback->stop();
     m_playback->stopAll();
     m_mediaBridge->clear();
     // MediaBridge::clear() drops in-flight requests without a terminal

@@ -80,6 +80,9 @@ constexpr const char *kComponents[] = {
     // Room and Space topics; reads app.linkPreviews. A TextEdit, where a Text
     // property such as lineHeight is a load-time error.
     "TopicText",
+    // The floating voice/audio mini-player; renders app.voicePlayback and
+    // app.settings.voiceMiniPlayerCorner, and shows nothing while idle.
+    "VoiceMiniPlayer",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

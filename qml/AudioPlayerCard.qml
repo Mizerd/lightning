@@ -4,18 +4,31 @@ import QtQuick.Layouts
 import QtMultimedia
 import MatrixClient
 
-// Inline audio / voice-message player. Play fetches the decrypted payload
-// through MediaBridge's validated playable materialization and plays the
-// session-scoped temp file in-process. Voice messages show their real MSC3245
-// waveform when the event has one (never a fabricated one), else a progress
-// slider. One audible card at a time via app.playback; room/account switches
-// force a stop.
+// Inline audio / voice-message player. A VIEW of the one app-owned player
+// (app.voicePlayback): this card holds no MediaPlayer of its own, because rows
+// are destroyed and rebuilt on every room switch and a clip must keep playing
+// through one. The card whose eventId is the player's current clip shows the
+// live state (playing, position, waveform progress) and drives it; every other
+// card shows idle. Play fetches the decrypted payload through MediaBridge's
+// validated playable materialization (inside the controller). Voice messages
+// show their real MSC3245 waveform when the event has one (never a fabricated
+// one), else a progress slider.
 Rectangle {
     id: root
     objectName: "audioPlayerCard"
 
     property string mediaKey: ""
-    property string ownerKey: ""
+    // The event this card plays. The player is keyed by it, so a rebuilt row
+    // (room switch, scroll, thread panel) finds its live state again.
+    property string eventId: ""
+    // The room the event is in, and where the mini-player takes the reader
+    // back to.
+    property string roomId: ""
+    property string senderName: ""
+    property string senderId: ""
+    property string senderAvatarMxc: ""
+    // The thread the row is shown in ("" for the main timeline).
+    property string threadRootId: ""
     property string filename: ""
     property string mimetype: ""
     property real fileSize: 0
@@ -35,23 +48,24 @@ Rectangle {
     // (app.media.openExternal).
     signal openExternalRequested()
 
-    // The player loads on the first Play press, so a busy room doesn't hold one
-    // QMediaPlayer per visible row.
-    property bool engaged: false
-    readonly property var player: engine.item
-    readonly property bool playing:
-        player ? player.playbackState === MediaPlayer.PlayingState : false
-    readonly property bool ready:
-        player ? player.source.toString().length > 0 : false
-    property string fetchState: "idle" // idle / fetching / failed
-    // Stable failure identity: MediaBridge marks/signals by this cache key.
-    readonly property string fetchCacheKey: "full:" + mediaKey
-    // The media key pinned against LRU eviction while the player holds the file
-    // open. Recorded at pin time, since delegate reuse changes mediaKey before
-    // resetPlayback runs.
-    property string pinnedKey: ""
-    // Position kept across an offscreen engine unload, so Play resumes.
-    property real resumePositionMs: 0
+    readonly property var voice: app.voicePlayback
+    // This card is the player's current clip.
+    readonly property bool isCurrent:
+        root.eventId.length > 0 && root.voice.active
+        && root.voice.eventId === root.eventId
+    // The shared player while this card is current; null otherwise, so the
+    // metadata and volume bindings below read nothing for an idle card.
+    readonly property var player: root.isCurrent ? root.voice.player : null
+    readonly property bool playing: root.isCurrent && root.voice.playing
+    readonly property bool ready: root.isCurrent && root.voice.loaded
+    readonly property string fetchState:
+        root.isCurrent ? root.voice.fetchState : "idle"
+    readonly property real livePosition:
+        root.ready ? root.voice.position : 0
+    readonly property real liveDuration:
+        root.ready && root.voice.duration > 0 ? root.voice.duration
+                                              : root.durationMs
+    readonly property bool seekable: root.ready && root.voice.seekable
     // Embedded cover art, available once the backend has opened the file.
     // MediaBridge keeps the decoded pixels in a small RAM-only LRU; no
     // decrypted artwork is written to disk.
@@ -67,6 +81,12 @@ Rectangle {
         if (artwork)
             artworkSource = app.mediaBridge.audioArtworkSource(mediaKey,
                                                                 artwork)
+    }
+    onPlayerChanged: refreshArtwork()
+    Connections {
+        target: root.player
+        enabled: root.player !== null
+        function onMetaDataChanged() { root.refreshArtwork() }
     }
 
     // Position floors, total rounds. At 25.7 s you haven't reached 0:26, but a
@@ -90,70 +110,20 @@ Rectangle {
             root.openExternalRequested()
             return
         }
-        engaged = true // synchronous Loader: player exists after this
-        if (playing) {
-            player.pause()
-            return
-        }
-        if (fetchState === "failed") {
-            // Explicit retry: clear the failure mark first, or playableSource
-            // stays blocked by it.
-            app.mediaBridge.retry(fetchCacheKey)
-            fetchState = "idle"
-        }
-        if (ready) {
-            app.playback.acquire(root.ownerKey)
-            player.play()
-            return
-        }
-        var url = app.mediaBridge.playableSource(root.mediaKey)
-        if (url.length > 0) {
-            fetchState = "idle"
-            fetchingKey = ""
-            player.source = url
-            pinFile()
-            app.playback.acquire(root.ownerKey)
-            player.play()
-        } else {
-            fetchState = "fetching"
-            fetchingKey = root.mediaKey
-        }
+        // Another clip stops first; this one resumes where it was.
+        root.voice.toggle(root.eventId, root.roomId, root.mediaKey, {
+            "senderName": root.senderName,
+            "senderId": root.senderId,
+            "senderAvatarMxc": root.senderAvatarMxc,
+            "filename": root.filename,
+            "isVoice": root.isVoice,
+            "durationMs": root.durationMs,
+            "threadRootId": root.threadRootId
+        })
     }
-    // The key with an outstanding fetch for this card; reset/destruction
-    // cancels it so abandoned downloads stop.
-    property string fetchingKey: ""
-    function cancelFetch() {
-        if (fetchingKey.length === 0)
-            return
-        app.mediaBridge.cancelPlayable(fetchingKey)
-        fetchingKey = ""
-    }
-    function pinFile() {
-        // The player holds the materialized file open; the LRU must not delete
-        // it (seek/replay would fail).
-        if (pinnedKey === mediaKey)
-            return
-        unpinFile()
-        app.mediaBridge.pinPlayable(mediaKey)
-        pinnedKey = mediaKey
-    }
-    function unpinFile() {
-        if (pinnedKey.length === 0)
-            return
-        app.mediaBridge.unpinPlayable(pinnedKey)
-        pinnedKey = ""
-    }
-    function resetPlayback() {
-        if (player) {
-            player.stop()
-            player.source = ""
-        }
-        engaged = false // unload the backend and its temp-file handle
-        unpinFile()
-        cancelFetch()
-        fetchState = "idle"
-        artworkSource = ""
-        app.playback.release(root.ownerKey)
+    function seekTo(ms) {
+        if (root.isCurrent)
+            root.voice.seek(ms)
     }
     // Bounded speculative prefetch (size-capped, lowest priority, deduplicated
     // by MediaBridge) so Play starts without a download wait.
@@ -168,104 +138,11 @@ Rectangle {
     }
     onPrefetchAllowedChanged: if (prefetchAllowed) maybePrefetch()
     Component.onCompleted: maybePrefetch()
-    onMediaKeyChanged: {
-        resumePositionMs = 0 // a different track never inherits a position
-        resetPlayback()      // delegate reuse safety
-        maybePrefetch()
-    }
-    onRowOnScreenChanged: {
-        if (!rowOnScreen && playing)
-            player.pause()
-        else if (rowOnScreen)
-            maybePrefetch()
-    }
-    Component.onDestruction: {
-        unpinFile()
-        cancelFetch()
-        app.playback.release(root.ownerKey)
-    }
-    // A paused, scrolled-away card frees its decoder and audio stream after a
-    // grace period. The position is kept and resumed from the reused temp file.
-    Timer {
-        interval: 45000
-        running: root.engaged && !root.rowOnScreen && !root.playing
-        onTriggered: {
-            root.resumePositionMs = root.player ? root.player.position : 0
-            root.resetPlayback()
-        }
-    }
-    // A forced stop (room/account switch, sign-out) unloads the engine: the
-    // decrypted temp file is about to be wiped.
-    readonly property int stopGen: app.playback.stopGeneration
-    onStopGenChanged: resetPlayback()
-
-    Connections {
-        target: app.mediaBridge
-        // Filter on this card's cache key only.
-        function onPlayableMediaReady(cacheKey) {
-            if (cacheKey !== root.fetchCacheKey
-                || root.fetchState !== "fetching")
-                return
-            var url = app.mediaBridge.playableSource(root.mediaKey)
-            if (url.length === 0 || !root.player) return
-            root.fetchState = "idle"
-            root.fetchingKey = ""
-            root.player.source = url
-            root.pinFile()
-            app.playback.acquire(root.ownerKey)
-            root.player.play()
-        }
-        function onMediaFetchFailed(cacheKey, category) {
-            if (cacheKey === root.fetchCacheKey
-                && root.fetchState === "fetching") {
-                root.fetchState = "failed"
-                root.fetchingKey = "" // the fetch is over; nothing to cancel
-            }
-        }
-    }
-    Connections {
-        target: app.playback
-        function onAudibleOwnerChanged() {
-            if (!app.playback.owns(root.ownerKey) && root.playing)
-                player.pause()
-        }
-        // Space toggles whatever is audible. Re-check the owner: audibility
-        // may have moved since the key press.
-        function onTogglePlayPauseRequested(ownerKey) {
-            if (ownerKey !== root.ownerKey || !root.engaged)
-                return
-            root.togglePlay()
-        }
-    }
-
-    Loader {
-        id: engine
-        active: root.engaged
-        sourceComponent: MediaPlayer {
-            audioOutput: AudioOutput {
-                id: audioOut
-                property bool userUnmuted: false
-                muted: false
-                // The remembered level. A live binding, so every card follows a
-                // change; the slider's own write breaks it only on that card,
-                // to the same value.
-                volume: app.settings.mediaVolume
-            }
-            // The remembered speed applies to every card.
-            playbackRate: app.settings.mediaPlaybackRate
-            onErrorOccurred: root.fetchState = "failed"
-            onMetaDataChanged: root.refreshArtwork()
-            // Resume after an offscreen unload once the media has loaded; an
-            // earlier seek would be dropped.
-            onMediaStatusChanged: {
-                if (mediaStatus === MediaPlayer.LoadedMedia
-                    && root.resumePositionMs > 0) {
-                    position = root.resumePositionMs
-                    root.resumePositionMs = 0
-                }
-            }
-        }
-    }
+    onMediaKeyChanged: maybePrefetch()
+    // Scrolling a playing row away no longer pauses it: the clip belongs to
+    // the app; the row shows it again when scrolled back, and the floating
+    // mini-player carries it while the room is elsewhere.
+    onRowOnScreenChanged: if (rowOnScreen) maybePrefetch()
 
     implicitWidth: Math.min(
         360, root.hostContentWidth >= 0
@@ -419,8 +296,8 @@ Rectangle {
                                                 Math.min(1, wf[at] / 100))
                             }
                             readonly property real progress:
-                                root.player && root.player.duration > 0
-                                ? root.player.position / root.player.duration
+                                root.ready && root.liveDuration > 0
+                                ? root.livePosition / root.liveDuration
                                 : 0
                             width: 2
                             anchors.verticalCenter: parent.verticalCenter
@@ -431,11 +308,11 @@ Rectangle {
                         }
                     }
                     TapHandler {
-                        enabled: root.player ? root.player.seekable : false
+                        enabled: root.seekable
                         onTapped: (eventPoint) => {
-                            if (!root.player) return
-                            root.player.position = root.player.duration
-                                * (eventPoint.position.x / waveRow.width)
+                            root.seekTo(root.liveDuration
+                                        * (eventPoint.position.x
+                                           / waveRow.width))
                         }
                     }
                 }
@@ -445,13 +322,11 @@ Rectangle {
                     anchors.fill: parent
                     visible: !waveRow.visible
                     from: 0
-                    to: Math.max(1, root.player && root.player.duration > 0
-                                    ? root.player.duration : root.durationMs)
-                    enabled: root.player ? root.player.seekable : false
-                    value: pressed ? value
-                                   : (root.player ? root.player.position : 0)
+                    to: Math.max(1, root.liveDuration)
+                    enabled: root.seekable
+                    value: pressed ? value : root.livePosition
                     Accessible.name: qsTr("Seek position")
-                    onMoved: if (root.player) root.player.position = value
+                    onMoved: root.seekTo(value)
                     // A slim track and 12px handle; Basic's 28px handle was
                     // clipped by the 18px row.
                     padding: 0
@@ -488,11 +363,8 @@ Rectangle {
 
             Label {
                 text: {
-                    var pos = root.formatPosition(root.player ? root.player.position
-                                                        : 0)
-                    var total = root.formatDuration(
-                        root.player && root.player.duration > 0
-                        ? root.player.duration : root.durationMs)
+                    var pos = root.formatPosition(root.livePosition)
+                    var total = root.formatDuration(root.liveDuration)
                     var line = root.ready ? pos + " / " + total : total
                     if (!root.isVoice && root.fileSize > 0) {
                         var kb = root.fileSize / 1024
@@ -536,9 +408,8 @@ Rectangle {
                         text: modelData + "\u00d7"
                         iconName: Math.abs(modelData - audioSpeedButton.rate)
                                   < 0.001 ? "check" : ""
-                        // Write the setting only: playbackRate is bound to it,
-                        // and assigning the player too would break that
-                        // binding.
+                        // Write the setting only: the app-owned player
+                        // follows it (VoicePlaybackController).
                         onTriggered: app.settings.mediaPlaybackRate = modelData
                     }
                 }
@@ -561,7 +432,7 @@ Rectangle {
         }
         MediaVolumeControl {
             objectName: "audioMuteButton"
-            audio: root.player ? root.player.audioOutput : null
+            audio: root.isCurrent ? root.voice.audioOutput : null
             sliderObjectName: "audioVolumeSlider"
             iconSize: 15
             implicitWidth: 24; implicitHeight: 24

@@ -652,6 +652,8 @@ set(APP_SOURCES
     src/media/VideoPosterExtractor.cpp
     src/media/VoiceRecorder.h
     src/media/VoiceRecorder.cpp
+    src/media/VoicePlaybackController.h
+    src/media/VoicePlaybackController.cpp
     src/crypto/CryptoManager.h
     src/crypto/CryptoManager.cpp
     src/crypto/CryptoHealthModel.h
@@ -856,6 +858,7 @@ set(APP_QML_FILES
     qml/CreatePollDialog.qml
     qml/VideoPlayerCard.qml
     qml/AudioPlayerCard.qml
+    qml/VoiceMiniPlayer.qml
     qml/MediaVolumeControl.qml
     qml/VideoControlBar.qml
     qml/VideoViewerOverlay.qml
@@ -3898,6 +3901,19 @@ if(BUILD_TESTING)
         PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME media-playback-controller
              COMMAND media-playback-controller-test)
+
+    # The app-owned voice/audio player: a clip survives a room switch with its
+    # position, a second clip stops the first, sign-out and account switch
+    # clear it, a redaction and a call stop or pause it.
+    qt_add_executable(voice-playback-test
+        tests/VoicePlaybackTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(voice-playback-test)
+    target_link_libraries(voice-playback-test PRIVATE Qt6::Multimedia Qt6::Test)
+    add_test(NAME voice-playback COMMAND voice-playback-test)
+    set_tests_properties(voice-playback PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Bare-localpart user lookup: candidates from the account's server, profile
     # confirmation before exposure, dedup with provenance, stale rejection.
