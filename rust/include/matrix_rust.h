@@ -963,6 +963,13 @@ char *mx_rust_set_keep_media(int enabled);
 char *mx_rust_set_media_store_key(void *client, const unsigned char *key,
                                   unsigned long long key_len,
                                   int admit_encrypted);
+/* Where this handle's media store was opened, once a sign-in or restore has
+ * built its client: "encrypted_admits" (encrypted, encrypted-room media kept
+ * too), "encrypted" (encrypted, unencrypted-room media only), "legacy" (the
+ * old plaintext store, kept one more session for an unsent attachment;
+ * unencrypted-room media only), or "memory" (nothing kept this session, and
+ * also the answer before any client was built). Names the state only. */
+char *mx_rust_media_store_state(void *client);
 /* Remove the media this account keeps: the kept files and what the SDK media
  * store may drop. Answers with `media_cache_cleared {op_id, ok, files,
  * bytes}`; files/bytes count the kept files only. */

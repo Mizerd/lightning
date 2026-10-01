@@ -165,6 +165,10 @@ class AppController : public QObject
     // at all, since the plaintext store is the real one there (CLAUDE.md §6).
     Q_PROPERTY(bool keyringUnavailable READ keyringUnavailable
                NOTIFY keyringUnavailableChanged)
+    // Settings -> "Keep downloaded media on this device": what this session
+    // really keeps (MatrixClient::mediaKeepState). Empty when nothing tells.
+    Q_PROPERTY(QString mediaKeepState READ mediaKeepState
+               NOTIFY mediaKeepStateChanged)
 
     // Own display name editor state. The name itself lives in the account
     // registry (AccountManager) and is deliberately not mirrored here.
@@ -519,6 +523,7 @@ public:
     QStringList accountRemovalLeftovers() const { return m_removalLeftovers; }
     bool accountSwitching() const { return m_accountSwitching; }
     bool keyringUnavailable() const { return m_keyringUnavailable; }
+    QString mediaKeepState() const;
 
     SettingsManager *settings() const;
     ShortcutRegistry *shortcuts() const;
@@ -1018,6 +1023,7 @@ Q_SIGNALS:
     // only (the SDK media store reports no count); `ok` false means part of it
     // could not be removed.
     void storedMediaCleared(bool ok, qint64 files, qint64 bytes);
+    void mediaKeepStateChanged();
 
     void voiceOwnerChanged();
     // Emitted when a reconnect retry batch is issued, with the room count,

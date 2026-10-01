@@ -483,6 +483,7 @@ public:
     quint64 localSearch(const QString &query, const QString &roomId,
                         int limit, int offset) override;
     quint64 clearStoredMedia() override;
+    QString mediaKeepState() const override { return m_mediaKeepState; }
     quint64 searchIndexStats() override;
     quint64 sweepSearchIndex() override;
     quint64 deepenSearchIndex(const QString &roomId) override;
@@ -870,6 +871,10 @@ private:
     // account's key from the SecretStore, or none (an in-memory media store).
     // Before any sign-in or restore builds the client.
     void applyMediaStoreKey(const QString &slug);
+    // Ask the handle where its media store opened (once a client is built)
+    // and publish mediaKeepState from that and the key's resolution.
+    void refreshMediaKeepState();
+    void setMediaKeepState(const QString &state);
     void releaseRustHandle();
 
 
@@ -1129,6 +1134,10 @@ private:
     // `session_restored_offline` in Rust); the connection state starts at
     // Offline. Cleared wherever a session ends.
     bool m_restoredOffline = false;
+    // What applyMediaStoreKey resolved for this handle: "no-saved-account",
+    // "no-key" or "key". Read by refreshMediaKeepState().
+    QString m_mediaKeyOutcome;
+    QString m_mediaKeepState;
     // Latched so the periodic backstop logs the fault once per transition;
     // cleared when a later check agrees.
     bool m_ownIdentityKeyMismatchLogged = false;

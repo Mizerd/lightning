@@ -4575,18 +4575,54 @@ pub(crate) fn mxc_fetch_cap(width: u64, height: u64) -> u64 {
     }
 }
 
-/// Largest payload the SDK media store may cache (retention max_file_size,
-/// set in build_client). Keeps avatars, thumbnails, stickers, images and
-/// 20 MiB GIFs cacheable; videos and large audio bypass sqlite, since one
-/// huge blob INSERT stalls every other fetch on the single write connection.
-pub(crate) const MEDIA_STORE_MAX_FILE_BYTES: u64 = 24 * 1024 * 1024;
+/// Largest payload, as DOWNLOADED (plaintext), the SDK media store keeps:
+/// about 100 MB, so a typical phone video from an ENCRYPTED room is kept too
+/// (Rokas, 2026-10-01; it was 24 MiB, and encrypted-room media cannot become
+/// a kept file). Above it, an unencrypted-room file is a kept file instead
+/// (media_persistence), so the two meet exactly here and no size falls
+/// between them; encrypted-room media above it is downloaded again each
+/// session. Applied by Lightning itself before the write
+/// (mediafetch::cache_put), because the SDK's own limit is on a different
+/// quantity: see MEDIA_STORE_ENCODED_MAX_BYTES.
+///
+/// What the size costs: matrix-sdk buffers media whole, and a keyed write
+/// holds the payload, its ciphertext and the encoded row at once (~3.5x the
+/// payload, transiently), as a read does the row, the decoded ciphertext and
+/// the plaintext. One such INSERT also holds the store's single write
+/// connection while it runs.
+pub(crate) const MEDIA_STORE_MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
+
+/// The SDK policy's `max_file_size`. matrix-sdk-sqlite 0.18 compares it with
+/// the ENCODED row (`add_media_content_inner`: `encode_value` first, then
+/// `exceeds_max_file_size(data.len())`, and its cleanup measures
+/// `length(data)` the same way), and the keyed store encodes a payload as a
+/// msgpack `EncryptedValue` whose `ciphertext` is a `Vec<u8>` serialized as an
+/// ARRAY of integers: a byte under 0x80 costs one byte, any other two.
+/// Ciphertext is uniformly random, so that is 1.5 bytes per byte, MEASURED
+/// 1.5000x through the keyed store (`the_keyed_store_keeps_a_large_payload`,
+/// which also asserts this bound against the measured ratio), with a spread
+/// of about 0.5 * sqrt(n) bytes, 5 KiB at the cap. Until 2026-10-01 this
+/// limit WAS the 24 MiB plaintext cap, which let through about 16 MiB of
+/// media, and an unencrypted-room file between the two was kept nowhere
+/// (measured on a Fedora VM: kept at 14.2 MiB, refused at 17.9). The 1 MiB
+/// slack is ~200 times that spread plus the fixed envelope (tag, nonce, field
+/// names). The plaintext store (Legacy) encodes nothing; Lightning's own gate
+/// holds the cap there.
+pub(crate) const MEDIA_STORE_ENCODED_MAX_BYTES: u64 =
+    MEDIA_STORE_MAX_FILE_BYTES / 2 * 3 + 1024 * 1024;
+
+/// The SDK media store's total size (`max_cache_size`, on-disk ENCODED bytes
+/// like `max_file_size`): 1 GiB, up from the SDK's 400 MiB default with the
+/// per-file cap (Rokas, 2026-10-01). About 680 MiB of media in the keyed store.
+pub(crate) const MEDIA_STORE_MAX_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// The SDK media store's retention policy: set in build_client, and put back
-/// after `clear_kept_media` empties the store. SDK defaults otherwise (400 MiB
-/// total, 60 days since last access, daily cleanup).
+/// after `clear_kept_media` empties the store. SDK defaults otherwise (60 days
+/// since last access, daily cleanup).
 pub(crate) fn media_retention_policy() -> matrix_sdk::media::MediaRetentionPolicy {
     matrix_sdk::media::MediaRetentionPolicy::new()
-        .with_max_file_size(Some(MEDIA_STORE_MAX_FILE_BYTES))
+        .with_max_cache_size(Some(MEDIA_STORE_MAX_CACHE_BYTES))
+        .with_max_file_size(Some(MEDIA_STORE_ENCODED_MAX_BYTES))
 }
 
 /// Settings -> Privacy & security -> "Keep media on this device".
@@ -5201,10 +5237,16 @@ mod tests {
     #[test]
     fn the_store_policy_keeps_its_file_cap() {
         let policy = media_retention_policy();
-        assert_eq!(policy.max_file_size, Some(MEDIA_STORE_MAX_FILE_BYTES));
+        // The SDK measures the encoded row; the plaintext cap is Lightning's.
+        assert_eq!(policy.max_file_size, Some(MEDIA_STORE_ENCODED_MAX_BYTES));
+        assert!(MEDIA_STORE_ENCODED_MAX_BYTES > MEDIA_STORE_MAX_FILE_BYTES / 2 * 3);
+        // A 40 MB phone video from an encrypted room fits (Rokas, 2026-10-01).
+        assert!(MEDIA_STORE_MAX_FILE_BYTES >= 100 * 1024 * 1024);
+        assert_eq!(policy.max_cache_size, Some(MEDIA_STORE_MAX_CACHE_BYTES));
+        // The total never becomes the binding per-file limit.
+        assert_eq!(policy.computed_max_file_size(), Some(MEDIA_STORE_ENCODED_MAX_BYTES));
         // SDK defaults for the rest, the same values build_client always used.
         let defaults = matrix_sdk::media::MediaRetentionPolicy::new();
-        assert_eq!(policy.max_cache_size, defaults.max_cache_size);
         assert_eq!(policy.last_access_expiry, defaults.last_access_expiry);
     }
 

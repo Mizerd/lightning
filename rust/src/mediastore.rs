@@ -92,6 +92,16 @@ impl Active {
     pub(crate) fn admits_encrypted(self) -> bool {
         matches!(self, Active::Encrypted { admits_encrypted: true })
     }
+
+    /// The name `mx_rust_media_store_state` reports. A state, never a path.
+    pub(crate) fn state_name(self) -> &'static str {
+        match self {
+            Active::Encrypted { admits_encrypted: true } => "encrypted_admits",
+            Active::Encrypted { admits_encrypted: false } => "encrypted",
+            Active::Legacy => "legacy",
+            Active::Memory => "memory",
+        }
+    }
 }
 
 /// A key copy that is zeroed when dropped. Best effort, like the password
@@ -908,6 +918,61 @@ mod tests {
         assert_eq!(media.get_media_content(&request(URI)).await.unwrap(), None);
         assert_eq!(on_disk(&store.0.join(DIR_NAME), &KEY_B), OnDisk::Matches);
         forget(13, &store.0);
+    }
+
+    // 2026-10-01, measured on a Fedora VM: a keyed store refused media from
+    // about 16 MiB although the cap was 24 MiB, because the SDK measures the
+    // ENCODED row against `max_file_size` and the keyed store encodes
+    // ciphertext as a msgpack array of integers. Through the KEYED store, as
+    // production opens it and with the production policy: a 40 MiB payload (a
+    // phone video from an encrypted room; Rokas raised the cap for exactly
+    // that) is kept and reads back whole, and the encoded/plain ratio is
+    // measured and must leave the policy room for a payload AT the plaintext
+    // cap. The plain-store tests above cannot see this: their encoding is
+    // identity.
+    #[tokio::test]
+    async fn the_keyed_store_keeps_a_large_payload() {
+        use crate::rooms::{
+            media_retention_policy, MEDIA_STORE_ENCODED_MAX_BYTES, MEDIA_STORE_MAX_FILE_BYTES,
+        };
+        let store = Store::new("large");
+        let plain = SqliteStoreConfig::new(&store.0);
+        set_key(17, &store.0, Some(KeyBytes(KEY_A)), true);
+        let (media, _) = open_media(&store.0, &plain).await.unwrap();
+        let OpenedMedia::Sqlite(media) = media else { panic!("not opened on disk") };
+        media.set_media_retention_policy(media_retention_policy()).await.unwrap();
+        let size: usize = 40 * 1024 * 1024;
+        let payload: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+        let started = std::time::Instant::now();
+        media
+            .add_media_content(&request(URI), payload.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .unwrap();
+        let wrote = started.elapsed();
+        let started = std::time::Instant::now();
+        let kept = media.get_media_content(&request(URI)).await.unwrap();
+        let read = started.elapsed();
+        assert!(kept.is_some(), "the keyed store refused a 40 MiB payload");
+        assert!(kept.as_deref() == Some(payload.as_slice()), "the payload did not read back whole");
+        drop(media);
+        let conn = rusqlite::Connection::open(store.0.join(DIR_NAME).join(MEDIA_DB)).unwrap();
+        let encoded: i64 = conn
+            .query_row("SELECT length(data) FROM media", [], |row| row.get(0))
+            .unwrap();
+        let ratio = encoded as f64 / size as f64;
+        eprintln!(
+            "keyed media store: {size} plaintext bytes encode to {encoded} ({ratio:.4}x); \
+             write {wrote:?}, read {read:?}"
+        );
+        assert!((1.45..1.55).contains(&ratio), "encoded/plain ratio {ratio}");
+        // A payload AT the plaintext cap, at the measured ratio, still fits,
+        // with most of the slack unused.
+        let at_cap = (MEDIA_STORE_MAX_FILE_BYTES as f64 * ratio) as u64;
+        assert!(
+            at_cap + 512 * 1024 <= MEDIA_STORE_ENCODED_MAX_BYTES,
+            "{at_cap} encoded bytes at the cap against a policy of {MEDIA_STORE_ENCODED_MAX_BYTES}",
+        );
+        forget(17, &store.0);
     }
 
     // Keyring locked: memory for the session, and the encrypted store, its

@@ -418,6 +418,10 @@ public:
     bool mockSupportsPinnedMessages = false;
     bool supportsPinnedMessages() const override
     { return mockSupportsPinnedMessages; }
+    // Empty (nothing tells) by default; tests set it and emit
+    // mediaKeepStateChanged to drive the Settings line.
+    QString mockMediaKeepState;
+    QString mediaKeepState() const override { return mockMediaKeepState; }
     // Whether this account may write widget state; tests flip it to prove the
     // gate.
     bool mockWidgetsCanManage = true;

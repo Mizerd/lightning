@@ -4689,6 +4689,62 @@ Item {
                                     onToggled:
                                         app.settings.keepMediaOnDevice = checked
                                 }
+                                // What this session really keeps, next to the
+                                // control: a ticked box with no keyring used to
+                                // keep nothing while saying nothing here.
+                                // MatrixClient::mediaKeepState.
+                                Label {
+                                    objectName: "keepMediaOnDeviceState"
+                                    readonly property string keepState:
+                                        app.mediaKeepState
+                                    visible: app.settings.keepMediaOnDevice
+                                             && text !== ""
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    font.pixelSize: AppTheme.textMeta
+                                    color: keepState.indexOf("notKept") === 0
+                                           ? AppTheme.stormDanger
+                                           : AppTheme.stormTextSecondary
+                                    text: {
+                                        switch (keepState) {
+                                        case "kept":
+                                            return qsTr("Kept on this device, "
+                                                        + "including media from "
+                                                        + "encrypted rooms.")
+                                        case "keptExceptEncrypted":
+                                            return qsTr("Kept, except media from "
+                                                        + "encrypted rooms: no "
+                                                        + "secure system keyring "
+                                                        + "holds the key.")
+                                        case "keptExceptEncryptedPendingUpload":
+                                            return qsTr("Kept this session, "
+                                                        + "except media from "
+                                                        + "encrypted rooms, while "
+                                                        + "an attachment from an "
+                                                        + "earlier session "
+                                                        + "finishes uploading.")
+                                        case "notKeptNewSignIn":
+                                            return qsTr("Not kept this session: "
+                                                        + "this account was just "
+                                                        + "signed in. Media is kept "
+                                                        + "from the next start.")
+                                        case "notKeptKeyring":
+                                            return qsTr("Not kept this session: "
+                                                        + "the system keyring is "
+                                                        + "locked or unavailable, "
+                                                        + "or its key could not "
+                                                        + "be read.")
+                                        case "notKeptStore":
+                                            return qsTr("Not kept this session: "
+                                                        + "the media store on this "
+                                                        + "device could not be "
+                                                        + "opened.")
+                                        }
+                                        return ""
+                                    }
+                                }
                                 Label {
                                     objectName: "keepMediaOnDeviceNote"
                                     Layout.fillWidth: true
@@ -4704,21 +4760,27 @@ Item {
                                                + "open are kept in this account's "
                                                + "folder, so they open again "
                                                + "without downloading: up to about "
-                                               + "1.4 GB, for 60 days after you "
+                                               + "2 GB, for 60 days after you "
                                                + "last open them, and removed when "
                                                + "you sign out. They are kept "
                                                + "encrypted, and the key is kept "
                                                + "in your system keyring. Media you "
                                                + "open in encrypted rooms is kept "
-                                               + "only then; on macOS and in a "
-                                               + "portable install the key is kept "
-                                               + "on this disk instead, and media "
-                                               + "you open in encrypted rooms is "
-                                               + "not kept. While the keyring is "
-                                               + "locked or missing, nothing is "
-                                               + "kept. Files over 24 MB from "
-                                               + "unencrypted rooms are kept "
-                                               + "unencrypted. Attachments you "
+                                               + "only then; on macOS, in a "
+                                               + "portable install and on a "
+                                               + "desktop with no system keyring "
+                                               + "the key is kept on this disk "
+                                               + "instead, and media you open in "
+                                               + "encrypted rooms is not kept. "
+                                               + "While the keyring is locked, "
+                                               + "and in an account's first "
+                                               + "session, nothing is kept. Files "
+                                               + "over 100 MB from unencrypted "
+                                               + "rooms are kept unencrypted; "
+                                               + "files over 100 MB from "
+                                               + "encrypted rooms are downloaded "
+                                               + "again each session. "
+                                               + "Attachments you "
                                                + "send, from any room, are kept "
                                                + "the same way until they are "
                                                + "uploaded and then for up to 60 "

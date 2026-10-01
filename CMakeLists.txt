@@ -1537,6 +1537,8 @@ if(BUILD_TESTING)
         src/media/MediaVisibilityStore.h
         src/media/MediaVisibilityStore.cpp
         src/storage/SecretStore.h
+        src/storage/InsecureFallbackSecretStore.h
+        src/storage/InsecureFallbackSecretStore.cpp
         src/storage/AppDataPaths.cpp
         src/storage/PortableMode.cpp
     )

@@ -924,6 +924,16 @@ public:
     /// Remove the media this account keeps on disk between sessions. Answers
     /// on storedMediaCleared. 0 means this backend keeps none.
     virtual quint64 clearStoredMedia() { return 0; }
+    /// Whether media opened this session is kept between sessions, and why
+    /// not: "kept", "keptExceptEncrypted" (the key is not in a secure
+    /// keyring), "keptExceptEncryptedPendingUpload" (this session only, the
+    /// old plaintext store kept for an unsent attachment), "notKeptNewSignIn" (an account's
+    /// first session: its key is made at the next start), "notKeptKeyring"
+    /// (the keyring is locked or unavailable, or the key could not be read),
+    /// "notKeptStore" (a key, but the store did not open), or empty when no
+    /// session tells (signed out, or a backend that keeps nothing). Changes
+    /// with mediaKeepStateChanged. Never a path or a key.
+    virtual QString mediaKeepState() const { return {}; }
     /// What the index holds, so a surface can say what search covers.
     virtual quint64 searchIndexStats() { return 0; }
     /// Sweep cached events into the index. Bounded per call.
@@ -1906,6 +1916,7 @@ Q_SIGNALS:
     /// only; the SDK media store reports no count. `ok` false: part of it
     /// could not be removed.
     void storedMediaCleared(quint64 opId, bool ok, qint64 files, qint64 bytes);
+    void mediaKeepStateChanged();
     void searchIndexStatsReceived(quint64 opId, qint64 messages, qint64 rooms);
     void searchIndexSwept(quint64 opId, int rooms, int written,
                           qint64 messages, qint64 indexedRooms);

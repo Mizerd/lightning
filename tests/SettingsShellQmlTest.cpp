@@ -327,6 +327,67 @@ private slots:
             item("spacesRail") && item("spacesRail")->isVisible(), 3000);
     }
 
+    // 2026-10-01, a COSMIC desktop with no Secret Service: "Keep downloaded
+    // media on this device" stayed ticked while nothing at all was kept, and
+    // the only word of it was a sentence in a long grey paragraph. The line
+    // under the box says what THIS session keeps, from the client.
+    void keepMediaCheckboxSaysWhatThisSessionKeeps()
+    {
+        auto *mock = m_controller->findChild<MockMatrixClient *>();
+        QVERIFY(mock);
+        m_controller->showSettings();
+        m_controller->showSettingsSection(QStringLiteral("privacy"));
+        QCoreApplication::processEvents();
+        auto *line = item("keepMediaOnDeviceState");
+        QVERIFY2(line, "no state line beside the keep-media checkbox");
+        // Nothing tells (the mock's default): no claim either way.
+        QVERIFY(!line->isVisible());
+
+        const struct {
+            const char *state;
+            const char *says;
+        } cases[] = {
+            {"kept", "including media from encrypted rooms"},
+            {"keptExceptEncrypted", "except media from encrypted rooms"},
+            {"notKeptNewSignIn", "just signed in"},
+            {"keptExceptEncryptedPendingUpload", "finishes uploading"},
+            {"notKeptKeyring", "locked or unavailable, or its key could not be read"},
+            {"notKeptStore", "could not be opened"},
+        };
+        int shown = 0;
+        for (const auto &c : cases) {
+            mock->mockMediaKeepState = QLatin1String(c.state);
+            Q_EMIT mock->mediaKeepStateChanged();
+            QTRY_VERIFY2(line->property("text").toString().contains(
+                             QLatin1String(c.says)),
+                         qPrintable(QStringLiteral("%1: \"%2\"")
+                                        .arg(QLatin1String(c.state),
+                                             line->property("text").toString())));
+            QVERIFY2(line->isVisible(), c.state);
+            // Only the keyring-less state names the keyring as the reason.
+            QCOMPARE(line->property("text").toString().contains(
+                         QLatin1String("keyring holds the key")),
+                     qstrcmp(c.state, "keptExceptEncrypted") == 0);
+            ++shown;
+        }
+        QCOMPARE(shown, 6);
+
+        // Keeping switched off: the line has nothing to report.
+        m_controller->settings()->setKeepMediaOnDevice(false);
+        QTRY_VERIFY(!line->isVisible());
+        m_controller->settings()->setKeepMediaOnDevice(true);
+        QTRY_VERIFY(line->isVisible());
+
+        mock->mockMediaKeepState.clear();
+        Q_EMIT mock->mediaKeepStateChanged();
+        QTRY_VERIFY(!line->isVisible());
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        m_controller->showMain();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            item("spacesRail") && item("spacesRail")->isVisible(), 3000);
+    }
+
     void settingsTakesOverTheFullContentArea()
     {
         auto *rail = item("spacesRail");

@@ -468,8 +468,9 @@ backend capability checks and honest live-test status.
   locally extracted first-frame poster for videos without a Matrix thumbnail
   (JPEG, RAM image cache only — never disk). In-flight fetches are
   cancellable end-to-end (QML card → MediaBridge → `mx_rust_media_cancel`),
-  and the SDK media store runs a retention policy (max_file_size 24 MiB) so
-  large payloads no longer enter or stall matrix-sdk-media.sqlite3
+  and the SDK media store runs a retention policy (100 MiB of downloaded
+  payload, 1 GiB in total since 2026-10-01; see the size rule below) so
+  larger payloads do not enter or stall matrix-sdk-media.sqlite3
 - **The SDK media store is encrypted at rest, and encrypted-room media is
   kept in it (2026-09-30).** `rust/src/mediastore.rs` opens the media store
   on its own, in `lightning-media-store/` inside the account's store
@@ -479,10 +480,30 @@ backend capability checks and honest live-test status.
   exactly as `sqlite_store(path, None)` opened them; only the media store has
   a key. Binding rules:
   * a key is made only when its record is PROVABLY absent — the read
-    succeeded, the store can vouch for its misses, and the account's own
-    access token reads back from the same store. A locked keyring, a
-    fallback standing in for one, a damaged value, or a key that could not be
-    written and read back all give NO key;
+    succeeded, the store can vouch for that miss, and the account's own
+    access token reads back from the same store. A locked keyring, a damaged
+    value, or a key that could not be written and read back all give NO key;
+  * the plaintext fallback standing in for a keyring that did not answer
+    (2026-10-01: a Linux desktop with NO Secret Service, e.g. COSMIC from the
+    COPR) vouches for a miss only for an account it already holds secrets for
+    — one signed in while no keyring answered. Its key is made THERE, exactly
+    as on macOS and in a portable folder, and admits no encrypted-room media.
+    For an account whose secrets are in a merely LOCKED keyring the fallback
+    holds nothing, the miss stays inconclusive and no key is made
+    (`MediaStoreKey::mayCreate`, `read`). Before this, such a desktop kept
+    nothing at all, unencrypted-room media included. Residual (sign-in itself
+    is refused during a keyring outage, so it cannot be the trigger): a
+    fallback group that SURVIVES `migrateInsecureSecretsGroup` (a partial
+    migration, or a group kept whole for a key it does not know) still holds
+    the account's token; at a LATER outage the fallback answers for that
+    account, a miss for the media key there is taken as absent, a fallback
+    key is made, and the keyring-keyed store is wiped at that start, unsent
+    attachments in it included. After a PARTIAL migration the fallback group
+    wins the next one, so the keys agree from then on; a group KEPT whole
+    never overwrites the keyring's value, so each switch between an outage
+    and a working keyring hands the store the other key and wipes it again
+    (a cache, plus unsent attachments). Rare: it needs a group kept for a key
+    a newer build wrote;
   * no key means an IN-MEMORY media store for the session: nothing kept,
     nothing on disk, never a plaintext file. The encrypted store on disk is
     left exactly as it is for the next start;
@@ -502,12 +523,40 @@ backend capability checks and honest live-test status.
     ROOM (unknown counts as encrypted), not by the media's own encryption;
   * the key is read through `SettingsManager::secretStore()` on every handle,
     never cached: `setSecretStore()` can swap it after a keyring outage, and
-    no key is made while `secretBackendUnavailable()` or
-    `secretMissesAreInconclusive()`. A session already open keeps the media
-    store it opened; the swap applies from the next handle;
+    no key is made while `secretBackendUnavailable()`, nor while
+    `secretMissesAreInconclusive()` on a SECURE store. A session already open
+    keeps the media store it opened; the swap applies from the next handle;
+  * SIZE: 100 MiB (`MEDIA_STORE_MAX_FILE_BYTES`) of DOWNLOADED payload is the
+    one cap (Rokas, 2026-10-01, raised from 24 MiB so a phone video from an
+    encrypted room is kept). Lightning applies it itself before writing
+    (`mediafetch::cache_put`), and an unencrypted-room file above it is a kept
+    file, so no size falls between the two. The SDK's `max_file_size` is
+    measured on the ENCODED row, which the keyed store makes 1.5x larger
+    (ciphertext serialized as a msgpack array of integers; measured 1.5000x),
+    so the policy is `MEDIA_STORE_ENCODED_MAX_BYTES` (151 MiB). The total
+    (`max_cache_size`, also encoded bytes) is 1 GiB, about 680 MiB of media.
+    Until 2026-10-01 the policy WAS 24 MiB, which kept only ~16 MiB, and an
+    unencrypted-room file of 16-24 MiB was kept nowhere;
+  * LIMIT: encrypted-room media over 100 MiB is never kept (a kept file is
+    plain on disk), so it is downloaded and decrypted again every session.
+    Cost of the size: a keyed write or read of a payload holds ~3.5x it in
+    memory transiently (payload, ciphertext, encoded row), and the INSERT
+    holds the store's single write connection while it runs;
+  * Settings shows what THIS session keeps beside the checkbox
+    (`MatrixClient::mediaKeepState`, read from `mx_rust_media_store_state`
+    once the client is built): kept / kept except encrypted rooms (key not in
+    a secure keyring) / kept except encrypted rooms this session (the old
+    plaintext store, kept for an unsent attachment) / not kept (first session
+    after sign-in, keyring locked or its key unreadable, store would not
+    open);
   * `mediaStoreKey` is one of the keys `migrateInsecureSecretsGroup` moves, so
-    a fallback group holding it still migrates whole.
-  On an insecure store (macOS, portable) sent attachments, encrypted rooms
+    a fallback group holding it still migrates whole. A key the fallback made
+    is thereby PROMOTED: once a secure keyring holds it, the same store opens
+    with `admits_encrypted` and encrypted-room media is kept from then on.
+    What the store already holds then is unencrypted-room media and the send
+    queue's attachments, written under a key that was on the same disk.
+  On an insecure store (macOS, portable, a desktop with no Secret Service or
+  Credential Manager) sent attachments, encrypted rooms
   included, are still kept by the send queue, encrypted with a key on the same
   disk; disclosed in docs/privacy.md and the Settings note. A first sign-in has
   no saved record yet, so its first session runs in memory and the key is made
@@ -2071,7 +2120,7 @@ two or more frames or an animated WebP.
 - **What that costs.** The transfer is the whole original: matrix-sdk 0.18
   buffers media whole. Rust drops anything over 8 MiB (the motion-probe size
   class, `mxc_fetch_cap`) before the FFI copy, but after the download. The
-  SDK media store keeps the original (`use_cache`, 24 MiB retention cap), so a
+  SDK media store keeps the original (`use_cache`, 100 MiB cap), so a
   later session re-reads it from disk, not the network. No verdict is
   persisted by Lightning: that would be a new on-disk record of the avatars a
   user has seen.

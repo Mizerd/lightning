@@ -51,8 +51,13 @@ Resolution read(const SecretStore *store, const QString &userId)
     }
     if (value.isEmpty()) {
         // Only a store that can vouch for its misses proves there is none.
-        out.found = store->missesAreInconclusive() ? Found::Unreadable
-                                                   : Found::Absent;
+        // The insecure fallback standing in for a native store vouched for
+        // THIS miss by not reporting lastReadFailed() above: it holds other
+        // secrets for the account, so the account lives there (see the
+        // header). A secure store has no such per-read verdict.
+        const bool vouched =
+            !store->missesAreInconclusive() || !store->isSecure();
+        out.found = vouched ? Found::Absent : Found::Unreadable;
         return out;
     }
     QByteArray key = decode(value);
@@ -99,6 +104,19 @@ Resolution resolve(SecretStore *store, const QString &userId, bool mayCreate)
     }
     scrub(key);
     return out;
+}
+
+bool mayCreate(bool backendUnavailable, bool missesAreInconclusive,
+               bool storeIsSecure)
+{
+    if (backendUnavailable)
+        return false;
+    return !missesAreInconclusive || !storeIsSecure;
+}
+
+bool admitsEncryptedRooms(const Resolution &resolution, bool storeIsSecure)
+{
+    return resolution.key.size() == kKeyBytes && storeIsSecure;
 }
 
 const char *describe(const Resolution &resolution)

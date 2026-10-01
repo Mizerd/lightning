@@ -1429,6 +1429,21 @@ void SettingsSessionTest::theKeepMediaCheckboxSaysWhereEncryptedMediaIsKept()
              "the copy promises the setting covers sent attachments");
     QVERIFY2(text.contains(QLatin1String("removed when you sign out")),
              qPrintable(text));
+    // 2026-10-01: a desktop with no keyring keeps unencrypted-room media (the
+    // key on this disk), and large encrypted-room files are fetched again.
+    // The copy used to say a missing keyring kept nothing.
+    QVERIFY2(text.contains(QLatin1String("desktop with no system keyring")),
+             qPrintable(text));
+    QVERIFY2(!text.contains(QLatin1String("locked or missing, nothing is kept")),
+             qPrintable(text));
+    QVERIFY2(text.contains(QLatin1String("encrypted rooms are downloaded again each session")),
+             qPrintable(text));
+    // And what THIS session keeps sits between the box and the paragraph.
+    const qsizetype state = qml.indexOf(
+        QLatin1String("objectName: \"keepMediaOnDeviceState\""), check);
+    QVERIFY2(state > check && state < note, "no state line beside the checkbox");
+    const qsizetype bound = qml.indexOf(QLatin1String("app.mediaKeepState"), state);
+    QVERIFY2(bound > state && bound < note, "the state line is not bound to the client");
     QVERIFY(qml.contains(QLatin1String("objectName: \"clearStoredMediaButton\"")));
     QVERIFY(qml.contains(QLatin1String("app.clearStoredMedia()")));
 }

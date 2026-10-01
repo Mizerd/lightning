@@ -148,12 +148,17 @@ async fn cache_get(
 }
 
 /// Write `content` under `request` in the media store, as the SDK does after
-/// a download.
+/// a download. Nothing over the plaintext cap: the SDK's own limit is on the
+/// encoded row (rooms::MEDIA_STORE_ENCODED_MAX_BYTES), so the cap the rest of
+/// Lightning reasons in, and the kept-file path begins above, is held here.
 async fn cache_put(
     client: &Client,
     request: &MediaRequestParameters,
     content: &[u8],
 ) -> matrix_sdk::Result<()> {
+    if !fits_store(content.len()) {
+        return Ok(());
+    }
     client
         .media_store()
         .lock()
@@ -161,6 +166,11 @@ async fn cache_put(
         .add_media_content(request, content.to_vec(), IgnoreMediaRetentionPolicy::No)
         .await?;
     Ok(())
+}
+
+/// Whether a downloaded payload of `len` bytes goes to the SDK media store.
+fn fits_store(len: usize) -> bool {
+    len as u64 <= crate::rooms::MEDIA_STORE_MAX_FILE_BYTES
 }
 
 fn is_local_uri(source: &MediaSource) -> bool {
@@ -310,6 +320,16 @@ pub(crate) async fn get_avatar_bounded(
 mod tests {
     use super::*;
 
+    // The plaintext cap is Lightning's own gate, because the SDK limit is on
+    // the encoded row: nothing over it is written, everything at it is.
+    #[test]
+    fn the_store_gate_is_the_plaintext_cap() {
+        let cap = crate::rooms::MEDIA_STORE_MAX_FILE_BYTES as usize;
+        assert!(fits_store(cap));
+        assert!(fits_store(0));
+        assert!(!fits_store(cap + 1));
+    }
+
     use matrix_sdk::{
         media::MediaThumbnailSettings,
         ruma::{
@@ -382,6 +402,28 @@ mod tests {
             .mount()
             .await;
         (server, client)
+    }
+
+    // The gate is applied by cache_put itself, not left to the SDK policy:
+    // with a store that would take anything, a payload one byte over the cap
+    // is still not written, and one under it is.
+    #[tokio::test]
+    async fn cache_put_writes_nothing_over_the_plaintext_cap() {
+        let (_server, client) = authed_server().await;
+        client
+            .media()
+            .set_media_retention_policy(matrix_sdk::media::MediaRetentionPolicy::empty())
+            .await
+            .unwrap();
+        let file = |id: &str| MediaRequestParameters {
+            source: MediaSource::Plain(OwnedMxcUri::from(format!("mxc://remote.example/{id}"))),
+            format: MediaFormat::File,
+        };
+        let cap = crate::rooms::MEDIA_STORE_MAX_FILE_BYTES as usize;
+        cache_put(&client, &file("Over"), &vec![7u8; cap + 1]).await.unwrap();
+        assert!(cache_get(&client, &file("Over")).await.unwrap().is_none(), "over the cap was kept");
+        cache_put(&client, &file("Under"), b"small").await.unwrap();
+        assert_eq!(cache_get(&client, &file("Under")).await.unwrap().as_deref(), Some(&b"small"[..]));
     }
 
     /// Hard ceiling on a test that must not wait the SDK's backoff out.

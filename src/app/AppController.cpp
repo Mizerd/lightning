@@ -1381,6 +1381,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](quint64, bool ok, qint64 files, qint64 bytes) {
         Q_EMIT storedMediaCleared(ok, files, bytes);
     });
+    connect(m_client.get(), &MatrixClient::mediaKeepStateChanged, this,
+            &AppController::mediaKeepStateChanged);
     // New messages become searchable within five minutes.
     m_searchIndexTimer.setInterval(5 * 60 * 1000);
     m_searchIndexTimer.setSingleShot(false);
@@ -2481,6 +2483,11 @@ void AppController::applyKeepMediaOnDevice()
 #ifdef ENABLE_RUST_SDK_BACKEND
     RustSdkMatrixClient::setKeepMediaOnDevice(m_settings->keepMediaOnDevice());
 #endif
+}
+
+QString AppController::mediaKeepState() const
+{
+    return m_client ? m_client->mediaKeepState() : QString();
 }
 
 bool AppController::clearStoredMedia()

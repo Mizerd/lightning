@@ -9354,6 +9354,17 @@ pub unsafe extern "C" fn mx_rust_set_media_store_key(
     })
 }
 
+/// Where this handle's media store was opened (`mediastore::active`), for
+/// Settings to say what is really kept this session. See the header for the
+/// four answers. Before a client is built nothing is opened: "memory".
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_media_store_state(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        Ok(mediastore::active(&bridge.store_path).state_name().to_owned())
+    })
+}
+
 /// Whether media the user opens is kept between sessions: the SDK media store
 /// (encrypted, mediastore.rs; encrypted-room media only under a key a secure
 /// keyring holds) and plain kept files for what it refuses by size, never from
@@ -9593,11 +9604,13 @@ async fn build_client_with(
     }
     // Media-store retention policy. Without one the store grows without bound,
     // and because it serializes all access on one write connection, a huge
-    // blob INSERT stalls every other media fetch. The policy skips oversized
-    // payloads before the write (rooms::media_fetch also skips the cache for
-    // declared-oversize fetches, and keeps those as files instead). SDK
-    // defaults otherwise; max_file_size is raised to keep 20 MiB animated GIFs
-    // cacheable.
+    // blob INSERT stalls every other media fetch. The per-item cap is 100 MiB
+    // of payload (rooms::MEDIA_STORE_MAX_FILE_BYTES, so a phone video from an
+    // encrypted room is kept), held by Lightning before the write
+    // (mediafetch::cache_put); the policy's own max_file_size is on the
+    // ENCODED row and is set to admit exactly that (rooms.rs). Declared-
+    // oversize fetches skip the cache, and unencrypted ones are kept as files
+    // instead. 1 GiB in total; SDK defaults otherwise.
     let policy = rooms::media_retention_policy();
     // Best effort; the error may contain the store path, so it is not logged.
     if client.media().set_media_retention_policy(policy).await.is_ok() {

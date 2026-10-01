@@ -13,6 +13,7 @@
 #include "app/SettingsManager.h"
 #include "matrix/MediaStoreKey.h"
 #include "storage/AppDataPaths.h"
+#include "storage/InsecureFallbackSecretStore.h"
 #include "storage/SecretStore.h"
 
 #include <QCoreApplication>
@@ -130,7 +131,7 @@ private Q_SLOTS:
     void anAbsentKeyIsCreatedOnceAndThenReused();
     void aLockedKeyringNeverGetsANewKey();
     void aKeyringThatAnswersNothingWhileLockedGetsNoKeyEither();
-    void aFallbackThatCannotVouchForItsMissesGetsNoKey();
+    void aSecureStoreWhoseMissesAreInconclusiveGetsNoKey();
     void anUnavailableBackendGetsNoKey();
     void whileTheBackendCannotTellAnExistingKeyIsUsedButNoneIsMade();
     void aFallbackGroupHoldingAMediaKeyStillMigratesWhole();
@@ -140,6 +141,9 @@ private Q_SLOTS:
     void theKeyNeverReachesALogLine();
     void signingOutDeletesTheMediaKeyWithTheTokens();
     void removingOneAccountLeavesTheOthersKey();
+    void theCreationPolicyNeverOverridesABackendThatCannotAnswer();
+    void aDesktopWithNoKeyringKeepsAKeyForUnencryptedRoomsOnly();
+    void aFallbackHoldingNothingForTheAccountMakesNoKey();
 
 private:
     QTemporaryDir m_configHome;
@@ -222,7 +226,10 @@ void MediaStoreKeyTest::aKeyringThatAnswersNothingWhileLockedGetsNoKeyEither()
     QCOMPARE(store.get(kUser, kName), existing);
 }
 
-void MediaStoreKeyTest::aFallbackThatCannotVouchForItsMissesGetsNoKey()
+// FakeStore is secure by default. The insecure fallback standing in for a
+// keyring is aDesktopWithNoKeyringKeepsAKeyForUnencryptedRoomsOnly and
+// aFallbackHoldingNothingForTheAccountMakesNoKey, against the real store.
+void MediaStoreKeyTest::aSecureStoreWhoseMissesAreInconclusiveGetsNoKey()
 {
     FakeStore store;
     seedToken(store, kUser);
@@ -412,6 +419,84 @@ void MediaStoreKeyTest::removingOneAccountLeavesTheOthersKey()
     const msk::Resolution kept = msk::resolve(&store, kOther);
     QCOMPARE(kept.found, msk::Found::Present);
     QCOMPARE(kept.key, theirs);
+}
+
+// The policy RustSdkMatrixClient::applyMediaStoreKey applies, on its own.
+void MediaStoreKeyTest::theCreationPolicyNeverOverridesABackendThatCannotAnswer()
+{
+    for (const bool inconclusive : { false, true }) {
+        for (const bool secure : { false, true })
+            QVERIFY(!msk::mayCreate(/*backendUnavailable=*/true, inconclusive, secure));
+    }
+    // A store that vouches for its misses: native keyrings, macOS's fallback,
+    // a portable folder.
+    QVERIFY(msk::mayCreate(false, false, true));
+    QVERIFY(msk::mayCreate(false, false, false));
+    // The plaintext fallback standing in for a keyring that did not answer.
+    QVERIFY(msk::mayCreate(false, true, false));
+    // A secure store that could not vouch for a miss: never.
+    QVERIFY(!msk::mayCreate(false, true, true));
+
+    msk::Resolution withKey;
+    withKey.key = QByteArray(msk::kKeyBytes, '\x01');
+    QVERIFY(msk::admitsEncryptedRooms(withKey, true));
+    QVERIFY(!msk::admitsEncryptedRooms(withKey, false));
+    QVERIFY(!msk::admitsEncryptedRooms(msk::Resolution{}, true));
+}
+
+// 2026-10-01, Fedora 44 + COSMIC from the COPR: no Secret Service at all, so
+// the plaintext fallback stands in (substituted), and 0.10.0 made no media
+// key there: every start was `state=unreadable`, the media store was in
+// memory, and NOTHING was kept, not even unencrypted-room media that every
+// earlier release kept. With the REAL fallback store: the account signed in
+// while no keyring answered, so its token is there; its key is made there,
+// read back at the next start, and admits no encrypted-room media.
+void MediaStoreKeyTest::aDesktopWithNoKeyringKeepsAKeyForUnencryptedRoomsOnly()
+{
+    InsecureFallbackSecretStore store(nullptr, /*substitutedForNative=*/true);
+    QVERIFY(store.missesAreInconclusive());
+    QVERIFY(!store.isSecure());
+    QVERIFY(store.storeSecret(kUser, QLatin1String(msk::kAccessTokenName),
+                              QStringLiteral("syt_no_keyring")));
+    // What SettingsManager reports for it after reading the token back.
+    QCOMPARE(store.readSecret(kUser, QLatin1String(msk::kAccessTokenName)),
+             QStringLiteral("syt_no_keyring"));
+    const bool unavailable = !store.isAvailable() || store.lastReadFailed();
+    const bool mayCreate =
+        msk::mayCreate(unavailable, store.missesAreInconclusive(), store.isSecure());
+    QVERIFY(mayCreate);
+
+    const msk::Resolution first = msk::resolve(&store, kUser, mayCreate);
+    QVERIFY2(first.created, msk::describe(first));
+    QCOMPARE(first.key.size(), msk::kKeyBytes);
+    QVERIFY(!msk::admitsEncryptedRooms(first, store.isSecure()));
+
+    // The next start: the same store object kind, the same file.
+    InsecureFallbackSecretStore again(nullptr, true);
+    const msk::Resolution second = msk::resolve(&again, kUser, mayCreate);
+    QCOMPARE(second.found, msk::Found::Present);
+    QCOMPARE(second.key, first.key);
+    QVERIFY(!msk::admitsEncryptedRooms(second, again.isSecure()));
+}
+
+// The other half, §6: a keyring that is merely LOCKED at this start also
+// gets the substituted fallback, but the account's secrets are in the
+// keyring and the fallback holds nothing for it. Its miss is not evidence,
+// and nothing is written: the keyring's key opens the store again later.
+void MediaStoreKeyTest::aFallbackHoldingNothingForTheAccountMakesNoKey()
+{
+    InsecureFallbackSecretStore store(nullptr, /*substitutedForNative=*/true);
+    // Another account signed in here does not vouch for this one.
+    QVERIFY(store.storeSecret(kOther, QLatin1String(msk::kAccessTokenName),
+                              QStringLiteral("syt_other")));
+    const msk::Resolution r = msk::resolve(
+        &store, kUser, msk::mayCreate(false, store.missesAreInconclusive(), store.isSecure()));
+    QVERIFY(r.key.isEmpty());
+    QVERIFY(!r.created);
+    QCOMPARE(r.found, msk::Found::Unreadable);
+    QSettings settings;
+    QVERIFY2(!settings.contains(QStringLiteral("secrets/") + kUser + QLatin1Char('/') + kName),
+             "a key was written for an account the fallback does not hold");
 }
 
 QTEST_GUILESS_MAIN(MediaStoreKeyTest)

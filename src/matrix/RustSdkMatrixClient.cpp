@@ -449,19 +449,29 @@ void RustSdkMatrixClient::applyMediaStoreKey(const QString &slug)
     // session already open stays as it was opened (in memory, if the outage
     // was then); the next handle (restart, account switch) reads the new one.
     SecretStore *store = m_settings ? m_settings->secretStore() : nullptr;
-    // A miss is "cannot tell" while either predicate holds: never a new key.
+    const bool storeIsSecure = store && store->isSecure();
+    // Never a new key while the backend cannot answer. The plaintext fallback
+    // standing in for a missing or locked keyring may make one, for an account
+    // it already holds (MediaStoreKey.h): the keyring-less desktop then keeps
+    // unencrypted-room media as macOS's fallback does, where 0.10.0 kept
+    // nothing at all.
     const bool mayCreate = m_settings
-                           && !m_settings->secretBackendUnavailable()
-                           && !m_settings->secretMissesAreInconclusive();
+                           && msk::mayCreate(m_settings->secretBackendUnavailable(),
+                                             m_settings->secretMissesAreInconclusive(),
+                                             storeIsSecure);
     msk::Resolution resolution;
     if (!owner.isEmpty())
         resolution = msk::resolve(store, owner, mayCreate);
     // Media opened in encrypted rooms is cached only under a key a secure
-    // keyring holds. macOS's QSettings fallback and a portable folder keep the
-    // key on the same disk: the store still encrypts, admits none of it, and
-    // still holds what the send queue keeps of sent attachments.
-    const bool admitEncrypted = resolution.key.size() == msk::kKeyBytes
-                                && store && store->isSecure();
+    // keyring holds. macOS's QSettings fallback, a portable folder and the
+    // fallback standing in for a missing keyring keep the key on the same
+    // disk: the store still encrypts, admits none of it, and still holds what
+    // the send queue keeps of sent attachments.
+    const bool admitEncrypted = msk::admitsEncryptedRooms(resolution, storeIsSecure);
+    m_mediaKeyOutcome = owner.isEmpty()
+        ? QStringLiteral("no-saved-account")
+        : (resolution.key.size() == msk::kKeyBytes ? QStringLiteral("key")
+                                                   : QStringLiteral("no-key"));
     takeRustString(mx_rust_set_media_store_key(
         m_rustHandle,
         reinterpret_cast<const unsigned char *>(resolution.key.constData()),
@@ -474,6 +484,42 @@ void RustSdkMatrixClient::applyMediaStoreKey(const QString &slug)
                    << "state=" << (owner.isEmpty() ? "no-saved-account"
                                                    : msk::describe(resolution))
                    << "admits_encrypted_rooms=" << admitEncrypted;
+}
+
+void RustSdkMatrixClient::refreshMediaKeepState()
+{
+    if (!m_rustHandle) {
+        setMediaKeepState({});
+        return;
+    }
+    // Where the store really opened: a key does not guarantee it (an old
+    // store kept for an unsent attachment, a directory that would not open).
+    const QString opened = takeRustString(mx_rust_media_store_state(m_rustHandle));
+    QString state;
+    if (opened == QLatin1String("encrypted_admits"))
+        state = QStringLiteral("kept");
+    else if (opened == QLatin1String("encrypted"))
+        state = QStringLiteral("keptExceptEncrypted");
+    else if (opened == QLatin1String("legacy"))
+        // A keyring may well hold the key: the old store is used this session
+        // only, for an attachment still waiting to upload.
+        state = QStringLiteral("keptExceptEncryptedPendingUpload");
+    else if (opened == QLatin1String("memory"))
+        state = m_mediaKeyOutcome == QLatin1String("no-saved-account")
+            ? QStringLiteral("notKeptNewSignIn")
+            : (m_mediaKeyOutcome == QLatin1String("key")
+                   ? QStringLiteral("notKeptStore")
+                   : QStringLiteral("notKeptKeyring"));
+    // Anything else ("error: ...") says nothing: no claim either way.
+    setMediaKeepState(state);
+}
+
+void RustSdkMatrixClient::setMediaKeepState(const QString &state)
+{
+    if (state == m_mediaKeepState)
+        return;
+    m_mediaKeepState = state;
+    Q_EMIT mediaKeepStateChanged();
 }
 
 // Deliberately does not clear m_freshLoginIdentity: login() arms it and then
@@ -553,6 +599,8 @@ void RustSdkMatrixClient::releaseRustHandle()
     m_rustHandle = nullptr;
     m_handleGeneration = 0;
     m_storePath.clear();
+    m_mediaKeyOutcome.clear();
+    setMediaKeepState({});
     m_timelineTracker.reset();
     m_threadTracker.reset();
     m_pagination.clear();
@@ -4551,6 +4599,8 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             && identity.userId == m_userId) {
             recordStoreLocation(identity);
         }
+        // The client exists now, so its media store has opened.
+        refreshMediaKeepState();
         // Offline unless the restore reached the server; otherwise the footer
         // shows "Loading rooms…" over a complete list that will never load.
         setState(m_restoredOffline ? Offline : Disconnected);
