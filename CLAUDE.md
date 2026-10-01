@@ -26,18 +26,22 @@ frontend.
 
 ## 2. Current release and development state
 
-Latest published release: **Lightning 0.9.9** (`v0.9.9` -> `54d1bdb1`), tagged
-2026-09-22 by **project 6** pipeline **252, 25/25 — fully green, every job,
-first attempt**, with the macOS asset attached. Notes in
-`docs/releases/v0.9.9.md`. **Its anonymous verification bar PASSED IN FULL on
-2026-09-23** (§14; result in `docs/release-operations.md`). Previous release: 0.9.8. The tree and the
-published release are the same thing again; "latest published" and "what the
-tree says" are different facts and this sentence has stated the wrong one
-before. `tests/VersionConsistencyTest.cpp` compares five locations so a bump
-cannot half-land — **and there is a SIXTH it does NOT compare, the AppStream
+Latest published release: **Lightning 0.10.0** (`v0.10.0` -> `1e808997`),
+tagged 2026-10-01 by **project 6** pipeline **284, 28/28** (macOS attached;
+281 was cancelled before publishing so VM tests could run first). Notes in
+`docs/releases/v0.10.0.md`. **Anonymous verification bar PASSED IN FULL on
+2026-10-01** (11 links, signature verified, 11 mirror assets). **The first
+release whose pipeline opened the Flathub PR itself** (`flathub-update-pr`,
+PR #1, test build green on x86_64 + aarch64, validated in a VM, merged
+2026-10-01). Previous release: 0.9.9. Round record:
+`docs/round-history.md` and the vault note `Tasks/2026-09-30 CONTINUATION.md`.
+`tests/VersionConsistencyTest.cpp` compares five locations so a bump cannot
+half-land — **and there is a SIXTH it does NOT compare, the AppStream
 metainfo; see §14.** The root Flathub manifest is a SEVENTH and is re-pinned
-to `v0.9.9` / `54d1bdb18656…`, which is the post-release step
-`test-flathub-manifest-pin.py` deliberately waits for.
+to `v0.10.0` / `1e808997…`, which is the post-release step
+`test-flathub-manifest-pin.py` deliberately waits for. Media from encrypted
+rooms is now kept encrypted at rest (a per-account key in the keyring; §6's
+plaintext rule holds for media).
 
 **AND IT TOOK SIX ATTEMPTS TO GET THERE — five of them lost to ONE MISSING
 DEBIAN PACKAGE.** Pipelines 246-250 all died in `build-flatpak` on

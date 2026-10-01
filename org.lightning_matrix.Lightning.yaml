@@ -68,8 +68,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/Mizerd/lightning.git
-        tag: v0.9.9
-        commit: 54d1bdb18656c0bff622049310c8e47621873fa5
+        tag: v0.10.0
+        commit: 1e80899775b70c0c631c05fb5b16af18099863a7
         x-checker-data:
           type: git
           tag-pattern: '^v([\d.]+)$'
