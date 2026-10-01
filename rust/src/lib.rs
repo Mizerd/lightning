@@ -438,14 +438,14 @@ impl RustClient {
         if let Ok(mut guard) = self.search_index.lock() {
             *guard = None;
         }
-        // The token watcher holds a strong Client and its broadcast sender lives
-        // inside that Client, so recv() never returns Closed and the task would
-        // keep the crypto store open. Aborted: it has no cooperative exit.
-        if let Ok(mut guard) = self.token_task.lock() {
-            if let Some(handle) = guard.take() {
-                handle.abort();
-            }
-        }
+        // The token watcher is aborted only after sync has stopped (below), so
+        // a rotation caused by a request still in flight here is still
+        // announced. The SDK adopts a rotated pair inside `Client` either way;
+        // what was lost (2026-10-01) was the announcement: it sat in this
+        // handle's event queue, which dies with the handle when C++ releases
+        // it before the next drain, so the keyring kept the used refresh
+        // token. `final_session_tokens`, read after this shutdown, is the fix
+        // for that; the reorder only keeps announcements coming meanwhile.
         // SAS drivers first: they hold a Client purely to poll, and one left
         // running keeps the crypto store open while `finishSignOut` deletes it.
         // Signal, join, then abort.
@@ -528,6 +528,19 @@ impl RustClient {
 
         let sync_stopped = self.stop_sync_and_wait();
 
+        // Now nothing of ours sends a request, so no rotation can follow. The
+        // watcher holds a strong Client and its broadcast sender lives inside
+        // that Client, so recv() never returns Closed and the task would keep
+        // the crypto store open. Aborted: it has no cooperative exit. An
+        // announcement it queued that C++ never drained is not needed: the
+        // Client already holds that pair, and `final_session_tokens` hands it
+        // back.
+        if let Ok(mut guard) = self.token_task.lock() {
+            if let Some(handle) = guard.take() {
+                handle.abort();
+            }
+        }
+
         // Drop parked (possibly decrypted) media bytes with the session.
         if let Ok(mut guard) = self.media_results.lock() {
             guard.clear();
@@ -548,6 +561,17 @@ impl RustClient {
         }
         (import_joined, sync_stopped, actions_missed, verifications_missed,
          actions_ms, verifications_ms, total.elapsed().as_millis() as u64)
+    }
+
+    /// The tokens the session holds NOW, which may be newer than the last
+    /// `session_tokens_refreshed` C++ drained: a rotation that lands between
+    /// that drain and the handle being retired is otherwise lost. `None`
+    /// without a client or tokens. SENSITIVE: never log the result.
+    fn final_session_tokens(&self) -> Option<matrix_sdk::SessionTokens> {
+        self.client
+            .lock()
+            .ok()
+            .and_then(|guard| guard.as_ref().and_then(Client::session_tokens))
     }
 
     fn reap_finished_sync(&self) {
@@ -9297,6 +9321,30 @@ pub unsafe extern "C" fn mx_rust_shutdown_tasks(ptr: *mut c_void) -> *mut c_char
     })
 }
 
+/// The session's current tokens as `{"access_token","refresh_token"}`, or an
+/// empty string when there is no session. Called by the retiring worker after
+/// `mx_rust_shutdown_tasks`, so no request can rotate them afterwards.
+/// SENSITIVE: carries credentials; C++ writes them to the SecretStore and
+/// nothing logs them.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_final_session_tokens(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        Ok(final_session_tokens_json(bridge.final_session_tokens()))
+    })
+}
+
+fn final_session_tokens_json(tokens: Option<matrix_sdk::SessionTokens>) -> String {
+    match tokens {
+        Some(tokens) if !tokens.access_token.is_empty() => json!({
+            "access_token": tokens.access_token,
+            "refresh_token": tokens.refresh_token,
+        })
+        .to_string(),
+        _ => String::new(),
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_free_cstring(ptr: *mut c_char) {
     if ptr.is_null() {
@@ -15281,5 +15329,35 @@ mod resumed_device_key_tests {
         assert_eq!(state(None, Some(None)), "unknown");
         assert_eq!(state(Some(""), Some(None)), "unknown");
         assert_eq!(state(Some("AAAA"), Some(Some(""))), "unknown");
+    }
+}
+
+#[cfg(test)]
+mod final_session_tokens_tests {
+    use super::{final_session_tokens_json, SessionTokens};
+
+    #[test]
+    fn no_session_hands_back_nothing() {
+        assert_eq!(final_session_tokens_json(None), "");
+        let empty = SessionTokens { access_token: String::new(), refresh_token: None };
+        assert_eq!(final_session_tokens_json(Some(empty)), "");
+    }
+
+    #[test]
+    fn a_session_hands_back_both_tokens() {
+        let tokens = SessionTokens {
+            access_token: "fixture-a".to_owned(),
+            refresh_token: Some("fixture-r".to_owned()),
+        };
+        let value: serde_json::Value =
+            serde_json::from_str(&final_session_tokens_json(Some(tokens))).unwrap();
+        assert_eq!(value["access_token"], "fixture-a");
+        assert_eq!(value["refresh_token"], "fixture-r");
+        // A session that issues no refresh token says so, rather than "".
+        let value: serde_json::Value = serde_json::from_str(&final_session_tokens_json(Some(
+            SessionTokens { access_token: "fixture-a".to_owned(), refresh_token: None },
+        )))
+        .unwrap();
+        assert!(value["refresh_token"].is_null());
     }
 }

@@ -1997,6 +1997,15 @@ char *mx_rust_fetch_upload_limit(void *client);
  */
 char *mx_rust_shutdown_tasks(void *client);
 
+/*
+ * SENSITIVE. The session's tokens as they are NOW, as JSON
+ * {"access_token","refresh_token"}, or "" without a session. Called after
+ * mx_rust_shutdown_tasks by the retiring worker: a rotation that landed after
+ * the last drained session_tokens_refreshed is otherwise lost, and the next
+ * start presents a used refresh token. Never log the result.
+ */
+char *mx_rust_final_session_tokens(void *client);
+
 /* 0 = no, 1 = yes. Reports honestly — 0 until verified encrypted read/send. */
 int mx_rust_supports_e2ee(void *client);
 

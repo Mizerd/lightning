@@ -4,7 +4,9 @@
 
 #include "app/GuiStallTracer.h"
 
+#include <QCryptographicHash>
 #include <QElapsedTimer>
+#include <QMutex>
 #include <QThreadPool>
 #include "app/SyncLatencyTracer.h"
 
@@ -151,6 +153,9 @@ RustSdkMatrixClient::RustSdkMatrixClient(SettingsManager *settings, QObject *par
 RustSdkMatrixClient::~RustSdkMatrixClient()
 {
     m_pollTimer.stop();
+    // invalidate() clears the sign-out mark, and a quit in the middle of a
+    // sign-out must still retire as one: nothing is written back.
+    m_retireAsSignOut = m_lifecycle.signingOut();
     m_lifecycle.invalidate();
     // Closing mid-discovery or mid-sign-in must not leak the bootstrap handle,
     // which owns a tokio runtime, a crypto store and this attempt's tokens.
@@ -171,6 +176,9 @@ RustSdkMatrixClient::~RustSdkMatrixClient()
     waited.start();
     const bool retired = waitForRustRetirement(kStoreCloseBudgetMs);
     const qint64 waitedMs = waited.elapsed();
+    // The event loop is over: write what the retired handles left now, or a
+    // rotation made while quitting is lost with the process.
+    persistRetiredSessionTokens();
     if (!retired) {
         qCWarning(lcRust) << "a retiring Rust client did not close within the"
                           << "budget at shutdown, waited_ms=" << waitedMs;
@@ -539,14 +547,59 @@ QThreadPool &rustRetirementPool()
     }();
     return *pool;
 }
+
+QByteArray accessTokenDigest(const QString &accessToken)
+{
+    return accessToken.isEmpty()
+        ? QByteArray()
+        : QCryptographicHash::hash(accessToken.toUtf8(), QCryptographicHash::Sha256);
+}
+
+// SENSITIVE: sign-ins a retired handle held that were never written down,
+// waiting for the GUI thread. Filled by retirement workers; emptied by
+// persistRetiredSessionTokens(). Never logged.
+struct RetiredSignIn {
+    QString userId;
+    QString deviceId;
+    // Digest of the access token last written for that handle: written back
+    // only while the keyring still holds exactly that one.
+    QByteArray expectedDigest;
+    QString accessToken;
+    QString refreshToken;
+};
+struct RetiredSignIns {
+    QMutex mutex;
+    QList<RetiredSignIn> waiting;
+    // Accounts with a handle still retiring, counted: a restore of one of them
+    // must wait for its final tokens before reading the keyring.
+    QHash<QString, int> retiring;
+};
+RetiredSignIns &retiredSignIns()
+{
+    static RetiredSignIns *box = new RetiredSignIns;
+    return *box;
+}
 } // namespace
 
 void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                                                 const QString &typingRoom)
 {
+    retireRustHandleAsync(handle, typingRoom, RetiringSignIn{}, {});
+}
+
+void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
+                                                const QString &typingRoom,
+                                                const RetiringSignIn &signIn,
+                                                QPointer<RustSdkMatrixClient> sink)
+{
     if (!handle)
         return;
-    rustRetirementPool().start([handle, typingRoom] {
+    const bool tracked = signIn.persist && !signIn.userId.isEmpty();
+    if (tracked) {
+        QMutexLocker lock(&retiredSignIns().mutex);
+        ++retiredSignIns().retiring[signIn.userId];
+    }
+    rustRetirementPool().start([handle, typingRoom, signIn, sink, tracked] {
         QElapsedTimer teardown;
         teardown.start();
         // The courtesy "stopped typing" is a network send, so it belongs here
@@ -557,6 +610,26 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
         }
         const QString shutdown = takeRustString(mx_rust_shutdown_tasks(handle));
         const qint64 shutdownMs = teardown.elapsed();
+        // Sync has stopped, so the session's tokens are final. A rotation the
+        // GUI never drained (it landed after the last poll, or during the
+        // shutdown above) is only here: lost, the next start presents a used
+        // refresh token and an OAuth server refuses the whole sign-in.
+        bool handedBack = false;
+        if (tracked) {
+            // SENSITIVE: never log `json`.
+            const QString json = takeRustString(mx_rust_final_session_tokens(handle));
+            const QJsonObject tokens = json.isEmpty() || json.startsWith(QLatin1String("error: "))
+                ? QJsonObject()
+                : QJsonDocument::fromJson(json.toUtf8()).object();
+            const QString access = tokens.value(QStringLiteral("access_token")).toString();
+            if (!access.isEmpty() && accessTokenDigest(access) != signIn.accessDigest) {
+                QMutexLocker lock(&retiredSignIns().mutex);
+                retiredSignIns().waiting.append(RetiredSignIn{
+                    signIn.userId, signIn.deviceId, signIn.accessDigest, access,
+                    tokens.value(QStringLiteral("refresh_token")).toString()});
+                handedBack = true;
+            }
+        }
         teardown.restart();
         // Drops the tokio runtime, blocking until every in-flight
         // spawn_blocking (including SQLite closes) finishes.
@@ -566,8 +639,122 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
                        << shutdown
                        << "shutdown_ms=" << shutdownMs
                        << "destroy_ms=" << destroyMs
-                       << "teardown_total_ms=" << (shutdownMs + destroyMs);
+                       << "teardown_total_ms=" << (shutdownMs + destroyMs)
+                       << "sign_in_rotated_since_last_write=" << handedBack;
+        if (tracked) {
+            QMutexLocker lock(&retiredSignIns().mutex);
+            auto &retiring = retiredSignIns().retiring;
+            if (--retiring[signIn.userId] <= 0)
+                retiring.remove(signIn.userId);
+        }
+        // Checked on the GUI thread, where the client lives and dies.
+        if (handedBack && QCoreApplication::instance()) {
+            QMetaObject::invokeMethod(QCoreApplication::instance(), [sink] {
+                if (sink)
+                    sink->persistRetiredSessionTokens();
+            }, Qt::QueuedConnection);
+        }
     });
+}
+
+void RustSdkMatrixClient::persistRetiredSessionTokens()
+{
+    persistRetiredSessionTokens(QString());
+}
+
+void RustSdkMatrixClient::persistRetiredSessionTokens(const QString &restoringUserId)
+{
+    QList<RetiredSignIn> waiting;
+    {
+        QMutexLocker lock(&retiredSignIns().mutex);
+        waiting.swap(retiredSignIns().waiting);
+    }
+    for (const RetiredSignIn &signIn : std::as_const(waiting)) {
+        const QString slug = matrix::app_data::safeUserSlug(signIn.userId);
+        if (!m_settings)
+            continue;
+        // A session of that very device running again already holds newer
+        // tokens than the one that retired. Not for the account a restore is
+        // about to read: its retired tokens are the newest there are.
+        const bool restoring = !restoringUserId.isEmpty()
+            && signIn.userId == restoringUserId;
+        if (!restoring && m_rustHandle && m_loggedIn
+            && m_deviceId == signIn.deviceId
+            && tokenOwnerForRunningSession() == signIn.userId) {
+            qCInfo(lcRust) << "a retired sign-in's last tokens were not kept: "
+                              "the same device is running again"
+                           << "slug=" << slug;
+            continue;
+        }
+        // Signed out, removed, or signed in again as another device since:
+        // what was deleted must stay deleted (CLAUDE.md §6).
+        const QVariantMap record = m_settings->accountRecord(signIn.userId);
+        if (record.isEmpty()
+            || record.value(QStringLiteral("deviceId")).toString() != signIn.deviceId) {
+            qCInfo(lcRust) << "a retired sign-in's last tokens were not kept: "
+                              "its account record is gone or names another device"
+                           << "slug=" << slug;
+            continue;
+        }
+        // Compare and swap: only over the pair this handle itself last wrote.
+        // Anything else there is newer (a later session's rotation, or a
+        // retirement that overran the settle wait) and must never be
+        // replaced by an older one.
+        const QString stored = m_settings->accessTokenFor(signIn.userId);
+        if (accessTokenDigest(stored) != signIn.expectedDigest) {
+            qCInfo(lcRust) << "a retired sign-in's last tokens were not kept: "
+                              "the keyring holds a different sign-in now"
+                           << "slug=" << slug;
+            continue;
+        }
+        const bool ok = m_settings->updateSessionTokens(
+            signIn.userId, signIn.accessToken, signIn.refreshToken);
+        qCInfo(lcRust) << "kept a token rotation the retired session made after "
+                          "its last write"
+                       << "slug=" << slug << "ok=" << ok;
+    }
+}
+
+bool RustSdkMatrixClient::settleRetiringSignIn(const QString &userId)
+{
+    bool retiring = false;
+    {
+        QMutexLocker lock(&retiredSignIns().mutex);
+        retiring = retiredSignIns().retiring.contains(userId);
+    }
+    if (retiring) {
+        // Only a quick switch back to an account still closing waits here.
+        qCInfo(lcRust) << "waiting for this account's previous session to "
+                          "close before reading its sign-in"
+                       << "slug=" << matrix::app_data::safeUserSlug(userId);
+        if (!waitForRustRetirement(kStoreCloseBudgetMs))
+            qCWarning(lcRust) << "the previous session did not close within the "
+                                 "budget; its last tokens may be missed";
+    }
+    persistRetiredSessionTokens(userId);
+    return retiring;
+}
+
+QString RustSdkMatrixClient::tokenOwnerForRunningSession() const
+{
+    if (!m_settings || m_userId.isEmpty() || m_deviceId.isEmpty())
+        return {};
+    QStringList candidates{ m_userId };
+    // The record holds the canonical id, which the server's raw answer may
+    // not be.
+    matrix::app_data::AccountIdentity identity;
+    if (matrix::app_data::resolveAccountIdentity(m_homeserver, m_userId, &identity))
+        candidates << identity.userId;
+    candidates << m_settings->userId();
+    for (const QString &candidate : std::as_const(candidates)) {
+        if (candidate.isEmpty())
+            continue;
+        const QVariantMap record = m_settings->accountRecord(candidate);
+        if (!record.isEmpty()
+            && record.value(QStringLiteral("deviceId")).toString() == m_deviceId)
+            return candidate;
+    }
+    return {};
 }
 
 bool RustSdkMatrixClient::waitForRustRetirement(int budgetMs)
@@ -594,6 +781,16 @@ void RustSdkMatrixClient::releaseRustHandle()
     void *retiring = m_rustHandle;
     const QString typingRoom = m_typingRoom;
     m_typingRoom.clear();
+    // Whose sign-in this handle carries, captured before anything below can
+    // change it. Never kept on a sign-out: its completion deletes the tokens
+    // and nothing may write them back.
+    RetiringSignIn signIn;
+    signIn.userId = tokenOwnerForRunningSession();
+    signIn.deviceId = m_deviceId;
+    signIn.accessDigest = m_persistedAccessDigest;
+    signIn.persist = !signIn.userId.isEmpty() && !m_lifecycle.signingOut()
+        && !m_retireAsSignOut;
+    m_persistedAccessDigest.clear();
     // Detached before the hand-off so nothing on this thread can reach the
     // client the worker now owns.
     m_rustHandle = nullptr;
@@ -605,7 +802,8 @@ void RustSdkMatrixClient::releaseRustHandle()
     m_threadTracker.reset();
     m_pagination.clear();
 
-    retireRustHandleAsync(retiring, typingRoom);
+    retireRustHandleAsync(retiring, typingRoom, signIn,
+                          QPointer<RustSdkMatrixClient>(this));
 }
 
 void RustSdkMatrixClient::login(const QString &homeserver,
@@ -1693,6 +1891,7 @@ void RustSdkMatrixClient::adoptBrowserSession(
         m_settings->saveSession(identity.homeserver, identity.userId, deviceId,
                                 accessToken, refreshToken,
                                 authType, clientId);
+        m_persistedAccessDigest = accessTokenDigest(accessToken);
         // saveSession() writes no record when it refuses; then nothing may be
         // left for a looser match to roll back later.
         if (!m_settings->hasSavedAccount(identity.userId)) {
@@ -1888,7 +2087,10 @@ bool RustSdkMatrixClient::restoreSession()
     const QString hs = identity.homeserver;
     const QString userId = m_settings->userId();
     const QString deviceId = m_settings->deviceId();
-    const QString accessToken = m_settings->accessToken();
+    // A session of this account still closing may have rotated its tokens
+    // since they were last written; those are the ones to present.
+    settleRetiringSignIn(userId);
+    QString accessToken = m_settings->accessToken();
     if (hs.isEmpty() || userId.isEmpty() || accessToken.isEmpty())
         return false;
 
@@ -1916,6 +2118,11 @@ bool RustSdkMatrixClient::restoreSession()
         Q_EMIT loginFailed(tr("Rust SDK backend could not be initialized."));
         return false;
     }
+    // ensureRustHandleForIdentity() released the running handle; if it was
+    // this account's, its last tokens are the current ones.
+    if (settleRetiringSignIn(userId))
+        accessToken = m_settings->accessToken();
+    m_persistedAccessDigest = accessTokenDigest(accessToken);
 
     m_homeserver = hs;
     m_userId = userId;
@@ -4453,16 +4660,23 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         // SENSITIVE: carries the rotated access and refresh tokens; never log
         // `event`. If not written back, the store keeps the consumed refresh
         // token, and presenting it again can get the whole session revoked.
-        // Keyed on the canonical active-account id: saveSession() writes
-        // secrets under it, while m_userId may be the server's raw answer.
-        // Writing under the raw id would leave the consumed token where it is
-        // read.
-        const QString tokenOwner = m_settings ? m_settings->userId() : QString{};
+        // Keyed on the record that names THIS handle's device, in its
+        // canonical id (saveSession() writes secrets under it, while m_userId
+        // may be the server's raw answer), never on whichever account is
+        // active: those can differ, and the tokens would land on another
+        // account.
+        const QString tokenOwner = tokenOwnerForRunningSession();
+        const QString access = event.value(QStringLiteral("access_token")).toString();
         if (m_settings && !tokenOwner.isEmpty()) {
-            m_settings->updateSessionTokens(
-                tokenOwner,
-                event.value(QStringLiteral("access_token")).toString(),
-                event.value(QStringLiteral("refresh_token")).toString());
+            if (m_settings->updateSessionTokens(
+                    tokenOwner, access,
+                    event.value(QStringLiteral("refresh_token")).toString())) {
+                m_persistedAccessDigest = accessTokenDigest(access);
+            }
+        } else {
+            qCWarning(lcRust) << "a rotated sign-in matches no saved account "
+                                 "for this device; not stored"
+                              << "slug=" << matrix::app_data::safeUserSlug(m_userId);
         }
         return;
     }
@@ -4588,6 +4802,7 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             // Phase B with the "oauth" auth type and client id.
             m_settings->saveSession(m_homeserver, m_userId, m_deviceId, accessToken,
                                     refreshToken);
+            m_persistedAccessDigest = accessTokenDigest(accessToken);
             m_settings->setSyncToken({});
         }
         // The homeserver decides the canonical user id, so a first login may

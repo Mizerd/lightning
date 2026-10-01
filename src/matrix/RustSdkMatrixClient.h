@@ -8,6 +8,7 @@
 #include "storage/AppDataPaths.h"
 
 #include <QHash>
+#include <QPointer>
 #include <QPair>
 #include <QSet>
 #include <QStringList>
@@ -41,6 +42,30 @@ public:
     /// dropping the tokio runtime) on a worker thread that takes ownership of
     /// `handle`. Public so a test can verify the caller returns immediately.
     static void retireRustHandleAsync(void *handle, const QString &typingRoom);
+
+    /// Whose sign-in a retiring handle carried, so a token rotation it made
+    /// after its last drained `session_tokens_refreshed` is still written
+    /// back. `persist` is false on a sign-out: what a sign-out deleted must
+    /// never come back (CLAUDE.md §6). `accessDigest` is the SHA-256 of the
+    /// access token last written for it, so an unchanged sign-in writes
+    /// nothing.
+    struct RetiringSignIn {
+        QString userId;
+        QString deviceId;
+        QByteArray accessDigest;
+        bool persist = false;
+    };
+    static void retireRustHandleAsync(void *handle, const QString &typingRoom,
+                                      const RetiringSignIn &signIn,
+                                      QPointer<RustSdkMatrixClient> sink);
+
+    /// Writes the sign-ins retired handles left behind, each under the account
+    /// captured at release, and only while that record still names the same
+    /// device, and only over the pair that handle last wrote (compare and
+    /// swap against its digest). Runs on the GUI thread (queued by the
+    /// retiring worker, and directly where a caller has waited for
+    /// retirement).
+    void persistRetiredSessionTokens();
 
     explicit RustSdkMatrixClient(SettingsManager *settings, QObject *parent = nullptr);
     ~RustSdkMatrixClient() override;
@@ -843,6 +868,18 @@ Q_SIGNALS:
     void localSessionCleanupFinished(bool ok, const QString &message);
 
 private:
+    // The saved account whose sign-in the running handle carries: the record
+    // that names this handle's device, never merely the active account.
+    // Empty when no record matches, and then nothing is written.
+    QString tokenOwnerForRunningSession() const;
+    // Before a restore reads an account's tokens: a handle of that account
+    // still retiring may hold newer ones. True when it had to wait, so the
+    // caller reads the tokens again.
+    bool settleRetiringSignIn(const QString &userId);
+    // `restoringUserId`: the account a restore is about to read, whose
+    // retired tokens are written even though its device is about to run.
+    void persistRetiredSessionTokens(const QString &restoringUserId);
+
     struct PendingSend {
         QString roomId;
         QString localEventId;
@@ -1129,6 +1166,11 @@ private:
     QString m_homeserver;
     QString m_userId;
     QString m_deviceId;
+    // SHA-256 of the access token last written for the running handle; the
+    // retiring worker compares the session's final token against it.
+    QByteArray m_persistedAccessDigest;
+    // Set by the destructor before invalidate() clears the sign-out mark.
+    bool m_retireAsSignOut = false;
     bool m_loggedIn = false;
     // Opened from the local store because the homeserver was unreachable (see
     // `session_restored_offline` in Rust); the connection state starts at
