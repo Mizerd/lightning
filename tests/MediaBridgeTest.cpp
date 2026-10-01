@@ -667,6 +667,25 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 11);
     }
 
+    // A 404 is the server saying the file does not exist: asking again every
+    // minute only repeats it (29 times for one avatar in a tester's session).
+    void notFoundIsPermanentForTheSession()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const QString gone = QStringLiteral("mxc://remote.example/gone");
+        bridge.avatarSource(gone, 64);
+        QCOMPARE(client.fetches.size(), 1);
+        client.fail(client.fetches.first().opId, QStringLiteral("not_found"));
+        QCOMPARE(bridge.avatarFailureCategory(gone), QStringLiteral("not_found"));
+
+        bridge.setFailureRetryMsForTest(0);
+        bridge.checkInflightTimeouts();
+        QCOMPARE(bridge.avatarSource(gone, 64), QString());
+        QCOMPARE(client.fetches.size(), 1);
+    }
+
     // A dispatch rejected with opId==0 (session restoring or switching) is the
     // transient "unavailable" category with the normal retry window, not a
     // permanent mark.

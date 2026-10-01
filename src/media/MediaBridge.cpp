@@ -396,11 +396,14 @@ void MediaBridge::retry(const QString &cacheKey)
 
 bool MediaBridge::isPermanentCategory(const QString &category)
 {
-    // Only backend-reported validation failures are permanent. Network, timeout,
-    // "server_error" (the homeserver answered 5xx) and the local "unavailable"
+    // Permanent for the session: backend-reported validation failures, and a
+    // 404 ("not_found"), where the server has answered that the file does not
+    // exist; a tester's log re-requested one such avatar 29 times in a session.
+    // Network, timeout, "server_error" (5xx) and the local "unavailable"
     // dispatch failure (opId 0 during restore/switch) are transient.
     return category == QLatin1String("rejected")
-        || category == QLatin1String("invalid_gif");
+        || category == QLatin1String("invalid_gif")
+        || category == QLatin1String("not_found");
 }
 
 bool MediaBridge::failureBlocks(const QString &cacheKey)
