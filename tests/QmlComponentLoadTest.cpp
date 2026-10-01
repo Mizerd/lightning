@@ -16,6 +16,7 @@
 // loading fine.
 
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QScopeGuard>
 #include <QSignalSpy>
@@ -26,6 +27,10 @@
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
+#include "models/RoomListModel.h"
+#include "models/SpaceChannelModel.h"
+
+#include <memory>
 
 namespace {
 
@@ -83,6 +88,9 @@ constexpr const char *kComponents[] = {
     // The floating voice/audio mini-player; renders app.voicePlayback and
     // app.settings.voiceMiniPlayerCorner, and shows nothing while idle.
     "VoiceMiniPlayer",
+    // The "..." menu beside the room-list search: Activity / A-Z. Reads and
+    // writes app.settings.roomListSort.
+    "RoomListSortMenu",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather
@@ -215,6 +223,66 @@ private Q_SLOTS:
             QVERIFY2(!warning.contains(QStringLiteral("Binding loop")),
                      qPrintable(warning));
         }
+    }
+
+    // The room-list "..." menu: it shows the persisted mode, writes it, and
+    // the change reaches BOTH layouts' models through the controller.
+    void theRoomListSortMenuWritesTheSettingAndBothModelsFollow()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+        // The suite's QSettings file outlives the process.
+        controller.settings()->setRoomListSort(0);
+        const auto restore = qScopeGuard(
+            [&controller] { controller.settings()->setRoomListSort(0); });
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 400
+    height: 300
+    property alias menu: m
+    RoomListSortMenu { id: m }
+}
+)"), QUrl(QStringLiteral("qrc:/roomlistsortmenutest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY2(owner != nullptr, "RoomListSortMenu must instantiate");
+        auto *menu = owner->property("menu").value<QObject *>();
+        QVERIFY(menu != nullptr);
+        auto *activity = menu->findChild<QObject *>(
+            QStringLiteral("roomSortActivityItem"));
+        auto *byName = menu->findChild<QObject *>(
+            QStringLiteral("roomSortNameItem"));
+        QVERIFY2(activity && byName, "the menu lost one of its two sorts");
+
+        // Activity is the default and is the one marked.
+        QVERIFY(activity->property("radioSelected").toBool());
+        QVERIFY(!byName->property("radioSelected").toBool());
+        QCOMPARE(controller.roomList()->sortMode(), 0);
+
+        QVERIFY(QMetaObject::invokeMethod(byName, "triggered"));
+        QCOMPARE(controller.settings()->roomListSort(), 1);
+        QVERIFY(byName->property("radioSelected").toBool());
+        QVERIFY(!activity->property("radioSelected").toBool());
+        QCOMPARE(controller.roomList()->sortMode(), 1);
+        QCOMPARE(controller.spaceChannels()->sortMode(), 1);
+
+        QVERIFY(QMetaObject::invokeMethod(activity, "triggered"));
+        QCOMPARE(controller.settings()->roomListSort(), 0);
+        QCOMPARE(controller.roomList()->sortMode(), 0);
+        QCOMPARE(controller.spaceChannels()->sortMode(), 0);
     }
 
     // `enabled` propagates to children, so `enabled: false` on a delegate

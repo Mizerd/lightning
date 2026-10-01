@@ -49,6 +49,11 @@ class RoomListModel : public QAbstractListModel
     /// True while the list is being held in an order that differs from the
     /// live one, i.e. releaseOrder() would move something.
     Q_PROPERTY(bool orderHeld READ orderHeld NOTIFY orderHeldChanged)
+    /// How each group is ordered: conversation::SortByActivity (0, default) or
+    /// conversation::SortByName (1, A-Z). Groups and invitations are unchanged.
+    /// Any other value reads as Activity. AppController follows the setting.
+    Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode
+                   NOTIFY sortModeChanged)
 public:
     enum Roles {
         RoomIdRole = Qt::UserRole + 1,
@@ -154,6 +159,10 @@ public:
     bool deferReordering() const { return m_hold.enabled(); }
     void setDeferReordering(bool defer);
     bool orderHeld() const { return m_orderHeld; }
+    int sortMode() const { return m_sortMode; }
+    /// Applies at once and drops any held order: under A-Z there is nothing to
+    /// hold, and back on Activity the live order is what the user asked for.
+    void setSortMode(int mode);
     /// Apply the held order now (the user has looked away, or the list has
     /// been at rest). A no-op when nothing is held.
     Q_INVOKABLE void releaseOrder();
@@ -236,6 +245,7 @@ private:
     // The keys the list is ordered by; see conversation::RecencyHold.
     conversation::RecencyHold m_hold;
     bool m_orderHeld = false;
+    int m_sortMode = conversation::SortByActivity;
     // Set by desiredRooms(): whether the order it returned differs from the
     // live one.
     bool m_sortPending = false;
@@ -254,4 +264,5 @@ Q_SIGNALS:
     void unreadTotalsChanged();
     void deferReorderingChanged();
     void orderHeldChanged();
+    void sortModeChanged();
 };

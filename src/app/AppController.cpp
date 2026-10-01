@@ -1519,6 +1519,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_settings.get(), &SettingsManager::keepRoomListOrderStillChanged,
             this, applyRoomOrderHold);
     applyRoomOrderHold();
+    // The sort mode (Activity / A-Z) reaches both layouts the same way.
+    const auto applyRoomListSort = [this] {
+        const int mode = m_settings->roomListSort();
+        m_roomList->setSortMode(mode);
+        m_spaceChannels->setSortMode(mode);
+    };
+    connect(m_settings.get(), &SettingsManager::roomListSortChanged, this,
+            applyRoomListSort);
+    applyRoomListSort();
     m_quickSwitcher->setClient(m_client.get());
     m_quickSwitcher->setSpaceManager(m_spaces.get());
     m_timeline->setClient(m_client.get());

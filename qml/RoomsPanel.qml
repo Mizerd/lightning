@@ -335,6 +335,29 @@ Rectangle {
                     spacing: AppTheme.spacing8
                     Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
 
+                    // How the list is ordered (Activity / A-Z), Element's
+                    // "..." beside the search field.
+                    IconButton {
+                        id: sortBtn
+                        objectName: "roomListOptionsButton"
+                        visible: app.loggedIn
+                        implicitWidth: 30; implicitHeight: 30
+                        radius: AppTheme.radiusMd
+                        iconName: "more_horiz"
+                        iconSize: 18
+                        active: roomListSortMenu.opened
+                        Accessible.name: qsTr("Room list options")
+                        ToolTip.text: qsTr("Room list options")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: roomListSortMenu.open()
+                        RoomListSortMenu {
+                            id: roomListSortMenu
+                            parent: sortBtn
+                            x: sortBtn.width - width
+                            y: sortBtn.height + 4
+                        }
+                    }
                     // Start a DM or create a room (the controller reports
                     // unsupported backends).
                     IconButton {

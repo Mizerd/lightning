@@ -6,6 +6,7 @@
 #include "storage/SecretStore.h"
 #include "storage/AppDataPaths.h"
 #include "matrix/MediaStoreKey.h"
+#include "models/ConversationOrder.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -53,6 +54,7 @@ constexpr auto kSpacesRailVisible = "shell/spacesRailVisible";
 constexpr auto kSpaceBannersVisible = "shell/spaceBannersVisible";
 constexpr auto kSpaceBannerExpanded = "shell/spaceBannerExpanded";
 constexpr auto kKeepRoomListOrderStill = "shell/keepRoomListOrderStill";
+constexpr auto kRoomListSort = "shell/roomListSort";
 constexpr auto kRoomListVisible   = "shell/roomListVisible";
 constexpr auto kRoomListWidth     = "shell/roomListWidth";
 constexpr auto kSpacesRailWidth   = "shell/spacesRailWidth";
@@ -2392,6 +2394,23 @@ void SettingsManager::setKeepRoomListOrderStill(bool v)
         return;
     m_store->setValue(kKeepRoomListOrderStill, v);
     Q_EMIT keepRoomListOrderStillChanged();
+}
+
+int SettingsManager::roomListSort() const
+{
+    // An unknown value (hand-edited, or a mode a newer build added) is the
+    // default, never the nearest mode.
+    return conversation::normalizedSortMode(
+        m_store->value(kRoomListSort, conversation::SortByActivity).toInt());
+}
+
+void SettingsManager::setRoomListSort(int mode)
+{
+    const int valid = conversation::normalizedSortMode(mode);
+    if (roomListSort() == valid)
+        return;
+    m_store->setValue(kRoomListSort, valid);
+    Q_EMIT roomListSortChanged();
 }
 
 bool SettingsManager::spaceBannerExpanded() const

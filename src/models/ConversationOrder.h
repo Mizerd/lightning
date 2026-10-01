@@ -13,6 +13,7 @@
 //
 // Header-only so the many test targets linking the models need no new source.
 
+#include <QCollator>
 #include <QDateTime>
 #include <QHash>
 #include <QSet>
@@ -39,6 +40,46 @@ inline bool moreRecent(const QDateTime &aWhen, const QString &aName,
     const int byName = aName.compare(bName, Qt::CaseInsensitive);
     if (byName != 0)
         return byName < 0;
+    return aId < bId;
+}
+
+/// How a conversation list is ordered inside each of its groups. The groups
+/// themselves (invitations, favourites, People, Rooms, ...) never change with
+/// it. Stored as an int (SettingsManager::roomListSort), so a value this build
+/// does not know must land on the default: normalizedSortMode(), never a clamp.
+enum SortMode {
+    SortByActivity = 0,
+    SortByName = 1,
+};
+
+/// An unknown value (hand-edited, or written by a newer build with a third
+/// mode) is Activity, not the nearest mode: modes have no magnitude.
+inline int normalizedSortMode(int mode)
+{
+    return mode == SortByName ? SortByName : SortByActivity;
+}
+
+/// The collator A-Z compares with: the user's locale, case-insensitive. Built
+/// once per sorting pass by the caller (it is not free with ICU), and only in
+/// A-Z mode.
+inline QCollator makeNameCollator()
+{
+    QCollator collator;
+    collator.setCaseSensitivity(Qt::CaseInsensitive);
+    return collator;
+}
+
+/// Strict-weak ordering: display name, locale-aware and case-insensitive. The
+/// unique id breaks a tie (two rooms with one name, or names a collator
+/// considers equal), so the order is total and does not shuffle between syncs.
+/// Activity plays no part, which is why a held order is moot in this mode.
+inline bool byName(const QCollator &collator, const QString &aName,
+                   const QString &aId, const QString &bName,
+                   const QString &bId)
+{
+    const int byCollation = collator.compare(aName, bName);
+    if (byCollation != 0)
+        return byCollation < 0;
     return aId < bId;
 }
 

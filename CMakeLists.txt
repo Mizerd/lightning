@@ -917,6 +917,7 @@ set(APP_QML_FILES
     qml/CallDeviceChevron.qml
     qml/CallDeviceMenu.qml
     qml/CallShareOptionsMenu.qml
+    qml/RoomListSortMenu.qml
     qml/CallDeviceSettings.qml
     qml/CallPipWindow.qml
     qml/CallHeaderBar.qml

@@ -460,6 +460,18 @@ void RoomListModel::setDeferReordering(bool defer)
     reconcileRooms();
 }
 
+void RoomListModel::setSortMode(int mode)
+{
+    const int valid = conversation::normalizedSortMode(mode);
+    if (valid == m_sortMode)
+        return;
+    m_sortMode = valid;
+    // A held order belongs to the old mode; drop it so the new one shows now.
+    m_hold.release();
+    reconcileRooms();
+    Q_EMIT sortModeChanged();
+}
+
 void RoomListModel::releaseOrder()
 {
     m_hold.release();
@@ -538,6 +550,27 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
                 desired.append(r);
         }
         m_hold.retainOnly(everyId);
+        if (m_sortMode == conversation::SortByName) {
+            // Same ranks, same demotion of a superseded room; only the order
+            // inside a rank changes. Nothing here depends on activity, so
+            // there is nothing to hold and no pending re-sort.
+            const QCollator collator = conversation::makeNameCollator();
+            std::stable_sort(
+                desired.begin(), desired.end(),
+                [&superseded, &collator](const RoomInfo &a, const RoomInfo &b) {
+                    const int aRank = orderRankOf(a);
+                    const int bRank = orderRankOf(b);
+                    if (aRank != bRank)
+                        return aRank < bRank;
+                    const bool aOld = superseded.contains(a.id);
+                    const bool bOld = superseded.contains(b.id);
+                    if (aOld != bOld)
+                        return bOld;
+                    return conversation::byName(collator, a.name, a.id,
+                                                b.name, b.id);
+                });
+            return desired;
+        }
         // The stamp each room is ordered by (held, when holding) and the one
         // it would have if nothing were held. Only the order is held: the
         // rows written below carry the live RoomInfo.

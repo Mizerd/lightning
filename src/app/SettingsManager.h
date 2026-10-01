@@ -176,6 +176,11 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool keepRoomListOrderStill READ keepRoomListOrderStill
                    WRITE setKeepRoomListOrderStill
                    NOTIFY keepRoomListOrderStillChanged)
+    /// How the conversation lists order each group: 0 = Activity (default),
+    /// 1 = A-Z (name, locale-aware). Device-scoped. An unknown stored value
+    /// reads as Activity: an enum has no "nearest", so no clamp.
+    Q_PROPERTY(int roomListSort READ roomListSort WRITE setRoomListSort
+                   NOTIFY roomListSortChanged)
     Q_PROPERTY(bool spaceBannerExpanded READ spaceBannerExpanded
                    WRITE setSpaceBannerExpanded NOTIFY spaceBannerExpandedChanged)
     Q_PROPERTY(bool roomListVisible READ roomListVisible
@@ -559,6 +564,8 @@ public:
     bool spaceBannersVisible() const;
     bool keepRoomListOrderStill() const;
     void setKeepRoomListOrderStill(bool v);
+    int roomListSort() const;
+    void setRoomListSort(int mode);
     bool spaceBannerExpanded() const;
     void setSpacesRailVisible(bool v);
     void setSpaceBannersVisible(bool v);
@@ -895,6 +902,7 @@ Q_SIGNALS:
     void spacesRailVisibleChanged();
     void spaceBannersVisibleChanged();
     void keepRoomListOrderStillChanged();
+    void roomListSortChanged();
     void spaceBannerExpandedChanged();
     void roomListVisibleChanged();
     void roomListWidthChanged();

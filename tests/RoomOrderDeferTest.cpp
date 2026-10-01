@@ -203,6 +203,34 @@ QStringList roomIdsOf(const SpaceChannelModel &model)
     return out;
 }
 
+// The sort fixtures: names chosen so that binary, case-insensitive and
+// activity order all differ ("Bravo" < "alpha" in code points).
+const auto kInvite = QStringLiteral("!invite:x");
+const auto kFavY = QStringLiteral("!favy:x");
+const auto kFavD = QStringLiteral("!favd:x");
+
+QList<RoomInfo> sortRooms()
+{
+    QList<RoomInfo> out{
+        room(kR1, QStringLiteral("zulu"), 10),
+        room(kR2, QStringLiteral("alpha"), 60),
+        room(kR3, QStringLiteral("mike"), 120),
+        room(kR4, QStringLiteral("Bravo"), 30),
+        room(kFavY, QStringLiteral("yankee"), 200),
+        room(kFavD, QStringLiteral("Delta"), 300),
+        room(kInvite, QStringLiteral("xray"), 400),
+    };
+    out[4].isFavourite = true;
+    out[5].isFavourite = true;
+    out[6].membership = RoomInfo::Invited;
+    return out;
+}
+
+// Classic: invitation, favourites, then the one feed. Only the order INSIDE a
+// group depends on the sort.
+const QStringList kSortActivity{ kInvite, kFavY, kFavD, kR1, kR4, kR2, kR3 };
+const QStringList kSortByName{ kInvite, kFavD, kFavY, kR2, kR4, kR3, kR1 };
+
 const QStringList kLive{ kR2, kR1, kR3 };     // r2 raised above r1
 const QStringList kStill{ kR1, kR2, kR3 };    // what a held list keeps
 
@@ -609,6 +637,156 @@ private Q_SLOTS:
     }
 
     // -- The setting and its wiring ----------------------------------------
+
+    // -- Sort mode (Activity / A-Z) ----------------------------------------
+
+    void classicAZOrdersByNameWithinGroupsAndActivityRestoresTheRest()
+    {
+        Classic c;
+        c.build(false, sortRooms());
+        QCOMPARE(idsOf(c.model), kSortActivity);
+
+        QSignalSpy changed(&c.model, &RoomListModel::sortModeChanged);
+        c.model.setSortMode(conversation::SortByName);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(idsOf(c.model), kSortByName);
+
+        c.model.setSortMode(conversation::SortByActivity);
+        QCOMPARE(changed.count(), 2);
+        QCOMPARE(idsOf(c.model), kSortActivity);
+    }
+
+    void classicAnUnknownSortModeIsActivityNotTheNearestMode()
+    {
+        Classic c;
+        c.build(false, sortRooms());
+        c.model.setSortMode(conversation::SortByName);
+        // Not std::clamp: 7 would land on A-Z.
+        c.model.setSortMode(7);
+        QCOMPARE(c.model.sortMode(), int(conversation::SortByActivity));
+        QCOMPARE(idsOf(c.model), kSortActivity);
+        QCOMPARE(conversation::normalizedSortMode(-3),
+                 int(conversation::SortByActivity));
+    }
+
+    // A held order is moot under A-Z, and toggling applies at once either way.
+    void classicTogglingTheSortAppliesAtOnceAndDoesNotFightTheHeldOrder()
+    {
+        Classic c;
+        c.build(true, sortRooms());
+        c.client.message(kR3, minutesAgo(1), QStringLiteral("ping"));
+        c.client.announce();
+        // Held: mike has the newest message and has not moved.
+        QCOMPARE(idsOf(c.model), kSortActivity);
+        QVERIFY(c.model.orderHeld());
+
+        c.model.setSortMode(conversation::SortByName);
+        QCOMPARE(idsOf(c.model), kSortByName);
+        QVERIFY2(!c.model.orderHeld(),
+                 "A-Z reports a held order that cannot exist");
+
+        // A message under A-Z moves nothing and holds nothing.
+        c.client.message(kR1, minutesAgo(0), QStringLiteral("pong"));
+        c.client.announce();
+        QCOMPARE(idsOf(c.model), kSortByName);
+        QVERIFY(!c.model.orderHeld());
+
+        // Back on Activity: the LIVE order, immediately (not the stale one
+        // held before the switch). zulu's message is the newest, mike's next.
+        c.model.setSortMode(conversation::SortByActivity);
+        const QStringList live{ kInvite, kFavY, kFavD, kR1, kR3, kR4, kR2 };
+        QCOMPARE(idsOf(c.model), live);
+    }
+
+    void classicAZKeepsASupersededRoomBelowTheLiveOnes()
+    {
+        QList<RoomInfo> rooms = sortRooms();
+        // "alpha" was upgraded to "zulu"'s slot: it must sort under every live
+        // room of its rank whatever its name says.
+        rooms[1].successorRoomId = kR1;
+        rooms[0].predecessorRoomId = kR2;
+        Classic c;
+        c.build(false, rooms);
+        c.model.setSortMode(conversation::SortByName);
+        QCOMPARE(idsOf(c.model),
+                 (QStringList{ kInvite, kFavD, kFavY, kR4, kR3, kR1, kR2 }));
+    }
+
+    void channelsAZOrdersByNameWithinGroupsAndActivityRestoresTheRest()
+    {
+        Channels c;
+        c.build(false, sortRooms());
+        c.settle();
+        const QStringList activity = roomIdsOf(c.model);
+        // Favourites lead the group in both modes.
+        QCOMPARE(activity,
+                 (QStringList{ kInvite, kFavY, kFavD, kR1, kR4, kR2, kR3 }));
+
+        QSignalSpy changed(&c.model, &SpaceChannelModel::sortModeChanged);
+        c.model.setSortMode(conversation::SortByName);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(roomIdsOf(c.model),
+                 (QStringList{ kInvite, kFavD, kFavY, kR2, kR4, kR3, kR1 }));
+
+        c.model.setSortMode(99);
+        QCOMPARE(c.model.sortMode(), int(conversation::SortByActivity));
+        QCOMPARE(roomIdsOf(c.model), activity);
+    }
+
+    void channelsTogglingTheSortAppliesAtOnceAndDoesNotFightTheHeldOrder()
+    {
+        Channels c;
+        c.build(true, sortRooms());
+        c.settle();
+        c.client.message(kR3, minutesAgo(1), QStringLiteral("ping"));
+        c.client.announce();
+        c.settle();
+        QVERIFY(c.model.orderHeld());
+
+        c.model.setSortMode(conversation::SortByName);
+        QCOMPARE(roomIdsOf(c.model),
+                 (QStringList{ kInvite, kFavD, kFavY, kR2, kR4, kR3, kR1 }));
+        QVERIFY(!c.model.orderHeld());
+
+        c.model.setSortMode(conversation::SortByActivity);
+        QCOMPARE(roomIdsOf(c.model),
+                 (QStringList{ kInvite, kFavY, kFavD, kR3, kR1, kR4, kR2 }));
+    }
+
+    void theSortSettingDefaultsToActivityRoundTripsAndFallsBack()
+    {
+        SettingsManager fresh;
+        QCOMPARE(fresh.roomListSort(), int(conversation::SortByActivity));
+        QSignalSpy spy(&fresh, &SettingsManager::roomListSortChanged);
+        fresh.setRoomListSort(conversation::SortByName);
+        QCOMPARE(fresh.roomListSort(), int(conversation::SortByName));
+        QCOMPARE(spy.count(), 1);
+        fresh.setRoomListSort(conversation::SortByName);
+        QCOMPARE(spy.count(), 1);
+
+        // Remembered by the next session.
+        SettingsManager next;
+        QCOMPARE(next.roomListSort(), int(conversation::SortByName));
+
+        // A value from a newer build, or a hand edit, is Activity, not the
+        // nearest mode (std::clamp would have said A-Z for 2).
+        QSettings raw;
+        for (const int unknown : { 2, 7, -1 }) {
+            raw.setValue(QStringLiteral("shell/roomListSort"), unknown);
+            raw.sync();
+            SettingsManager reader;
+            QCOMPARE(reader.roomListSort(), int(conversation::SortByActivity));
+        }
+        // An unknown write is a change from A-Z to the default.
+        SettingsManager writer;
+        writer.setRoomListSort(conversation::SortByName);
+        QSignalSpy writerSpy(&writer, &SettingsManager::roomListSortChanged);
+        writer.setRoomListSort(5);
+        QCOMPARE(writer.roomListSort(), int(conversation::SortByActivity));
+        QCOMPARE(writerSpy.count(), 1);
+        raw.remove(QStringLiteral("shell/roomListSort"));
+        raw.sync();
+    }
 
     // Element's behaviour is the default, and the choice survives a restart.
     void theSettingIsOnByDefaultAndIsRemembered()

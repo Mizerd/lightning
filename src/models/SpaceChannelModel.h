@@ -95,6 +95,11 @@ class SpaceChannelModel : public QAbstractListModel
     /// True while the column is held in an order that differs from the live
     /// one, i.e. releaseOrder() would move something.
     Q_PROPERTY(bool orderHeld READ orderHeld NOTIFY orderHeldChanged)
+    /// How each group is ordered: conversation::SortByActivity (0, default) or
+    /// conversation::SortByName (1, A-Z). Groups are unchanged. Any other
+    /// value reads as Activity. AppController follows the setting.
+    Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode
+                   NOTIFY sortModeChanged)
 
 public:
     enum Kind {
@@ -174,6 +179,9 @@ public:
     bool deferReordering() const { return m_hold.enabled(); }
     void setDeferReordering(bool defer);
     bool orderHeld() const { return m_orderHeld; }
+    int sortMode() const { return m_sortMode; }
+    /// Applies at once and drops any held order, as on the Classic list.
+    void setSortMode(int mode);
     /// Apply the held order now. A no-op when nothing is held.
     Q_INVOKABLE void releaseOrder();
     /// The open room, which an old stamp must not move (RecencyHold).
@@ -237,6 +245,7 @@ Q_SIGNALS:
     void matchCountChanged();
     void deferReorderingChanged();
     void orderHeldChanged();
+    void sortModeChanged();
 
 private:
     struct Row {
@@ -339,6 +348,7 @@ private:
     /// records what it hands out.
     mutable conversation::RecencyHold m_hold;
     bool m_orderHeld = false;
+    int m_sortMode = conversation::SortByActivity;
     /// Set by sortGroup() during one rebuild.
     bool m_sortPending = false;
     QTimer m_holdCap;

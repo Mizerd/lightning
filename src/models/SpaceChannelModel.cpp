@@ -94,6 +94,18 @@ void SpaceChannelModel::setDeferReordering(bool defer)
     rebuild();
 }
 
+void SpaceChannelModel::setSortMode(int mode)
+{
+    const int valid = conversation::normalizedSortMode(mode);
+    if (valid == m_sortMode)
+        return;
+    m_sortMode = valid;
+    // A held order belongs to the old mode; drop it so the new one shows now.
+    m_hold.release();
+    rebuild();
+    Q_EMIT sortModeChanged();
+}
+
 void SpaceChannelModel::releaseOrder()
 {
     m_hold.release();
@@ -143,6 +155,19 @@ void SpaceChannelModel::setOrderHeld(bool held)
 
 void SpaceChannelModel::sortGroup(QVector<Row> &rooms, bool favouritesFirst)
 {
+    if (m_sortMode == conversation::SortByName) {
+        // Favourites still lead their group; only the order inside it moves.
+        // Nothing depends on activity, so there is nothing held or pending.
+        const QCollator collator = conversation::makeNameCollator();
+        std::sort(rooms.begin(), rooms.end(),
+                  [favouritesFirst, &collator](const Row &a, const Row &b) {
+                      if (favouritesFirst && a.favourite != b.favourite)
+                          return a.favourite;
+                      return conversation::byName(collator, a.name, a.id,
+                                                  b.name, b.id);
+                  });
+        return;
+    }
     std::sort(rooms.begin(), rooms.end(),
               favouritesFirst ? byFavouriteThenRecency : byRecency);
     if (m_sortPending)

@@ -94,6 +94,28 @@ private slots:
         }
     }
 
+    // The "..." beside the search field is the one place a user picks the sort,
+    // and it must live in the host's header actions (one entry for both
+    // layouts), not in a presenter.
+    void theHostOwnsTheRoomListSortButtonInItsHeaderActions()
+    {
+        const QString host = withoutComments(read(QStringLiteral("RoomsPanel.qml")));
+        const int actions = host.indexOf(QStringLiteral("id: headerActions"));
+        const int button = host.indexOf(QStringLiteral("roomListOptionsButton"));
+        const int newBtn = host.indexOf(QStringLiteral("id: newConversationBtn"));
+        QVERIFY2(actions >= 0 && button > actions && newBtn > button,
+                 "the sort button is not the first of the header actions");
+        QVERIFY2(host.contains(QStringLiteral("RoomListSortMenu {")),
+                 "the header button opens no sort menu");
+        for (const QString &name :
+             { QStringLiteral("RoomListClassicPresenter.qml"),
+               QStringLiteral("RoomChannelsPresenter.qml") }) {
+            QVERIFY2(!withoutComments(read(name))
+                          .contains(QStringLiteral("RoomListSortMenu")),
+                     qPrintable(name + " declares its own sort menu"));
+        }
+    }
+
     void noPresenterReachesUpIntoTheHostById()
     {
         // These host ids must not be resolved by scope from inside a
