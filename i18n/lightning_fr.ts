@@ -403,7 +403,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5251"/>
+        <location filename="../src/app/AppController.cpp" line="+5280"/>
         <source>Room invitation</source>
         <translation>Invitation au salon</translation>
     </message>
@@ -418,7 +418,7 @@
         <translation>Vous avez été invité à %1</translation>
     </message>
     <message>
-        <location line="-4146"/>
+        <location line="-4175"/>
         <source>Incoming voice call</source>
         <translation>Appel vocal entrant</translation>
     </message>
@@ -454,7 +454,7 @@
         <translation>Vous avez manqué un appel vocal dans %1</translation>
     </message>
     <message>
-        <location line="+423"/>
+        <location line="+452"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Le salon a été créé, mais son ajout à l&apos;espace a échoué.</translation>
     </message>
@@ -5459,7 +5459,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1291"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1294"/>
         <location line="+661"/>
         <source>The file could not be downloaded.</source>
         <translation>Le fichier n&apos;a pas pu être téléchargé.</translation>
@@ -10425,6 +10425,24 @@ Signing out and signing in again is the only fix.</source>
     </message>
 </context>
 <context>
+    <name>RoomListSortMenu</name>
+    <message>
+        <location filename="../qml/RoomListSortMenu.qml" line="+24"/>
+        <source>Sort rooms by</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Activity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>A–Z</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>RoomUpgradeController</name>
     <message>
         <location filename="../src/app/RoomUpgradeController.cpp" line="+214"/>
@@ -10577,7 +10595,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rechercher des salons</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+48"/>
+        <location line="+1"/>
+        <source>Room list options</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+20"/>
         <source>Start a new conversation</source>
         <translation>Démarrer une nouvelle conversation</translation>
     </message>
@@ -15772,7 +15796,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+678"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+703"/>
         <source>Create Room</source>
         <translation>Créer une salle</translation>
     </message>
@@ -18282,12 +18306,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-474"/>
         <location filename="../qml/TimelinePane.qml" line="+202"/>
-        <location line="+4802"/>
+        <location line="+4803"/>
         <source>Space</source>
         <translation>Espace</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-4801"/>
+        <location filename="../qml/TimelinePane.qml" line="-4802"/>
         <source>Home</source>
         <translation>Accueil</translation>
     </message>
@@ -18342,12 +18366,12 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3504"/>
+        <location line="+3505"/>
         <source>Room information</source>
         <translation>Informations du salon</translation>
     </message>
     <message>
-        <location line="-3491"/>
+        <location line="-3492"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation type="unfinished"></translation>
@@ -18528,7 +18552,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>La recherche n&apos;a pas pu aboutir.</translation>
     </message>
     <message>
-        <location line="+2630"/>
+        <location line="+2631"/>
         <source>Loading older messages…</source>
         <translation>Chargement des messages plus anciens…</translation>
     </message>
@@ -18969,13 +18993,13 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Annuler</translation>
     </message>
     <message>
-        <location line="-5342"/>
+        <location line="-5343"/>
         <location line="+81"/>
         <source>View profile</source>
         <translation type="unfinished">Voir le profil</translation>
     </message>
     <message>
-        <location line="+5242"/>
+        <location line="+5243"/>
         <source>Leave %1?</source>
         <translation>Quitter %1 ?</translation>
     </message>
@@ -19031,7 +19055,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
         <translation>Fermer</translation>
     </message>
     <message>
-        <location line="+90"/>
+        <location line="+92"/>
         <source>Drop files to attach</source>
         <translation>Déposez des fichiers pour les joindre</translation>
     </message>
@@ -19825,7 +19849,7 @@ Remarque : importer des clés ne vérifie pas cette session.</translation>
 <context>
     <name>VoiceMiniPlayer</name>
     <message>
-        <location filename="../qml/VoiceMiniPlayer.qml" line="+257"/>
+        <location filename="../qml/VoiceMiniPlayer.qml" line="+308"/>
         <source>Now playing: %1 in %2. Go to the message</source>
         <translation type="unfinished"></translation>
     </message>
