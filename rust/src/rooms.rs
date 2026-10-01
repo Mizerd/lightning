@@ -4870,7 +4870,7 @@ pub(crate) fn media_fetch(
                 let limit = std::time::Duration::from_secs(media_timeout_secs(timeout_class));
                 tokio::time::timeout(
                     limit,
-                    crate::mediafetch::get_media_content_bounded(
+                    crate::mediafetch::get_media_content_shared(
                         &client, &request, use_cache, limit,
                     ),
                 )

@@ -975,6 +975,45 @@ mod tests {
         forget(17, &store.0);
     }
 
+    // A micro-benchmark, not a gate: how long the keyed store takes to write and
+    // read a payload at the sizes media actually has, so a slow debug build is
+    // not mistaken for a slow product. Run with
+    //   cargo test --release --manifest-path rust/Cargo.toml \
+    //     the_keyed_store_speed -- --ignored --nocapture
+    // It asserts only that the payload reads back whole.
+    #[tokio::test]
+    #[ignore = "benchmark: run with --release --ignored --nocapture"]
+    async fn the_keyed_store_speed_at_40_and_100_mib() {
+        use crate::rooms::media_retention_policy;
+        for (n, mib) in [(40usize, 40usize), (100, 100)] {
+            let store = Store::new(&format!("speed-{n}"));
+            let plain = SqliteStoreConfig::new(&store.0);
+            set_key(30 + n, &store.0, Some(KeyBytes(KEY_A)), true);
+            let (media, _) = open_media(&store.0, &plain).await.unwrap();
+            let OpenedMedia::Sqlite(media) = media else { panic!("not opened on disk") };
+            media.set_media_retention_policy(media_retention_policy()).await.unwrap();
+            let size = mib * 1024 * 1024;
+            let payload: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+            let started = std::time::Instant::now();
+            media
+                .add_media_content(&request(URI), payload.clone(), IgnoreMediaRetentionPolicy::No)
+                .await
+                .unwrap();
+            let wrote = started.elapsed();
+            let started = std::time::Instant::now();
+            let kept = media.get_media_content(&request(URI)).await.unwrap();
+            let read = started.elapsed();
+            assert!(kept.as_deref() == Some(payload.as_slice()), "{mib} MiB did not read back whole");
+            eprintln!(
+                "keyed media store {mib} MiB: write {wrote:?} ({:.1} MiB/s), read {read:?} ({:.1} MiB/s)",
+                mib as f64 / wrote.as_secs_f64(),
+                mib as f64 / read.as_secs_f64(),
+            );
+            drop(media);
+            forget(30 + n, &store.0);
+        }
+    }
+
     // Keyring locked: memory for the session, and the encrypted store, its
     // record and the old store's decision are all left for the next start.
     #[tokio::test]

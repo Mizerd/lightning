@@ -675,30 +675,164 @@ async fn set_room_pack_enabled_inner(
     let raw = matrix_sdk::ruma::serde::Raw::new(&content)
         .map_err(|_| "rejected".to_owned())?
         .cast_unchecked();
-    client
-        .account()
-        .set_account_data_raw(ty, raw)
-        .await
-        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+    let written = client.account().set_account_data_raw(ty, raw).await;
+    // The sync echo of this write has not landed; a remembered "not found"
+    // would hide it (AbsentAnswers).
+    forget_own_write(&client, EMOTE_ROOMS);
+    written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
     Ok(())
 }
 
+/// Account-data types the server answered "not found" for, per account.
+///
+/// Every room open asks for the sticker packs, which reads `im.ponies.emote_rooms`
+/// and `im.ponies.user_emotes`; an account that never used stickers gets a 404
+/// for both, every time (live check 2026-10-01: 9 opens, 9 pairs of 404s). The
+/// answer cannot change without account data arriving, so it is remembered. It
+/// is NOT consulted before the local store: sync delivering the type puts it in
+/// the store, which is read first, so the next read finds it and drops the mark.
+/// Our own writes drop it too (the sync echo has not landed yet). A mark also
+/// expires, so a sync that never carries the type cannot hide it for a whole
+/// session.
+pub(crate) struct AbsentAnswers {
+    marks: std::sync::Mutex<std::collections::HashMap<(String, String), std::time::Instant>>,
+}
+
+/// How long "the server has none" is believed without a sync saying otherwise.
+const ABSENT_ANSWER_TTL: Duration = Duration::from_secs(15 * 60);
+
+impl AbsentAnswers {
+    pub(crate) fn new() -> Self {
+        Self { marks: std::sync::Mutex::new(std::collections::HashMap::new()) }
+    }
+
+    fn lock(
+        &self,
+    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<(String, String), std::time::Instant>>
+    {
+        match self.marks.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// Whether `event_type` is believed absent for `account` at `now`.
+    pub(crate) fn is_absent(&self, account: &str, event_type: &str, now: std::time::Instant) -> bool {
+        let mut marks = self.lock();
+        let key = (account.to_owned(), event_type.to_owned());
+        match marks.get(&key) {
+            Some(at) if now.saturating_duration_since(*at) < ABSENT_ANSWER_TTL => true,
+            Some(_) => {
+                marks.remove(&key);
+                false
+            }
+            None => false,
+        }
+    }
+
+    pub(crate) fn mark_absent(&self, account: &str, event_type: &str, now: std::time::Instant) {
+        self.lock().insert((account.to_owned(), event_type.to_owned()), now);
+    }
+
+    pub(crate) fn forget(&self, account: &str, event_type: &str) {
+        self.lock().remove(&(account.to_owned(), event_type.to_owned()));
+    }
+}
+
+fn absent_answers() -> &'static AbsentAnswers {
+    static ABSENT: once_cell::sync::Lazy<AbsentAnswers> = once_cell::sync::Lazy::new(AbsentAnswers::new);
+    &ABSENT
+}
+
+fn account_key(client: &matrix_sdk::Client) -> String {
+    client.user_id().map(|u| u.to_string()).unwrap_or_default()
+}
+
+/// What asking the server for one account-data type came back as.
+pub(crate) enum ServerAnswer {
+    Found(Value),
+    /// M_NOT_FOUND: the account has none.
+    Absent,
+    /// Anything else: says nothing about whether it exists.
+    Failed,
+}
+
+/// The decision behind `read_global_account_data`, apart from the client.
+/// `store` is the local read (sync's copy), `ask` the server request, run only
+/// when the store has nothing and the type is not believed absent.
+pub(crate) async fn read_remembering_absence<S, Q, QF>(
+    memory: &AbsentAnswers,
+    account: &str,
+    event_type: &str,
+    store: S,
+    ask: Q,
+) -> Option<Value>
+where
+    S: std::future::Future<Output = Option<Value>>,
+    Q: FnOnce() -> QF,
+    QF: std::future::Future<Output = ServerAnswer>,
+{
+    if let Some(value) = store.await {
+        // Sync (or a write of ours) has it: whatever was believed is stale.
+        memory.forget(account, event_type);
+        return Some(value);
+    }
+    if memory.is_absent(account, event_type, std::time::Instant::now()) {
+        return None;
+    }
+    match ask().await {
+        ServerAnswer::Found(value) => Some(value),
+        ServerAnswer::Absent => {
+            memory.mark_absent(account, event_type, std::time::Instant::now());
+            None
+        }
+        ServerAnswer::Failed => None,
+    }
+}
+
+/// A write of ours to `event_type`: the sync echo has not landed, so a
+/// remembered "not found" would hide it.
+fn forget_own_write(client: &matrix_sdk::Client, event_type: &str) {
+    absent_answers().forget(&account_key(client), event_type);
+}
+
+/// The server's answer to an account-data GET, as the memory sees it. Only a
+/// successful "no such event" (`fetch_account_data` maps M_NOT_FOUND to
+/// `Ok(None)`) is Absent.
+fn server_answer<E>(
+    fetched: Result<Option<matrix_sdk::ruma::serde::Raw<matrix_sdk::ruma::events::AnyGlobalAccountDataEventContent>>, E>,
+) -> ServerAnswer {
+    match fetched {
+        Ok(Some(raw)) => match serde_json::from_str::<Value>(raw.json().get()) {
+            Ok(value) => ServerAnswer::Found(value),
+            Err(_) => ServerAnswer::Failed,
+        },
+        Ok(None) => ServerAnswer::Absent,
+        Err(_) => ServerAnswer::Failed,
+    }
+}
+
 /// Store first, then the server. `None` means absent or unreadable; either
-/// way the source contributes nothing.
+/// way the source contributes nothing. A server "not found" is remembered
+/// (`AbsentAnswers`), so the next read asks nothing; an error is not.
 async fn read_global_account_data(
     client: &matrix_sdk::Client,
     event_type: &str,
 ) -> Option<Value> {
     let ty = GlobalAccountDataEventType::from(event_type);
-    if let Ok(Some(raw)) = client.account().account_data_raw(ty.clone()).await {
-        if let Ok(value) = serde_json::from_str::<Value>(raw.json().get()) {
-            return Some(value);
-        }
-    }
-    match client.account().fetch_account_data(ty).await {
-        Ok(Some(raw)) => serde_json::from_str::<Value>(raw.json().get()).ok(),
-        _ => None,
-    }
+    read_remembering_absence(
+        absent_answers(),
+        &account_key(client),
+        event_type,
+        async {
+            match client.account().account_data_raw(ty.clone()).await {
+                Ok(Some(raw)) => serde_json::from_str::<Value>(raw.json().get()).ok(),
+                _ => None,
+            }
+        },
+        || async { server_answer(client.account().fetch_account_data(ty.clone()).await) },
+    )
+    .await
 }
 
 /// Every `im.ponies.room_emotes` state event in one room, as (state key,
@@ -1289,11 +1423,11 @@ async fn edit_user_pack_inner(
     let raw = matrix_sdk::ruma::serde::Raw::new(&content)
         .map_err(|_| "rejected".to_owned())?
         .cast_unchecked();
-    client
-        .account()
-        .set_account_data_raw(ty, raw)
-        .await
-        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+    let written = client.account().set_account_data_raw(ty, raw).await;
+    // The sync echo of this write has not landed; a remembered "not found"
+    // would hide it (AbsentAnswers).
+    forget_own_write(&client, USER_EMOTES);
+    written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
     Ok(code)
 }
 
@@ -1431,11 +1565,11 @@ async fn add_to_user_pack_inner(
     let raw = matrix_sdk::ruma::serde::Raw::new(&content)
         .map_err(|_| "rejected".to_owned())?
         .cast_unchecked();
-    client
-        .account()
-        .set_account_data_raw(ty, raw)
-        .await
-        .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
+    let written = client.account().set_account_data_raw(ty, raw).await;
+    // The sync echo of this write has not landed; a remembered "not found"
+    // would hide it (AbsentAnswers).
+    forget_own_write(&client, USER_EMOTES);
+    written.map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
     Ok(code)
 }
 
@@ -2126,5 +2260,132 @@ mod tests {
         assert_eq!(named["pack"]["display_name"], json!("Other"));
         // Images are untouched by renaming the pack.
         assert_eq!(named["images"].as_object().unwrap().len(), 2);
+    }
+    // ---- remembering a server "not found" -------------------------------
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// One read against `memory`, with a store that holds `stored` and a server
+    /// that answers `answer`; returns the value and how many times it was asked.
+    async fn read_once(
+        memory: &AbsentAnswers,
+        stored: Option<Value>,
+        answer: fn() -> ServerAnswer,
+        asked: &AtomicUsize,
+    ) -> Option<Value> {
+        read_remembering_absence(
+            memory,
+            "@a:example.org",
+            USER_EMOTES,
+            async move { stored },
+            || async {
+                asked.fetch_add(1, Ordering::SeqCst);
+                answer()
+            },
+        )
+        .await
+    }
+
+    // The reported chatter: a room open asked for a type the server had already
+    // said it lacks. Asked once per account, not once per open.
+    #[tokio::test]
+    async fn a_server_not_found_is_asked_once() {
+        let memory = AbsentAnswers::new();
+        let asked = AtomicUsize::new(0);
+        for _ in 0..9 {
+            assert!(read_once(&memory, None, || ServerAnswer::Absent, &asked).await.is_none());
+        }
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+    }
+
+    // A failure says nothing about whether the pack exists: asked again.
+    #[tokio::test]
+    async fn a_failed_request_is_not_remembered() {
+        let memory = AbsentAnswers::new();
+        let asked = AtomicUsize::new(0);
+        for _ in 0..3 {
+            assert!(read_once(&memory, None, || ServerAnswer::Failed, &asked).await.is_none());
+        }
+        assert_eq!(asked.load(Ordering::SeqCst), 3);
+    }
+
+    // Sync delivering the type puts it in the store, which is read first: the
+    // mark is dropped and the value used, with no request.
+    #[tokio::test]
+    async fn sync_delivering_the_type_ends_the_memory() {
+        let memory = AbsentAnswers::new();
+        let asked = AtomicUsize::new(0);
+        assert!(read_once(&memory, None, || ServerAnswer::Absent, &asked).await.is_none());
+        let pack = json!({ "images": {} });
+        assert_eq!(
+            read_once(&memory, Some(pack.clone()), || ServerAnswer::Absent, &asked).await,
+            Some(pack)
+        );
+        assert_eq!(asked.load(Ordering::SeqCst), 1, "the store answered the second read");
+        // And the type is gone again later: that is a new question, asked.
+        assert!(read_once(&memory, None, || ServerAnswer::Absent, &asked).await.is_none());
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+    }
+
+    // A found answer is never remembered as absence.
+    #[tokio::test]
+    async fn a_found_answer_is_not_cached_as_absent() {
+        let memory = AbsentAnswers::new();
+        let asked = AtomicUsize::new(0);
+        let got = read_once(&memory, None, || ServerAnswer::Found(json!({"a": 1})), &asked).await;
+        assert_eq!(got, Some(json!({"a": 1})));
+        read_once(&memory, None, || ServerAnswer::Found(json!({"a": 1})), &asked).await;
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn the_memory_is_per_account_per_type_and_expires() {
+        let memory = AbsentAnswers::new();
+        let t0 = std::time::Instant::now();
+        memory.mark_absent("@a:x", USER_EMOTES, t0);
+        assert!(memory.is_absent("@a:x", USER_EMOTES, t0));
+        assert!(!memory.is_absent("@b:x", USER_EMOTES, t0), "another account");
+        assert!(!memory.is_absent("@a:x", EMOTE_ROOMS, t0), "another type");
+        assert!(memory.is_absent("@a:x", USER_EMOTES, t0 + ABSENT_ANSWER_TTL - Duration::from_secs(1)));
+        assert!(!memory.is_absent("@a:x", USER_EMOTES, t0 + ABSENT_ANSWER_TTL), "expired");
+        memory.mark_absent("@a:x", USER_EMOTES, t0);
+        memory.forget("@a:x", USER_EMOTES);
+        assert!(!memory.is_absent("@a:x", USER_EMOTES, t0), "our own write forgets it");
+    }
+
+    #[test]
+    fn only_a_clean_not_found_is_absent() {
+        use matrix_sdk::ruma::{events::AnyGlobalAccountDataEventContent, serde::Raw};
+        type Fetched = Result<Option<Raw<AnyGlobalAccountDataEventContent>>, ()>;
+        assert!(matches!(server_answer::<()>(Ok(None)), ServerAnswer::Absent));
+        assert!(matches!(server_answer::<()>(Err(())), ServerAnswer::Failed));
+        let found: Fetched = Ok(Some(Raw::from_json_string(r#"{"images":{}}"#.to_owned()).unwrap()));
+        assert!(matches!(server_answer(found), ServerAnswer::Found(v) if v == json!({"images": {}})));
+        let garbled: Fetched = Ok(Some(Raw::from_json_string("{}".to_owned()).unwrap()));
+        assert!(matches!(server_answer(garbled), ServerAnswer::Found(_)));
+    }
+
+    // Every account-data write in this file must drop the mark: a write whose
+    // echo has not landed would otherwise be hidden for the TTL. Each write site
+    // is a `set_account_data_raw` call; each must be followed by the helper.
+    // (A source sweep, since the sites need a live homeserver: mutation-checked
+    // by deleting one call.)
+    #[test]
+    fn every_account_data_write_forgets_the_absent_mark() {
+        let source = include_str!("stickers.rs");
+        let production = &source[..source.find("#[cfg(test)]").unwrap()];
+        let writes = production.matches(".set_account_data_raw(").count();
+        let forgets = production.matches("    forget_own_write(&client, ").count();
+        assert_eq!(writes, 3, "a write site was added or removed: update this test");
+        assert_eq!(forgets, writes, "every write site calls forget_own_write");
+    }
+
+    #[test]
+    fn forgetting_an_own_write_clears_the_global_mark() {
+        let account = "@forget-test:example.org";
+        absent_answers().mark_absent(account, USER_EMOTES, std::time::Instant::now());
+        assert!(absent_answers().is_absent(account, USER_EMOTES, std::time::Instant::now()));
+        absent_answers().forget(account, USER_EMOTES);
+        assert!(!absent_answers().is_absent(account, USER_EMOTES, std::time::Instant::now()));
     }
 }

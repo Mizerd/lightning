@@ -20,6 +20,7 @@
 //! cache read, the authenticated-media endpoint choice, the decrypt of an
 //! encrypted source and the cache write are the SDK's, step for step.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use matrix_sdk::{
@@ -137,6 +138,135 @@ pub(crate) async fn get_media_content_bounded(
         cache_put(client, request, &content).await?;
     }
     Ok(content)
+}
+
+/// Downloads in flight, one shared future per (account, source, format).
+///
+/// A "thumb" request (kind 1) for an item that carries no sender thumbnail and
+/// a "full" request (kind 0) for the same item are two ops with two MediaBridge
+/// cache keys, and both resolve to `MediaFormat::File` of one source. Live
+/// check 2026-10-01: a 426.8 KB image was downloaded twice, 230 ms apart.
+/// Both ops now await the SAME future, so the homeserver is asked once and
+/// each op still gets its own terminal event from its own caller.
+///
+/// The future is driven by whichever waiter polls it, so an op aborted while
+/// another still waits does not strand that other op (`Shared`); with no
+/// waiter left it is dropped, as an unshared fetch always was. Entries are
+/// weak, so one that finished and has no holder is simply not found, and a
+/// request arriving after the fetch is over starts a fresh one (and meets the
+/// store's cache entry).
+pub(crate) struct Coalescer<T: Clone> {
+    inflight: std::sync::Mutex<
+        std::collections::HashMap<String, futures_util::future::WeakShared<BoxFuture<T>>>,
+    >,
+}
+
+type BoxFuture<T> = futures_util::future::BoxFuture<'static, T>;
+
+impl<T: Clone> Coalescer<T> {
+    pub(crate) fn new() -> Self {
+        Self { inflight: std::sync::Mutex::new(std::collections::HashMap::new()) }
+    }
+
+    /// The shared future for `key`: the one already in flight, or a new one
+    /// built from `start`. `start` is not called when one is in flight.
+    pub(crate) fn join(
+        &self,
+        key: String,
+        start: impl FnOnce() -> BoxFuture<T>,
+    ) -> futures_util::future::Shared<BoxFuture<T>> {
+        use futures_util::FutureExt;
+        let mut map = match self.inflight.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(live) = map.get(&key).and_then(|weak| weak.upgrade()) {
+            return live;
+        }
+        // Forget what finished, so the map holds only what is running.
+        map.retain(|_, weak| weak.upgrade().is_some());
+        let shared = start().shared();
+        if let Some(weak) = shared.downgrade() {
+            map.insert(key, weak);
+        }
+        shared
+    }
+}
+
+type SharedBytes = Result<Arc<Vec<u8>>, Arc<matrix_sdk::Error>>;
+
+fn media_coalescer() -> &'static Coalescer<SharedBytes> {
+    static COALESCER: once_cell::sync::Lazy<Coalescer<SharedBytes>> =
+        once_cell::sync::Lazy::new(Coalescer::new);
+    &COALESCER
+}
+
+/// What two requests must share to be ONE download. Not `request.unique_key()`
+/// alone: matrix-sdk-base's `Encrypted::unique_key()` is just the file's url,
+/// the very string `Plain(uri)` gives, so that key would let
+///   * a Plain op join an Encrypted fetch and receive DECRYPTED bytes (which
+///     the caller may then keep as a plain file, CLAUDE.md §6);
+///   * two Encrypted sources with one url and different key/iv/hashes (a
+///     hostile sender can write that) share a future and its plaintext;
+///   * ops with different `use_cache` or timeout have the cache write and the
+///     per-request bound decided by whichever started first.
+/// So the key carries the source variant, for an Encrypted source a SHA-256
+/// digest of everything that decides its plaintext (url, key, iv, hashes,
+/// version; the digest is never logged), the format, `use_cache` and the
+/// timeout in milliseconds.
+fn coalesce_key(
+    account: &str,
+    request: &MediaRequestParameters,
+    use_cache: bool,
+    timeout: Duration,
+) -> String {
+    use matrix_sdk_base::media::UniqueKey;
+    use sha2::{Digest, Sha256};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static UNSHARED: AtomicU64 = AtomicU64::new(0);
+    let source = match &request.source {
+        MediaSource::Plain(uri) => format!("plain:{uri}"),
+        MediaSource::Encrypted(file) => match serde_json::to_vec(file.as_ref()) {
+            Ok(json) => {
+                let digest = Sha256::digest(&json);
+                let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+                format!("enc:{hex}")
+            }
+            // Cannot say what decides the plaintext: never share it.
+            Err(_) => format!("enc-unshared:{}", UNSHARED.fetch_add(1, Ordering::Relaxed)),
+        },
+    };
+    format!(
+        "{account}\u{1f}{source}\u{1f}{}\u{1f}{use_cache}\u{1f}{}",
+        request.format.unique_key(),
+        timeout.as_millis()
+    )
+}
+
+/// `get_media_content_bounded`, with a second request for the same account,
+/// source, format, cache use and timeout (`coalesce_key`) joining the download already running for the first
+/// instead of starting its own. The bytes are returned owned: a caller that
+/// was not the only waiter copies them once. The error is shared, so every
+/// waiter classifies the one real failure.
+pub(crate) async fn get_media_content_shared(
+    client: &Client,
+    request: &MediaRequestParameters,
+    use_cache: bool,
+    timeout: Duration,
+) -> Result<Vec<u8>, Arc<matrix_sdk::Error>> {
+    let key = coalesce_key(client.user_id().map(|u| u.as_str()).unwrap_or(""), request, use_cache, timeout);
+    let (client, request) = (client.clone(), request.clone());
+    let shared = media_coalescer().join(key, move || {
+        Box::pin(async move {
+            get_media_content_bounded(&client, &request, use_cache, timeout)
+                .await
+                .map(Arc::new)
+                .map_err(Arc::new)
+        })
+    });
+    shared
+        .await
+        .map(|bytes| Arc::try_unwrap(bytes).unwrap_or_else(|shared| (*shared).clone()))
 }
 
 /// Read `request` from the media store, without any request.
@@ -613,5 +743,225 @@ mod tests {
         .expect("bounded, not 40 s")
         .expect_err("refused");
         assert_eq!(classify_media_error(&err), "server_error");
+    }
+    // ---- one download for one source ------------------------------------
+
+    fn file_request(id: &str) -> MediaRequestParameters {
+        MediaRequestParameters {
+            source: MediaSource::Plain(OwnedMxcUri::from(format!("mxc://remote.example/{id}"))),
+            format: MediaFormat::File,
+        }
+    }
+
+    // The coalescing decision itself, without a network.
+    #[test]
+    fn the_coalescer_starts_one_future_per_key_while_one_is_held() {
+        use futures_util::FutureExt;
+        let coalescer: Coalescer<u32> = Coalescer::new();
+        let started = std::sync::atomic::AtomicUsize::new(0);
+        let start = |value: u32| {
+            started.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move { value }.boxed()
+        };
+        let first = coalescer.join("a".into(), || start(1));
+        let second = coalescer.join("a".into(), || start(2));
+        let other = coalescer.join("b".into(), || start(3));
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 2, "a joined a, b started");
+        assert_eq!(futures_util::FutureExt::now_or_never(first), Some(1));
+        // The joiner gets the first future's answer, not a second computation.
+        assert_eq!(futures_util::FutureExt::now_or_never(second), Some(1));
+        assert_eq!(futures_util::FutureExt::now_or_never(other), Some(3));
+        // Nobody holds "a" now: a later request starts afresh.
+        let _third = coalescer.join("a".into(), || start(4));
+        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 3);
+    }
+
+    // The reported case: a thumb request and a full request for an item with no
+    // sender thumbnail both resolve to the File of one source (media_fetch).
+    // Two ops, one HTTP request. `expect(1)` fails the test on the old path,
+    // which asked twice.
+    #[tokio::test]
+    async fn a_thumb_and_a_full_request_for_one_source_download_once() {
+        let (server, client) = authed_server().await;
+        server
+            .mock_authed_media_download()
+            .ok_image()
+            .expect(1)
+            .named("file")
+            .mount()
+            .await;
+        let (thumb_req, full_req) = (file_request("Same"), file_request("Same"));
+        let thumb_op = get_media_content_shared(&client, &thumb_req, false, BOUND);
+        let full_op = get_media_content_shared(&client, &full_req, false, BOUND);
+        let (thumb, full) = tokio::time::timeout(BOUND, async { tokio::join!(thumb_op, full_op) })
+            .await
+            .expect("bounded");
+        // Each op still gets its own complete answer.
+        assert_eq!(thumb.expect("thumb op"), b"binaryjpegfullimagedata");
+        assert_eq!(full.expect("full op"), b"binaryjpegfullimagedata");
+    }
+
+    // Different sources are different downloads.
+    #[tokio::test]
+    async fn two_sources_are_not_coalesced() {
+        let (server, client) = authed_server().await;
+        server
+            .mock_authed_media_download()
+            .ok_image()
+            .expect(2)
+            .named("files")
+            .mount()
+            .await;
+        let (one, two) = (file_request("One"), file_request("Two"));
+        let (a, b) = tokio::time::timeout(BOUND, async {
+            tokio::join!(
+                get_media_content_shared(&client, &one, false, BOUND),
+                get_media_content_shared(&client, &two, false, BOUND),
+            )
+        })
+        .await
+        .expect("bounded");
+        assert!(a.is_ok() && b.is_ok());
+    }
+
+    // A failure is the one real failure, classified the same by every waiter.
+    #[tokio::test]
+    async fn a_shared_failure_reaches_every_waiter_classified() {
+        let (server, client) = authed_server().await;
+        server
+            .mock_authed_media_download()
+            .error500()
+            .expect(1)
+            .named("file")
+            .mount()
+            .await;
+        let broken = file_request("Broken");
+        let (a, b) = tokio::time::timeout(BOUND, async {
+            tokio::join!(
+                get_media_content_shared(&client, &broken, false, BOUND),
+                get_media_content_shared(&client, &broken, false, BOUND),
+            )
+        })
+        .await
+        .expect("bounded");
+        assert_eq!(classify_media_error(&a.expect_err("a")), "server_error");
+        assert_eq!(classify_media_error(&b.expect_err("b")), "server_error");
+    }
+
+    // Nothing is remembered once a fetch is over and unheld: a later request is
+    // a new download (no store here), not a stale answer.
+    #[tokio::test]
+    async fn a_finished_download_is_not_reused_by_a_later_request() {
+        let (server, client) = authed_server().await;
+        server
+            .mock_authed_media_download()
+            .ok_image()
+            .expect(2)
+            .named("file")
+            .mount()
+            .await;
+        for _ in 0..2 {
+            get_media_content_shared(&client, &file_request("Later"), false, BOUND)
+                .await
+                .expect("answers");
+        }
+    }
+
+    fn encrypted_request(url: &str, key_k: &str) -> MediaRequestParameters {
+        let file: matrix_sdk::ruma::events::room::EncryptedFile = serde_json::from_value(
+            serde_json::json!({
+                "url": url,
+                "key": {
+                    "kty": "oct", "key_ops": ["encrypt", "decrypt"],
+                    "alg": "A256CTR", "k": key_k, "ext": true
+                },
+                "iv": "AAAAAAAAAAAAAAAAAAAAAA",
+                "hashes": { "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
+                "v": "v2"
+            }),
+        )
+        .expect("a valid encrypted file");
+        MediaRequestParameters {
+            source: MediaSource::Encrypted(Box::new(file)),
+            format: MediaFormat::File,
+        }
+    }
+
+    const K1: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const K2: &str = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+    const T: Duration = Duration::from_secs(40);
+
+    // The review's findings, as key decisions. The SDK's own unique_key is the
+    // bare url for both variants, which is the premise of the first two.
+    #[test]
+    fn plain_and_encrypted_on_one_url_do_not_share_a_key() {
+        use matrix_sdk_base::media::UniqueKey;
+        let plain = file_request("Same");
+        let enc = encrypted_request("mxc://remote.example/Same", K1);
+        assert_eq!(plain.source.unique_key(), enc.source.unique_key(), "premise: the SDK key collides");
+        assert_ne!(coalesce_key("@a:x", &plain, true, T), coalesce_key("@a:x", &enc, true, T));
+    }
+
+    #[test]
+    fn two_encrypted_sources_with_different_keys_do_not_share_a_key() {
+        let one = encrypted_request("mxc://remote.example/Same", K1);
+        let two = encrypted_request("mxc://remote.example/Same", K2);
+        assert_ne!(coalesce_key("@a:x", &one, true, T), coalesce_key("@a:x", &two, true, T));
+        // The same file is the same key, or nothing could coalesce.
+        assert_eq!(
+            coalesce_key("@a:x", &one, true, T),
+            coalesce_key("@a:x", &encrypted_request("mxc://remote.example/Same", K1), true, T)
+        );
+        // The key is a digest, never the key material.
+        assert!(!coalesce_key("@a:x", &one, true, T).contains(K1));
+    }
+
+    #[test]
+    fn cache_use_timeout_account_and_format_each_split_the_key() {
+        let req = file_request("Same");
+        let base = coalesce_key("@a:x", &req, true, T);
+        assert_ne!(base, coalesce_key("@a:x", &req, false, T));
+        assert_ne!(base, coalesce_key("@a:x", &req, true, Duration::from_secs(20)));
+        assert_ne!(base, coalesce_key("@b:x", &req, true, T));
+        assert_ne!(base, coalesce_key("@a:x", &thumbnail_request(), true, T));
+        assert_eq!(base, coalesce_key("@a:x", &file_request("Same"), true, T));
+    }
+
+    // Through the real entry point: a Plain and an Encrypted request on one url
+    // are two downloads (the encrypted one then fails to decrypt the mock's
+    // bytes, which is irrelevant here; the plain one must not receive it), and
+    // two cache uses of one source are two as well.
+    #[tokio::test]
+    async fn plain_and_encrypted_on_one_url_download_twice() {
+        let (server, client) = authed_server().await;
+        server.mock_authed_media_download().ok_image().expect(2).named("file").mount().await;
+        let plain = file_request("PlainEnc");
+        let enc = encrypted_request("mxc://remote.example/PlainEnc", K1);
+        let (p, e) = tokio::time::timeout(BOUND, async {
+            tokio::join!(
+                get_media_content_shared(&client, &plain, false, BOUND),
+                get_media_content_shared(&client, &enc, false, BOUND),
+            )
+        })
+        .await
+        .expect("bounded");
+        assert_eq!(p.expect("plain op"), b"binaryjpegfullimagedata", "the plain op got its own bytes");
+        assert!(e.is_err(), "the mock's bytes are not a valid ciphertext for the encrypted op");
+    }
+
+    #[tokio::test]
+    async fn the_same_source_with_different_cache_use_downloads_twice() {
+        let (server, client) = authed_server().await;
+        server.mock_authed_media_download().ok_image().expect(2).named("file").mount().await;
+        let req = file_request("CacheUse");
+        let (a, b) = tokio::time::timeout(BOUND, async {
+            tokio::join!(
+                get_media_content_shared(&client, &req, true, BOUND),
+                get_media_content_shared(&client, &req, false, BOUND),
+            )
+        })
+        .await
+        .expect("bounded");
+        assert!(a.is_ok() && b.is_ok());
     }
 }
