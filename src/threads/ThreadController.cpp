@@ -456,9 +456,15 @@ void ThreadController::sendTextInternal(const QString &body, bool allowCommands)
 
     // Attachments first, each its own SDK local echo, then the text as a
     // separate thread message, matching the room composer.
-    dispatchAttachments();
-    if (outBody.isEmpty())
-        return;   // attachment-only send is valid.
+    const bool dispatched = dispatchAttachments();
+    if (outBody.isEmpty()) {
+        // An attachment-only send is valid, and it carried the reply (captured
+        // per entry at dispatch), so the chip is spent just as it is after a
+        // text reply.
+        if (dispatched)
+            cancelReply();
+        return;
+    }
     sendThreadBody(outBody, mentionIds, QVariantMap());
     retireComposerDraft();
 }
@@ -645,18 +651,25 @@ bool ThreadController::pasteFromClipboard()
     return false;
 }
 
-void ThreadController::dispatchAttachments()
+bool ThreadController::dispatchAttachments()
 {
     if (!m_client || m_state != Ready || m_roomId.isEmpty()
         || m_rootEventId.isEmpty())
-        return;
+        return false;
+    bool any = false;
     auto &entries = m_attachments->entries();
     for (int row = 0; row < entries.size(); ++row) {
         if (entries[row].state != QLatin1String("queued"))
             continue;
         entries[row].sendRequested = true;
+        // Captured now: a video waits for its poster, and the reply is spent by
+        // the time it dispatches. A retry with no new reply keeps its own.
+        if (!m_replyToEventId.isEmpty())
+            entries[row].replyToEventId = m_replyToEventId;
+        any = true;
         dispatchAttachment(row);
     }
+    return any;
 }
 
 // See MessageComposer::dispatchAttachment: a queued video waits for its local
@@ -677,21 +690,22 @@ void ThreadController::dispatchAttachment(int row)
     if (entry.localPath.isEmpty()) {
         opId = m_client->sendThreadAttachmentBytes(
             m_roomId, m_rootEventId, entry.data, entry.fileName, entry.mime,
-            entry.width, entry.height);
+            entry.width, entry.height, entry.replyToEventId);
     } else if (entry.isVideo) {
         opId = m_client->sendThreadVideo(
             m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
             entry.width, entry.height, entry.durationMs, entry.poster,
-            entry.posterWidth, entry.posterHeight);
+            entry.posterWidth, entry.posterHeight, entry.replyToEventId);
     } else if (entry.isSvg) {
         opId = m_client->sendThreadImageWithThumbnail(
             m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
             entry.width, entry.height, entry.poster, entry.posterWidth,
-            entry.posterHeight);
+            entry.posterHeight, entry.replyToEventId);
     } else {
         opId = m_client->sendThreadAttachment(
             m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
-            entry.width, entry.height, entry.animated, entry.durationMs);
+            entry.width, entry.height, entry.animated, entry.durationMs,
+            entry.replyToEventId);
     }
     if (opId == 0) {
         entry.state = QStringLiteral("failed");
@@ -736,7 +750,7 @@ void ThreadController::sendVoiceMessage(const QString &localPath,
     const QString targetRoot = m_rootEventId;
     const quint64 opId = m_client->sendThreadVoiceMessage(
         targetRoom, targetRoot, localPath, mime,
-        static_cast<qint64>(durationMs), amplitudes);
+        static_cast<qint64>(durationMs), amplitudes, m_replyToEventId);
     if (opId == 0) {
         // Never retried as a room send: a thread voice message must not land
         // in the main timeline.
@@ -745,6 +759,8 @@ void ThreadController::sendVoiceMessage(const QString &localPath,
         return;
     }
     m_voiceOps.insert(opId, VoiceOp{localPath, targetRoom, targetRoot});
+    // The recording carried the reply, so the reply chip is spent.
+    cancelReply();
 }
 
 void ThreadController::onAttachmentQueueFinished(quint64 opId,

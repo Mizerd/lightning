@@ -4134,6 +4134,7 @@ pub(crate) fn send_voice_path(
     mime: String,
     duration_ms: u64,
     waveform: Vec<u8>,
+    in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
     op_id: u64,
 ) -> Result<(), String> {
     let metadata = std::fs::metadata(&path)
@@ -4156,6 +4157,7 @@ pub(crate) fn send_voice_path(
         None,
         info,
         None,
+        in_reply_to,
         op_id,
     )
 }
@@ -4171,6 +4173,7 @@ pub(crate) fn send_thread_voice_path(
     mime: String,
     duration_ms: u64,
     waveform: Vec<u8>,
+    in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
     op_id: u64,
 ) -> Result<(), String> {
     let metadata = std::fs::metadata(&path)
@@ -4212,6 +4215,7 @@ pub(crate) fn send_thread_voice_path(
         None,
         info,
         None,   // a voice message has no thumbnail
+        in_reply_to,
         op_id,
     )
 }
@@ -4231,6 +4235,7 @@ pub(crate) fn send_video_path(
     height: u64,
     duration_ms: u64,
     poster: Option<PosterBytes>,
+    in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
     op_id: u64,
 ) -> Result<(), String> {
     let metadata = std::fs::metadata(&path)
@@ -4252,6 +4257,7 @@ pub(crate) fn send_video_path(
         caption,
         info,
         thumbnail,
+        in_reply_to,
         op_id,
     )
 }
@@ -4269,6 +4275,7 @@ pub(crate) fn send_thread_video_path(
     height: u64,
     duration_ms: u64,
     poster: Option<PosterBytes>,
+    in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
     op_id: u64,
 ) -> Result<(), String> {
     let metadata = std::fs::metadata(&path)
@@ -4295,6 +4302,7 @@ pub(crate) fn send_thread_video_path(
         caption,
         info,
         thumbnail,
+        in_reply_to,
         op_id,
     )
 }
@@ -4310,6 +4318,7 @@ pub(crate) fn send_attachment_path(
     height: u64,
     animated: bool,
     duration_ms: u64,
+    in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
     op_id: u64,
 ) -> Result<(), String> {
     let metadata =
@@ -4333,6 +4342,7 @@ pub(crate) fn send_attachment_path(
         caption,
         info,
         None,
+        in_reply_to,
         op_id,
     )
 }
@@ -4348,6 +4358,7 @@ pub(crate) fn send_attachment_bytes(
     mime: String,
     width: u64,
     height: u64,
+    in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
     op_id: u64,
 ) -> Result<(), String> {
     if bytes.is_empty() {
@@ -4368,6 +4379,7 @@ pub(crate) fn send_attachment_bytes(
         None,
         info,
         None,
+        in_reply_to,
         op_id,
     )
 }
@@ -4442,6 +4454,7 @@ pub(crate) fn send_thread_attachment_path(
     height: u64,
     animated: bool,
     duration_ms: u64,
+    in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
     op_id: u64,
 ) -> Result<(), String> {
     let metadata =
@@ -4470,6 +4483,7 @@ pub(crate) fn send_thread_attachment_path(
         caption,
         info,
         None,
+        in_reply_to,
         op_id,
     )
 }
@@ -4486,6 +4500,7 @@ pub(crate) fn send_thread_attachment_bytes(
     mime: String,
     width: u64,
     height: u64,
+    in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
     op_id: u64,
 ) -> Result<(), String> {
     if bytes.is_empty() {
@@ -4510,6 +4525,7 @@ pub(crate) fn send_thread_attachment_bytes(
         None,
         info,
         None,
+        in_reply_to,
         op_id,
     )
 }

@@ -97,7 +97,8 @@ public:
 
     quint64 sendAttachmentBytes(const QString &roomId, const QByteArray &bytes,
                                const QString &filename, const QString &mime,
-                               int width, int height) override
+                               int width, int height,
+                               const QString &) override
     {
         if (!openRoomId.isEmpty() && roomId != openRoomId)
             return 0;

@@ -470,7 +470,7 @@ void ForwardController::onMediaBytesForStar(const QString &mediaKey, bool ok,
         : m_client->sendAttachmentBytes(
               targetRoomId, bytes,
               filename.isEmpty() ? QStringLiteral("forwarded") : filename,
-              mime, width, height);
+              mime, width, height, QString()); // a forward is never a reply
     if (opId == 0) {
         m_busy = false;
         setError(tr("Couldn't forward this message."));

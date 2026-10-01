@@ -147,13 +147,30 @@ public:
                                  const QString &rootEventId,
                                  const QString &localPath, const QString &mime,
                                  const QString &caption, int width, int height,
-                                 bool animated, qint64 durationMs = 0) override;
+                                 bool animated, qint64 durationMs,
+                                 const QString &replyToEventId) override;
     quint64 sendThreadAttachmentBytes(const QString &roomId,
                                       const QString &rootEventId,
                                       const QByteArray &bytes,
                                       const QString &filename,
                                       const QString &mime, int width,
-                                      int height) override;
+                                      int height,
+                                      const QString &replyToEventId) override;
+    // Room attachments. Like the thread pair they echo a local event and, in
+    // the same field a text reply uses, record the event they reply to.
+    quint64 sendAttachment(const QString &roomId, const QString &localPath,
+                           const QString &mime, const QString &caption,
+                           int width, int height, bool animated,
+                           qint64 durationMs,
+                           const QString &replyToEventId) override;
+    quint64 sendAttachmentBytes(const QString &roomId, const QByteArray &bytes,
+                                const QString &filename, const QString &mime,
+                                int width, int height,
+                                const QString &replyToEventId) override;
+    // The reply target and caption of the most recent attachment send (room or
+    // thread); "" for a plain send. For tests that assert the reply survives.
+    QString lastAttachmentReplyToForTest() const { return m_lastAttachmentReplyTo; }
+    QString lastAttachmentCaptionForTest() const { return m_lastAttachmentCaption; }
     int threadAttachmentCallsForTest() const { return m_threadAttachmentCalls; }
     // Make the next thread attachment send fail (queue rejection).
     void failNextThreadAttachmentForTest() { m_failNextThreadAttachment = true; }
@@ -341,10 +358,17 @@ private:
     quint64 m_opCounter = 0;
     int m_threadAttachmentCalls = 0;
     bool m_failNextThreadAttachment = false;
+    QString m_lastAttachmentReplyTo;
+    QString m_lastAttachmentCaption;
     quint64 appendThreadAttachment(const QString &roomId,
                                    const QString &rootEventId,
                                    const QString &fileName,
-                                   const QString &mime);
+                                   const QString &mime,
+                                   const QString &replyToEventId);
+    quint64 appendRoomAttachment(const QString &roomId,
+                                 const QString &fileName,
+                                 const QString &mime,
+                                 const QString &replyToEventId);
 
 public:
     // ── Discover / Join, search, UIA, moderation, drafts. Knobs are plain

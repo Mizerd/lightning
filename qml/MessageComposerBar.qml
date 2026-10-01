@@ -1021,7 +1021,11 @@ Item {
     // Download, validate and send the chosen GIF, captured to this room so a
     // room switch cannot reroute it.
     function onGifPicked(result) {
-        app.gifSend.sendToRoom(app.currentRoomId, result)
+        // A GIF picked while replying is a reply to that message; the chip is
+        // spent once the target is captured by the send.
+        app.gifSend.sendToRoom(app.currentRoomId, result,
+                               app.composer.replyingToEventId)
+        app.composer.clearReplyTarget()
     }
     Connections {
         target: app.gifSend

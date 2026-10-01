@@ -1763,6 +1763,9 @@ char *mx_rust_timeline_send_attachment(void *client,
                                         * OMITTED from the event rather than
                                         * sent as a literal zero. */
                                        unsigned long long duration_ms,
+                                       /* Event id this send replies to; "" for a plain send. A malformed
+                                        * id fails the send rather than sending a non-reply. */
+                                       const char *in_reply_to,
                                        unsigned long long op_id);
 /* v0.7: send a video WITH a poster thumbnail Lightning extracted from the
  * outgoing file itself. thumb_data/thumb_len may be NULL/0 — the video then
@@ -1784,6 +1787,9 @@ char *mx_rust_timeline_send_video(void *client,
                                   size_t thumb_len,
                                   unsigned long long thumb_width,
                                   unsigned long long thumb_height,
+                                  /* Event id this send replies to; "" for a plain send. A malformed
+                                   * id fails the send rather than sending a non-reply. */
+                                  const char *in_reply_to,
                                   unsigned long long op_id);
 /* Send a still image WITH a raster thumbnail rendered from the user's own
  * file (an SVG's preview). thumb_data/thumb_len may be NULL/0. The thumbnail
@@ -1802,6 +1808,9 @@ char *mx_rust_timeline_send_image(void *client,
                                   size_t thumb_len,
                                   unsigned long long thumb_width,
                                   unsigned long long thumb_height,
+                                  /* Event id this send replies to; "" for a plain send. A malformed
+                                   * id fails the send rather than sending a non-reply. */
+                                  const char *in_reply_to,
                                   unsigned long long op_id);
 /* Thread twin of mx_rust_timeline_send_image, through the thread-focused
  * timeline. Never falls back to a room send. */
@@ -1817,6 +1826,9 @@ char *mx_rust_thread_send_image(void *client,
                                 size_t thumb_len,
                                 unsigned long long thumb_width,
                                 unsigned long long thumb_height,
+                                /* Event id this send replies to; "" for a plain send. A malformed
+                                 * id fails the send rather than sending a non-reply. */
+                                const char *in_reply_to,
                                 unsigned long long op_id);
 /* v0.7: MSC3245 voice message. waveform: 0..=100 amplitudes (may be NULL /
  * empty; at most 1024 entries). The SDK adds the voice marker + duration/
@@ -1828,6 +1840,9 @@ char *mx_rust_timeline_send_voice(void *client,
                                   unsigned long long duration_ms,
                                   const unsigned char *waveform,
                                   size_t waveform_len,
+                                  /* Event id this send replies to; "" for a plain send. A malformed
+                                   * id fails the send rather than sending a non-reply. */
+                                  const char *in_reply_to,
                                   unsigned long long op_id);
 /* v0.7 thread parity: the thread twin of mx_rust_timeline_send_voice. Same
  * MSC3245 metadata and the same 1024-entry waveform bound, routed through
@@ -1841,6 +1856,9 @@ char *mx_rust_thread_send_voice(void *client,
                                 unsigned long long duration_ms,
                                 const unsigned char *waveform,
                                 size_t waveform_len,
+                                /* Event id this send replies to; "" for a plain send. A malformed
+                                 * id fails the send rather than sending a non-reply. */
+                                const char *in_reply_to,
                                 unsigned long long op_id);
 /* Clipboard image path: one bounded byte copy, no temporary file on disk. */
 char *mx_rust_timeline_send_attachment_bytes(void *client,
@@ -1851,6 +1869,9 @@ char *mx_rust_timeline_send_attachment_bytes(void *client,
                                              const char *mime,
                                              unsigned long long width,
                                              unsigned long long height,
+                                             /* Event id this send replies to; "" for a plain send. A malformed
+                                              * id fails the send rather than sending a non-reply. */
+                                             const char *in_reply_to,
                                              unsigned long long op_id);
 /* v0.6.1: send an attachment INTO a thread. Routed through the SDK's
  * thread-focused timeline, so the SDK attaches the m.thread relation (and
@@ -1867,6 +1888,9 @@ char *mx_rust_thread_send_attachment(void *client,
                                      unsigned long long height,
                                      int animated,
                                      unsigned long long duration_ms,
+                                     /* Event id this send replies to; "" for a plain send. A malformed
+                                      * id fails the send rather than sending a non-reply. */
+                                     const char *in_reply_to,
                                      unsigned long long op_id);
 /* v0.7: the thread twin of mx_rust_timeline_send_video — same poster
  * handling, routed through the SDK's thread-focused timeline. */
@@ -1883,6 +1907,9 @@ char *mx_rust_thread_send_video(void *client,
                                 size_t thumb_len,
                                 unsigned long long thumb_width,
                                 unsigned long long thumb_height,
+                                /* Event id this send replies to; "" for a plain send. A malformed
+                                 * id fails the send rather than sending a non-reply. */
+                                const char *in_reply_to,
                                 unsigned long long op_id);
 char *mx_rust_thread_send_attachment_bytes(void *client,
                                            const char *room_id,
@@ -1893,6 +1920,9 @@ char *mx_rust_thread_send_attachment_bytes(void *client,
                                            const char *mime,
                                            unsigned long long width,
                                            unsigned long long height,
+                                           /* Event id this send replies to; "" for a plain send. A malformed
+                                            * id fails the send rather than sending a non-reply. */
+                                           const char *in_reply_to,
                                            unsigned long long op_id);
 
 /*

@@ -886,6 +886,48 @@ private Q_SLOTS:
         QVERIFY(!controller.hasAttachments());
     }
 
+    // The attachment twin of sendWithReplyTargetCreatesRichThreadReply: an
+    // attachment sent while replying to a thread message used to drop the
+    // reply. It must carry the target, stay in the thread, and spend the chip
+    // even though no text was sent.
+    void threadAttachmentWithReplyTargetKeepsTheReplyAndTheThread()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        auto *model = controller.model();
+        const QString replyId = model
+            ->data(model->index(1, 0), TimelineModel::EventIdRole).toString();
+
+        QTemporaryFile img(QDir::tempPath()
+                           + QStringLiteral("/lightning-XXXXXX.png"));
+        QVERIFY(img.open());
+        QImage(4, 4, QImage::Format_RGB32).save(img.fileName(), "PNG");
+        controller.addAttachment(QUrl::fromLocalFile(img.fileName()));
+        controller.beginReply(replyId);
+        QVERIFY(controller.inReply());
+
+        const int rowsBefore = model->rowCount();
+        controller.sendText(QString{});   // attachment-only send
+        QCOMPARE(client.threadAttachmentCallsForTest(), 1);
+        QCOMPARE(client.lastAttachmentReplyToForTest(), replyId);
+        QVERIFY(!controller.inReply());
+
+        QTRY_COMPARE_WITH_TIMEOUT(model->rowCount(), rowsBefore + 1,
+                                  kSignalTimeoutMs);
+        const QModelIndex last = model->index(model->rowCount() - 1, 0);
+        QCOMPARE(model->data(last, TimelineModel::ThreadRootIdRole).toString(),
+                 rootId);
+        QCOMPARE(model->data(last, TimelineModel::ReplyToEventIdRole).toString(),
+                 replyId);
+    }
+
     // A failed queue attempt leaves a retryable "failed" tray item, never a
     // permanent spinner or a room-timeline fallback.
     void threadAttachmentFailureIsRetryable()

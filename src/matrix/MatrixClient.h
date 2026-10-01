@@ -1348,16 +1348,24 @@ public:
     // detects `mime` from file content. `durationMs` is the clip length for
     // timed media, 0 when unknown; zero is sent as absent, never as a literal
     // zero.
+    //
+    // EVERY attachment send below takes `replyToEventId`, the event the
+    // composer is replying to ("" for a plain send). It is deliberately NOT
+    // defaulted: a caller that forgets it silently sends the attachment as a
+    // non-reply, which is the bug this parameter exists to close. In a thread
+    // the target is the thread message being replied to (the SDK keeps the
+    // m.thread relation); "" is a plain thread message.
     virtual quint64 sendAttachment(const QString &roomId,
                                    const QString &localPath,
                                    const QString &mime,
                                    const QString &caption,
                                    int width, int height, bool animated,
-                                   qint64 durationMs = 0)
+                                   qint64 durationMs,
+                                   const QString &replyToEventId)
     {
         Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(mime);
         Q_UNUSED(caption); Q_UNUSED(width); Q_UNUSED(height);
-        Q_UNUSED(animated); Q_UNUSED(durationMs);
+        Q_UNUSED(animated); Q_UNUSED(durationMs); Q_UNUSED(replyToEventId);
         return 0;
     }
     // Video send with a caller-extracted poster. An empty `thumbnail` is not an
@@ -1369,12 +1377,13 @@ public:
                               const QString &caption,
                               int width, int height, qint64 durationMs,
                               const QByteArray &thumbnail,
-                              int thumbnailWidth, int thumbnailHeight)
+                              int thumbnailWidth, int thumbnailHeight,
+                              const QString &replyToEventId)
     {
         Q_UNUSED(durationMs); Q_UNUSED(thumbnail);
         Q_UNUSED(thumbnailWidth); Q_UNUSED(thumbnailHeight);
         return sendAttachment(roomId, localPath, mime, caption, width, height,
-                              false);
+                              false, 0, replyToEventId);
     }
     // Still image with a caller-rendered raster thumbnail (an SVG's preview).
     // An empty `thumbnail` is not an error. The default degrades to the plain
@@ -1386,22 +1395,25 @@ public:
                                            int width, int height,
                                            const QByteArray &thumbnail,
                                            int thumbnailWidth,
-                                           int thumbnailHeight)
+                                           int thumbnailHeight,
+                                           const QString &replyToEventId)
     {
         Q_UNUSED(thumbnail); Q_UNUSED(thumbnailWidth);
         Q_UNUSED(thumbnailHeight);
         return sendAttachment(roomId, localPath, mime, caption, width, height,
-                              false);
+                              false, 0, replyToEventId);
     }
     // Clipboard images: bytes transfer directly, no temporary file.
     virtual quint64 sendAttachmentBytes(const QString &roomId,
                                         const QByteArray &bytes,
                                         const QString &filename,
                                         const QString &mime,
-                                        int width, int height)
+                                        int width, int height,
+                                        const QString &replyToEventId)
     {
         Q_UNUSED(roomId); Q_UNUSED(bytes); Q_UNUSED(filename);
         Q_UNUSED(mime); Q_UNUSED(width); Q_UNUSED(height);
+        Q_UNUSED(replyToEventId);
         return 0;
     }
     // Same payload for a room whose live timeline is not open (e.g.
@@ -1425,10 +1437,11 @@ public:
                                      const QString &localPath,
                                      const QString &mime,
                                      qint64 durationMs,
-                                     const QList<int> &waveform)
+                                     const QList<int> &waveform,
+                                     const QString &replyToEventId)
     {
         Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(mime);
-        Q_UNUSED(durationMs); Q_UNUSED(waveform);
+        Q_UNUSED(durationMs); Q_UNUSED(waveform); Q_UNUSED(replyToEventId);
         return 0;
     }
     // Thread twin of sendVoiceMessage, sent through the SDK's thread-focused
@@ -1439,10 +1452,12 @@ public:
                                            const QString &localPath,
                                            const QString &mime,
                                            qint64 durationMs,
-                                           const QList<int> &waveform)
+                                           const QList<int> &waveform,
+                                           const QString &replyToEventId)
     {
         Q_UNUSED(roomId); Q_UNUSED(rootEventId); Q_UNUSED(localPath);
         Q_UNUSED(mime); Q_UNUSED(durationMs); Q_UNUSED(waveform);
+        Q_UNUSED(replyToEventId);
         return 0;
     }
 
@@ -1455,11 +1470,13 @@ public:
                                          const QString &mime,
                                          const QString &caption,
                                          int width, int height, bool animated,
-                                         qint64 durationMs = 0)
+                                         qint64 durationMs,
+                                         const QString &replyToEventId)
     {
         Q_UNUSED(roomId); Q_UNUSED(rootEventId); Q_UNUSED(localPath);
         Q_UNUSED(mime); Q_UNUSED(caption); Q_UNUSED(width);
         Q_UNUSED(height); Q_UNUSED(animated); Q_UNUSED(durationMs);
+        Q_UNUSED(replyToEventId);
         return 0;
     }
     // Thread twin of sendImageWithThumbnail; the default falls back to the
@@ -1472,12 +1489,14 @@ public:
                                                  int width, int height,
                                                  const QByteArray &thumbnail,
                                                  int thumbnailWidth,
-                                                 int thumbnailHeight)
+                                                 int thumbnailHeight,
+                                                 const QString &replyToEventId)
     {
         Q_UNUSED(thumbnail); Q_UNUSED(thumbnailWidth);
         Q_UNUSED(thumbnailHeight);
         return sendThreadAttachment(roomId, rootEventId, localPath, mime,
-                                    caption, width, height, false);
+                                    caption, width, height, false, 0,
+                                    replyToEventId);
     }
     // Thread twin of sendVideo; without poster support it falls back to the
     // plain thread attachment.
@@ -1488,22 +1507,26 @@ public:
                                     const QString &caption,
                                     int width, int height, qint64 durationMs,
                                     const QByteArray &thumbnail,
-                                    int thumbnailWidth, int thumbnailHeight)
+                                    int thumbnailWidth, int thumbnailHeight,
+                                    const QString &replyToEventId)
     {
         Q_UNUSED(durationMs); Q_UNUSED(thumbnail);
         Q_UNUSED(thumbnailWidth); Q_UNUSED(thumbnailHeight);
         return sendThreadAttachment(roomId, rootEventId, localPath, mime,
-                                    caption, width, height, false);
+                                    caption, width, height, false, 0,
+                                    replyToEventId);
     }
     virtual quint64 sendThreadAttachmentBytes(const QString &roomId,
                                               const QString &rootEventId,
                                               const QByteArray &bytes,
                                               const QString &filename,
                                               const QString &mime,
-                                              int width, int height)
+                                              int width, int height,
+                                              const QString &replyToEventId)
     {
         Q_UNUSED(roomId); Q_UNUSED(rootEventId); Q_UNUSED(bytes);
         Q_UNUSED(filename); Q_UNUSED(mime); Q_UNUSED(width); Q_UNUSED(height);
+        Q_UNUSED(replyToEventId);
         return 0;
     }
 

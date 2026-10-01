@@ -81,6 +81,7 @@ pub(crate) fn send_image_path(
     width: u64,
     height: u64,
     thumbnail: Option<PosterBytes>,
+    in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
     op_id: u64,
 ) -> Result<(), String> {
     let size = checked_file_len(&path)?;
@@ -94,6 +95,7 @@ pub(crate) fn send_image_path(
         caption,
         info,
         thumbnail,
+        in_reply_to,
         op_id,
     )
 }
@@ -111,6 +113,7 @@ pub(crate) fn send_thread_image_path(
     width: u64,
     height: u64,
     thumbnail: Option<PosterBytes>,
+    in_reply_to: Option<matrix_sdk::ruma::OwnedEventId>,
     op_id: u64,
 ) -> Result<(), String> {
     let size = checked_file_len(&path)?;
@@ -129,6 +132,7 @@ pub(crate) fn send_thread_image_path(
         caption,
         info,
         thumbnail,
+        in_reply_to,
         op_id,
     )
 }
@@ -156,10 +160,12 @@ pub unsafe extern "C" fn mx_rust_timeline_send_image(
     thumb_len: usize,
     thumb_width: u64,
     thumb_height: u64,
+    in_reply_to: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     crate::ffi_string(|| {
         let bridge = unsafe { crate::bridge(ptr)? };
+        let in_reply_to = unsafe { crate::reply_target_arg(in_reply_to) }?;
         let room_id = unsafe { crate::cstr_arg(room_id) }?;
         let local_path = unsafe { crate::cstr_arg(local_path) }?;
         let mime = unsafe { crate::cstr_arg(mime) }?;
@@ -168,7 +174,7 @@ pub unsafe extern "C" fn mx_rust_timeline_send_image(
             unsafe { crate::poster_arg(thumb_data, thumb_len, thumb_width, thumb_height) };
         send_image_path(
             bridge, room_id, local_path, mime, caption, width, height,
-            thumbnail, op_id,
+            thumbnail, in_reply_to, op_id,
         )
         .map(|_| String::new())
     })
@@ -193,10 +199,12 @@ pub unsafe extern "C" fn mx_rust_thread_send_image(
     thumb_len: usize,
     thumb_width: u64,
     thumb_height: u64,
+    in_reply_to: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     crate::ffi_string(|| {
         let bridge = unsafe { crate::bridge(ptr)? };
+        let in_reply_to = unsafe { crate::reply_target_arg(in_reply_to) }?;
         let room_id = unsafe { crate::cstr_arg(room_id) }?;
         let root = unsafe { crate::cstr_arg(root_event_id) }?;
         let local_path = unsafe { crate::cstr_arg(local_path) }?;
@@ -206,7 +214,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_image(
             unsafe { crate::poster_arg(thumb_data, thumb_len, thumb_width, thumb_height) };
         send_thread_image_path(
             bridge, room_id, root, local_path, mime, caption, width, height,
-            thumbnail, op_id,
+            thumbnail, in_reply_to, op_id,
         )
         .map(|_| String::new())
     })

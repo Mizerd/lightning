@@ -2405,7 +2405,8 @@ Rectangle {
     // SDK produces a real m.thread reply.
     function onThreadGifPicked(result) {
         app.gifSend.sendToThread(app.thread.roomId, app.thread.rootEventId,
-                                 result)
+                                 result, app.thread.replyToEventId)
+        app.thread.cancelReply()
     }
 
     StickerPicker {

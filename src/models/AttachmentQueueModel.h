@@ -85,6 +85,11 @@ public:
         // Stored on the entry because dispatch is not in row order (a video
         // awaiting its poster is held back) and a retry must keep it.
         QString caption;
+        // The event this attachment replies to, captured when the user sent
+        // (the composer clears its reply state right after dispatch, but a
+        // video waiting for its poster dispatches later). Empty for a plain
+        // send. In a thread it is the thread message being replied to.
+        QString replyToEventId;
     };
 
     explicit AttachmentQueueModel(QObject *parent = nullptr);

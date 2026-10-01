@@ -214,6 +214,10 @@ public:
     Q_INVOKABLE void beginThreadReply(const QString &rootEventId,
                                       const QString &preview);
     Q_INVOKABLE void cancelReplyOrEdit();
+    // Drop only the reply target (chip and event id), leaving the typed text,
+    // its mentions and any edit/thread mode alone. For a send that carried the
+    // reply but is not a text send: a voice message or a picked GIF.
+    Q_INVOKABLE void clearReplyTarget();
     Q_INVOKABLE void reactTo(const QString &targetEventId, const QString &key);
     Q_INVOKABLE void redact(const QString &eventId);
     // Redact the m.replace events on one of the user's own messages so it

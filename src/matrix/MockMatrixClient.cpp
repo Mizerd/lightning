@@ -557,7 +557,8 @@ quint64 MockMatrixClient::requestRoomMembers(const QString &roomId)
 quint64 MockMatrixClient::appendThreadAttachment(const QString &roomId,
                                                  const QString &rootEventId,
                                                  const QString &fileName,
-                                                 const QString &mime)
+                                                 const QString &mime,
+                                                 const QString &replyToEventId)
 {
     if (!m_timelines.contains(roomId) || rootEventId.isEmpty())
         return 0;
@@ -566,6 +567,7 @@ quint64 MockMatrixClient::appendThreadAttachment(const QString &roomId,
         return 0;   // queue rejection
     }
     ++m_threadAttachmentCalls;
+    m_lastAttachmentReplyTo = replyToEventId;
     const quint64 opId = ++m_opCounter;
 
     TimelineEvent ev;
@@ -580,6 +582,7 @@ quint64 MockMatrixClient::appendThreadAttachment(const QString &roomId,
                                : TimelineEvent::File;
     ev.status            = TimelineEvent::Sending;
     ev.threadRootId      = rootEventId;
+    ev.replyToEventId    = replyToEventId;
     m_timelines[roomId].append(ev);
     Q_EMIT eventAppended(roomId, ev);
     ackAfter(150, roomId, ev.eventId);
@@ -609,12 +612,15 @@ quint64 MockMatrixClient::sendThreadAttachment(const QString &roomId,
                                                const QString &caption,
                                                int width, int height,
                                                bool animated,
-                                               qint64 durationMs)
+                                               qint64 durationMs,
+                                               const QString &replyToEventId)
 {
-    Q_UNUSED(caption); Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(animated);
+    Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(animated);
     Q_UNUSED(durationMs);
+    m_lastAttachmentCaption = caption;
     return appendThreadAttachment(roomId, rootEventId,
-                                  QFileInfo(localPath).fileName(), mime);
+                                  QFileInfo(localPath).fileName(), mime,
+                                  replyToEventId);
 }
 
 quint64 MockMatrixClient::sendThreadAttachmentBytes(const QString &roomId,
@@ -622,10 +628,71 @@ quint64 MockMatrixClient::sendThreadAttachmentBytes(const QString &roomId,
                                                     const QByteArray &bytes,
                                                     const QString &filename,
                                                     const QString &mime,
-                                                    int width, int height)
+                                                    int width, int height,
+                                                    const QString &replyToEventId)
 {
     Q_UNUSED(bytes); Q_UNUSED(width); Q_UNUSED(height);
-    return appendThreadAttachment(roomId, rootEventId, filename, mime);
+    m_lastAttachmentCaption.clear();
+    return appendThreadAttachment(roomId, rootEventId, filename, mime,
+                                  replyToEventId);
+}
+
+quint64 MockMatrixClient::appendRoomAttachment(const QString &roomId,
+                                               const QString &fileName,
+                                               const QString &mime,
+                                               const QString &replyToEventId)
+{
+    if (!m_timelines.contains(roomId))
+        return 0;
+    m_lastAttachmentReplyTo = replyToEventId;
+    const quint64 opId = ++m_opCounter;
+
+    TimelineEvent ev;
+    ev.eventId           = nextEventId();
+    ev.roomId            = roomId;
+    ev.sender            = m_userId;
+    ev.senderDisplayName = QStringLiteral("You");
+    ev.body              = fileName;
+    ev.timestamp         = QDateTime::currentDateTimeUtc();
+    ev.type              = mime.startsWith(QLatin1String("image/"))
+                               ? TimelineEvent::Image
+                               : TimelineEvent::File;
+    ev.status            = TimelineEvent::Sending;
+    ev.replyToEventId    = replyToEventId;
+    m_timelines[roomId].append(ev);
+    Q_EMIT eventAppended(roomId, ev);
+    ackAfter(150, roomId, ev.eventId);
+    QTimer::singleShot(50, this, [this, opId, roomId] {
+        Q_EMIT attachmentQueueFinished(opId, roomId, true, QString());
+    });
+    return opId;
+}
+
+quint64 MockMatrixClient::sendAttachment(const QString &roomId,
+                                         const QString &localPath,
+                                         const QString &mime,
+                                         const QString &caption,
+                                         int width, int height, bool animated,
+                                         qint64 durationMs,
+                                         const QString &replyToEventId)
+{
+    Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(animated);
+    Q_UNUSED(durationMs);
+    m_lastAttachmentCaption = caption;
+    return appendRoomAttachment(roomId, QFileInfo(localPath).fileName(), mime,
+                                replyToEventId);
+}
+
+quint64 MockMatrixClient::sendAttachmentBytes(const QString &roomId,
+                                              const QByteArray &bytes,
+                                              const QString &filename,
+                                              const QString &mime,
+                                              int width, int height,
+                                              const QString &replyToEventId)
+{
+    Q_UNUSED(bytes); Q_UNUSED(width); Q_UNUSED(height);
+    m_lastAttachmentCaption.clear();
+    return appendRoomAttachment(roomId, filename, mime, replyToEventId);
 }
 
 // ── Mock thread timelines ───────────────────────────────────────────────

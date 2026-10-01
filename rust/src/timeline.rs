@@ -172,6 +172,42 @@ pub(crate) fn is_rtc_membership_event(event: &AnySyncTimelineEvent) -> bool {
 #[allow(dead_code)]
 pub const SHUTDOWN_JOIN_TIMEOUT_SECS: u64 = 15;
 
+/// Parse the reply target the C++ side hands across the FFI. Empty or blank
+/// means "not a reply"; anything else must be a well-formed event id, so a
+/// garbled id fails the send up front rather than silently sending a
+/// non-reply, which is the failure this exists to prevent.
+pub(crate) fn parse_reply_target(id: &str) -> Result<Option<OwnedEventId>, String> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(None);
+    }
+    EventId::parse(id)
+        .map(Some)
+        .map_err(|_| "Invalid reply target event id.".to_owned())
+}
+
+/// The one place an attachment's `AttachmentConfig` is assembled, for both the
+/// room and the thread send. `in_reply_to` MUST come from the caller: the SDK
+/// derives the whole reply (and, in a thread, the m.thread relation) from it,
+/// and `None` sends a plain message.
+pub(crate) fn attachment_config(
+    info: Option<AttachmentInfo>,
+    thumbnail: Option<Thumbnail>,
+    caption: Option<String>,
+    in_reply_to: Option<OwnedEventId>,
+) -> AttachmentConfig {
+    AttachmentConfig {
+        txn_id: None,
+        info,
+        thumbnail,
+        caption: caption
+            .filter(|c| !c.is_empty())
+            .map(TextMessageEventContent::plain),
+        mentions: None,
+        in_reply_to,
+    }
+}
+
 /// Re-enable a room's send queue before handing it anything new.
 ///
 /// matrix-sdk disables a room's queue after any send error, and the sync
@@ -1570,6 +1606,7 @@ impl TimelineRegistry {
         caption: Option<String>,
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail>,
+        in_reply_to: Option<OwnedEventId>,
         op_id: u64,
     ) -> Result<(), String> {
         let Some((timeline, room_gen, lifecycle)) = self.timeline_for(&room_id) else {
@@ -1581,16 +1618,7 @@ impl TimelineRegistry {
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let config = AttachmentConfig {
-                txn_id: None,
-                info,
-                thumbnail,
-                caption: caption
-                    .filter(|c| !c.is_empty())
-                    .map(TextMessageEventContent::plain),
-                mentions: None,
-                in_reply_to: None,
-            };
+            let config = attachment_config(info, thumbnail, caption, in_reply_to);
             unwedge_send_queue(&timeline);
             let result = timeline
                 .send_attachment(source, mime, config)
@@ -1676,6 +1704,7 @@ impl TimelineRegistry {
         caption: Option<String>,
         info: Option<AttachmentInfo>,
         thumbnail: Option<Thumbnail>,
+        in_reply_to: Option<OwnedEventId>,
         op_id: u64,
     ) -> Result<(), String> {
         let mime: mime::Mime = mime_str
@@ -1695,17 +1724,11 @@ impl TimelineRegistry {
                 }
             };
             let sent = if let Some(timeline) = timeline {
-                let config = AttachmentConfig {
-                    txn_id: None,
-                    info,
-                    thumbnail,
-                    caption: caption
-                        .filter(|c| !c.is_empty())
-                        .map(TextMessageEventContent::plain),
-                    mentions: None,
-                    // None: infer_reply threads it from the focus.
-                    in_reply_to: None,
-                };
+                // None: infer_reply threads it from the focus. Some: the SDK
+                // keeps the m.thread relation and makes this a reply to that
+                // thread message (ReplyWithinThread::Yes), exactly as
+                // `send_reply` does for text.
+                let config = attachment_config(info, thumbnail, caption, in_reply_to);
                 unwedge_send_queue(&timeline);
                 timeline
                     .send_attachment(source, mime, config)
@@ -5343,10 +5366,43 @@ mod tests {
         backup_attempt_allowed, backup_attempt_backoff, failed_state_parse_body, find_img_tag,
         is_rtc_membership_event, raw_displayed_formatted_body,
         sessions_by_room_from_import, state_row_text, substitute_emoticons,
-        TimelineRegistry, MAX_BACKUP_ATTEMPTS,
+        attachment_config, parse_reply_target, TimelineRegistry, MAX_BACKUP_ATTEMPTS,
     };
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
+
+    /// "If I reply to a text with an image it just sends the image": both
+    /// attachment sends built their config with `in_reply_to: None` and had no
+    /// way to be given a target.
+    #[test]
+    fn an_attachment_config_carries_the_reply_target() {
+        let target = parse_reply_target("$target:example.org").unwrap();
+        assert!(target.is_some());
+        let config = attachment_config(None, None, Some("look".to_owned()), target.clone());
+        assert_eq!(config.in_reply_to, target);
+        assert_eq!(
+            config.caption.as_ref().map(|c| c.body.as_str()),
+            Some("look"),
+            "a caption must survive alongside the reply target"
+        );
+        // No target is a plain attachment, and an empty caption is absent.
+        let plain = attachment_config(None, None, Some(String::new()), None);
+        assert!(plain.in_reply_to.is_none());
+        assert!(plain.caption.is_none());
+    }
+
+    #[test]
+    fn the_reply_target_is_empty_valid_or_an_error_never_silently_dropped() {
+        assert_eq!(parse_reply_target("").unwrap(), None);
+        assert_eq!(parse_reply_target("   ").unwrap(), None);
+        assert_eq!(
+            parse_reply_target(" $abc:example.org ").unwrap().unwrap().as_str(),
+            "$abc:example.org"
+        );
+        // A garbled id must fail the send, not send a non-reply.
+        assert!(parse_reply_target("not an event id").is_err());
+        assert!(parse_reply_target("!room:example.org").is_err());
+    }
 
     /// An edited message must render its edited HTML: `original_json()` is
     /// never updated on edit. Real wire shapes: an `m.replace` carries its new

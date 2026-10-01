@@ -43,23 +43,27 @@ QString GifSendController::safeFilename(const gif::GifResult &r, const QString &
 }
 
 void GifSendController::sendToRoom(const QString &roomId,
-                                   const QVariantMap &resultMap)
+                                   const QVariantMap &resultMap,
+                                   const QString &replyToEventId)
 {
     Pending p;
     p.roomId = roomId;
     p.isThread = false;
+    p.replyToEventId = replyToEventId;
     p.result = GifStoredModel::fromVariantMap(resultMap);
     start(std::move(p));
 }
 
 void GifSendController::sendToThread(const QString &roomId,
                                      const QString &rootId,
-                                     const QVariantMap &resultMap)
+                                     const QVariantMap &resultMap,
+                                     const QString &replyToEventId)
 {
     Pending p;
     p.roomId = roomId;
     p.isThread = true;
     p.rootId = rootId;
+    p.replyToEventId = replyToEventId;
     p.result = GifStoredModel::fromVariantMap(resultMap);
     start(std::move(p));
 }
@@ -146,11 +150,11 @@ void GifSendController::onGifDownloadFinished(quint64 opId, bool ok,
         if (!p.rootId.isEmpty())
             sendOp = m_client->sendThreadAttachmentBytes(
                 p.roomId, p.rootId, bytes, filename, QStringLiteral("image/gif"),
-                width, height);
+                width, height, p.replyToEventId);
     } else {
         sendOp = m_client->sendAttachmentBytes(
             p.roomId, bytes, filename, QStringLiteral("image/gif"), width,
-            height);
+            height, p.replyToEventId);
     }
     if (sendOp == 0) {
         Q_EMIT sendFailed(QStringLiteral("send_failed"), p.isThread);
@@ -192,10 +196,10 @@ void GifSendController::startLocal(Pending pending)
     const quint64 sendOp = pending.isThread
         ? m_client->sendThreadAttachmentBytes(
               pending.roomId, pending.rootId, bytes, filename,
-              v.mime, v.width, v.height)
+              v.mime, v.width, v.height, pending.replyToEventId)
         : m_client->sendAttachmentBytes(
               pending.roomId, bytes, filename, v.mime,
-              v.width, v.height);
+              v.width, v.height, pending.replyToEventId);
     if (sendOp == 0) {
         Q_EMIT sendFailed(QStringLiteral("send_failed"), pending.isThread);
         return;

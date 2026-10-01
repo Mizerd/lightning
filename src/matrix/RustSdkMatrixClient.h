@@ -639,7 +639,8 @@ public:
     quint64 sendAttachment(const QString &roomId, const QString &localPath,
                            const QString &mime, const QString &caption,
                            int width, int height, bool animated,
-                           qint64 durationMs = 0) override;
+                           qint64 durationMs,
+                           const QString &replyToEventId) override;
     quint64 sendImageWithThumbnail(const QString &roomId,
                                    const QString &localPath,
                                    const QString &mime,
@@ -647,7 +648,8 @@ public:
                                    int width, int height,
                                    const QByteArray &thumbnail,
                                    int thumbnailWidth,
-                                   int thumbnailHeight) override;
+                                   int thumbnailHeight,
+                                   const QString &replyToEventId) override;
     quint64 sendThreadImageWithThumbnail(const QString &roomId,
                                          const QString &rootEventId,
                                          const QString &localPath,
@@ -656,23 +658,28 @@ public:
                                          int width, int height,
                                          const QByteArray &thumbnail,
                                          int thumbnailWidth,
-                                         int thumbnailHeight) override;
+                                         int thumbnailHeight,
+                                         const QString &replyToEventId) override;
     quint64 sendVideo(const QString &roomId, const QString &localPath,
                       const QString &mime, const QString &caption,
                       int width, int height, qint64 durationMs,
                       const QByteArray &thumbnail, int thumbnailWidth,
-                      int thumbnailHeight) override;
+                      int thumbnailHeight,
+                      const QString &replyToEventId) override;
     quint64 sendVoiceMessage(const QString &roomId, const QString &localPath,
                              const QString &mime, qint64 durationMs,
-                             const QList<int> &waveform) override;
+                             const QList<int> &waveform,
+                             const QString &replyToEventId) override;
     quint64 sendThreadVoiceMessage(const QString &roomId,
                                    const QString &rootEventId,
                                    const QString &localPath,
                                    const QString &mime, qint64 durationMs,
-                                   const QList<int> &waveform) override;
+                                   const QList<int> &waveform,
+                                   const QString &replyToEventId) override;
     quint64 sendAttachmentBytes(const QString &roomId, const QByteArray &bytes,
                                 const QString &filename, const QString &mime,
-                                int width, int height) override;
+                                int width, int height,
+                                const QString &replyToEventId) override;
     bool supportsRoomScopedAttachmentSend() const override { return true; }
     quint64 sendAttachmentBytesToRoom(const QString &roomId,
                                       const QByteArray &bytes,
@@ -683,18 +690,21 @@ public:
                                  const QString &rootEventId,
                                  const QString &localPath, const QString &mime,
                                  const QString &caption, int width, int height,
-                                 bool animated, qint64 durationMs = 0) override;
+                                 bool animated, qint64 durationMs,
+                                 const QString &replyToEventId) override;
     quint64 sendThreadVideo(const QString &roomId, const QString &rootEventId,
                             const QString &localPath, const QString &mime,
                             const QString &caption, int width, int height,
                             qint64 durationMs, const QByteArray &thumbnail,
-                            int thumbnailWidth, int thumbnailHeight) override;
+                            int thumbnailWidth, int thumbnailHeight,
+                            const QString &replyToEventId) override;
     quint64 sendThreadAttachmentBytes(const QString &roomId,
                                       const QString &rootEventId,
                                       const QByteArray &bytes,
                                       const QString &filename,
                                       const QString &mime, int width,
-                                      int height) override;
+                                      int height,
+                                      const QString &replyToEventId) override;
     quint64 fetchMedia(const QString &mediaKey, int kind,
                        int timeoutClass = 0) override;
     quint64 fetchMxcThumbnail(const QString &mxc, int width, int height) override;

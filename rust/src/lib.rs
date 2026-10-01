@@ -8894,10 +8894,12 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment(
     height: u64,
     animated: c_int,
     duration_ms: u64,
+    in_reply_to: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        let in_reply_to = unsafe { reply_target_arg(in_reply_to) }?;
         let room_id = unsafe { cstr_arg(room_id) }?;
         let local_path = unsafe { cstr_arg(local_path) }?;
         let mime = unsafe { cstr_arg(mime) }?;
@@ -8912,7 +8914,7 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment(
             height,
             animated != 0,
             duration_ms,
-            op_id,
+            in_reply_to, op_id,
         )
         .map(|_| String::new())
     })
@@ -8939,10 +8941,12 @@ pub unsafe extern "C" fn mx_rust_timeline_send_video(
     thumb_len: usize,
     thumb_width: u64,
     thumb_height: u64,
+    in_reply_to: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        let in_reply_to = unsafe { reply_target_arg(in_reply_to) }?;
         let room_id = unsafe { cstr_arg(room_id) }?;
         let local_path = unsafe { cstr_arg(local_path) }?;
         let mime = unsafe { cstr_arg(mime) }?;
@@ -8950,7 +8954,7 @@ pub unsafe extern "C" fn mx_rust_timeline_send_video(
         let poster = unsafe { poster_arg(thumb_data, thumb_len, thumb_width, thumb_height) };
         rooms::send_video_path(
             bridge, room_id, local_path, mime, caption, width, height,
-            duration_ms, poster, op_id,
+            duration_ms, poster, in_reply_to, op_id,
         )
         .map(|_| String::new())
     })
@@ -8973,10 +8977,12 @@ pub unsafe extern "C" fn mx_rust_thread_send_video(
     thumb_len: usize,
     thumb_width: u64,
     thumb_height: u64,
+    in_reply_to: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        let in_reply_to = unsafe { reply_target_arg(in_reply_to) }?;
         let room_id = unsafe { cstr_arg(room_id) }?;
         let root = unsafe { cstr_arg(root_event_id) }?;
         let local_path = unsafe { cstr_arg(local_path) }?;
@@ -8985,7 +8991,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_video(
         let poster = unsafe { poster_arg(thumb_data, thumb_len, thumb_width, thumb_height) };
         rooms::send_thread_video_path(
             bridge, room_id, root, local_path, mime, caption, width, height,
-            duration_ms, poster, op_id,
+            duration_ms, poster, in_reply_to, op_id,
         )
         .map(|_| String::new())
     })
@@ -9003,10 +9009,12 @@ pub unsafe extern "C" fn mx_rust_timeline_send_voice(
     duration_ms: u64,
     waveform: *const u8,
     waveform_len: usize,
+    in_reply_to: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        let in_reply_to = unsafe { reply_target_arg(in_reply_to) }?;
         let room_id = unsafe { cstr_arg(room_id) }?;
         let local_path = unsafe { cstr_arg(local_path) }?;
         let mime = unsafe { cstr_arg(mime) }?;
@@ -9019,7 +9027,7 @@ pub unsafe extern "C" fn mx_rust_timeline_send_voice(
             unsafe { std::slice::from_raw_parts(waveform, waveform_len) }.to_vec()
         };
         rooms::send_voice_path(
-            bridge, room_id, local_path, mime, duration_ms, waveform, op_id,
+            bridge, room_id, local_path, mime, duration_ms, waveform, in_reply_to, op_id,
         )
         .map(|_| String::new())
     })
@@ -9039,10 +9047,12 @@ pub unsafe extern "C" fn mx_rust_thread_send_voice(
     duration_ms: u64,
     waveform: *const u8,
     waveform_len: usize,
+    in_reply_to: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        let in_reply_to = unsafe { reply_target_arg(in_reply_to) }?;
         let room_id = unsafe { cstr_arg(room_id) }?;
         let root_event_id = unsafe { cstr_arg(root_event_id) }?;
         let local_path = unsafe { cstr_arg(local_path) }?;
@@ -9057,7 +9067,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_voice(
         };
         rooms::send_thread_voice_path(
             bridge, room_id, root_event_id, local_path, mime, duration_ms,
-            waveform, op_id,
+            waveform, in_reply_to, op_id,
         )
         .map(|_| String::new())
     })
@@ -9074,10 +9084,12 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment_bytes(
     mime: *const c_char,
     width: u64,
     height: u64,
+    in_reply_to: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        let in_reply_to = unsafe { reply_target_arg(in_reply_to) }?;
         let room_id = unsafe { cstr_arg(room_id) }?;
         let filename = unsafe { cstr_arg(filename) }?;
         let mime = unsafe { cstr_arg(mime) }?;
@@ -9087,7 +9099,7 @@ pub unsafe extern "C" fn mx_rust_timeline_send_attachment_bytes(
         // One bounded copy into Rust-owned memory; C++ frees its buffer on return.
         let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
         rooms::send_attachment_bytes(
-            bridge, room_id, bytes, filename, mime, width, height, op_id,
+            bridge, room_id, bytes, filename, mime, width, height, in_reply_to, op_id,
         )
         .map(|_| String::new())
     })
@@ -9106,10 +9118,12 @@ pub unsafe extern "C" fn mx_rust_thread_send_attachment(
     height: u64,
     animated: c_int,
     duration_ms: u64,
+    in_reply_to: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        let in_reply_to = unsafe { reply_target_arg(in_reply_to) }?;
         let room_id = unsafe { cstr_arg(room_id) }?;
         let root = unsafe { cstr_arg(root_event_id) }?;
         let local_path = unsafe { cstr_arg(local_path) }?;
@@ -9117,7 +9131,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_attachment(
         let caption = unsafe { cstr_arg(caption) }?;
         rooms::send_thread_attachment_path(
             bridge, room_id, root, local_path, mime, caption, width, height,
-            animated != 0, duration_ms, op_id,
+            animated != 0, duration_ms, in_reply_to, op_id,
         )
         .map(|_| String::new())
     })
@@ -9135,10 +9149,12 @@ pub unsafe extern "C" fn mx_rust_thread_send_attachment_bytes(
     mime: *const c_char,
     width: u64,
     height: u64,
+    in_reply_to: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
+        let in_reply_to = unsafe { reply_target_arg(in_reply_to) }?;
         let room_id = unsafe { cstr_arg(room_id) }?;
         let root = unsafe { cstr_arg(root_event_id) }?;
         let filename = unsafe { cstr_arg(filename) }?;
@@ -9148,7 +9164,7 @@ pub unsafe extern "C" fn mx_rust_thread_send_attachment_bytes(
         }
         let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
         rooms::send_thread_attachment_bytes(
-            bridge, room_id, root, bytes, filename, mime, width, height, op_id,
+            bridge, room_id, root, bytes, filename, mime, width, height, in_reply_to, op_id,
         )
         .map(|_| String::new())
     })
@@ -11900,6 +11916,17 @@ unsafe fn cstr_arg(ptr: *const c_char) -> Result<String, String> {
         .to_str()
         .map(str::to_owned)
         .map_err(|err| format!("invalid UTF-8 string passed to Rust SDK FFI: {err}"))
+}
+
+/// The event a send replies to, or `None` for an empty string. A malformed id
+/// is an error, never a silently plain send.
+///
+/// # Safety
+/// `ptr` must be a valid NUL-terminated string (null is refused by `cstr_arg`).
+unsafe fn reply_target_arg(
+    ptr: *const c_char,
+) -> Result<Option<matrix_sdk::ruma::OwnedEventId>, String> {
+    timeline::parse_reply_target(&unsafe { cstr_arg(ptr) }?)
 }
 
 /// Copy an optional send-side poster out of C++ memory.

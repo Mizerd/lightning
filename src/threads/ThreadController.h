@@ -254,7 +254,8 @@ private:
     QString timelineId() const;
     // Send every queued attachment through the SDK thread path. Each becomes
     // its own local echo in the thread timeline.
-    void dispatchAttachments();
+    // True when at least one queued attachment was handed to the client.
+    bool dispatchAttachments();
     // One entry, once it is dispatchable (a video waits for its poster).
     void dispatchAttachment(int row);
     void clearAttachments();

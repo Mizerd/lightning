@@ -280,6 +280,11 @@ void MessageComposer::dispatchAttachments()
         if (entries[row].state != QLatin1String("queued"))
             continue;
         entries[row].sendRequested = true;
+        // Captured now, not at dispatch: a video waits for its poster and the
+        // composer's reply chip is gone by then. A retry that is sent with no
+        // new reply keeps the one it had.
+        if (!m_replyingToEventId.isEmpty())
+            entries[row].replyToEventId = m_replyingToEventId;
         dispatchAttachment(row);
     }
 }
@@ -307,25 +312,29 @@ void MessageComposer::dispatchAttachment(int row)
     if (entry.localPath.isEmpty()) {
         opId = m_client->sendAttachmentBytes(m_roomId, entry.data,
                                              entry.fileName, entry.mime,
-                                             entry.width, entry.height);
+                                             entry.width, entry.height,
+                                             entry.replyToEventId);
     } else if (entry.isVideo) {
         opId = m_client->sendVideo(m_roomId, entry.localPath, entry.mime,
                                    caption, entry.width, entry.height,
                                    entry.durationMs, entry.poster,
-                                   entry.posterWidth, entry.posterHeight);
+                                   entry.posterWidth, entry.posterHeight,
+                                   entry.replyToEventId);
     } else if (entry.isSvg) {
         // The PNG rendered from the file becomes thumbnail_info, so receivers
         // show a preview without decoding SVG. Empty when none could be made.
         opId = m_client->sendImageWithThumbnail(
             m_roomId, entry.localPath, entry.mime, caption, entry.width,
-            entry.height, entry.poster, entry.posterWidth, entry.posterHeight);
+            entry.height, entry.poster, entry.posterWidth, entry.posterHeight,
+            entry.replyToEventId);
     } else {
         // Duration is 0 for non-timed media or an undecodable length; both are
         // sent as absent, never as a literal zero.
         opId = m_client->sendAttachment(m_roomId, entry.localPath,
                                         entry.mime, caption, entry.width,
                                         entry.height, entry.animated,
-                                        entry.durationMs);
+                                        entry.durationMs,
+                                        entry.replyToEventId);
     }
     if (opId == 0) {
         entry.state = QStringLiteral("failed");
@@ -368,7 +377,7 @@ void MessageComposer::sendVoiceMessage(const QString &localPath,
     const QString targetRoom = m_roomId;
     const quint64 opId = m_client->sendVoiceMessage(
         targetRoom, localPath, mime, static_cast<qint64>(durationMs),
-        amplitudes);
+        amplitudes, m_replyingToEventId);
     if (opId == 0) {
         // Never queued: reclaim the recording now.
         QFile::remove(localPath);
@@ -376,6 +385,23 @@ void MessageComposer::sendVoiceMessage(const QString &localPath,
         return;
     }
     m_voiceOps.insert(opId, VoiceOp{localPath, targetRoom});
+    // The recording carried the reply, so the chip is spent, exactly as after
+    // a text reply. Only the reply: the typed text and its mentions are not
+    // part of a voice message and stay.
+    clearReplyTarget();
+}
+
+void MessageComposer::clearReplyTarget()
+{
+    if (m_replyingToEventId.isEmpty())
+        return;
+    m_replyingToEventId.clear();
+    m_replyingToSender.clear();
+    m_replyingToPreview.clear();
+    m_replyingToMediaKey.clear();
+    Q_EMIT replyStateChanged();
+    if (m_drafts && !m_restoringDraft && !m_roomId.isEmpty())
+        m_draftDebounce.start();
 }
 
 void MessageComposer::onAttachmentQueueFinished(quint64 opId,

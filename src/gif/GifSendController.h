@@ -45,10 +45,16 @@ public:
     int activeCount() const { return m_pending.size(); }
 
     // Send `resultMap` (a GifResultModel role map) to a room or a thread.
+    // `replyToEventId` is the event the composer is replying to when the GIF
+    // is picked ("" for a plain send); it is captured here, with the
+    // destination, so a reply chip dismissed during the download cannot lose
+    // it. In a thread it is the thread message being replied to.
     Q_INVOKABLE void sendToRoom(const QString &roomId,
-                                const QVariantMap &resultMap);
+                                const QVariantMap &resultMap,
+                                const QString &replyToEventId = QString());
     Q_INVOKABLE void sendToThread(const QString &roomId, const QString &rootId,
-                                  const QVariantMap &resultMap);
+                                  const QVariantMap &resultMap,
+                                  const QString &replyToEventId = QString());
     // Drop all in-flight sends (their downloads complete into nothing).
     Q_INVOKABLE void cancelAll();
 
@@ -63,6 +69,7 @@ private:
         QString roomId;
         bool isThread = false;
         QString rootId;
+        QString replyToEventId;
         gif::GifResult result;
     };
 

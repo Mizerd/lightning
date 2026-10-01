@@ -71,17 +71,24 @@ public:
     // Shares `lastDurationMs` with the video path: what matters is the
     // duration the send declared, so players do not show "0:00".
     quint64 sendAttachment(const QString &, const QString &,
-                           const QString &mime, const QString &,
-                           int, int, bool, qint64 durationMs) override
+                           const QString &mime, const QString &caption,
+                           int, int, bool, qint64 durationMs,
+                           const QString &replyTo) override
     {
         if (rejectSends)
             return 0;
         ++fileSends;
+        lastReplyTo = replyTo;
+        lastCaption = caption;
         lastMime = mime;
         lastDurationMs = durationMs;
         lastOpId = nextOp++;
         return lastOpId;
     }
+    // The reply target the most recent attachment send of ANY kind carried;
+    // "" for a plain send. Proves the reply survives every send path.
+    QString lastReplyTo;
+    QString lastCaption;
     // Records what the video send path declared, so a test can prove the
     // poster and geometry reached the client.
     int videoSends = 0;
@@ -94,11 +101,13 @@ public:
     quint64 sendVideo(const QString &, const QString &, const QString &mime,
                       const QString &, int width, int height,
                       qint64 durationMs, const QByteArray &thumbnail,
-                      int thumbnailWidth, int thumbnailHeight) override
+                      int thumbnailWidth, int thumbnailHeight,
+                      const QString &replyTo) override
     {
         if (rejectSends)
             return 0;
         ++videoSends;
+        lastReplyTo = replyTo;
         lastMime = mime;
         lastVideoWidth = width;
         lastVideoHeight = height;
@@ -118,11 +127,13 @@ public:
                                    int width, int height,
                                    const QByteArray &thumbnail,
                                    int thumbnailWidth,
-                                   int thumbnailHeight) override
+                                   int thumbnailHeight,
+                                   const QString &replyTo) override
     {
         if (rejectSends)
             return 0;
         ++imageThumbSends;
+        lastReplyTo = replyTo;
         lastMime = mime;
         lastImageWidth = width;
         lastImageHeight = height;
@@ -134,11 +145,12 @@ public:
     }
     quint64 sendAttachmentBytes(const QString &, const QByteArray &,
                                 const QString &filename, const QString &mime,
-                                int, int) override
+                                int, int, const QString &replyTo) override
     {
         if (rejectSends)
             return 0;
         ++byteSends;
+        lastReplyTo = replyTo;
         lastFilename = filename;
         lastMime = mime;
         lastOpId = nextOp++;
@@ -149,11 +161,13 @@ public:
     QString lastVoiceRoom;
     quint64 sendVoiceMessage(const QString &roomId, const QString &,
                              const QString &, qint64,
-                             const QList<int> &) override
+                             const QList<int> &,
+                             const QString &replyTo) override
     {
         if (rejectSends)
             return 0;
         ++voiceSends;
+        lastReplyTo = replyTo;
         lastVoiceRoom = roomId;
         lastOpId = nextOp++;
         return lastOpId;
@@ -458,6 +472,133 @@ private Q_SLOTS:
         Q_EMIT client.attachmentQueueFinished(
             client.lastOpId, QStringLiteral("!room:example.org"), true, {});
         QCOMPARE(composer.attachments()->rowCount(), 0);
+    }
+
+    // "If I reply to a text with an image it just sends the image": the reply
+    // target never reached any attachment send, so the event went out with no
+    // m.in_reply_to. Every send path below must carry it.
+    void anAttachmentSentWhileReplyingCarriesTheReplyAndSpendsIt()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("photo.png"), tinyPng())));
+        composer.beginReply(QStringLiteral("$target:example.org"),
+                            QStringLiteral("Alice"), QStringLiteral("hello"),
+                            QString());
+        QVERIFY(composer.isReplying());
+
+        composer.send();
+        QCOMPARE(client.fileSends, 1);
+        QCOMPARE(client.lastReplyTo, QStringLiteral("$target:example.org"));
+        // Spent exactly as after a text reply.
+        QVERIFY(!composer.isReplying());
+        QVERIFY(composer.replyingToEventId().isEmpty());
+    }
+
+    void anAttachmentSentWithoutAReplyIsPlain()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("photo.png"), tinyPng())));
+        client.lastReplyTo = QStringLiteral("stale");
+        composer.send();
+        QCOMPARE(client.fileSends, 1);
+        QVERIFY(client.lastReplyTo.isEmpty());
+    }
+
+    // The typed text rides as the caption (when that setting is on) and the
+    // reply survives alongside it: one event, both properties.
+    void aCaptionedAttachmentKeepsItsCaptionAndItsReply()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        composer.setSendTextAsCaption(true);
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("photo.png"), tinyPng())));
+        composer.beginReply(QStringLiteral("$target:example.org"),
+                            QStringLiteral("Alice"), QStringLiteral("hello"),
+                            QString());
+        composer.setText(QStringLiteral("look at this"));
+
+        composer.send();
+        QCOMPARE(client.fileSends, 1);
+        QCOMPARE(client.lastCaption, QStringLiteral("look at this"));
+        QCOMPARE(client.lastReplyTo, QStringLiteral("$target:example.org"));
+    }
+
+    // A video waits for its poster, and the composer's reply chip is gone by
+    // the time it dispatches: the target must be captured at send time.
+    void aVideoThatWaitsForItsPosterStillCarriesTheReply()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QString capturedTag;
+        composer.attachments()->setPosterRequestHook(
+            [&capturedTag](const QString &tag, const QString &) {
+                capturedTag = tag;
+            });
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("clip.mp4"), tinyMp4Header())));
+        QVERIFY(!capturedTag.isEmpty());
+        composer.beginReply(QStringLiteral("$target:example.org"),
+                            QStringLiteral("Alice"), QStringLiteral("hello"),
+                            QString());
+
+        composer.send();
+        QCOMPARE(client.videoSends, 0);       // held for the poster
+        QVERIFY(!composer.isReplying());      // chip already spent
+
+        composer.attachments()->applyPoster(capturedTag, tinyJpeg(),
+                                            QSize(320, 180), QSize(1920, 1080),
+                                            4200);
+        QCOMPARE(client.videoSends, 1);
+        QCOMPARE(client.lastReplyTo, QStringLiteral("$target:example.org"));
+    }
+
+    void aClipboardImageAndAVoiceMessageCarryTheReplyToo()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QVERIFY(composer.attachments()->addImageData(
+                    tinyPng(), QStringLiteral("image/png"), 1, 1).isEmpty());
+        composer.beginReply(QStringLiteral("$bytes:example.org"),
+                            QStringLiteral("Alice"), QStringLiteral("hello"),
+                            QString());
+        composer.send();
+        QCOMPARE(client.byteSends, 1);
+        QCOMPARE(client.lastReplyTo, QStringLiteral("$bytes:example.org"));
+
+        QTemporaryDir dir;
+        const QString rec =
+            writeFile(dir, QStringLiteral("rec.ogg"), QByteArray(32, 'v'));
+        composer.beginReply(QStringLiteral("$voice:example.org"),
+                            QStringLiteral("Alice"), QStringLiteral("hello"),
+                            QString());
+        composer.setText(QStringLiteral("draft stays"));
+        composer.sendVoiceMessage(rec, QStringLiteral("audio/ogg"), 1200,
+                                  QVariantList{ 10, 20, 30 });
+        QCOMPARE(client.voiceSends, 1);
+        QCOMPARE(client.lastReplyTo, QStringLiteral("$voice:example.org"));
+        QVERIFY(!composer.isReplying());
+        // A voice message is not the typed text: that stays.
+        QCOMPARE(composer.text(), QStringLiteral("draft stays"));
     }
 
     void failedDispatchIsRetryable()

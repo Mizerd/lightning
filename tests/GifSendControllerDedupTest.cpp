@@ -44,7 +44,7 @@ public:
 
     quint64 sendAttachmentBytes(const QString &roomId, const QByteArray &,
                                 const QString &, const QString &, int,
-                                int) override
+                                int, const QString &) override
     {
         sends.append({ roomId, {}, false });
         return 42;
@@ -52,7 +52,7 @@ public:
     quint64 sendThreadAttachmentBytes(const QString &roomId,
                                       const QString &rootId, const QByteArray &,
                                       const QString &, const QString &, int,
-                                      int) override
+                                      int, const QString &) override
     {
         sends.append({ roomId, rootId, true });
         return 43;

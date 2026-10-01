@@ -40,16 +40,19 @@ public:
         bool thread = false;
         QByteArray bytes;
         int w = 0, h = 0;
+        QString replyTo;
     };
     QList<Sent> sends;
     bool failSend = false;
 
     quint64 sendAttachmentBytes(const QString &roomId, const QByteArray &bytes,
                                 const QString &filename, const QString &mime,
-                                int width, int height) override
+                                int width, int height,
+                                const QString &replyTo) override
     {
         if (failSend) return 0;
-        sends.append({ roomId, {}, mime, filename, false, bytes, width, height });
+        sends.append({ roomId, {}, mime, filename, false, bytes, width, height,
+                       replyTo });
         return 42;
     }
     quint64 sendThreadAttachmentBytes(const QString &roomId,
@@ -57,10 +60,12 @@ public:
                                       const QByteArray &bytes,
                                       const QString &filename,
                                       const QString &mime, int width,
-                                      int height) override
+                                      int height,
+                                      const QString &replyTo) override
     {
         if (failSend) return 0;
-        sends.append({ roomId, rootId, mime, filename, true, bytes, width, height });
+        sends.append({ roomId, rootId, mime, filename, true, bytes, width, height,
+                       replyTo });
         return 43;
     }
 
@@ -150,6 +155,7 @@ private Q_SLOTS:
 
     void roomSendDownloadsThenSends();
     void threadSendUsesThreadPath();
+    void aGifPickedWhileReplyingCarriesTheReply();
     void destinationIsolationSurvivesRoomSwitch();
     void recentOnlyRecordedOnSuccess();
     void downloadFailureReported();
@@ -216,6 +222,36 @@ void GifSendControllerTest::threadSendUsesThreadPath()
     QVERIFY(client->sends.first().thread);        // thread path, not room
     QCOMPARE(client->sends.first().rootId, QStringLiteral("$root"));
     QCOMPARE(client->sends.first().roomId, QStringLiteral("!room:hs"));
+}
+
+// A GIF is an attachment send; picking one while replying used to send it as a
+// plain message. The target is captured with the destination.
+void GifSendControllerTest::aGifPickedWhileReplyingCarriesTheReply()
+{
+    setup();
+    send->sendToRoom(QStringLiteral("!room:hs"),
+                     gifMap("giphy", "r", "media.giphy.com"),
+                     QStringLiteral("$target:hs"));
+    client->finishDownload(client->dlOp, true, realGif(),
+                           QStringLiteral("image/gif"), 200, 150, QString());
+    QCOMPARE(client->sends.size(), 1);
+    QCOMPARE(client->sends.first().replyTo, QStringLiteral("$target:hs"));
+
+    send->sendToThread(QStringLiteral("!room:hs"), QStringLiteral("$root"),
+                       gifMap("klipy", "t", "static.klipy.com"),
+                       QStringLiteral("$inthread:hs"));
+    client->finishDownload(client->dlOp, true, realGif(),
+                           QStringLiteral("image/gif"), 200, 150, QString());
+    QCOMPARE(client->sends.size(), 2);
+    QVERIFY(client->sends.last().thread);
+    QCOMPARE(client->sends.last().replyTo, QStringLiteral("$inthread:hs"));
+
+    // No reply: plain.
+    send->sendToRoom(QStringLiteral("!room:hs"),
+                     gifMap("giphy", "p", "media.giphy.com"));
+    client->finishDownload(client->dlOp, true, realGif(),
+                           QStringLiteral("image/gif"), 200, 150, QString());
+    QVERIFY(client->sends.last().replyTo.isEmpty());
 }
 
 void GifSendControllerTest::destinationIsolationSurvivesRoomSwitch()

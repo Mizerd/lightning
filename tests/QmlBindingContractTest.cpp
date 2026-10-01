@@ -784,7 +784,7 @@ private Q_SLOTS:
         // destination (room composer to the room, thread composer into the
         // thread).
         QVERIFY(room.contains(QStringLiteral(
-            "app.gifSend.sendToRoom(app.currentRoomId, result)")));
+            "app.gifSend.sendToRoom(app.currentRoomId, result,")));
         QVERIFY(thread.contains(QStringLiteral("app.gifSend.sendToThread(")));
         QVERIFY(thread.contains(QStringLiteral("app.thread.rootEventId")));
         // The picker itself never sends to a room/thread directly.
