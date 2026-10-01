@@ -66,6 +66,18 @@ install, because its Qt is older than the one the rpm was built with: use the
 Flatpak there. RHEL is **untested**; the Qt 6.11 floor makes any current RHEL
 unlikely to satisfy it.
 
+The rpm installs a package named **`lightning-matrix`** from 0.10.1 (the file
+keeps its `lightning-…` name; the deb is still `lightning`). Before that the
+rpm was named `lightning`, which is also GNU Lightning, a JIT library in
+Fedora's repositories at a higher version, so on Fedora `dnf upgrade` replaced
+Lightning 0.10.0 or older with that library (issue #19). Installing 0.10.1 or
+later, by hand or through the in-app update, takes over the old package
+cleanly. On 0.10.0 or older, keep dnf away from it until you update:
+
+```sh
+echo 'excludepkgs=lightning' | sudo tee -a /etc/dnf/dnf.conf
+```
+
 ```sh
 sudo apt install ./lightning_0.10.0_amd64.deb            # Debian 13+
 sudo apt install ./lightning_0.10.0_ubuntu2604_amd64.deb # Ubuntu 26.04+

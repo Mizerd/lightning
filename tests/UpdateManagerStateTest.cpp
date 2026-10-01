@@ -738,7 +738,7 @@ void UpdateManagerStateTest::aRepositoryRpmIsUpdatedByDnfNeverFromTheDownload()
     manager->openManagedUpdateHelp();
     QCOMPARE(helpSpy.count(), 1);
     QCOMPARE(helpSpy.at(0).at(0).toString(),
-             QStringLiteral("sudo dnf upgrade --refresh lightning"));
+             QStringLiteral("sudo dnf upgrade --refresh lightning-matrix"));
     QVERIFY(helpSpy.at(0).at(1).toString().contains(QStringLiteral("managed by dnf")));
 
     // The GitLab .rpm, same manifest: its own download, installed by the helper.

@@ -23,13 +23,13 @@ distro="$(. /etc/os-release && printf '%s' "${ID:-}")"
 case "$distro" in
     fedora)
         pkg_install=(dnf install -y)
-        pkg_remove=(dnf remove -y lightning)
+        pkg_remove=(dnf remove -y lightning-matrix)
         ;;
     opensuse-tumbleweed)
         # The package is unsigned (the signed update manifest carries its
         # hash), and zypper installs recommends only when asked in a container.
         pkg_install=(zypper --non-interactive install --allow-unsigned-rpm --recommends)
-        pkg_remove=(zypper --non-interactive remove lightning)
+        pkg_remove=(zypper --non-interactive remove lightning-matrix)
         ;;
     *) die "validate-rpm runs on Fedora or openSUSE Tumbleweed, not '${distro:-unknown}'" ;;
 esac
@@ -38,6 +38,13 @@ printf 'validate-rpm: validating on %s\n' "$distro"
 rpm -qpi "$package" | tee "$ROOT/dist/rpm-info.txt"
 rpm -qpl "$package" | tee "$ROOT/dist/rpm-contents.txt"
 rpm -qpR "$package" | tee "$ROOT/dist/rpm-requires.txt"
+# The package is lightning-matrix: "lightning" is GNU Lightning in Fedora (2.x)
+# and dnf replaced ours with it on upgrade (GitHub #19).
+rpm_name="$(rpm -qp --qf '%{NAME}' "$package")"
+[[ "$rpm_name" == lightning-matrix ]] \
+    || die "package name is '$rpm_name', not lightning-matrix (GitHub #19)"
+rpm -qp --obsoletes "$package" | grep -qx 'lightning < 1.0' \
+    || die "the package does not obsolete our own 0.x 'lightning'"
 if [[ "$distro" == fedora ]]; then
     rpmlint "$package" >"$ROOT/dist/rpm-rpmlint.log" 2>&1 || true
     cat "$ROOT/dist/rpm-rpmlint.log"
@@ -198,7 +205,7 @@ fi
 if [[ "$distro" == fedora ]]; then
     dnf check
 fi
-if rpm -q lightning >/dev/null 2>&1; then
+if rpm -q lightning-matrix >/dev/null 2>&1; then
     die "RPM package remains installed after removal"
 fi
 printf 'RPM clean install, runtime, headless launch, and uninstall passed on %s\n' "$distro"

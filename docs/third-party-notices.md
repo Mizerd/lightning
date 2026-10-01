@@ -40,7 +40,7 @@ gst-plugins-good while the published 0.9.8 macOS bundle carries none at all.
 
 | Package | Licence texts it carries |
 |---|---|
-| **deb / rpm** | `/usr/share/doc/lightning/copyright` and `LICENSE`. Nothing third-party is bundled — GStreamer and Qt are declared dependencies, so the distribution already ships their licences |
+| **deb / rpm** | `/usr/share/doc/lightning/copyright` and `LICENSE` (the rpm, package `lightning-matrix`, uses `doc/lightning-matrix`). Nothing third-party is bundled — GStreamer and Qt are declared dependencies, so the distribution already ships their licences |
 | **Flatpak** | Lightning's own; GStreamer and Qt come from the KDE runtime |
 | **Windows** | `Lightning/licenses/`: Lightning's GPL-3, seven Qt directories, and thirteen under `lightning-gstreamer` (gstreamer-1.0, `-base`, `-good`, `-bad`, gst-plugins-rs, libnice, libsrtp, libvpx, opus, orc, zlib, webrtc-audio-processing, mingw-runtime). Plus `runtime-dependencies.json`, recording the exact set of PE files staged and their import graph |
 | **AppImage / snap** | Lightning's GPL-3; `usr/share/doc/<pkg>/copyright` for ~235 packages, deployed by **linuxdeploy's own** `dpkg-query` pass and present since long before this round; and `usr/share/licenses/third-party/<pkg>.copyright`, a second pass derived from the payload that additionally covers the ten packages hand-staged past linuxdeploy's excludelist |

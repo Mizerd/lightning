@@ -8,7 +8,7 @@ CMake options, the same portable Qt ABI. Two things differ on purpose:
 
 - **Install type `linux-rpm-repo`.** The in-app updater treats it like Flatpak
   and Snap: it never downloads or installs anything, says dnf manages the
-  installation, and shows `sudo dnf upgrade --refresh lightning`. The GitLab
+  installation, and shows `sudo dnf upgrade --refresh lightning-matrix`. The GitLab
   `.rpm` stays `linux-rpm` and keeps its automatic install. Nothing at runtime
   tells the two apart, so only the build can say which one it is.
 - **No GIF provider keys.** The source RPM is public, so a COPR build has
@@ -19,7 +19,7 @@ CMake options, the same portable Qt ABI. Two things differ on purpose:
 
 ```
 tag push vX.Y.Z on GitLab project 6
-  -> GitLab webhook (Tag push events) -> COPR package "lightning"
+  -> GitLab webhook (Tag push events) -> COPR package "lightning-matrix"
   -> COPR clones the tag and runs, as root in a Fedora mock chroot with network:
        make -f .copr/Makefile srpm outdir=<dir> spec=<ignored>
          -> packaging-ci/scripts/build-copr-srpm.sh

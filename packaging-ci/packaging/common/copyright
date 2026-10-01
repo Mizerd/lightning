@@ -8,7 +8,8 @@ License: GPL-3+
  Lightning is distributed under the GNU General Public License, version 3 or
  (at your option) any later version. On Debian systems, the complete text of
  version 3 is available at /usr/share/common-licenses/GPL-3. The complete
- upstream licence text is also installed as /usr/share/doc/lightning/LICENSE.
+ upstream licence text is also installed as LICENSE in the package's
+ documentation directory (/usr/share/doc/lightning or lightning-matrix).
 
 Files: usr/share/metainfo/lightning.metainfo.xml
 Copyright: 2026 Mizerd

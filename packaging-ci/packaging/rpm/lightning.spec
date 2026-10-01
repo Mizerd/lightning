@@ -2,7 +2,11 @@
 # build-rpm.sh expects exactly one RPM.
 %global debug_package %{nil}
 
-Name:           lightning
+Name:           lightning-matrix
+# Renamed from "lightning" (2026-10-01): Fedora's GNU Lightning is also
+# "lightning", at 2.x, and dnf replaced ours with it on upgrade (GitHub #19).
+# Obsoletes takes over our own 0.x package; GNU Lightning is never touched.
+Obsoletes:      lightning < 1.0
 Version:        %{pkg_version}
 Release:        %{pkg_release}
 Summary:        Native Matrix desktop client
@@ -69,6 +73,8 @@ A native C++ and Qt Matrix desktop client with the Matrix Rust SDK backend.
 rm -rf %{buildroot}
 mkdir -p %{buildroot}
 cp -a %{stage_root}/. %{buildroot}/
+mv %{buildroot}%{_docdir}/lightning %{buildroot}%{_docdir}/%{name}
+mv %{buildroot}%{_datadir}/licenses/lightning %{buildroot}%{_datadir}/licenses/%{name}
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/lightning.desktop
@@ -83,9 +89,9 @@ appstreamcli validate --no-net %{buildroot}%{_datadir}/metainfo/lightning.metain
 %{_datadir}/icons/hicolor/*/apps/lightning.png
 %{_datadir}/icons/hicolor/scalable/apps/lightning.svg
 %{_datadir}/metainfo/lightning.metainfo.xml
-%license %{_datadir}/licenses/lightning/copyright
-%license %{_docdir}/lightning/LICENSE
-%doc %{_docdir}/lightning/README.md
+%license %{_datadir}/licenses/%{name}/copyright
+%license %{_docdir}/%{name}/LICENSE
+%doc %{_docdir}/%{name}/README.md
 
 %post
 update-desktop-database -q %{_datadir}/applications || :

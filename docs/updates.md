@@ -240,7 +240,7 @@ packaged installation.
 | Linux AppImage | Downloads and verifies the new AppImage, preserves the executable bit, and atomically replaces the running AppImage, restoring the previous file if the replacement fails. |
 | Linux DEB | Downloads and verifies the `.deb`, then hands it to the system package manager through PolicyKit. dpkg/APT stays the owner of every installed file. |
 | Linux RPM | Downloads and verifies the `.rpm`, then hands it to `dnf5`/`dnf`/`rpm-ostree` (whichever exists) through PolicyKit. RPM stays the owner of every installed file. openSUSE has none of the three, so there it is `rpm -U`, which cannot pull in a dependency a new release adds; that path has not been exercised. |
-| Linux RPM from COPR | Nothing is downloaded. dnf owns this installation; Lightning says so and offers `sudo dnf upgrade --refresh lightning`. |
+| Linux RPM from COPR | Nothing is downloaded. dnf owns this installation; Lightning says so and offers `sudo dnf upgrade --refresh lightning-matrix` (the rpm package's name from 0.10.1). |
 | Linux Flatpak | Nothing is downloaded. Flatpak owns this installation; Lightning says so and offers the correct command. |
 | Linux Snap | Nothing is downloaded. Snap owns this installation and refreshes it itself; Lightning says so and offers the correct command. |
 

@@ -1535,7 +1535,7 @@ QString UpdateManager::managedUpdateCommand() const
                               : QStringLiteral("snap refresh %1").arg(name);
     }
     case InstallType::LinuxRpmRepo:
-        return QStringLiteral("sudo dnf upgrade --refresh lightning");
+        return QStringLiteral("sudo dnf upgrade --refresh lightning-matrix");
     default:
         break;
     }

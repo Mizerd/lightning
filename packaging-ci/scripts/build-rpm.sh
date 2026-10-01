@@ -23,7 +23,9 @@ rpmbuild -bb "$ROOT/packaging-ci/packaging/rpm/lightning.spec" \
 
 mapfile -t packages < <(find "$TOPDIR/RPMS" -type f -name '*.rpm' -print)
 (( ${#packages[@]} == 1 )) || die "expected exactly one binary RPM"
-cp "${packages[0]}" "$ROOT/dist/"
-PACKAGE="$ROOT/dist/$(basename "${packages[0]}")"
+# The package is lightning-matrix; the published file keeps its established
+# name so the signed manifest, the website and the docs need no change.
+PACKAGE="$ROOT/dist/lightning-${RPM_VERSION}-${RPM_RELEASE}.x86_64.rpm"
+cp "${packages[0]}" "$PACKAGE"
 write_sha256 "$PACKAGE"
 printf 'Built %s\n' "$PACKAGE"

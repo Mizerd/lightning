@@ -10,9 +10,9 @@ statically. The deployment project adds:
 /usr/bin/lightning-updater
 /usr/share/applications/lightning.desktop
 /usr/share/metainfo/lightning.metainfo.xml
-/usr/share/licenses/lightning/copyright
-/usr/share/doc/lightning/LICENSE
-/usr/share/doc/lightning/README.md
+/usr/share/licenses/lightning/copyright     # rpm: licenses/lightning-matrix
+/usr/share/doc/lightning/LICENSE            # rpm: doc/lightning-matrix
+/usr/share/doc/lightning/README.md          # rpm: doc/lightning-matrix
 ```
 
 Qt, libsecret, SQLite and other system libraries remain dynamically linked and

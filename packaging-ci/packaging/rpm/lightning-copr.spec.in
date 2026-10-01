@@ -12,7 +12,9 @@
 # Rust fat-LTO link it raises the build's peak memory.
 %global _lto_cflags %{nil}
 
-Name:           lightning
+Name:           lightning-matrix
+# Renamed from "lightning": Fedora's GNU Lightning (2.x) has that name.
+Obsoletes:      lightning < 1.0
 Version:        @VERSION@
 # %%buildtag is Copr's build id (".copr<N>"), so a rebuild of the same
 # version still reaches users.
