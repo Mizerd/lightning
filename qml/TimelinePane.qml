@@ -882,10 +882,20 @@ Rectangle {
                     objectName: "roomHeaderIdentity"
                     spacing: 2
                     Layout.fillWidth: true
+                    // The whole band's height, so the card is one click target
+                    // and not a strip as tall as its text. The contents are
+                    // centred between the two stretch items below.
+                    Layout.fillHeight: true
+                    // A column's maximum is the sum of its children's, and a
+                    // room with no topic has only the name's row (itself capped
+                    // at the name's width), so without this the column hugged
+                    // the name and the empty run beside it belonged to nothing.
+                    Layout.maximumWidth: 16777215
                     // Lets a narrow header take width from the name, which
                     // elides, rather than from the action icons, which the band
                     // would clip.
                     Layout.minimumWidth: 0
+                    Item { Layout.fillHeight: true }
                     RowLayout {
                         spacing: AppTheme.spacingS
                         Label {
@@ -978,6 +988,7 @@ Rectangle {
                         elide: Label.ElideRight
                         maximumLineCount: 1
                     }
+                    Item { Layout.fillHeight: true }
                     TapHandler {
                         objectName: "roomHeaderIdentityTap"
                         enabled: app.currentRoomId !== "" && app.roomInfo.supported

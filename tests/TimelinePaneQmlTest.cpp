@@ -4420,6 +4420,145 @@ private Q_SLOTS:
                  "a group room's header opened a profile");
     }
 
+    // The header card is one click target: anywhere on it that is not an icon
+    // button opens Room Information (a DM's NAME is the one exception and
+    // opens the peer's profile). The identity column used to be only as tall
+    // as its text, centred in the 60px band, so in a room with NO topic the
+    // target was a ~22px strip and a click above or below the name, or in the
+    // empty run to its right, did nothing. A public room with a topic hid it.
+    void theWholeHeaderCardOpensRoomInformationWithOrWithoutATopic()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QQuickItem *root = paneWithEvents(controller, engine, window,
+                                          QStringLiteral("!general:example.org"),
+                                          {}, 0, 700, &timeline);
+        QVERIFY(root);
+        window.resize(1000, 700);
+        root->setSize(QSizeF(1000, 700));
+        QCoreApplication::processEvents();
+
+        auto *band = root->findChild<QQuickItem *>(QStringLiteral("roomHeaderBand"));
+        auto *identity = root->findChild<QQuickItem *>(
+            QStringLiteral("roomHeaderIdentity"));
+        auto *title = root->findChild<QQuickItem *>(QStringLiteral("roomHeaderTitle"));
+        auto *profile = root->findChild<QObject *>(
+            QStringLiteral("senderProfilePopover"));
+        QVERIFY(band && identity && title && profile);
+
+        // The mock has no room management, so the handlers are off; forced on
+        // so a tap is counted. Their objectNames are the contract.
+        QObject *identityTap = root->findChild<QObject *>(
+            QStringLiteral("roomHeaderIdentityTap"));
+        QVERIFY(identityTap);
+        QVERIFY(QQmlProperty::write(identityTap, QStringLiteral("enabled"), true));
+        QSignalSpy identityTaps(identityTap, signalNamed(identityTap, "tapped"));
+        const auto taps = [&] { return identityTaps.count(); };
+        QStringList failures;
+
+        struct Variant {
+            const char *label; bool topic; bool encrypted; bool dm;
+        };
+        const Variant variants[] = {
+            { "public group, topic", true, false, false },
+            { "private group, no topic", false, true, false },
+            { "private group, topic", true, true, false },
+            { "public group, no topic", false, false, false },
+            { "DM, no topic", false, true, true },
+        };
+        int clicks = 0;
+        for (const Variant &v : variants) {
+            QVariantMap room;
+            room.insert(QStringLiteral("name"), QStringLiteral("Lightning Support"));
+            room.insert(QStringLiteral("topic"),
+                        v.topic ? QStringLiteral("Help with Lightning") : QString());
+            room.insert(QStringLiteral("encrypted"), v.encrypted);
+            room.insert(QStringLiteral("isDirect"), v.dm);
+            room.insert(QStringLiteral("identityColorKey"),
+                        v.dm ? QStringLiteral("@bob:mock.local")
+                             : QStringLiteral("!support:mock.local"));
+            root->setProperty("currentRoom", room);
+            QTest::qWait(60);
+            QCoreApplication::processEvents();
+            QVERIFY(QMetaObject::invokeMethod(profile, "close"));
+
+            const QRectF bandRect(band->mapToScene(QPointF(0, 0)),
+                                  QSizeF(band->width(), band->height()));
+            const double midY = bandRect.center().y();
+            const QPointF idTop = identity->mapToScene(QPointF(0, 0));
+            const double idX = idTop.x();
+            const double titleRight = title->mapToScene(
+                QPointF(title->width(), 0)).x();
+            const double identityRight = idX + identity->width();
+            QVERIFY2(identity->width() > 300,
+                     qPrintable(QStringLiteral(
+                         "fixture: the identity column has no width to probe "
+                         "(%1: identity w=%2 h=%3, title w=%4)")
+                         .arg(QLatin1String(v.label)).arg(identity->width())
+                         .arg(identity->height()).arg(title->width())));
+
+            struct Probe { const char *where; QPoint p; };
+            const Probe probes[] = {
+                { "top of the band over the name",
+                  QPoint(int(idX + 10), int(bandRect.top() + 4)) },
+                { "bottom of the band over the name",
+                  QPoint(int(idX + 10), int(bandRect.bottom() - 4)) },
+                { "just right of the name, on its line",
+                  QPoint(int(titleRight + 8), int(midY)) },
+                { "far right of the card, mid height",
+                  QPoint(int(identityRight - 20), int(midY)) },
+                { "far right of the card, top of the band",
+                  QPoint(int(identityRight - 20), int(bandRect.top() + 4)) },
+                { "far right of the card, bottom of the band",
+                  QPoint(int(identityRight - 20), int(bandRect.bottom() - 4)) },
+            };
+            for (const Probe &pr : probes) {
+                const int before = taps();
+                QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier, pr.p);
+                QTest::qWait(30);
+                ++clicks;
+                if (taps() != before + 1)
+                    failures << QStringLiteral("%1 / %2: %3 taps")
+                                    .arg(QLatin1String(v.label),
+                                         QLatin1String(pr.where))
+                                    .arg(taps() - before);
+                if (profile->property("opened").toBool())
+                    failures << QStringLiteral("%1 / %2: opened a profile")
+                                    .arg(QLatin1String(v.label),
+                                         QLatin1String(pr.where));
+            }
+
+            // The name: a group room's belongs to Room Information, a DM's to
+            // the peer's profile (and then must not also toggle the panel).
+            const int before = taps();
+            QTest::mouseClick(&window, Qt::LeftButton, Qt::NoModifier,
+                              title->mapToScene(QPointF(title->width() / 2.0,
+                                                        title->height() / 2.0))
+                                  .toPoint());
+            QTest::qWait(60);
+            ++clicks;
+            if (v.dm) {
+                if (!profile->property("opened").toBool()
+                        || profile->property("userId").toString()
+                               != QStringLiteral("@bob:mock.local"))
+                    failures << QStringLiteral("%1 / name: no profile card")
+                                    .arg(QLatin1String(v.label));
+                if (taps() != before)
+                    failures << QStringLiteral("%1 / name: also toggled the panel")
+                                    .arg(QLatin1String(v.label));
+            } else if (taps() != before + 1) {
+                failures << QStringLiteral("%1 / name: %2 taps")
+                                .arg(QLatin1String(v.label)).arg(taps() - before);
+            }
+            QMetaObject::invokeMethod(profile, "close");
+        }
+        QVERIFY2(clicks == 5 * 7, "fixture: not every probe was clicked");
+        QVERIFY2(failures.isEmpty(), qPrintable(failures.join(QLatin1Char('\n'))));
+    }
+
     // The room title outranks the header icon row: the row yields (folding
     // into an overflow menu) before the title elides below its floor, and an
     // elided title never sits beside an empty spacer. Measured geometrically,
