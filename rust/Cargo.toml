@@ -27,6 +27,8 @@ crate-type = ["staticlib"]
 #   option. The bundled amalgamation enables it (libsqlite3-sys build.rs), so
 #   search works on every platform instead of depending on the host's
 #   libsqlite3. The SDK stores share it; the file format is unchanged.
+# rust/src/mediafetch.rs copies Media::get_media_content (media.rs) to bound its
+# retries; on ANY bump of matrix-sdk, re-diff it against the new media.rs.
 matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "bundled-sqlite", "markdown", "testing", "qrcode", "experimental-send-custom-to-device"] }
 # The SDK Timeline (VectorDiff subscription, retry decryption, pagination,
 # local echoes) used by the timeline registry.

@@ -396,9 +396,9 @@ void MediaBridge::retry(const QString &cacheKey)
 
 bool MediaBridge::isPermanentCategory(const QString &category)
 {
-    // Only backend-reported validation failures are permanent. Network, timeout
-    // and the local "unavailable" dispatch failure (opId 0 during
-    // restore/switch) are transient.
+    // Only backend-reported validation failures are permanent. Network, timeout,
+    // "server_error" (the homeserver answered 5xx) and the local "unavailable"
+    // dispatch failure (opId 0 during restore/switch) are transient.
     return category == QLatin1String("rejected")
         || category == QLatin1String("invalid_gif");
 }

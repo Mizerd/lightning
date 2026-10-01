@@ -624,6 +624,49 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 2);
     }
 
+    // A homeserver that answers a remote avatar's thumbnail with HTTP 500 used
+    // to be retried by the SDK until the 40 s timeout, eight at a time, so
+    // every avatar and image waited behind them. Rust now reports it at once as
+    // "server_error". The bridge must treat that as a SHORT, TRANSIENT failure:
+    // the slot is freed and the queue pumps now, the avatar shows initials (the
+    // synchronous category lookup), nothing is re-requested while the mark
+    // stands, and the mark expires into one later attempt. A CATEGORY CONTRACT
+    // test: the bridge already behaved this way, so it passes on the old code
+    // too; the regression coverage for the stall is the Rust mediafetch tests.
+    void serverErrorIsAFastTransientFailure()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+
+        // Ten avatars: eight dispatch, two queue behind them.
+        for (int i = 0; i < 10; ++i)
+            bridge.avatarSource(QStringLiteral("mxc://remote.example/a%1").arg(i), 64);
+        QCOMPARE(client.fetches.size(), 8);
+
+        // The first eight all fail with server_error: each frees its slot and
+        // pumps one queued request, so all ten have been dispatched and nothing
+        // is left waiting for a timeout.
+        for (int i = 0; i < 8; ++i)
+            client.fail(client.fetches.at(i).opId, QStringLiteral("server_error"));
+        QCOMPARE(client.fetches.size(), 10);
+        QCOMPARE(bridge.avatarFailureCategory(
+                     QStringLiteral("mxc://remote.example/a0")),
+                 QStringLiteral("server_error"));
+
+        // Honest initials now, and no hot retry loop: polling the failed
+        // avatar again dispatches nothing.
+        QCOMPARE(bridge.avatarSource(QStringLiteral("mxc://remote.example/a0"), 64),
+                 QString());
+        QCOMPARE(client.fetches.size(), 10);
+
+        // Transient, not permanent: once the mark expires, exactly one new
+        // attempt is allowed.
+        bridge.setFailureRetryMsForTest(0);
+        bridge.avatarSource(QStringLiteral("mxc://remote.example/a0"), 64);
+        QCOMPARE(client.fetches.size(), 11);
+    }
+
     // A dispatch rejected with opId==0 (session restoring or switching) is the
     // transient "unavailable" category with the normal retry window, not a
     // permanent mark.

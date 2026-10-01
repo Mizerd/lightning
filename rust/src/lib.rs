@@ -84,6 +84,7 @@ mod linkmedia;
 mod indexall;
 mod localsearch;
 mod location;
+mod mediafetch;
 mod mediafiles;
 mod mediahistory;
 mod mediastore;

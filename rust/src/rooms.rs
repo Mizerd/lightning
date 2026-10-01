@@ -4828,9 +4828,15 @@ pub(crate) fn media_fetch(
         let outcome = match kept {
             Some(bytes) => Ok(Ok(bytes)),
             None => {
+                // Bounded twice: the overall timeout below, and per request
+                // (one attempt, mediafetch.rs) so a 5xx is a failure now and
+                // not a retry loop that holds a MediaBridge slot until it.
+                let limit = std::time::Duration::from_secs(media_timeout_secs(timeout_class));
                 tokio::time::timeout(
-                    std::time::Duration::from_secs(media_timeout_secs(timeout_class)),
-                    client.media().get_media_content(&request, use_cache),
+                    limit,
+                    crate::mediafetch::get_media_content_bounded(
+                        &client, &request, use_cache, limit,
+                    ),
                 )
                 .await
             }
@@ -4911,7 +4917,7 @@ pub(crate) fn media_fetch(
             Ok(Err(err)) => {
                 emit_media_failed(
                     &terminal, &results, op_id, lifecycle, &key, kind,
-                    classify_room_error(&err.to_string()),
+                    crate::mediafetch::classify_media_error(&err),
                 );
             }
         }
@@ -4956,10 +4962,20 @@ pub(crate) fn media_fetch_mxc(
             source: matrix_sdk::ruma::events::room::MediaSource::Plain(uri),
             format,
         };
-        // Standard class: 40 s, below the C++ 45 s watchdog.
+        // Standard class: 40 s, below the C++ 45 s watchdog. Each request is a
+        // single attempt of at most 15 s, and a thumbnail that fails on a
+        // server fault falls back to ONE download of the file (a plain source
+        // only; this function never carries an encrypted one). Without that a
+        // homeserver answering 500 to every remote thumbnail was retried by the
+        // SDK until this timeout, eight at a time (mediafetch.rs).
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(media_timeout_secs(0)),
-            client.media().get_media_content(&request, use_cache),
+            crate::mediafetch::get_avatar_bounded(
+                &client,
+                &request,
+                use_cache,
+                crate::mediafetch::AVATAR_REQUEST_TIMEOUT,
+            ),
         )
         .await;
         if let Ok(mut guard) = aborts.lock() {
@@ -5002,7 +5018,7 @@ pub(crate) fn media_fetch_mxc(
                     lifecycle,
                     &mxc,
                     2,
-                    classify_room_error(&err.to_string()),
+                    crate::mediafetch::classify_media_error(&err),
                 );
             }
         }
