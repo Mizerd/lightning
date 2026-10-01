@@ -1198,6 +1198,11 @@ private Q_SLOTS:
         const QString url = store.avatarUrlFor(uid);
         QVERIFY2(url.startsWith(QStringLiteral("file://")),
                  qPrintable(QStringLiteral("not a local file url: %1").arg(url)));
+        // The url must open the file it names: "file://" + "C:/..." made Qt
+        // read the drive letter as a host on Windows.
+        QVERIFY(QUrl(url).isLocalFile());
+        QVERIFY2(QFileInfo::exists(QUrl(url).toLocalFile()),
+                 qPrintable(QUrl(url).toLocalFile()));
         // A second store reads what the first wrote: the picture outlives the
         // object that fetched it.
         AccountAvatarStore reopened;

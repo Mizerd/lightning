@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QDateTime>
 #include <QFileInfo>
+#include <QUrl>
 #include <QFile>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -67,8 +68,13 @@ QString AccountAvatarStore::avatarUrlFor(const QString &userId) const
     if (!info.exists() || info.size() <= 0)
         return {};
     // The mtime makes a replaced picture reload (Qt caches Image by URL).
-    return QStringLiteral("file://") + path + QStringLiteral("?m=")
-        + QString::number(info.lastModified().toSecsSinceEpoch());
+    // fromLocalFile, not "file://" + path: on Windows that gives
+    // file://C:/Users/..., where Qt reads "C" as a host and the file is never
+    // opened.
+    QUrl url = QUrl::fromLocalFile(path);
+    url.setQuery(QStringLiteral("m=")
+                 + QString::number(info.lastModified().toSecsSinceEpoch()));
+    return url.toString();
 }
 
 bool AccountAvatarStore::store(const QString &userId, const QByteArray &bytes)
