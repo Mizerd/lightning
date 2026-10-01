@@ -212,6 +212,16 @@ private Q_SLOTS:
     }
 
     // The emoji face is registered as Qt's fallback for the Common script: a
+    // Only Qt 6.8 gets the extra fallback family: up to 6.11 Qt's fontconfig
+    // fallback check reads an uninitialised FcCharSet, and the family crashed
+    // the Flatpak (Qt 6.11) on a user's machine.
+    void theEmojiFallbackIsInstalledOnlyWhereQtNeedsIt()
+    {
+        QVERIFY(FontManager::emojiFallbackNeeded(QVersionNumber(6, 8, 2)));
+        QVERIFY(!FontManager::emojiFallbackNeeded(QVersionNumber(6, 9, 0)));
+        QVERIFY(!FontManager::emojiFallbackNeeded(QVersionNumber(6, 11, 1)));
+    }
+
     // QML `font.family` replaces the families list, and Qt 6.8's own fallback
     // picks a monochrome face.
     void theEmojiFaceBecomesQtsFallbackForCommonScript()

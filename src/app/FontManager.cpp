@@ -550,6 +550,11 @@ bool FontManager::installEmojiFallback(const QString &family)
 #endif
 }
 
+bool FontManager::emojiFallbackNeeded(const QVersionNumber &runningQt)
+{
+    return runningQt < QVersionNumber(6, 9);
+}
+
 QFont FontManager::withEmojiFallback(const QString &family, int pixelSize)
 {
     QFont font(family);

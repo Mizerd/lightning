@@ -6,6 +6,7 @@
 #include <QStringList>
 #include <QUrl>
 #include <QVariantList>
+#include <QVersionNumber>
 
 class SettingsManager;
 
@@ -77,6 +78,13 @@ public:
     // `font.family`, which replaces any per-surface family list. Returns false
     // when `family` is empty or Qt predates the API (6.8).
     static bool installEmojiFallback(const QString &family);
+    // Whether the Qt running this process needs installEmojiFallback(): only
+    // 6.8, which picks a monochrome face on its own. Every Qt up to 6.11
+    // reads an uninitialised FcCharSet in its fontconfig fallback check when
+    // a fallback family's match has no charset, so the extra family crashed a
+    // Flatpak user's 0.10.0 at the first label (reported 2026-10-01); newer
+    // Qt draws colour emoji without it.
+    static bool emojiFallbackNeeded(const QVersionNumber &runningQt);
 
     explicit FontManager(SettingsManager *settings, QObject *parent = nullptr);
 

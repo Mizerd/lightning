@@ -2085,8 +2085,11 @@ int main(int argc, char *argv[])
     QGuiApplication::setFont(
         FontManager::withEmojiFallback(QStringLiteral("Manrope"), 14));
     // Also Qt's own fallback: a QML `font.family` drops the families list,
-    // and Qt 6.8 then falls back to a monochrome emoji face.
-    FontManager::installEmojiFallback(FontManager::emojiFamily());
+    // and Qt 6.8 then falls back to a monochrome emoji face. Only there: on
+    // newer Qt the extra family reached a crash in Qt's fontconfig fallback
+    // check (see emojiFallbackNeeded).
+    if (FontManager::emojiFallbackNeeded(QLibraryInfo::version()))
+        FontManager::installEmojiFallback(FontManager::emojiFamily());
 
     // Second pass through QCommandLineParser for Qt's own flags and its
     // standard unknown-option error.
