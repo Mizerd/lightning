@@ -248,7 +248,13 @@ Rectangle {
     // _requestMotion() re-checks the viewport, writing _inViewport, which
     // _wantsMotion reads (Qt reports that as a binding loop and abandons the
     // update).
-    on_WantsMotionChanged: Qt.callLater(root._applyWantsMotion)
+    // Through Timers the avatar owns, never Qt.callLater: a call queued that
+    // way outlives a delegate destroyed before the loop turns (a room switch
+    // tears hundreds down) and runs in a dead context, one TypeError each.
+    on_WantsMotionChanged: applyWantsMotionLater.restart()
+    Timer { id: applyWantsMotionLater; interval: 0; onTriggered: root._applyWantsMotion() }
+    Timer { id: motionStalledLater; interval: 0; onTriggered: root._motionStalled() }
+    Timer { id: motionErrorLater; interval: 0; onTriggered: root._motionError() }
     function _applyWantsMotion() {
         if (_wantsMotion)
             _requestMotion()
@@ -472,7 +478,7 @@ Rectangle {
             onPlayingChanged: {
                 if (!motionImage.playing
                     && motionImage.status === AnimatedImage.Ready)
-                    Qt.callLater(root._motionStalled)
+                    motionStalledLater.restart()
             }
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
@@ -490,7 +496,7 @@ Rectangle {
             onStatusChanged: {
                 // Deferred: handling it tears this very item down.
                 if (status === AnimatedImage.Error)
-                    Qt.callLater(root._motionError)
+                    motionErrorLater.restart()
             }
         }
     }
