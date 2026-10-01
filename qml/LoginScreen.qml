@@ -203,6 +203,12 @@ Item {
         }
     }
 
+    // The failed account's server (its recorded one, chosen in C++), or ""
+    // when there is no failure to repair.
+    readonly property string failureServer:
+        app.localSessionFailureReasonCode !== ""
+            ? (app.localSessionFailureHomeserver || "") : ""
+
     // Prefill from the identity that actually failed (resolved server-
     // canonically in C++), never the raw typed text, so the repair card targets
     // the right account, including during add-account. See qml/AccountMenu.qml
@@ -212,9 +218,11 @@ Item {
             return
         if (app.localSessionFailureUserId !== "")
             userField.text = app.localSessionFailureUserId
-        if (app.localSessionFailureHomeserver !== "") {
-            homeserverField.text = app.localSessionFailureHomeserver
-            // The summary row shows the asked server, so ask about this one.
+        if (root.failureServer !== "") {
+            if (homeserverField.text !== root.failureServer)
+                homeserverField.text = root.failureServer
+            // The summary row shows the asked server, so ask about this one
+            // (AuthManager does not ask again about one already answered).
             app.auth.discoverAuthMethods(homeserverField.text)
         }
     }
@@ -472,8 +480,21 @@ Item {
                             // the prefill on open, then debounced while typing.
                             // AuthManager tags results by server, so a stale
                             // probe can't label a newer one.
+                            //
+                            // A failure known before this screen was built (a
+                            // session the server ended, then the Loader made
+                            // this screen) names its own server. The root's
+                            // Component.onCompleted prefills from it too, and
+                            // QML does not order the two handlers, so this one
+                            // must neither overwrite it nor ask a second time:
+                            // the last-used server won, and a matrix.org OAuth
+                            // account got another server's password form.
                             Component.onCompleted: {
-                                text = app.settings.loginHomeserverPrefill
+                                if (text.length > 0)
+                                    return
+                                text = root.failureServer !== ""
+                                    ? root.failureServer
+                                    : app.settings.loginHomeserverPrefill
                                 if (text.length > 0)
                                     app.auth.discoverAuthMethods(text)
                             }

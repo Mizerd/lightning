@@ -239,13 +239,10 @@ class LoginScreenQmlTest : public QObject
         QCoreApplication::processEvents();
     }
 
-private slots:
-    void init()
+    // Builds the screen over the current m_app: what the Loader in Main.qml
+    // does each time the login screen is shown.
+    void loadScreen()
     {
-        m_warnings.clear();
-        m_client = new DiscoveringClient;
-        m_auth = new AuthManager(m_client);
-        m_app = new FakeApp(m_auth);
         m_engine = new QQmlApplicationEngine;
         connect(m_engine, &QQmlEngine::warnings, this,
                 [this](const QList<QQmlError> &warnings) {
@@ -267,6 +264,32 @@ private slots:
         QVERIFY(QTest::qWaitForWindowExposed(m_window));
         m_window->requestActivate();
         QVERIFY(QTest::qWaitForWindowActive(m_window));
+    }
+
+    // Throws the screen away, keeping m_app and the AuthManager, as the
+    // Loader does when the session view replaces it. loadScreen() builds it
+    // again: whatever m_app says in between is known BEFORE the new screen
+    // exists, which is how a session the server ends reaches it.
+    void unloadScreen()
+    {
+        delete m_window;
+        m_window = nullptr;
+        m_root = nullptr;
+        delete m_engine;
+        m_engine = nullptr;
+        m_client->discoveries.clear();
+    }
+
+private slots:
+    void init()
+    {
+        m_warnings.clear();
+        m_client = new DiscoveringClient;
+        m_auth = new AuthManager(m_client);
+        m_app = new FakeApp(m_auth);
+        loadScreen();
+        if (QTest::currentTestFailed())
+            return;
         // The prefill is asked about as the screen opens.
         QCOMPARE(m_client->discoveries, QStringList{ kServer });
     }
@@ -621,6 +644,64 @@ private slots:
                      qPrintable(QStringLiteral("contentY %1 is past the end %2")
                                     .arg(flick->property("contentY").toReal())
                                     .arg(maxY())));
+    }
+
+    // Reported 2026-10-01: an OAuth account on matrix.org was signed out
+    // remotely and the repair form asked for a PASSWORD on the last-used
+    // server (matrix.smetonis.net), under the failed account's user id. The
+    // failure is recorded before the session ends and the Loader builds this
+    // screen, so the root's prefill from the failure and the server field's
+    // own prefill from the last-used server both run at completion, in an
+    // order QML does not define. The failed account's server must win, and
+    // its own way in (here the browser) be offered, not the other server's.
+    void aFailureKnownBeforeTheScreenOpensUsesTheFailedAccountsServer()
+    {
+        const QString failedUser = QStringLiteral("@mizerd:matrix.org");
+        const QString failedServer = QStringLiteral("https://matrix.org");
+        const QString lastUsed = QStringLiteral("https://matrix.smetonis.example");
+        unloadScreen();
+        m_app->settings.prefill = lastUsed;
+        m_app->fail(QStringLiteral("access_token_revoked"), failedUser, failedServer);
+        loadScreen();
+        QVERIFY(!QTest::currentTestFailed());
+        QCoreApplication::processEvents();
+
+        QCOMPARE(text(QStringLiteral("homeserverField")), failedServer);
+        QCOMPARE(text(QStringLiteral("userField")), failedUser);
+        // The last server asked about is the failed account's; nothing asked
+        // about the other one after it.
+        QVERIFY(!m_client->discoveries.isEmpty());
+        QCOMPARE(m_client->discoveries.last(), failedServer);
+        QVERIFY2(!m_client->discoveries.contains(lastUsed),
+                 qPrintable(m_client->discoveries.join(QLatin1Char(','))));
+
+        // matrix.org answers as MAS does (its own page, and a password API
+        // beside it): the browser is the way in, and no password is asked.
+        m_client->answer(failedServer, true, true, false, true,
+                         QStringLiteral("https://matrix-client.matrix.org/"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(shown(QStringLiteral("browserLoginButton")));
+        QVERIFY(!shown(QStringLiteral("passwordForm")));
+        QVERIFY(shown(QStringLiteral("loginRepairCard")));
+        click(QStringLiteral("browserLoginButton"));
+        QCOMPARE(m_client->oauthStarts.size(), 1);
+        QVERIFY2(m_client->oauthStarts.first().contains(QStringLiteral("matrix.org")),
+                 qPrintable(m_client->oauthStarts.first()));
+        QVERIFY(!m_client->oauthStarts.first().contains(QStringLiteral("smetonis")));
+    }
+
+    // With no failure the field still opens on the last-used server, asked
+    // about once.
+    void withoutAFailureTheScreenStillOpensOnTheLastUsedServer()
+    {
+        const QString lastUsed = QStringLiteral("https://matrix.smetonis.example");
+        unloadScreen();
+        m_app->settings.prefill = lastUsed;
+        loadScreen();
+        QVERIFY(!QTest::currentTestFailed());
+        QCoreApplication::processEvents();
+        QCOMPARE(text(QStringLiteral("homeserverField")), lastUsed);
+        QCOMPARE(m_client->discoveries, QStringList{ lastUsed });
     }
 
     void noQmlWarnings()

@@ -551,6 +551,70 @@ private Q_SLOTS:
         window->close();
     }
 
+    // Reported 2026-10-01: a matrix.org OAuth account was signed out
+    // remotely and its repair form named ANOTHER server. The failed
+    // account's own record decides the server the form signs in to, never
+    // what the emitter had at hand (the running handle's server, or
+    // nothing), and the form built afterwards shows it.
+    void aRepairFormOpensOnTheFailedAccountsRecordedServer()
+    {
+        const QString other = QStringLiteral("@bee:example.org");
+        TestKeyring keyring;
+        {
+            TestKeyringStore secrets(&keyring, nullptr);
+            SettingsManager settings;
+            settings.setSecretStore(&secrets);
+            settings.saveSession(QStringLiteral("https://example.org"), other,
+                                 QStringLiteral("BEEDEV"), QStringLiteral("bee-token"),
+                                 QStringLiteral("bee-refresh"), QStringLiteral("oauth"),
+                                 QStringLiteral("bee-client"));
+            // Saved last, so it is the active account the launch restores.
+            settings.saveSession(kHs, kUser, QStringLiteral("MOCKDEV"),
+                                 QStringLiteral("mock-token"));
+            settings.setLoginHomeserverPrefill(QStringLiteral("https://last-used.example"));
+        }
+        AppController app(AppController::MockBackend, false, keyringFactory(&keyring));
+        QTRY_COMPARE(app.currentScreen(), AppController::MainScreen);
+        const QString recorded = app.settings()->accountRecord(other)
+                                     .value(QStringLiteral("homeserver")).toString();
+        QCOMPARE(recorded, QStringLiteral("https://example.org"));
+
+        // A failure for B, named with the RUNNING account's server.
+        app.setLocalSessionFailure(QStringLiteral("access_token_revoked"), other, kHs);
+        QCOMPARE(app.localSessionFailureUserId(), other);
+        QCOMPARE(app.localSessionFailureHomeserver(), recorded);
+        // Named with no server at all.
+        app.clearLocalSessionFailure();
+        app.setLocalSessionFailure(QStringLiteral("access_token_revoked"), other, QString());
+        QCOMPARE(app.localSessionFailureHomeserver(), recorded);
+        // An account with no record keeps what it was given.
+        app.clearLocalSessionFailure();
+        app.setLocalSessionFailure(QStringLiteral("access_token_revoked"),
+                                   QStringLiteral("@nobody:elsewhere.example"),
+                                   QStringLiteral("https://elsewhere.example"));
+        QCOMPARE(app.localSessionFailureHomeserver(),
+                 QStringLiteral("https://elsewhere.example"));
+
+        // The form opened after the failure (here add-account, A still
+        // running) signs in to B's server, not A's and not the last-used one.
+        app.setLocalSessionFailure(QStringLiteral("access_token_revoked"), other, kHs);
+        QQmlApplicationEngine engine;
+        QQuickWindow *window = loadMainWindow(engine, app);
+        QVERIFY(window != nullptr);
+        app.showLogin();
+        QTRY_COMPARE(app.currentScreen(), AppController::LoginScreen);
+        QQuickItem *field = nullptr;
+        QTRY_VERIFY((field = window->findChild<QQuickItem *>(
+                         QStringLiteral("homeserverField"))) != nullptr);
+        QCoreApplication::processEvents();
+        QCOMPARE(field->property("text").toString(), recorded);
+        auto *user = window->findChild<QQuickItem *>(QStringLiteral("userField"));
+        QVERIFY(user != nullptr);
+        QCOMPARE(user->property("text").toString(), other);
+        app.clearLocalSessionFailure();
+        window->close();
+    }
+
     // Each lookup in a locked collection can raise an unlock prompt, and a
     // dismissed prompt reads as "no such item", so a loop over the saved
     // accounts never stopped early: one prompt per account at the launch and

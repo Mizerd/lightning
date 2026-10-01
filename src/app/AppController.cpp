@@ -4392,8 +4392,22 @@ void AppController::resetLocalRustSession(const QString &homeserver,
 
 void AppController::setLocalSessionFailure(const QString &reasonCode,
                                            const QString &userId,
-                                           const QString &homeserver)
+                                           const QString &homeserver_)
 {
+    // The repair form signs in to the account that failed, so its server is
+    // that account's RECORDED one, never what the emitter had at hand: a
+    // running handle's server, or nothing, which left the form on the
+    // last-used server (a matrix.org OAuth account was offered a password
+    // form for another homeserver, 2026-10-01). Only without a record does
+    // the given server stand.
+    QString homeserver = homeserver_;
+    if (!userId.isEmpty() && m_settings) {
+        const QString recorded = m_settings->accountRecord(userId)
+                                     .value(QStringLiteral("homeserver"))
+                                     .toString();
+        if (!recorded.isEmpty())
+            homeserver = recorded;
+    }
     if (m_localSessionFailureReason == reasonCode
         && m_localSessionFailureUserId == userId
         && m_localSessionFailureHomeserver == homeserver) {
