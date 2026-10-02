@@ -54,6 +54,22 @@ bool login(MockMatrixClient &client)
 }
 } // namespace
 
+/// A client that can walk history and counts the pages it is asked for.
+class WalkingClient : public MockMatrixClient
+{
+public:
+    bool supportsMediaHistory() const override { return true; }
+    quint64 requestMediaHistoryPage(const QString &, int, bool) override
+    {
+        ++pagesRequested;
+        lastOp = ++nextOp;
+        return lastOp;
+    }
+    int pagesRequested = 0;
+    quint64 lastOp = 0;
+    quint64 nextOp = 100;
+};
+
 class MediaHistoryModelTest : public QObject
 {
     Q_OBJECT
@@ -358,6 +374,100 @@ private Q_SLOTS:
                  QStringLiteral("$b"));
         QCOMPARE(model.imageIndexForRow(0), 0);
         QCOMPARE(model.imageIndexForRow(1), 1);
+    }
+
+    // The reported "4 items in the 60 messages read so far, and no way to get
+    // more": a short list never scrolls, so scroll-driven paging never fired.
+    // "Show all media" must keep fetching pages by itself, to the end.
+    void showAllWalksPagesUntilTheStartOfHistory()
+    {
+        WalkingClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        const QString room = QStringLiteral("!r:example.org");
+        model.setRoomId(room);
+
+        model.loadAll();
+        QVERIFY(model.walking());
+        QCOMPARE(client.pagesRequested, 1);
+        for (int page = 1; page <= 3; ++page) {
+            Q_EMIT client.mediaHistoryPage(
+                client.lastOp, room,
+                { keyedEntry(QStringLiteral("$p%1").arg(page),
+                             QStringLiteral("image")) },
+                60, 60 * page, 0, false, false);
+            QCOMPARE(client.pagesRequested, page + 1);
+            QVERIFY(model.walking());
+        }
+        Q_EMIT client.mediaHistoryPage(client.lastOp, room, {}, 10, 190, 0,
+                                       true, false);
+        QVERIFY(!model.walking());
+        QVERIFY(model.complete());
+        QCOMPARE(model.shownCount(), 3);
+        QCOMPARE(client.pagesRequested, 4);
+    }
+
+    void cancellingTheWalkStopsAskingForPages()
+    {
+        WalkingClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        const QString room = QStringLiteral("!r:example.org");
+        model.setRoomId(room);
+        model.loadAll();
+        model.cancelWalk();
+        QVERIFY(!model.walking());
+        // The page already in flight lands, and nothing follows it.
+        Q_EMIT client.mediaHistoryPage(client.lastOp, room, {}, 60, 60, 0,
+                                       false, false);
+        QCOMPARE(client.pagesRequested, 1);
+    }
+
+    void aWalkIsBoundedAndStopsOnAnError()
+    {
+        WalkingClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        const QString room = QStringLiteral("!r:example.org");
+        model.setRoomId(room);
+        model.loadAll();
+        for (int i = 0; i < MediaHistoryModel::kMaxWalkPages + 10
+                        && model.walking(); ++i)
+            Q_EMIT client.mediaHistoryPage(client.lastOp, room, {}, 60, 60 * i,
+                                           0, false, false);
+        QVERIFY(!model.walking());
+        QCOMPARE(client.pagesRequested, MediaHistoryModel::kMaxWalkPages);
+
+        model.loadAll();
+        QVERIFY(model.walking());
+        Q_EMIT client.mediaHistoryFailed(client.lastOp, room,
+                                         QStringLiteral("boom"));
+        QVERIFY(!model.walking());
+        QVERIFY(!model.complete());
+    }
+
+    void aViewThatCannotScrollFillsItselfWithinABound()
+    {
+        WalkingClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        const QString room = QStringLiteral("!r:example.org");
+        model.setRoomId(room);
+        for (int i = 0; i < MediaHistoryModel::kMaxFillPages + 5; ++i) {
+            model.fillViewport();
+            if (model.loading())
+                Q_EMIT client.mediaHistoryPage(client.lastOp, room, {}, 60,
+                                               60 * (i + 1), 0, false, false);
+        }
+        QCOMPARE(client.pagesRequested, MediaHistoryModel::kMaxFillPages);
+        // A filter change is a new question and gets a fresh budget.
+        model.setCategory(QStringLiteral("audio"));
+        model.fillViewport();
+        QCOMPARE(client.pagesRequested, MediaHistoryModel::kMaxFillPages + 1);
     }
 };
 

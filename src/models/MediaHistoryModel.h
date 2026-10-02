@@ -41,6 +41,9 @@ class MediaHistoryModel : public QAbstractListModel
                    NOTIFY filtersChanged)
 
     Q_PROPERTY(bool loading READ loading NOTIFY stateChanged)
+    /// A "show all" walk is running: pages follow each other until the start
+    /// of history, the page budget, an error, or cancelWalk().
+    Q_PROPERTY(bool walking READ walking NOTIFY stateChanged)
     /// The walk reached the start of accessible history.
     Q_PROPERTY(bool complete READ complete NOTIFY stateChanged)
     /// The backend cannot walk history at all (no Rust backend).
@@ -105,6 +108,13 @@ public:
 
     bool loading() const { return m_pendingOp != 0; }
     bool complete() const { return m_complete; }
+    bool walking() const { return m_walking; }
+
+    /// Pages one "show all" walk may fetch before it stops and offers to
+    /// continue (60 events each), and pages a view that is not yet filled may
+    /// fetch on its own.
+    static constexpr int kMaxWalkPages = 50;
+    static constexpr int kMaxFillPages = 8;
     bool available() const;
     bool encryptedRoom() const { return m_encryptedRoom; }
     int shownCount() const { return int(m_shown.size()); }
@@ -118,6 +128,16 @@ public:
     /// is complete, so a view that calls it on every scroll cannot storm the
     /// homeserver.
     Q_INVOKABLE void loadMore();
+    /// "Show all media": keep fetching pages back-to-back, bounded by
+    /// kMaxWalkPages, until the start of history, an error or cancelWalk().
+    Q_INVOKABLE void loadAll();
+    /// Stop a loadAll() walk. A page already requested still lands (there is
+    /// no cancel verb on the wire) but nothing further is asked for.
+    Q_INVOKABLE void cancelWalk();
+    /// For a view whose content does not yet fill it, and which therefore can
+    /// never scroll to ask for more: fetch one more page, at most
+    /// kMaxFillPages in a row (reset when the filters or the room change).
+    Q_INVOKABLE void fillViewport();
     /// Begin again at the live edge — for a manual refresh.
     Q_INVOKABLE void reload();
     /// The row's entry as a map, for handing to the media/jump paths.
@@ -182,6 +202,9 @@ private:
     QVector<int> m_shown;      // indices into m_all that pass the filters
     quint64 m_pendingOp = 0;
     bool m_complete = false;
+    bool m_walking = false;
+    int m_walkPages = 0;
+    int m_fillPages = 0;
     bool m_encryptedRoom = false;
     qint64 m_scannedTotal = 0;
     qint64 m_undecryptable = 0;

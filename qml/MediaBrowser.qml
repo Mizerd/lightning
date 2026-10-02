@@ -187,6 +187,48 @@ Item {
             }
         }
 
+        // Older history is reached on request as well as by scrolling: a room
+        // whose first pages hold a handful of items never overflows the view,
+        // so nothing would ever scroll to ask for more. "Load more" is one
+        // page; "Show all media" keeps going, bounded, until the start of
+        // history, and Stop ends it.
+        RowLayout {
+            objectName: "mediaBrowserPagingRow"
+            Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing12
+            Layout.rightMargin: AppTheme.spacing12
+            spacing: AppTheme.spacing8
+            visible: root.model && root.model.available && !root.model.complete
+                     && root.model.lastError.length === 0
+            AppButton {
+                objectName: "mediaBrowserLoadMore"
+                kind: "secondary"
+                size: "sm"
+                text: qsTr("Load more")
+                enabled: !!root.model && !root.model.loading
+                onClicked: if (root.model) root.model.loadMore()
+                Accessible.name: qsTr("Load more media from older messages")
+            }
+            AppButton {
+                objectName: "mediaBrowserShowAll"
+                kind: "ghost"
+                size: "sm"
+                text: root.model && root.model.walking ? qsTr("Stop")
+                                                       : qsTr("Show all media")
+                onClicked: {
+                    if (!root.model)
+                        return
+                    if (root.model.walking)
+                        root.model.cancelWalk()
+                    else
+                        root.model.loadAll()
+                }
+                Accessible.name: root.model && root.model.walking
+                    ? qsTr("Stop searching older messages")
+                    : qsTr("Search all older messages for media")
+            }
+        }
+
         // The results
         Item {
             Layout.fillWidth: true
@@ -301,6 +343,24 @@ Item {
             onClicked: if (root.model) root.model.loadMore()
         }
     }
+
+    // A view whose content does not fill it cannot scroll, so the scroll
+    // handlers never ask for the next page. Ask for it here, a few pages at
+    // most (the model bounds it) and re-evaluated after every page.
+    function fillIfShort() {
+        if (!model || !root.visible)
+            return
+        var v = root.gridMode ? grid : list
+        if (v.contentHeight <= v.height + 1)
+            model.fillViewport()
+    }
+    Connections {
+        target: root.model
+        ignoreUnknownSignals: true
+        function onStateChanged() { Qt.callLater(root.fillIfShort) }
+        function onFiltersChanged() { Qt.callLater(root.fillIfShort) }
+    }
+    onGridModeChanged: Qt.callLater(root.fillIfShort)
 
     function requestMore() {
         if (model && !model.loading && !model.complete)

@@ -145,6 +145,7 @@ void MediaHistoryModel::setCategory(const QString &category)
     if (m_category == category)
         return;
     m_category = category;
+    m_fillPages = 0;
     rebuild();
     Q_EMIT filtersChanged();
 }
@@ -154,6 +155,7 @@ void MediaHistoryModel::setSenderFilter(const QString &sender)
     if (m_sender == sender)
         return;
     m_sender = sender;
+    m_fillPages = 0;
     rebuild();
     Q_EMIT filtersChanged();
 }
@@ -163,6 +165,7 @@ void MediaHistoryModel::setQuery(const QString &query)
     if (m_query == query)
         return;
     m_query = query;
+    m_fillPages = 0;
     rebuild();
     Q_EMIT filtersChanged();
 }
@@ -172,6 +175,7 @@ void MediaHistoryModel::setFromDate(const QDateTime &from)
     if (m_from == from)
         return;
     m_from = from;
+    m_fillPages = 0;
     rebuild();
     Q_EMIT filtersChanged();
 }
@@ -181,6 +185,7 @@ void MediaHistoryModel::setToDate(const QDateTime &to)
     if (m_to == to)
         return;
     m_to = to;
+    m_fillPages = 0;
     rebuild();
     Q_EMIT filtersChanged();
 }
@@ -196,6 +201,38 @@ void MediaHistoryModel::loadMore()
     if (m_pendingOp == 0)
         return;   // the backend refused; nothing is in flight
     Q_EMIT stateChanged();
+}
+
+void MediaHistoryModel::loadAll()
+{
+    if (!available() || m_roomId.isEmpty() || m_complete)
+        return;
+    m_walking = true;
+    m_walkPages = 0;
+    m_fillPages = 0;
+    if (m_pendingOp == 0) {
+        loadMore();
+        if (m_pendingOp == 0)
+            m_walking = false;   // refused; nothing will ever continue it
+    }
+    Q_EMIT stateChanged();
+}
+
+void MediaHistoryModel::cancelWalk()
+{
+    if (!m_walking)
+        return;
+    m_walking = false;
+    Q_EMIT stateChanged();
+}
+
+void MediaHistoryModel::fillViewport()
+{
+    if (m_fillPages >= kMaxFillPages || m_walking || m_pendingOp != 0
+        || m_complete || !available() || m_roomId.isEmpty())
+        return;
+    ++m_fillPages;
+    loadMore();
 }
 
 void MediaHistoryModel::reload()
@@ -353,6 +390,16 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
                          });
     }
     rebuild();
+    // A "show all" walk continues itself, within its budget.
+    if (m_walking) {
+        if (m_complete || ++m_walkPages >= kMaxWalkPages) {
+            m_walking = false;
+        } else {
+            loadMore();
+            if (m_pendingOp == 0)
+                m_walking = false;
+        }
+    }
     Q_EMIT stateChanged();
     Q_EMIT countsChanged();
 }
@@ -366,6 +413,7 @@ void MediaHistoryModel::onFailed(quint64 opId, const QString &roomId,
     // Not `complete`: after an error the rest of history is unknown, and the
     // view offers a retry.
     m_lastError = message;
+    m_walking = false;
     Q_EMIT stateChanged();
 }
 
@@ -424,6 +472,9 @@ void MediaHistoryModel::clearAll()
     endResetModel();
     m_pendingOp = 0;
     m_complete = false;
+    m_walking = false;
+    m_walkPages = 0;
+    m_fillPages = 0;
     m_encryptedRoom = false;
     m_scannedTotal = 0;
     m_undecryptable = 0;
