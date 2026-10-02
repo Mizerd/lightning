@@ -1,5 +1,29 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-10-02 — NOT TESTED live: everything since 0.10.0
+
+Code done and unit-tested, never exercised live. All of it must be live-tested
+before the next release; the full checklist is kept in the maintainer's notes.
+
+- **Activity (bell) clears when a room is read** — the highest-risk item. Paths:
+  reading the room, room-list and notification "Mark as read", notification
+  reply, "Mark space read", thread reads (only that thread's rows), a main read
+  leaving thread rows, a second device's read, restart.
+- OAuth refresh-token rotation kept across account switch and quit.
+- Repair form opens on the failed account's server and sign-in method.
+- Media kept without a keyring; 100 MiB per item, 1 GiB store; Settings state.
+- Windows store move-aside waits for retirement and retries.
+- Federated DM: no repeated empty rooms after a timeout.
+- Media fetch: 5xx fails fast, avatar fallback, 404 permanent, coalesced
+  downloads, emote-pack 404 memory.
+- Flatpak emoji-fallback crash (Qt 6.11), Windows account avatar URL, Avatar
+  deferred calls.
+- Voice playback across rooms and the mini-player (thread, redaction, call
+  pause, PiP avoidance).
+- Reply with an attachment; room list sort menu; header click; tray ignores
+  muted rooms; sidebar follows the Space order; Room info media "Load more";
+  rpm package rename.
+
 ## 2026-09-30 — OPEN after the overnight live-test campaign
 
 **Decisions for Rokas.**
