@@ -476,6 +476,8 @@ Item {
             // Home's create actions reuse the room list's dialog.
             onNewConversationRequested:
                 (mode, options) => roomsPanel.startConversation(mode, options)
+            onSearchAllRoomsRequested:
+                (query) => messageSearchDialog.openDialog(query)
         }
     }
 

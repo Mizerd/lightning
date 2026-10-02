@@ -57,6 +57,7 @@ constexpr auto kKeepRoomListOrderStill = "shell/keepRoomListOrderStill";
 constexpr auto kRoomListSort = "shell/roomListSort";
 constexpr auto kRoomListVisible   = "shell/roomListVisible";
 constexpr auto kRoomListWidth     = "shell/roomListWidth";
+constexpr auto kMemberPanelOpen   = "shell/memberPanelOpen";
 constexpr auto kSpacesRailWidth   = "shell/spacesRailWidth";
 constexpr auto kSpacesRailDepthStyle = "shell/spacesRailDepthStyle";
 constexpr auto kSidePanelWidth    = "shell/sidePanelWidth";
@@ -2446,6 +2447,19 @@ void SettingsManager::setRoomListVisible(bool v)
         return;
     m_store->setValue(kRoomListVisible, v);
     Q_EMIT roomListVisibleChanged();
+}
+
+bool SettingsManager::memberPanelOpen() const
+{
+    return m_store->value(kMemberPanelOpen, false).toBool();
+}
+
+void SettingsManager::setMemberPanelOpen(bool v)
+{
+    if (memberPanelOpen() == v)
+        return;
+    m_store->setValue(kMemberPanelOpen, v);
+    Q_EMIT memberPanelOpenChanged();
 }
 
 int SettingsManager::roomListWidth() const

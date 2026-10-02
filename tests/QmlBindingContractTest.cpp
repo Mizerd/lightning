@@ -1857,7 +1857,14 @@ private Q_SLOTS:
                           "re-anchor this case");
         const QString block = blockAround(src, at);
         QVERIFY2(!block.isEmpty(), "could not slice the bubble tap handler");
-        QVERIFY2(block.contains(QStringLiteral("messageActionBarLoader")),
+        // The band list is one shared function (also used by double-click to
+        // reply); the tap must consult it before pinning.
+        QVERIFY2(block.contains(QStringLiteral("overlayAt(")),
+                 "the bubble tap does not consult the shared overlay bands");
+        const int fn = src.indexOf(QStringLiteral("function overlayAt("));
+        QVERIFY2(fn >= 0, "the shared overlay-band function is gone");
+        const QString bands = src.mid(fn, 1800);
+        QVERIFY2(bands.contains(QStringLiteral("messageActionBarLoader")),
                  "a click on the action bar's padding, or in a gap between "
                  "its buttons, still falls through to the bubble and toggles "
                  "the pin — closing the bar the user was aiming at");

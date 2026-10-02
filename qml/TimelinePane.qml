@@ -23,6 +23,9 @@ Rectangle {
     // dialog. options: {addToSpace: bool} preselects placement in the active
     // Space.
     signal newConversationRequested(string mode, var options)
+    // The find bar found nothing in this room and the reader asked for every
+    // room instead; MainScreen opens the global search with this query.
+    signal searchAllRoomsRequested(string query)
 
     property var currentRoom: ({})
     property bool infoOpen: false
@@ -153,15 +156,35 @@ Rectangle {
         app.thread.closeList()
     }
 
+    // The member panel is the one right-side surface that follows the reader
+    // from room to room. Only a deliberate open or close writes the choice: a
+    // room switch or Settings closes the panel without meaning "stop showing
+    // members", so those paths never call this.
+    function rememberMemberPanel() {
+        app.settings.memberPanelOpen =
+            root.infoOpen && infoPanel.section === "people"
+    }
+    // Re-opens the member panel for the current room when it was left open.
+    function restoreMemberPanel() {
+        if (!app.settings.memberPanelOpen || app.currentRoomId === ""
+                || !app.roomInfo.supported)
+            return
+        infoPanel.openForRoom(app.currentRoomId)
+        infoPanel.section = "people"
+        infoOpen = true
+    }
+
     function toggleRoomInfo() {
         if (app.currentRoomId === "" || !app.roomInfo.supported)
             return
         if (infoOpen) {
             infoOpen = false
+            rememberMemberPanel()
             return
         }
         infoPanel.openForRoom(app.currentRoomId)
         infoOpen = true
+        rememberMemberPanel()
     }
 
     function toggleSearchPanel() {
@@ -202,6 +225,7 @@ Rectangle {
         infoPanel.openForRoom(app.currentRoomId)
         infoPanel.section = "pinned"
         infoOpen = true
+        rememberMemberPanel()
     }
 
     // Opens the side panel on the People section.
@@ -210,11 +234,13 @@ Rectangle {
             return
         if (infoOpen && infoPanel.section === "people") {
             infoOpen = false
+            rememberMemberPanel()
             return
         }
         infoPanel.openForRoom(app.currentRoomId)
         infoPanel.section = "people"
         infoOpen = true
+        rememberMemberPanel()
     }
 
     Connections {
@@ -255,9 +281,11 @@ Rectangle {
             timeline.viewAnchorId = ""
             timeline.viewAnchorOffset = 0
             timeline.viewAnchorLastY = 0
-            // A room switch closes the right-side panel.
+            // A room switch closes the right-side panel, except the member
+            // panel, which the reader asked to keep.
             root.infoOpen = false
             root.searchOpen = false
+            root.restoreMemberPanel()
         }
     }
 
@@ -364,9 +392,10 @@ Rectangle {
         onActivated: {
             if (root.findOpen)
                 root.closeFind()
-            else if (root.infoOpen)
+            else if (root.infoOpen) {
                 root.infoOpen = false
-            else if (root.searchOpen)
+                root.rememberMemberPanel()
+            } else if (root.searchOpen)
                 root.searchOpen = false
             else if (app.thread.active)
                 app.thread.close()
@@ -382,7 +411,10 @@ Rectangle {
         function onModelReset() { refreshCurrentRoom() }
     }
     // Read state on focus change is handled by the timeline's maybeMarkRead().
-    Component.onCompleted: refreshCurrentRoom()
+    Component.onCompleted: {
+        refreshCurrentRoom()
+        root.restoreMemberPanel()
+    }
 
     ImageViewerOverlay {
         id: imageViewer
@@ -1646,6 +1678,47 @@ Rectangle {
                     iconSize: 16
                     Accessible.name: qsTr("Close find")
                     onClicked: root.closeFind()
+                }
+            }
+
+            // Nothing matched here: say so in the room's own terms and offer
+            // the wider search, rather than leaving a bare "No matches" in the
+            // counter. History mode already has its own "no results" line, so
+            // only the offer is added there.
+            RowLayout {
+                id: findNoMatchesRow
+                objectName: "findNoMatchesRow"
+                readonly property string keyword: findField.text.trim()
+                visible: keyword.length > 0
+                         && app.messageSearch.supported
+                         && (root.findHistoryMode
+                             ? app.messageSearch.state === "no_results"
+                             : app.timeline.searchResultCount === 0)
+                Layout.fillWidth: true
+                spacing: AppTheme.spacingS
+                Label {
+                    objectName: "findNoMatchesLabel"
+                    visible: !root.findHistoryMode
+                    text: qsTr("No matches in loaded messages")
+                    color: AppTheme.textMuted
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                }
+                Item { Layout.fillWidth: true }
+                AppButton {
+                    objectName: "findSearchAllRoomsButton"
+                    kind: "ghost"
+                    // The keyword is the reader's own text; a long one is cut
+                    // so the button cannot outgrow the bar.
+                    text: qsTr("Search all rooms for '%1'").arg(
+                              findNoMatchesRow.keyword.length > 40
+                              ? findNoMatchesRow.keyword.substring(0, 40) + "…"
+                              : findNoMatchesRow.keyword)
+                    onClicked: {
+                        var q = findNoMatchesRow.keyword
+                        root.closeFind()
+                        root.searchAllRoomsRequested(q)
+                    }
                 }
             }
 
@@ -5092,7 +5165,10 @@ Rectangle {
             : 0
         // Collapse at narrow widths instead of crushing the chat.
         visible: root.infoOpen && root.width >= 700
-        onCloseRequested: root.infoOpen = false
+        onCloseRequested: {
+            root.infoOpen = false
+            root.rememberMemberPanel()
+        }
         onOpenImagesRequested: (entries, index) =>
             imageViewer.openAt(entries, index)
         onSaveMediaRequested: (mediaKey, filename) => {
@@ -5173,7 +5249,10 @@ Rectangle {
             property bool settingsOpen: false
             // A Space is a Matrix room, so it has a real member list (the same
             // roster Room Information reads, already pointed at this Space).
-            property bool peopleOpen: false
+            // Follows the same remembered choice as the room member panel,
+            // so a Space opened while members are shown lists them too. Bound,
+            // never assigned: the button writes the setting.
+            readonly property bool peopleOpen: app.settings.memberPanelOpen
             // Joined members only: a banned, invited or departed member is
             // not one of the people in this Space, and a chip says nothing
             // about membership.
@@ -5803,7 +5882,7 @@ Rectangle {
                                   ? qsTr("Hide people")
                                   : qsTr("People (%1)").arg(
                                         spaceHome.spacePeople.length)
-                            onClicked: spaceHome.peopleOpen = !spaceHome.peopleOpen
+                            onClicked: app.settings.memberPanelOpen = !spaceHome.peopleOpen
                         }
                         AppButton {
                             objectName: "spaceSettingsButton"

@@ -718,6 +718,51 @@ Item {
                                 (previewText || "").substring(0, 80),
                                 root.timelineModel.mediaKeyForEvent(eventId))
     }
+    // Double-click on a message starts a reply to it, from the part of the row
+    // that does nothing else. A double-click on text selects a word, and one on
+    // a link, a picture, a reaction, a button or the quote opens or toggles
+    // something, so each of those keeps its own meaning: the walk below goes
+    // down the items under the pointer and refuses at the first one that
+    // takes input. What is left is the bubble's padding and the space to the
+    // right of a short line.
+    function itemTakesInput(c) {
+        if (c.selectByMouse !== undefined) return true
+        if (c.hoveredLink !== undefined && c.hoveredLink !== "") return true
+        if (typeof c.clicked === "function") return true
+        var kids = c.data
+        for (var i = 0; kids && i < kids.length; ++i) {
+            if (kids[i].tapCount !== undefined) return true
+        }
+        return false
+    }
+    function pointTakesInput(host, pos) {
+        var item = host
+        var x = pos.x
+        var y = pos.y
+        for (var depth = 0; depth < 32; ++depth) {
+            var child = item.childAt(x, y)
+            if (!child) return false
+            var m = item.mapToItem(child, x, y)
+            x = m.x
+            y = m.y
+            item = child
+            if (root.itemTakesInput(child)) return true
+        }
+        return false
+    }
+    function replyOnDoubleTap(host, pos) {
+        var id = model.eventId || ""
+        if (!root.rowActionsEnabled || model.redacted === true
+                || root.isVirtualRow || root.isStateActivity || root.isCallEvent
+                || id.length === 0 || id.indexOf("local:") === 0
+                || !root.timelineModel
+                || root.timelineModel.messagePermalink(id).length === 0)
+            return false
+        if (root.pointTakesInput(host, pos))
+            return false
+        root.beginReply(id)
+        return true
+    }
     activeFocusOnTab: !isVirtualRow && !isStateActivity && !isCallEvent
     Keys.onPressed: (event) => {
         if (event.key === Qt.Key_Menu
@@ -805,6 +850,24 @@ Item {
         var name = (model.mediaFilename || "").trim()
         return body.length > 0 && name.length > 0
                && body.toLowerCase() !== name.toLowerCase()
+    }
+    // An `m.emote` is an action ("/me waves"), not a statement. Every layout
+    // draws it as "* Name waves" in italics, because a continuation row has no
+    // sender header above it to say who is waving.
+    readonly property bool isEmoteRow:
+        model.eventType === 1 && model.redacted !== true
+        && model.undecryptable !== true && !mediaRowBody
+    function emoteLead() {
+        var who = model.senderDisplayName || model.sender || ""
+        return "* " + who.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                          .replace(/>/g, "&gt;") + " "
+    }
+    // The lead goes inside a leading paragraph, or the first line of the
+    // action would sit on a line of its own.
+    function withEmoteLead(html) {
+        if (html.indexOf("<p>") === 0)
+            return "<p>" + root.emoteLead() + html.substring(3)
+        return root.emoteLead() + html
     }
     readonly property bool hasMessageSegments:
         messageSegments.length > 0
@@ -1350,65 +1413,48 @@ Item {
                 TapHandler {
                     enabled: root.rowActionsEnabled
                     acceptedButtons: Qt.LeftButton
+                    // TapHandlers are non-exclusive across subtrees, so each
+                    // overlaid control needs a band exclusion. One list, used
+                    // by the pin toggle and by double-click-to-reply: the
+                    // receipt facepile and the action bar are siblings of the
+                    // bubble, not inside it, so a walk of its subtree cannot
+                    // see them.
+                    function overlayAt(pos) {
+                        var bands = [
+                            // The "edited" marker opens the edit history.
+                            (model.edited === true && metaLabel.visible)
+                                ? metaLabel : null,
+                            // The facepile can overlap the bottom edge.
+                            receiptRow.visible ? receiptRow : null,
+                            // The reply preview navigates to its target.
+                            replyBox.visible ? replyBox : null,
+                            // The sender name opens the profile.
+                            identityLoader.visible ? identityLoader : null,
+                            // The bar's padding and the gaps between its
+                            // buttons do not accept the press.
+                            messageActionBarLoader.visible
+                                ? messageActionBarLoader : null
+                        ]
+                        for (var i = 0; i < bands.length; ++i) {
+                            var b = bands[i]
+                            if (!b) continue
+                            var m = bubble.mapToItem(b, pos.x, pos.y)
+                            if (m.x >= 0 && m.x <= b.width
+                                && m.y >= 0 && m.y <= b.height)
+                                return true
+                        }
+                        return false
+                    }
                     onTapped: (eventPoint) => {
-                        // TapHandlers are non-exclusive across subtrees, so
-                        // each overlaid control needs a band exclusion here.
-                        // The "edited" marker opens the edit history.
-                        if (model.edited === true && metaLabel.visible) {
-                            var mp = bubble.mapToItem(
-                                        metaLabel,
-                                        eventPoint.position.x,
-                                        eventPoint.position.y)
-                            if (mp.x >= 0 && mp.x <= metaLabel.width
-                                && mp.y >= 0 && mp.y <= metaLabel.height)
-                                return
-                        }
-                        // The receipt facepile can overlap this bubble's bottom
-                        // edge.
-                        if (receiptRow.visible) {
-                            var rp = bubble.mapToItem(
-                                        receiptRow,
-                                        eventPoint.position.x,
-                                        eventPoint.position.y)
-                            if (rp.x >= 0 && rp.x <= receiptRow.width
-                                && rp.y >= 0 && rp.y <= receiptRow.height)
-                                return
-                        }
-                        // The reply preview's own TapHandler (navigates to the
-                        // replied message).
-                        if (replyBox.visible) {
-                            var qp = bubble.mapToItem(
-                                        replyBox,
-                                        eventPoint.position.x,
-                                        eventPoint.position.y)
-                            if (qp.x >= 0 && qp.x <= replyBox.width
-                                && qp.y >= 0 && qp.y <= replyBox.height)
-                                return
-                        }
-                        // The sender name opens the profile.
-                        if (identityLoader.visible) {
-                            var ip = bubble.mapToItem(
-                                        identityLoader,
-                                        eventPoint.position.x,
-                                        eventPoint.position.y)
-                            if (ip.x >= 0 && ip.x <= identityLoader.width
-                                && ip.y >= 0 && ip.y <= identityLoader.height)
-                                return
-                        }
-                        // The action bar's padding and the gaps between its
-                        // buttons do not accept the press, so a near miss would
-                        // toggle the pin and close the bar.
-                        if (messageActionBarLoader.visible) {
-                            var ap = bubble.mapToItem(
-                                        messageActionBarLoader,
-                                        eventPoint.position.x,
-                                        eventPoint.position.y)
-                            if (ap.x >= 0 && ap.x <= messageActionBarLoader.width
-                                && ap.y >= 0
-                                && ap.y <= messageActionBarLoader.height)
-                                return
-                        }
+                        if (overlayAt(eventPoint.position))
+                            return
                         root.toggleActionsPin()
+                    }
+                    // Both taps of a double-click have already toggled the pin
+                    // (net no change), so only the reply is added here.
+                    onDoubleTapped: (eventPoint, button) => {
+                        if (!overlayAt(eventPoint.position))
+                            root.replyOnDoubleTap(bubble, eventPoint.position)
                     }
                 }
 
@@ -1776,7 +1822,8 @@ Item {
                         // undecryptable rows keep ordinary sizing.
                         readonly property int emojiOnlyCount:
                             (model.redacted || model.isPoll === true
-                             || model.undecryptable === true || isMediaRow)
+                             || model.undecryptable === true || isMediaRow
+                             || root.isEmoteRow)
                             ? 0
                             : app.emojiCatalog.emojiOnlySequenceCount(
                                   model.body || "")
@@ -1818,6 +1865,8 @@ Item {
                             // m.mentions.room, never on the characters alone.
                             if (model.mentionsRoom === true && root.timelineModel)
                                 html = root.timelineModel.markRoomMention(html)
+                            if (root.isEmoteRow)
+                                html = root.withEmoteLead(html)
                             return root.highlightSearchMatches(
                                         html,
                                         root.searchHighlight,
@@ -1843,7 +1892,8 @@ Item {
                                             bodyLabel.isMediaCaption ? 12
                                             : root.compactMode || root.inThreadPanel
                                               ? 13 : AppTheme.fontSizeM),
-                                  model.redacted || model.undecryptable === true)
+                                  model.redacted || model.undecryptable === true
+                                  || root.isEmoteRow)
                         // No lineHeight: lineHeight/lineHeightMode are
                         // QQuickText properties, and assigning them on a
                         // TextEdit is a load-time error. Body leading would

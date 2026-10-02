@@ -9700,6 +9700,162 @@ private Q_SLOTS:
                      qPrintable(line));
         }
     }
+
+    // When nothing in the room matches, the find bar says so in the room's own
+    // terms and offers the wider search with the same keyword; a click closes
+    // the find bar and hands the keyword up. Hidden while there are matches.
+    void findBarOffersAllRoomsWhenNothingMatches()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+
+        QQmlApplicationEngine engine;
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors) warnings << e.toString();
+                });
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(900, 700);
+        root->setParentItem(window.contentItem());
+        root->setWidth(window.width());
+        root->setHeight(window.height());
+        window.show();
+        QCoreApplication::processEvents();
+
+        QSignalSpy allRooms(root, SIGNAL(searchAllRoomsRequested(QString)));
+        QVERIFY(allRooms.isValid());
+        QVERIFY(QMetaObject::invokeMethod(root, "openFind"));
+        QCoreApplication::processEvents();
+        auto *field = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineFindField"));
+        QVERIFY(field != nullptr);
+        auto *row = root->findChild<QQuickItem *>(
+            QStringLiteral("findNoMatchesRow"));
+        QVERIFY2(row != nullptr, "the no-matches row does not exist");
+        // Nothing typed: nothing to offer.
+        QVERIFY(!row->isVisible());
+
+        QVERIFY(field->setProperty("text",
+                                   QStringLiteral("zzzqqq-no-such-text")));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(row->isVisible(), kSignalTimeoutMs);
+        auto *label = root->findChild<QQuickItem *>(
+            QStringLiteral("findNoMatchesLabel"));
+        QVERIFY(label != nullptr);
+        QVERIFY(label->isVisible());
+        QCOMPARE(label->property("text").toString(),
+                 QStringLiteral("No matches in loaded messages"));
+        auto *button = root->findChild<QQuickItem *>(
+            QStringLiteral("findSearchAllRoomsButton"));
+        QVERIFY(button != nullptr);
+        QVERIFY(button->isVisible());
+        QCOMPARE(button->property("text").toString(),
+                 QStringLiteral("Search all rooms for 'zzzqqq-no-such-text'"));
+
+        QVERIFY(QMetaObject::invokeMethod(button, "clicked"));
+        QCOMPARE(allRooms.count(), 1);
+        QCOMPARE(allRooms.at(0).at(0).toString(),
+                 QStringLiteral("zzzqqq-no-such-text"));
+        // The find session ended so the wider search owns the query.
+        QCOMPARE(root->property("findOpen").toBool(), false);
+    }
+
+    // The member panel is the one right-side surface that follows the reader:
+    // left open it reopens in the next room, closed it stays closed, and the
+    // choice is a persisted setting. A room switch alone never writes it.
+    void memberPanelStaysOpenAcrossRoomSwitches()
+    {
+        struct ManagedClient : MockMatrixClient {
+            bool supportsRoomManagement() const override { return true; }
+        };
+        ManagedClient managed;
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *original = controller.findChild<MockMatrixClient *>();
+        QVERIFY(original != nullptr);
+        struct Restore {
+            AppController &c;
+            MockMatrixClient *original;
+            ~Restore()
+            {
+                c.settings()->setProperty("memberPanelOpen", false);
+                c.roomInfo()->setClient(original);
+            }
+        } restore{controller, original};
+        controller.roomInfo()->setClient(&managed);
+        QVERIFY(controller.roomInfo()->supported());
+
+        const QString general = QStringLiteral("!general:mock.local");
+        const QString dm = QStringLiteral("!dm-bob:mock.local");
+        QVERIFY2(controller.settings()->property("memberPanelOpen").isValid(),
+                 "no memberPanelOpen setting");
+        QCOMPARE(controller.settings()->property("memberPanelOpen").toBool(),
+                 false);
+        controller.setCurrentRoomId(general);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(1000, 700);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QCoreApplication::processEvents();
+        auto *panel = root->findChild<QQuickItem *>(
+            QStringLiteral("roomInfoPanel"));
+        QVERIFY(panel != nullptr);
+
+        // Not asked for: a room switch leaves the panel shut, as before.
+        controller.setCurrentRoomId(dm);
+        QCoreApplication::processEvents();
+        QCOMPARE(root->property("infoOpen").toBool(), false);
+        controller.setCurrentRoomId(general);
+
+        QVERIFY(QMetaObject::invokeMethod(root, "toggleMemberPanel"));
+        QCOMPARE(root->property("infoOpen").toBool(), true);
+        QCOMPARE(panel->property("section").toString(),
+                 QStringLiteral("people"));
+        QCOMPARE(controller.settings()->property("memberPanelOpen").toBool(),
+                 true);
+
+        controller.setCurrentRoomId(dm);
+        QTRY_VERIFY_WITH_TIMEOUT(root->property("infoOpen").toBool(),
+                                 kSignalTimeoutMs);
+        QCOMPARE(panel->property("section").toString(),
+                 QStringLiteral("people"));
+        QCOMPARE(controller.roomInfo()->roomId(), dm);
+        // The switch itself did not rewrite the choice.
+        QCOMPARE(controller.settings()->property("memberPanelOpen").toBool(),
+                 true);
+
+        // Closing it is a decision: it stays closed in the next room.
+        QVERIFY(QMetaObject::invokeMethod(root, "toggleMemberPanel"));
+        QCOMPARE(root->property("infoOpen").toBool(), false);
+        QCOMPARE(controller.settings()->property("memberPanelOpen").toBool(),
+                 false);
+        controller.setCurrentRoomId(general);
+        QCoreApplication::processEvents();
+        QCOMPARE(root->property("infoOpen").toBool(), false);
+    }
 };
 
 int main(int argc, char *argv[])

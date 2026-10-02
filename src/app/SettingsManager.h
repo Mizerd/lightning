@@ -185,6 +185,9 @@ class SettingsManager : public QObject
                    WRITE setSpaceBannerExpanded NOTIFY spaceBannerExpandedChanged)
     Q_PROPERTY(bool roomListVisible READ roomListVisible
                    WRITE setRoomListVisible NOTIFY roomListVisibleChanged)
+    // The room member panel stays open across room switches and restarts.
+    Q_PROPERTY(bool memberPanelOpen READ memberPanelOpen
+                   WRITE setMemberPanelOpen NOTIFY memberPanelOpenChanged)
     Q_PROPERTY(int roomListWidth READ roomListWidth
                    WRITE setRoomListWidth NOTIFY roomListWidthChanged)
     Q_PROPERTY(int spacesRailWidth READ spacesRailWidth
@@ -572,6 +575,8 @@ public:
     void setSpaceBannerExpanded(bool v);
     bool roomListVisible() const;
     void setRoomListVisible(bool v);
+    bool memberPanelOpen() const;
+    void setMemberPanelOpen(bool v);
     int roomListWidth() const;
     void setRoomListWidth(int px);
     int spacesRailWidth() const;
@@ -905,6 +910,7 @@ Q_SIGNALS:
     void roomListSortChanged();
     void spaceBannerExpandedChanged();
     void roomListVisibleChanged();
+    void memberPanelOpenChanged();
     void roomListWidthChanged();
     void spacesRailWidthChanged();
     void spacesRailDepthStyleChanged();

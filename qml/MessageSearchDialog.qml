@@ -21,10 +21,14 @@ Dialog {
     anchors.centerIn: parent
     padding: AppTheme.spacing16
 
-    function openDialog() {
+    // `query` is optional: the room find bar hands over what it just failed to
+    // find so the wider search starts at once.
+    function openDialog(query) {
         app.messageSearch.roomId = ""
         app.messageSearch.filters = ({})
         open()
+        if (typeof query === "string" && query.length > 0)
+            app.messageSearch.query = query
         Qt.callLater(function() { globalSearchField.forceActiveFocus() })
     }
 

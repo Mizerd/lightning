@@ -5062,7 +5062,27 @@ fn content_preview(content: &TimelineItemContent) -> String {
 /// pathological bodies. C++ normalizes it and adds a real ellipsis
 /// (EventPreview::normalizePreviewText).
 fn reply_preview(content: &TimelineItemContent) -> String {
-    content_preview_capped(content, 320)
+    let preview = content_preview_capped(content, 320);
+    // An `m.emote` is an action ("waves hello"), not a statement; the quote's
+    // header already names the sender, so the leading asterisk is what keeps
+    // it from reading as something they said (GitHub #21).
+    if is_emote_content(content) {
+        format!("* {preview}")
+    } else {
+        preview
+    }
+}
+
+fn is_emote_content(content: &TimelineItemContent) -> bool {
+    matches!(
+        content,
+        TimelineItemContent::MsgLike(msg_like)
+            if matches!(
+                &msg_like.kind,
+                MsgLikeKind::Message(message)
+                    if matches!(message.msgtype(), MessageType::Emote(_))
+            )
+    )
 }
 
 fn content_preview_capped(content: &TimelineItemContent, max: usize) -> String {

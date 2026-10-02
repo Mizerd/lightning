@@ -19,11 +19,14 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
 
 #include "app/AppController.h"
+#include "auth/AuthManager.h"
+#include "models/MessageComposer.h"
 #include "matrix/MockMatrixClient.h"
 #include "media/MediaBridge.h"
 #include "media/MediaVisibilityStore.h"
@@ -1030,6 +1033,214 @@ QtObject {
         QVERIFY(captionBody != nullptr);
         QVERIFY(captionBody->isVisible());
         QCOMPARE(c.warnings, QStringList{});
+    }
+
+    // An m.emote is an action: "* Alice waves hello", in italics, in every
+    // layout and under a continuation row with no sender header. A plain text
+    // row of the same words is neither prefixed nor italic.
+    void anEmoteReadsAsAnActionInEveryLayout()
+    {
+        AppController controller(AppController::MockBackend);
+        for (int layout = 0; layout <= 2; ++layout) {
+            controller.settings()->setMessageLayout(layout);
+            QVariantMap fixture = baseFixture(controller);
+            fixture.insert(QStringLiteral("eventType"), 1);
+            fixture.insert(QStringLiteral("senderDisplayName"),
+                           QStringLiteral("Alice <b>"));
+            fixture.insert(QStringLiteral("body"),
+                           QStringLiteral("waves hello"));
+            // No header above it, as on a run of one sender's messages.
+            fixture.insert(QStringLiteral("showSenderIdentity"), false);
+            Delegate d;
+            QVERIFY(createDelegate(controller, fixture, d));
+            auto *body = d.root->findChild<QQuickItem *>(
+                QStringLiteral("messageBody"));
+            QVERIFY(body != nullptr);
+            QVERIFY(body->isVisible());
+            const QString text = body->property("text").toString();
+            QVERIFY2(text.contains(QStringLiteral("* Alice &lt;b&gt; ")),
+                     qPrintable(QStringLiteral("layout %1: %2")
+                                    .arg(layout).arg(text)));
+            QVERIFY(text.contains(QStringLiteral("waves hello")));
+            QVERIFY(body->property("font").value<QFont>().italic());
+
+            QVariantMap plain = fixture;
+            plain.insert(QStringLiteral("eventType"), 0);
+            Delegate t;
+            QVERIFY(createDelegate(controller, plain, t));
+            auto *plainBody = t.root->findChild<QQuickItem *>(
+                QStringLiteral("messageBody"));
+            QVERIFY(plainBody != nullptr);
+            QVERIFY(!plainBody->property("text").toString()
+                         .contains(QStringLiteral("* Alice")));
+            QVERIFY(!plainBody->property("font").value<QFont>().italic());
+        }
+        controller.settings()->setMessageLayout(0);
+    }
+
+    // MSC2530: when `filename` is present and differs from `body`, the body is
+    // a caption and shows under the picture, whether or not the picture is
+    // encrypted; a body that only repeats the filename shows nothing twice.
+    void anImageCaptionShowsUnderPlainAndEncryptedMedia()
+    {
+        AppController controller(AppController::MockBackend);
+        for (const bool encrypted : {false, true}) {
+            QVariantMap fixture = baseFixture(controller);
+            fixture.insert(QStringLiteral("isImage"), true);
+            fixture.insert(QStringLiteral("isEncrypted"), encrypted);
+            fixture.insert(QStringLiteral("isDecrypted"), encrypted);
+            fixture.insert(QStringLiteral("mediaWidth"), 800);
+            fixture.insert(QStringLiteral("mediaHeight"), 600);
+            fixture.insert(QStringLiteral("mediaFilename"),
+                           QStringLiteral("IMG_2041.jpg"));
+            fixture.insert(QStringLiteral("body"),
+                           QStringLiteral("Sunset over the harbour"));
+            fixture.insert(QStringLiteral("mediaSourceAvailable"), true);
+            fixture.insert(QStringLiteral("mediaKey"),
+                           QStringLiteral("$fixture"));
+            Delegate d;
+            QVERIFY(createDelegate(controller, fixture, d));
+            auto *body = d.root->findChild<QQuickItem *>(
+                QStringLiteral("messageBody"));
+            QVERIFY(body != nullptr);
+            QVERIFY2(body->isVisible(),
+                     encrypted ? "encrypted caption hidden"
+                               : "plain caption hidden");
+            QVERIFY(body->property("text").toString()
+                        .contains(QStringLiteral("Sunset over the harbour")));
+            auto *image = d.root->findChild<QQuickItem *>(
+                QStringLiteral("imageMedia"));
+            QVERIFY(image != nullptr);
+            QVERIFY2(body->mapToScene(QPointF(0, 0)).y()
+                         >= image->mapToScene(QPointF(0, image->height())).y()
+                             - 1.0,
+                     "the caption must sit under the picture");
+
+            QVariantMap echo = fixture;
+            echo.insert(QStringLiteral("body"), QStringLiteral("IMG_2041.jpg"));
+            Delegate e;
+            QVERIFY(createDelegate(controller, echo, e));
+            auto *echoBody = e.root->findChild<QQuickItem *>(
+                QStringLiteral("messageBody"));
+            QVERIFY(echoBody != nullptr);
+            QVERIFY(!echoBody->isVisible());
+        }
+    }
+
+    // Double-click replies from the part of the bubble that does nothing else:
+    // the empty space beside a short line replies; the text itself (a word
+    // select), and the reply quote (it navigates) keep their own meaning.
+    void doubleClickOnTheEmptyPartOfABubbleStartsAReply()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(kSignalTimeoutMs));
+        controller.setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QString id;
+        auto *tl = controller.timeline();
+        for (int row = 0; row < tl->rowCount() && id.isEmpty(); ++row) {
+            const QModelIndex idx = tl->index(row, 0);
+            const QString candidate =
+                tl->data(idx, TimelineModel::EventIdRole).toString();
+            if (!candidate.isEmpty() && !candidate.startsWith(QLatin1String("local:"))
+                && !tl->data(idx, TimelineModel::RedactedRole).toBool()
+                && !tl->data(idx, TimelineModel::IsVirtualRole).toBool()
+                && !tl->messagePermalink(candidate).isEmpty())
+                id = candidate;
+        }
+        QVERIFY2(!id.isEmpty(), "the mock room has no repliable event");
+
+        QVariantMap fixture = baseFixture(controller);
+        fixture.insert(QStringLiteral("eventId"), id);
+        fixture.insert(QStringLiteral("body"), QStringLiteral("hi there"));
+        Delegate d;
+        QVERIFY(createDelegate(controller, fixture, d));
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *body = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(bubble && body);
+        QVERIFY(body->isVisible());
+        const QPointF textPoint =
+            body->mapToScene(QPointF(body->width() / 2, body->height() / 2));
+        const QPointF emptyPoint = body->mapToScene(
+            QPointF(body->width() + 120, body->height() / 2));
+        QVERIFY2(bubble->mapFromScene(emptyPoint).x() < bubble->width(),
+                 "the probe point must still be inside the bubble");
+
+        // On the text: a word select, no reply.
+        QTest::mouseDClick(d.window.get(), Qt::LeftButton, {},
+                           textPoint.toPoint());
+        QTest::qWait(50);
+        QCOMPARE(controller.composer()->replyingToEventId(), QString());
+
+        // In the empty part of the bubble: a reply to this message.
+        QTest::mouseDClick(d.window.get(), Qt::LeftButton, {},
+                           emptyPoint.toPoint());
+        QTRY_COMPARE_WITH_TIMEOUT(controller.composer()->replyingToEventId(),
+                                  id, kSignalTimeoutMs);
+        controller.composer()->clearReplyTarget();
+
+        // A deleted message cannot be replied to.
+        QVariantMap gone = fixture;
+        gone.insert(QStringLiteral("redacted"), true);
+        Delegate g;
+        QVERIFY(createDelegate(controller, gone, g));
+        auto *goneBody = g.root->findChild<QQuickItem *>(
+            QStringLiteral("messageBody"));
+        QVERIFY(goneBody != nullptr);
+        QTest::mouseDClick(g.window.get(), Qt::LeftButton, {},
+                           goneBody->mapToScene(QPointF(goneBody->width() + 120,
+                                                        goneBody->height() / 2))
+                               .toPoint());
+        QTest::qWait(50);
+        QCOMPARE(controller.composer()->replyingToEventId(), QString());
+
+        // On the reply quote: it navigates, so it must not also reply.
+        QVariantMap quoting = fixture;
+        quoting.insert(QStringLiteral("replyToEventId"),
+                       QStringLiteral("$other"));
+        quoting.insert(QStringLiteral("replyToSender"), QStringLiteral("Bob"));
+        quoting.insert(QStringLiteral("replyToPreview"),
+                       QStringLiteral("earlier words"));
+        Delegate q;
+        QVERIFY(createDelegate(controller, quoting, q));
+        auto *quote = q.root->findChild<QQuickItem *>(
+            QStringLiteral("replyNavigationTarget"));
+        QVERIFY(quote != nullptr);
+        QVERIFY(quote->isVisible());
+        QTest::mouseDClick(q.window.get(), Qt::LeftButton, {},
+                           quote->mapToScene(QPointF(quote->width() - 6,
+                                                     quote->height() / 2))
+                               .toPoint());
+        QTest::qWait(50);
+        QCOMPARE(controller.composer()->replyingToEventId(), QString());
+
+        // On the action bar: it is a sibling of the bubble, drawn over a short
+        // one, and its buttons must not also start a reply.
+        Delegate b;
+        QVERIFY(createDelegate(controller, fixture, b));
+        auto *barLoader = b.root->findChild<QQuickItem *>(
+            QStringLiteral("messageActionBarLoader"));
+        auto *bubbleB = b.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        QVERIFY(barLoader && bubbleB);
+        QVERIFY(QQmlProperty::write(barLoader, QStringLiteral("active"), true));
+        QVERIFY(QQmlProperty::write(barLoader, QStringLiteral("visible"), true));
+        QTest::qWait(50);
+        QVERIFY(barLoader->width() > 0 && barLoader->height() > 0);
+        const QPointF barPoint = barLoader->mapToScene(
+            QPointF(barLoader->width() / 2, barLoader->height() / 2));
+        const QPointF inBubble = bubbleB->mapFromScene(barPoint);
+        QVERIFY2(bubbleB->contains(inBubble),
+                 "the action bar must overlap the bubble for this to mean anything");
+        QTest::mouseDClick(b.window.get(), Qt::LeftButton, {},
+                           barPoint.toPoint());
+        QTest::qWait(50);
+        QCOMPARE(controller.composer()->replyingToEventId(), QString());
     }
 
     // A sanitized formatted body renders as rich content, not the raw markdown
