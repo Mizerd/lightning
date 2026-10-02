@@ -14,12 +14,21 @@ constexpr int kRoomWaitTimeoutMs = 10000;
 
 // Generous, because a federated invite is slow; it only stops a permanent hang.
 constexpr int kCreateOpTimeoutMs = 60000;
+
+// How long a create that outlived kCreateOpTimeoutMs still blocks a second
+// create for the same person. The server keeps working on it (the request has
+// no cancel and no timeout of its own), and each retry leaves one more room.
+constexpr int kAbandonedOpGuardMs = 10 * 60 * 1000;
 } // namespace
 
 ConversationController::ConversationController(QObject *parent)
     : QObject(parent)
     , m_userSearch(new UserSearchModel(this))
 {
+    m_abandonedGuard.setSingleShot(true);
+    m_abandonedGuard.setInterval(kAbandonedOpGuardMs);
+    connect(&m_abandonedGuard, &QTimer::timeout, this,
+            [this]() { clearAbandonedDm(); });
     m_roomWaitTimeout.setSingleShot(true);
     m_roomWaitTimeout.setInterval(kRoomWaitTimeoutMs);
     connect(&m_roomWaitTimeout, &QTimer::timeout, this, [this]() {
@@ -31,6 +40,14 @@ ConversationController::ConversationController(QObject *parent)
     connect(&m_opTimeout, &QTimer::timeout, this, [this]() {
         if (m_pendingOp == 0)
             return;
+        // The create is still running server-side: remember who it was for so
+        // that a retry for the SAME person is refused until it answers, instead
+        // of leaving one more empty room per retry.
+        if (!m_pendingDmUser.isEmpty()) {
+            m_abandonedDms.insert(m_pendingOp, m_pendingDmUser);
+            m_abandonedGuard.start();
+        }
+        m_pendingDmUser.clear();
         m_pendingOp = 0;
         // The server may still create the room, so do not claim failure.
         setError(tr("This is taking longer than expected. The other person's "
@@ -47,6 +64,8 @@ void ConversationController::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     m_client = client;
+    // An account switch: the other account's abandoned creates mean nothing.
+    clearAbandonedDm();
     m_userSearch->setClient(client);
     if (m_client) {
         connect(m_client, &MatrixClient::dmCreateFinished,
@@ -106,6 +125,13 @@ void ConversationController::startDirectMessage(const QString &userId)
         setError(tr("You cannot start a direct message with yourself."));
         return;
     }
+    if (m_abandonedDms.key(userId, 0) != 0) {
+        setError(tr("A conversation with this person is still being created "
+                    "and their server has not answered yet. If an empty room "
+                    "appears in your list, use that one; starting another "
+                    "would only add more empty rooms."));
+        return;
+    }
     clearError();
     const quint64 opId = m_client->createDirectChat(userId);
     if (opId == 0) {
@@ -114,7 +140,7 @@ void ConversationController::startDirectMessage(const QString &userId)
     }
     m_pendingIsSpace = false;
     m_pendingOp = opId;
-    m_opTimeout.start();
+    m_pendingDmUser = userId;
     m_opTimeout.start();
     Q_EMIT busyChanged();
 }
@@ -207,17 +233,51 @@ void ConversationController::onDmCreateFinished(quint64 opId, bool ok,
                                                 const QString &roomId,
                                                 const QString &category)
 {
+    // The create we stopped waiting for has answered: lift its guard. The
+    // dialog was already told, so the room is not opened out from under
+    // whatever the user is doing now.
+    if (m_abandonedDms.contains(opId)) {
+        m_abandonedDms.remove(opId);
+        if (m_abandonedDms.isEmpty())
+            m_abandonedGuard.stop();
+        return;
+    }
     if (opId != m_pendingOp || m_pendingOp == 0)
         return;
     m_opTimeout.stop();
     m_pendingOp = 0;
+    m_pendingDmUser.clear();
     if (!ok || roomId.isEmpty()) {
-        setError(describeCategory(category));
+        QString text = describeCategory(category);
+        // /createRoom creates the room BEFORE the invite is federated, so a
+        // failure that is not a plain refusal can leave an empty room that the
+        // SDK never returns to us and so cannot be reused or cleaned up here.
+        const bool refusedBeforeCreation = category == QLatin1String("forbidden")
+            || category == QLatin1String("rate_limited")
+            || category == QLatin1String("invalid")
+            || category == QLatin1String("unrecognized")
+            || category == QLatin1String("not_found");
+        if (!refusedBeforeCreation)
+            text += QLatin1Char(' ')
+                + tr("An empty room may have been created on your account; if "
+                     "you see one in your room list you can leave it.");
+        setError(text);
         Q_EMIT busyChanged();
         return;
     }
     qCInfo(lcConv) << "dm created";
     beginWaitForRoom(roomId);
+}
+
+void ConversationController::clearAbandonedDm()
+{
+    m_abandonedDms.clear();
+    m_abandonedGuard.stop();
+}
+
+void ConversationController::setOpTimeoutMsForTest(int ms)
+{
+    m_opTimeout.setInterval(ms);
 }
 
 void ConversationController::onRoomCreateFinished(quint64 opId, bool ok,
@@ -345,6 +405,8 @@ void ConversationController::onLoggedOut()
     // Unlike reset(), sign-out abandons the pending op: its session is gone
     // and the next account must start clean.
     m_pendingOp = 0;
+    m_pendingDmUser.clear();
+    clearAbandonedDm();
     m_opTimeout.stop();
     reset();
 }

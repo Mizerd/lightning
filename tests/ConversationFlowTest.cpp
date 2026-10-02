@@ -658,6 +658,77 @@ private Q_SLOTS:
         controller.startDirectMessage(QStringLiteral("@remote:other.example"));
         QCOMPARE(client.createDmCalls, 2);
     }
+
+    // The 60 s bound released the guard while the create was still running
+    // server-side (spawn_room_action has no timeout), so the retry the error
+    // text invited made one more empty room per attempt.
+    void aTimedOutCreateStillBlocksARetryForTheSamePerson()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        controller.setOpTimeoutMsForTest(20);
+        const QString user = QStringLiteral("@remote:other.example");
+
+        controller.startDirectMessage(user);
+        QCOMPARE(client.createDmCalls, 1);
+        const quint64 firstOp = client.lastOpId;
+        QTRY_VERIFY(!controller.busy());   // the bound fired
+
+        controller.startDirectMessage(user);
+        QCOMPARE(client.createDmCalls, 1);
+        QVERIFY(!controller.errorMessage().isEmpty());
+
+        // Someone else is a different action.
+        controller.startDirectMessage(QStringLiteral("@other:other.example"));
+        QCOMPARE(client.createDmCalls, 2);
+        Q_EMIT client.dmCreateFinished(client.lastOpId, false, QString(),
+                                       QStringLiteral("forbidden"));
+
+        // The late answer for the first create lifts its guard, and does not
+        // open or fail anything.
+        Q_EMIT client.dmCreateFinished(firstOp, false, QString(),
+                                       QStringLiteral("network"));
+        controller.startDirectMessage(user);
+        QCOMPARE(client.createDmCalls, 3);
+    }
+
+    void twoTimedOutCreatesKeepBothGuards()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        controller.setOpTimeoutMsForTest(20);
+        const QString a = QStringLiteral("@a:other.example");
+        const QString b = QStringLiteral("@b:other.example");
+        controller.startDirectMessage(a);
+        QTRY_VERIFY(!controller.busy());
+        controller.startDirectMessage(b);
+        QCOMPARE(client.createDmCalls, 2);
+        QTRY_VERIFY(!controller.busy());
+        controller.startDirectMessage(a);
+        controller.startDirectMessage(b);
+        QCOMPARE(client.createDmCalls, 2);
+        // Sign-out clears every guard.
+        Q_EMIT client.loggedOut();
+        controller.startDirectMessage(a);
+        QCOMPARE(client.createDmCalls, 3);
+    }
+
+    void aDmFailureThatMayHaveMadeARoomSaysSo()
+    {
+        FakeClient client;
+        ConversationController controller;
+        controller.setClient(&client);
+        controller.startDirectMessage(QStringLiteral("@remote:other.example"));
+        Q_EMIT client.dmCreateFinished(client.lastOpId, false, QString(),
+                                       QStringLiteral("network"));
+        QVERIFY(controller.errorMessage().contains(QLatin1String("empty room")));
+        controller.startDirectMessage(QStringLiteral("@remote:other.example"));
+        Q_EMIT client.dmCreateFinished(client.lastOpId, false, QString(),
+                                       QStringLiteral("forbidden"));
+        QVERIFY(!controller.errorMessage().contains(QLatin1String("empty room")));
+    }
 };
 
 QTEST_GUILESS_MAIN(ConversationFlowTest)

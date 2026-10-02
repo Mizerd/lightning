@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QHash>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
@@ -55,6 +56,9 @@ public:
     Q_INVOKABLE void clearError();
     Q_INVOKABLE void reset();
 
+    // Test seam: shortens the create-call bound (60 s).
+    void setOpTimeoutMsForTest(int ms);
+
 Q_SIGNALS:
     void supportedChanged();
     void busyChanged();
@@ -91,6 +95,7 @@ private Q_SLOTS:
 
 private:
     void setError(const QString &message);
+    void clearAbandonedDm();
     void beginWaitForRoom(const QString &roomId);
     void finishWaitForRoom();
     static QString describeCategory(const QString &category);
@@ -110,6 +115,11 @@ private:
     // Bounds the create call itself: the server federates the invite before
     // answering /createRoom, so an unreachable peer server can hang it.
     QTimer m_opTimeout;
+    // The user a pending DM create is for, and the create we stopped waiting
+    // for (timed out) but whose server-side work may still produce a room.
+    QString m_pendingDmUser;
+    QHash<quint64, QString> m_abandonedDms;   // op id -> user
+    QTimer m_abandonedGuard;
     // Owned here, not by the dialog, so closing it mid-create cannot route a
     // Space into a room timeline.
     bool m_pendingIsSpace = false;
