@@ -220,6 +220,10 @@ public:
     void handleCurrentRoomChanged(const QString &currentRoomId);
 
 Q_SIGNALS:
+    /// The thread's own read receipt was sent: everything in it up to
+    /// `timestampMs` is read. The Activity bell mirrors it.
+    void threadReadSent(const QString &roomId, const QString &rootEventId,
+                        qint64 timestampMs);
     void supportedChanged();
     void stateChanged();
     void replyCountChanged();

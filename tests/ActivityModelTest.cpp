@@ -934,6 +934,96 @@ private Q_SLOTS:
         QCOMPARE(h.row(0).value(QStringLiteral("seen")).toBool(), false);
     }
 
+    // RomanticAnimeGerl: the bell kept its badge after the room was read. A
+    // room marked read without a timeline (menu, notification action, Mark
+    // space read) sends no timeline receipt, so nothing cleared its rows.
+    // Old code: markRoomReadNow does not exist.
+    void aRoomMarkedReadWithoutATimelineClearsItsRows()
+    {
+        Harness h;
+        TimelineEvent m = text(QStringLiteral("$n1"),
+                               QStringLiteral("@bob:mock.local"),
+                               QStringLiteral("hey @me"),
+                               QDateTime::currentMSecsSinceEpoch() - 5000);
+        m.mentionsMe = true;
+        QVERIFY(h.model.ingest(m, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.unseenCount(), 1);
+        h.model.markRoomReadNow(QStringLiteral("!other:mock.local"));
+        QCOMPARE(h.model.unseenCount(), 1);
+        h.model.markRoomReadNow(kRoom);
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    // A thread's own receipt is threaded and clears that thread only. The main
+    // receipt is UNTHREADED, so the server treats earlier thread replies as read
+    // and the bell clears them up to the same point, and no further.
+    void aThreadReceiptClearsItsThreadAndAMainReceiptClearsTheRoomUpToItsPoint()
+    {
+        Harness h;
+        TimelineEvent main = text(QStringLiteral("$t0"),
+                                  QStringLiteral("@bob:mock.local"),
+                                  QStringLiteral("hey @me main"), 1000);
+        main.mentionsMe = true;
+        TimelineEvent reply = text(QStringLiteral("$t1"),
+                                   QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("hey @me thread"), 2000);
+        reply.mentionsMe = true;
+        reply.threadRootId = QStringLiteral("$root");
+        QVERIFY(h.model.ingest(main, QStringLiteral("Lounge")));
+        QVERIFY(h.model.ingest(reply, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.unseenCount(), 2);
+
+        h.model.markRoomReadUpTo(kRoom, 9000, QStringLiteral("$other"));
+        QCOMPARE(h.model.unseenCount(), 2);                  // another thread
+        h.model.markRoomReadUpTo(kRoom, 1999, QStringLiteral("$root"));
+        QCOMPARE(h.model.unseenCount(), 2);                  // before the reply
+        h.model.markRoomReadUpTo(kRoom, 2000, QStringLiteral("$root"));
+        QCOMPARE(h.model.unseenCount(), 1);                  // main row stays
+        h.model.markRoomReadUpTo(kRoom, 1000);
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    void aMainReceiptStopsAtItsPointForThreadRowsToo()
+    {
+        Harness h;
+        TimelineEvent reply = text(QStringLiteral("$t1"),
+                                   QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("hey @me thread"), 2000);
+        reply.mentionsMe = true;
+        reply.threadRootId = QStringLiteral("$root");
+        QVERIFY(h.model.ingest(reply, QStringLiteral("Lounge")));
+        h.model.markRoomReadUpTo(kRoom, 1500);
+        QCOMPARE(h.model.unseenCount(), 1);
+        h.model.markRoomReadUpTo(kRoom, 2500);
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    void markingARoomReadClearsItsThreadRowsToo()
+    {
+        Harness h;
+        TimelineEvent reply = text(QStringLiteral("$t1"),
+                                   QStringLiteral("@bob:mock.local"),
+                                   QStringLiteral("hey @me thread"),
+                                   QDateTime::currentMSecsSinceEpoch() - 5000);
+        reply.mentionsMe = true;
+        reply.threadRootId = QStringLiteral("$root");
+        QVERIFY(h.model.ingest(reply, QStringLiteral("Lounge")));
+        h.model.markRoomReadNow(kRoom);
+        QCOMPARE(h.model.unseenCount(), 0);
+    }
+
+    // The two receipts that clear the bell have to be wired to it.
+    void theReceiptsAreWiredToTheBell()
+    {
+        QFile f(QStringLiteral(SOURCE_DIR "/src/app/AppController.cpp"));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QString src = QString::fromUtf8(f.readAll());
+        QVERIFY(src.contains(QStringLiteral(
+            "ThreadController::threadReadSent")));
+        QVERIFY(src.contains(QStringLiteral("RoomListModel::roomMarkedRead")));
+        QVERIFY(src.contains(QStringLiteral("markRoomReadNow(roomId)")));
+    }
+
     // A live mention without senderDisplayName also learns its sender name,
     // not only seeded rows.
     void aLiveMentionAlsoLearnsItsSenderName()

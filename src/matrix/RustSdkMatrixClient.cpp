@@ -3230,7 +3230,10 @@ void RustSdkMatrixClient::markRoomRead(const QString &roomId)
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(mx_rust_mark_room_read(
         m_rustHandle, room.constData()));
-    if (!result.isEmpty()) qCWarning(lcRust) << "mark-room-read command rejected";
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "mark-room-read command rejected";
+        Q_EMIT markRoomReadFailed(roomId);
+    }
 }
 
 void RustSdkMatrixClient::setRoomNotificationMode(const QString &roomId, int mode)
@@ -5194,8 +5197,15 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("read_marker_advanced")) {
+        Q_EMIT readMarkerAdvanced(event.value(QStringLiteral("room_id")).toString());
+        return;
+    }
+
     if (type == QLatin1String("room_action_error")) {
         const QString action = event.value(QStringLiteral("action")).toString();
+        if (action == QLatin1String("mark_read"))
+            Q_EMIT markRoomReadFailed(event.value(QStringLiteral("room_id")).toString());
         if (action == QLatin1String("read_receipt"))
             m_lastReceiptSent.remove(event.value(QStringLiteral("room_id")).toString());
         qCWarning(lcRust) << "room action failed category=" << action;

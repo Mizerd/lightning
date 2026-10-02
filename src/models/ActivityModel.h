@@ -112,7 +112,18 @@ public:
     /// Everything in `roomId` up to `timestampMs` has been read, so it is seen
     /// here too. Driven by the read receipt this client sends, which is exactly
     /// the claim being mirrored.
-    void markRoomReadUpTo(const QString &roomId, qint64 timestampMs);
+    ///
+    /// `threadRootId` names the timeline that was read. Empty is the room's
+    /// main receipt, an UNTHREADED one: the server treats everything before it
+    /// as read, thread replies included, so it clears every row up to its point.
+    /// A root id is a threaded receipt and clears only that thread's rows.
+    void markRoomReadUpTo(const QString &roomId, qint64 timestampMs,
+                          const QString &threadRootId = QString());
+    /// The room was marked read without a timeline (room-list menu, a
+    /// notification's Mark as read, Mark space read): its receipt is unthreaded
+    /// and covers every thread, so everything it holds is read. Bounded by the
+    /// clock so a future-dated row stays unseen.
+    void markRoomReadNow(const QString &roomId);
     /// Every room holding unseen rows whose unread state is now fully clear has
     /// been read, on any device, so its rows are seen. Uses the SDK's
     /// receipt-derived unread state: num_unread_messages, the notification and

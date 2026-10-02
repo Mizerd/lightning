@@ -1671,6 +1671,11 @@ Q_SIGNALS:
     // A push-rule write failed: the device-local mode is kept and the UI must
     // not claim it was saved to the account. Room id only.
     void roomNotificationModeWriteFailed(const QString &roomId);
+    // A read receipt / mark-as-read the homeserver accepted, or one that failed
+    // (mark-as-read only). Room id only. markRoomRead() is asynchronous and its
+    // FFI call can be rejected, so nothing downstream may assume it landed.
+    void readMarkerAdvanced(const QString &roomId);
+    void markRoomReadFailed(const QString &roomId);
     // The room's user-defined push rules were removed; it follows the account
     // default. Separate from roomNotificationModeChanged because this is the
     // absence of a rule; it acknowledges a "follow account default" write.

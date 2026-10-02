@@ -1004,11 +1004,13 @@ void ThreadController::markRead()
 {
     if (!m_client || m_state != Ready)
         return;
-    const QString latest = m_model.latestReadableEventId();
+    qint64 latestMs = 0;
+    const QString latest = m_model.latestReadableEventId(&latestMs);
     if (latest.isEmpty() || latest == m_lastMarkedReadEventId)
         return;   // deduplicated: one receipt per new latest reply
     m_lastMarkedReadEventId = latest;
     m_client->markThreadRead(m_roomId, m_rootEventId);
+    Q_EMIT threadReadSent(m_roomId, m_rootEventId, latestMs);
 }
 
 bool ThreadController::threadUnreadHint(const QString &rootEventId) const

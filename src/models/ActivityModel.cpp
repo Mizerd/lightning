@@ -238,13 +238,23 @@ void ActivityModel::markAllSeen()
     Q_EMIT unseenCountChanged();
 }
 
-void ActivityModel::markRoomReadUpTo(const QString &roomId, qint64 timestampMs)
+void ActivityModel::markRoomReadNow(const QString &roomId)
+{
+    markRoomReadUpTo(roomId, QDateTime::currentMSecsSinceEpoch());
+}
+
+void ActivityModel::markRoomReadUpTo(const QString &roomId, qint64 timestampMs,
+                                     const QString &threadRootId)
 {
     if (roomId.isEmpty() || timestampMs <= 0)
         return;
     bool changed = false;
     for (Entry &e : m_entries) {
         if (e.seenMark || e.roomId != roomId)
+            continue;
+        // A threaded receipt covers its own thread only; an unthreaded one
+        // covers the room, threads included.
+        if (!threadRootId.isEmpty() && e.threadRootId != threadRootId)
             continue;
         // An entry without a timestamp cannot be compared; leave it rather than
         // assume it is old.
