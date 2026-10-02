@@ -403,7 +403,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5301"/>
+        <location filename="../src/app/AppController.cpp" line="+5326"/>
         <source>Room invitation</source>
         <translation>रूम का आमंत्रण</translation>
     </message>
@@ -418,7 +418,7 @@
         <translation>आपको %1 में आमंत्रित किया गया</translation>
     </message>
     <message>
-        <location line="-4196"/>
+        <location line="-4215"/>
         <source>Incoming voice call</source>
         <translation>आने वाली वॉइस कॉल</translation>
     </message>
@@ -454,7 +454,7 @@
         <translation>%1 में आपसे एक वॉइस कॉल छूट गई</translation>
     </message>
     <message>
-        <location line="+454"/>
+        <location line="+474"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>रूम बन गया, लेकिन उसे स्पेस में जोड़ा नहीं जा सका।</translation>
     </message>
@@ -486,13 +486,13 @@
     <message>
         <location line="+1"/>
         <location line="+45"/>
-        <location line="+3033"/>
+        <location line="+3032"/>
         <location line="+658"/>
         <source>Not connected</source>
         <translation>कनेक्ट नहीं है</translation>
     </message>
     <message>
-        <location line="-3733"/>
+        <location line="-3732"/>
         <source>Connecting…</source>
         <translation>कनेक्ट हो रहा है…</translation>
     </message>
@@ -565,12 +565,12 @@
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2732"/>
+        <location line="+2731"/>
         <source>Not signed in.</source>
         <translation>साइन इन नहीं है।</translation>
     </message>
     <message>
-        <location line="-2730"/>
+        <location line="-2729"/>
         <source>Room-key import failed.</source>
         <translation>रूम-कुंजी आयात विफल रहा।</translation>
     </message>
@@ -785,7 +785,7 @@
         <translation>इस डिवाइस का स्थानीय डेटा मिटाने से यह ठीक नहीं होगा, और वे एन्क्रिप्शन कुंजियाँ नष्ट हो जाएँगी जिनकी आपको अब भी ज़रूरत है।</translation>
     </message>
     <message>
-        <location line="+408"/>
+        <location line="+407"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -837,8 +837,8 @@
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+373"/>
-        <location filename="../src/app/AppController.cpp" line="-1038"/>
-        <location line="+817"/>
+        <location filename="../src/app/AppController.cpp" line="-1037"/>
+        <location line="+816"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2080,12 +2080,12 @@
 <context>
     <name>ConversationController</name>
     <message>
-        <location filename="../src/app/ConversationController.cpp" line="+36"/>
+        <location filename="../src/app/ConversationController.cpp" line="+53"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+44"/>
         <source>You do not have permission to do that.</source>
         <translation>आपके पास ऐसा करने की अनुमति नहीं है।</translation>
     </message>
@@ -2125,7 +2125,12 @@
         <translation>आप ख़ुद के साथ डायरेक्ट मैसेज शुरू नहीं कर सकते।</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+4"/>
+        <source>A conversation with this person is still being created and their server has not answered yet. If an empty room appears in your list, use that one; starting another would only add more empty rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Starting direct messages is not supported on this backend.</source>
         <translation>इस बैकएंड पर डायरेक्ट मैसेज शुरू करना समर्थित नहीं है।</translation>
     </message>
@@ -2143,6 +2148,11 @@
         <location line="+25"/>
         <source>Inviting users is not supported on this backend.</source>
         <translation>इस बैकएंड पर लोगों को आमंत्रित करना समर्थित नहीं है।</translation>
+    </message>
+    <message>
+        <location line="+74"/>
+        <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -5451,7 +5461,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+511"/>
+        <location filename="../qml/MainScreen.qml" line="+513"/>
         <source>Switching account…</source>
         <translation>खाता बदला जा रहा है…</translation>
     </message>
@@ -5611,7 +5621,37 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+25"/>
+        <source>Load more</source>
+        <translation type="unfinished">और लोड करें</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Load more media from older messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Stop</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show all media</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Stop searching older messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Search all older messages for media</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+24"/>
         <source>Nothing matches those filters in the history read so far.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6494,7 +6534,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+908"/>
+        <location filename="../qml/MessageDelegate.qml" line="+971"/>
         <source>Today</source>
         <translation>आज</translation>
     </message>
@@ -6520,7 +6560,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+37"/>
-        <location line="+216"/>
+        <location line="+199"/>
         <source>Sent at %1</source>
         <translation>%1 पर भेजा गया</translation>
     </message>
@@ -6541,18 +6581,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+101"/>
-        <location line="+908"/>
+        <location line="+912"/>
         <location line="+852"/>
         <source>Reply</source>
         <translation>जवाब दें</translation>
     </message>
     <message>
-        <location line="-1745"/>
+        <location line="-1749"/>
         <source>(original message not loaded)</source>
         <translation>(मूल संदेश लोड नहीं हुआ)</translation>
     </message>
     <message numerus="yes">
-        <location line="+136"/>
+        <location line="+137"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
@@ -6566,7 +6606,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>[संदेश हटाया गया]</translation>
     </message>
     <message>
-        <location line="+95"/>
+        <location line="+98"/>
         <source>Missing room key. Restore your recovery key in Settings, or wait for another verified device to share the key.</source>
         <translation>रूम कुंजी नहीं मिली। सेटिंग्स में अपनी रिकवरी कुंजी बहाल करें, या किसी दूसरे सत्यापित डिवाइस के कुंजी साझा करने का इंतज़ार करें।</translation>
     </message>
@@ -6606,12 +6646,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>सुरक्षा सेटिंग्स</translation>
     </message>
     <message>
-        <location line="-1744"/>
+        <location line="-1794"/>
         <source>Link</source>
         <translation type="unfinished">लिंक</translation>
     </message>
     <message>
-        <location line="+1833"/>
+        <location line="+1883"/>
         <source>Show the link preview again</source>
         <translation>लिंक पूर्वावलोकन दोबारा दिखाएँ</translation>
     </message>
@@ -6878,7 +6918,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>संपादित करें</translation>
     </message>
     <message>
-        <location line="-3374"/>
+        <location line="-3424"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6894,42 +6934,42 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+485"/>
+        <location line="+530"/>
         <source>Sticker</source>
         <translation type="unfinished">स्टिकर</translation>
     </message>
     <message>
-        <location line="-482"/>
+        <location line="-527"/>
         <source>Voice message</source>
         <translation type="unfinished">वॉइस संदेश</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+479"/>
+        <location line="+524"/>
         <source>Audio</source>
         <translation type="unfinished">ऑडियो</translation>
     </message>
     <message>
-        <location line="-477"/>
-        <location line="+475"/>
+        <location line="-522"/>
+        <location line="+520"/>
         <source>GIF</source>
         <translation type="unfinished">GIF</translation>
     </message>
     <message>
-        <location line="-475"/>
+        <location line="-520"/>
         <location line="+66"/>
-        <location line="+408"/>
-        <location line="+3820"/>
+        <location line="+453"/>
+        <location line="+3825"/>
         <source>Image</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4292"/>
+        <location line="-4342"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+455"/>
+        <location line="+500"/>
         <source>%n image(s)</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -6945,7 +6985,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+2902"/>
+        <location line="+2907"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>संपादन हटाएँ</translation>
@@ -7167,10 +7207,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>स्टिकर लोड नहीं हो सका — फिर कोशिश करने के लिए क्लिक करें</translation>
     </message>
     <message>
-        <location line="-5108"/>
+        <location line="-5158"/>
         <location line="+70"/>
-        <location line="+411"/>
-        <location line="+3818"/>
+        <location line="+456"/>
+        <location line="+3823"/>
         <location line="+1009"/>
         <location line="+66"/>
         <source>Video</source>
@@ -7189,9 +7229,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>वीडियो</translation>
     </message>
     <message>
-        <location line="-5386"/>
-        <location line="+477"/>
-        <location line="+3926"/>
+        <location line="-5436"/>
+        <location line="+522"/>
+        <location line="+3931"/>
         <location line="+1113"/>
         <location line="+31"/>
         <source>File</source>
@@ -7300,7 +7340,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageSearchDialog</name>
     <message>
-        <location filename="../qml/MessageSearchDialog.qml" line="+62"/>
+        <location filename="../qml/MessageSearchDialog.qml" line="+66"/>
         <source>Search messages</source>
         <translation>संदेश खोजें</translation>
     </message>
@@ -9376,7 +9416,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 के लिए निमंत्रण</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+3"/>
         <source>%1, %2 mentions</source>
         <translation>%1, %2 मेंशन</translation>
     </message>
@@ -9386,7 +9426,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1, म्यूट</translation>
     </message>
     <message>
-        <location line="+80"/>
+        <location line="+81"/>
         <source>Yesterday</source>
         <translation>कल</translation>
     </message>
@@ -10388,7 +10428,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListModel</name>
     <message>
-        <location filename="../src/models/RoomListModel.cpp" line="+154"/>
+        <location filename="../src/models/RoomListModel.cpp" line="+173"/>
         <source>%1 contact</source>
         <extracomment>A bridged chat partner with no usable name yet; %1 is the network, e.g. &quot;WhatsApp contact&quot;.</extracomment>
         <translation>%1 संपर्क</translation>
@@ -10427,7 +10467,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListSortMenu</name>
     <message>
-        <location filename="../qml/RoomListSortMenu.qml" line="+24"/>
+        <location filename="../qml/RoomListSortMenu.qml" line="+25"/>
         <source>Sort rooms by</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10439,6 +10479,11 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+7"/>
         <source>A–Z</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Space order</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -10695,35 +10740,32 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+766"/>
+        <location line="+768"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>Rust SDK बैकएंड हैंडल नहीं बनाया जा सका।</translation>
     </message>
     <message>
-        <location line="-277"/>
-        <location line="+872"/>
+        <location line="-279"/>
+        <location line="+874"/>
         <source>This account&apos;s local storage name collides with a different account already saved on this device. Remove that account first if you want to sign in with this one.</source>
         <translation>इस खाते की स्थानीय स्टोरेज का नाम इस डिवाइस पर पहले से सहेजे गए किसी दूसरे खाते से टकरा रहा है। इसी खाते से साइन इन करना है तो पहले वह खाता हटाएँ।</translation>
     </message>
     <message>
-        <location line="-802"/>
-        <location line="+20"/>
-        <location line="+820"/>
-        <location line="+16"/>
+        <location line="+255"/>
         <source>An unusable local store for this account could not be moved aside. Check filesystem permissions and try again.</source>
         <translation>इस खाते के अनुपयोगी स्थानीय स्टोर को अलग नहीं किया जा सका। फ़ाइल सिस्टम की अनुमतियाँ जाँचें और फिर कोशिश करें।</translation>
     </message>
     <message>
-        <location line="-742"/>
+        <location line="-943"/>
         <location line="+175"/>
         <location line="+109"/>
-        <location line="+758"/>
+        <location line="+770"/>
         <location line="+88"/>
         <source>Rust SDK backend could not be initialized.</source>
         <translation>Rust SDK बैकएंड शुरू नहीं किया जा सका।</translation>
     </message>
     <message>
-        <location line="-964"/>
+        <location line="-976"/>
         <location line="+109"/>
         <source>A homeserver is required.</source>
         <translation>होमसर्वर ज़रूरी है।</translation>
@@ -10767,7 +10809,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>साइन-इन प्रतिक्रिया अधूरी थी. कृपया पुन: प्रयास करें।</translation>
     </message>
     <message>
-        <location line="-1332"/>
+        <location line="-1334"/>
         <source>Wrong username or password.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10797,7 +10839,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+891"/>
+        <location line="+893"/>
         <source>The server finished the sign-in but did not say which account or device it was for. Nothing was saved on this device.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10822,7 +10864,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+145"/>
+        <location line="+115"/>
+        <source>This account&apos;s old local data could not be moved aside because it is still in use. Close any other Lightning window (check the system tray) or program using it, wait a moment, and try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
         <source>You signed in, but Lightning could not open this account on this device, so nothing was kept. You can try again. (%1)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10840,12 +10887,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+53"/>
-        <location line="+2161"/>
+        <location line="+2164"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning इस खाते का स्थानीय सेशन पूरी तरह रीसेट नहीं कर सका। ऐप्लिकेशन लॉग और फ़ाइल सिस्टम की अनुमतियाँ जाँचें, फिर दोबारा कोशिश करें।</translation>
     </message>
     <message>
-        <location line="-2177"/>
+        <location line="-2180"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>स्थानीय Lightning सेशन फिर से बना दिया गया। पिछला एन्क्रिप्शन स्टोर हटाया नहीं गया, सिर्फ़ अलग रख दिया गया है और अब भी इस खाते की डेटा डायरेक्टरी में है। आप दोबारा साइन इन कर सकते हैं।</translation>
     </message>
@@ -10858,7 +10905,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+205"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+3570"/>
+        <location line="+3580"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -10867,29 +10914,29 @@ Signing out and signing in again is the only fix.</source>
         <translation>साइन इन नहीं हैं।</translation>
     </message>
     <message>
-        <location line="-3968"/>
+        <location line="-3978"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+3762"/>
+        <location line="+3772"/>
         <source>Unknown room: %1</source>
         <translation>अज्ञात रूम: %1</translation>
     </message>
     <message>
-        <location line="-3970"/>
+        <location line="-3980"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>एन्क्रिप्टेड रूम में अभी भेजा नहीं जा सकता: Rust SDK का एन्क्रिप्टेड सेंड सत्यापित नहीं है।</translation>
     </message>
     <message>
-        <location line="+530"/>
-        <location line="+2006"/>
+        <location line="+533"/>
+        <location line="+2013"/>
         <location line="+54"/>
         <source>The sticker could not be sent.</source>
         <translation>स्टीकर नहीं भेजा जा सका.</translation>
     </message>
     <message>
-        <location line="-1037"/>
+        <location line="-1044"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10929,7 +10976,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>आमंत्रण की कार्रवाई विफल रही। फिर कोशिश करें।</translation>
     </message>
     <message>
-        <location line="+236"/>
+        <location line="+243"/>
         <location line="+26"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
@@ -10971,7 +11018,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4649"/>
+        <location line="-4673"/>
         <source>Enter your username.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10986,7 +11033,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4641"/>
+        <location line="+4665"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>संदेश भेजा नहीं जा सका। आप संदेश के “फिर कोशिश करें” विकल्प से दोबारा भेज सकते हैं।</translation>
     </message>
@@ -15826,7 +15873,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+703"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+718"/>
         <source>Create Room</source>
         <translation>कक्ष बनाएँ</translation>
     </message>
@@ -18311,7 +18358,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+453"/>
+        <location filename="../qml/TimelinePane.qml" line="+485"/>
         <source>Seen by 1 person</source>
         <translation>1 व्यक्ति ने देखा</translation>
     </message>
@@ -18336,12 +18383,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-474"/>
         <location filename="../qml/TimelinePane.qml" line="+212"/>
-        <location line="+4804"/>
+        <location line="+4851"/>
         <source>Space</source>
         <translation>स्पेस</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-4803"/>
+        <location filename="../qml/TimelinePane.qml" line="-4850"/>
         <source>Home</source>
         <translation>होम</translation>
     </message>
@@ -18396,12 +18443,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3505"/>
+        <location line="+3546"/>
         <source>Room information</source>
         <translation>कक्ष जानकारी</translation>
     </message>
     <message>
-        <location line="-3492"/>
+        <location line="-3533"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation type="unfinished"></translation>
@@ -18507,7 +18554,17 @@ Note: importing keys does not verify this session.</source>
         <translation>खोज बंद करें</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+23"/>
+        <source>No matches in loaded messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Search all rooms for &apos;%1&apos;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+32"/>
         <source>Indexing this room&apos;s history…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18675,7 +18732,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+384"/>
+        <location line="+390"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>कक्ष जोड़ा गया — सर्वर की पुष्टि की प्रतीक्षा है।</translation>
     </message>
@@ -19016,20 +19073,20 @@ Note: importing keys does not verify this session.</source>
         <translation>कक्ष बने रहते हैं और आप उनमें बने रहते हैं — वे बस इस स्पेस की सूची से निकल जाते हैं।</translation>
     </message>
     <message>
-        <location line="-1175"/>
-        <location line="+1189"/>
+        <location line="-1181"/>
+        <location line="+1195"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>रद्द करें</translation>
     </message>
     <message>
-        <location line="-5354"/>
+        <location line="-5401"/>
         <location line="+91"/>
         <source>View profile</source>
         <translation type="unfinished">प्रोफ़ाइल देखें</translation>
     </message>
     <message>
-        <location line="+5244"/>
+        <location line="+5291"/>
         <source>Leave %1?</source>
         <translation>%1 छोड़ें?</translation>
     </message>
