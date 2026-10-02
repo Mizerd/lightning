@@ -947,6 +947,9 @@ private:
     // aside, never deleting it, so the sign-in can start a new device in a
     // fresh store. False when the store could not be moved.
     bool moveRevokedDeviceStoreAside(const matrix::app_data::AccountIdentity &identity);
+    QString storeMoveFailureText() const;
+    matrix::app_data::QuarantineFailure m_lastStoreMoveFailure
+        = matrix::app_data::QuarantineFailure::None;
     // The device the server provably ended in this process: the SDK's hard
     // logout (soft_logout false) for the session that ran as it. Survives the
     // local detach that follows; never persisted, so a restart asks the

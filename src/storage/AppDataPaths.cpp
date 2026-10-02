@@ -8,10 +8,13 @@
 #include <QFileInfo>
 #include <QLatin1Char>
 #include <QLatin1String>
+#include <QLoggingCategory>
 #include <QStandardPaths>
+#include <QThread>
 #include <QUrl>
 
 #include <cstdlib>
+#include <utility>
 
 namespace matrix::app_data {
 
@@ -496,8 +499,72 @@ RemovalSummary quarantineAccountRustState(const AccountIdentity &identity)
     return summary;
 }
 
-QString quarantineRustStore(const AccountIdentity &identity)
+namespace {
+Q_LOGGING_CATEGORY(lcAppDataPaths, "matrix.appdatapaths")
+
+bool defaultRename(const QString &from, const QString &to, void *)
 {
+    return QDir().rename(from, to);
+}
+
+// One attempt: whole-directory rename, then entry-by-entry. Returns true when
+// the store path is free. Never leaves the store split: a partial entry move
+// is rolled back.
+bool moveStoreOnce(const QString &storePath, const QString &target,
+                   RenameFn rename, void *ctx, bool *rollbackFailed)
+{
+    if (rename(storePath, target, ctx))
+        return true;
+
+    // Windows refuses to rename a directory while files in it are open. Moving
+    // the entries into a fresh sibling is tried next, but SQLite opens its
+    // files without FILE_SHARE_DELETE, so this can fail as well.
+    QDir parent(QFileInfo(storePath).absolutePath());
+    if (!parent.mkpath(QFileInfo(target).fileName()))
+        return false;
+    const QDir source(storePath);
+    const QDir destination(target);
+    const QStringList names = source.entryList(
+        QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
+    QStringList moved;
+    for (const QString &name : names) {
+        if (!rename(source.absoluteFilePath(name),
+                    destination.absoluteFilePath(name), ctx)) {
+            // Partial move: put back what was moved so the store is never
+            // split across two directories. Nothing is deleted.
+            int notRestored = 0;
+            for (const QString &done : std::as_const(moved)) {
+                if (!rename(destination.absoluteFilePath(done),
+                            source.absoluteFilePath(done), ctx))
+                    ++notRestored;
+            }
+            if (notRestored > 0) {
+                // The store is split and the caller must not claim otherwise.
+                // Counts only: a path contains the account's localpart.
+                qCWarning(lcAppDataPaths)
+                    << "store rollback incomplete; entries left in the aside "
+                       "directory:" << notRestored;
+                if (rollbackFailed)
+                    *rollbackFailed = true;
+            }
+            // Only if empty, so nothing is lost.
+            parent.rmdir(QFileInfo(target).fileName());
+            return false;
+        }
+        moved.append(name);
+    }
+    // Removed only if still empty, so a file that appeared mid-move survives.
+    parent.rmdir(QFileInfo(storePath).fileName());
+    return true;
+}
+} // namespace
+
+QString quarantineRustStoreWith(const AccountIdentity &identity, RenameFn rename,
+                                void *ctx, int attempts, int retryDelayMs,
+                                QuarantineFailure *failure)
+{
+    if (failure)
+        *failure = QuarantineFailure::None;
     if (!isSafeAccountIdentity(identity))
         return {};
     const QFileInfo storeInfo(identity.rustStorePath);
@@ -512,33 +579,39 @@ QString quarantineRustStore(const AccountIdentity &identity)
         + QLatin1String(".orphaned-") + stamp;
     if (QFileInfo::exists(target))
         return {};
-    // Same directory: one atomic rename on POSIX.
-    if (QDir().rename(identity.rustStorePath, target))
-        return target;
 
-    // Windows refuses to rename a directory while files in it are open, and
-    // matrix-sdk holds its sqlite files open. Renaming the files is allowed (as
-    // in AtomicReplace::moveDirectoryEntries), so move the entries into a fresh
-    // sibling. An empty original directory is no longer a store the SDK adopts,
-    // so it counts as moved.
-    QDir parent(QFileInfo(identity.rustStorePath).absolutePath());
-    if (!parent.mkpath(QFileInfo(target).fileName()))
-        return {};
-    const QDir source(identity.rustStorePath);
-    const QDir destination(target);
-    const QStringList names = source.entryList(
-        QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
-    for (const QString &name : names) {
-        if (!QDir().rename(source.absoluteFilePath(name),
-                           destination.absoluteFilePath(name))) {
-            // Partial move: fail rather than leave the store split across two
-            // directories. Nothing was deleted.
-            return {};
-        }
+    bool rollbackFailed = false;
+    for (int attempt = 0; attempt < qMax(1, attempts); ++attempt) {
+        if (attempt > 0 && retryDelayMs > 0)
+            QThread::msleep(static_cast<unsigned long>(retryDelayMs));
+        if (moveStoreOnce(identity.rustStorePath, target, rename, ctx,
+                          &rollbackFailed))
+            return target;
+        // A failed rollback still retries: every attempt moves into the SAME
+        // target, so a retry can only reunite the store there. Giving up would
+        // leave it split, and the next sign-in would move the rest into a
+        // second, differently timestamped directory.
     }
-    // Removed only if still empty, so a file that appeared mid-move survives.
-    parent.rmdir(QFileInfo(identity.rustStorePath).fileName());
-    return target;
+    // A store that cannot be moved from a directory we can write to is held
+    // open by something (a sharing violation); an unwritable parent is a
+    // permission problem. Heuristic: the OS error is not exposed by QDir.
+    if (failure) {
+        const QFileInfo parentInfo(
+            QFileInfo(identity.rustStorePath).absolutePath());
+        *failure = (rollbackFailed || parentInfo.isWritable())
+            ? QuarantineFailure::InUse
+                                           : QuarantineFailure::Permission;
+    }
+    return {};
+}
+
+QString quarantineRustStore(const AccountIdentity &identity,
+                            QuarantineFailure *failure)
+{
+    // Six tries, 300 ms apart: antivirus scanners and a retiring client release
+    // their handles within moments, and the wait is bounded at ~1.5 s.
+    return quarantineRustStoreWith(identity, &defaultRename, nullptr, 6, 300,
+                                   failure);
 }
 
 QStringList legacyRoots()

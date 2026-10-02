@@ -951,17 +951,21 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     if (storeExists && !targetHasRecord) {
         // Moved aside, never deleted: the store may hold the only copy of
         // someone's room keys.
-        const QString quarantined =
-            matrix::app_data::quarantineRustStore(identity);
+        // A handle this process retired a moment ago (a failed attempt, an
+        // earlier account) may still hold the SQLite files open; on Windows
+        // that alone makes the rename fail.
+        if (!waitForRustRetirement(kStoreCloseBudgetMs))
+            qCWarning(lcRust) << "a retiring client still held a store open "
+                                 "after the close budget";
+        const QString quarantined = matrix::app_data::quarantineRustStore(
+            identity, &m_lastStoreMoveFailure);
         qCInfo(lcRust) << "quarantined unclaimed store before login"
                        << "slug=" << identity.effectiveStoreSlug()
                        << "moved=" << !quarantined.isEmpty();
         storeExists = pathExistsOrIsLink(identity.rustStorePath);
         if (storeExists) {
             setState(Error);
-            Q_EMIT loginFailed(tr(
-                "An unusable local store for this account could not be moved "
-                "aside. Check filesystem permissions and try again."));
+            Q_EMIT loginFailed(storeMoveFailureText());
             return;
         }
     }
@@ -979,9 +983,7 @@ void RustSdkMatrixClient::login(const QString &homeserver,
             m_revokedDeviceId)) {
         if (!moveRevokedDeviceStoreAside(identity)) {
             setState(Error);
-            Q_EMIT loginFailed(tr(
-                "An unusable local store for this account could not be moved "
-                "aside. Check filesystem permissions and try again."));
+            Q_EMIT loginFailed(storeMoveFailureText());
             return;
         }
         storeExists = false;
@@ -1792,16 +1794,18 @@ void RustSdkMatrixClient::adoptBrowserSession(
                 "Remove that account first if you want to sign in with this one."));
             return;
         }
-        const QString moved = matrix::app_data::quarantineRustStore(identity);
+        if (!waitForRustRetirement(kStoreCloseBudgetMs))
+            qCWarning(lcRust) << "a retiring client still held a store open "
+                                 "after the close budget";
+        const QString moved = matrix::app_data::quarantineRustStore(
+            identity, &m_lastStoreMoveFailure);
         qCInfo(lcRust) << "quarantined unclaimed store before browser sign-in"
                        << "slug=" << identity.effectiveStoreSlug()
                        << "moved=" << !moved.isEmpty();
         storeExists = QFileInfo::exists(storePath);
         if (storeExists) {
             setState(Error);
-            Q_EMIT loginFailed(tr(
-                "An unusable local store for this account could not be moved "
-                "aside. Check filesystem permissions and try again."));
+            Q_EMIT loginFailed(storeMoveFailureText());
             return;
         }
     }
@@ -1815,9 +1819,7 @@ void RustSdkMatrixClient::adoptBrowserSession(
             m_revokedDeviceId)) {
         if (!moveRevokedDeviceStoreAside(identity)) {
             setState(Error);
-            Q_EMIT loginFailed(tr(
-                "An unusable local store for this account could not be moved "
-                "aside. Check filesystem permissions and try again."));
+            Q_EMIT loginFailed(storeMoveFailureText());
             return;
         }
         storeExists = false;
@@ -2009,6 +2011,17 @@ bool RustSdkMatrixClient::resumedDeviceCheckIsFor(const QString &userId,
            && userId == m_userId && deviceId == m_deviceId;
 }
 
+QString RustSdkMatrixClient::storeMoveFailureText() const
+{
+    if (m_lastStoreMoveFailure == matrix::app_data::QuarantineFailure::InUse)
+        return tr("This account's old local data could not be moved aside "
+                  "because it is still in use. Close any other Lightning "
+                  "window (check the system tray) or program using it, wait a "
+                  "moment, and try again.");
+    return tr("An unusable local store for this account could not be moved "
+              "aside. Check filesystem permissions and try again.");
+}
+
 bool RustSdkMatrixClient::moveRevokedDeviceStoreAside(
     const matrix::app_data::AccountIdentity &identity)
 {
@@ -2024,7 +2037,8 @@ bool RustSdkMatrixClient::moveRevokedDeviceStoreAside(
     if (!waitForRustRetirement(kStoreCloseBudgetMs))
         qCWarning(lcRust) << "the revoked device's store was still open after "
                              "the close budget";
-    const QString moved = matrix::app_data::quarantineRustStore(identity);
+    const QString moved = matrix::app_data::quarantineRustStore(
+        identity, &m_lastStoreMoveFailure);
     qCInfo(lcRust) << "moved the revoked device's store aside; signing in as "
                       "a new device"
                    << "slug=" << identity.effectiveStoreSlug()

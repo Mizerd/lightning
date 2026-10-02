@@ -103,6 +103,9 @@ private Q_SLOTS:
     void delegatedStoreIsOwnedAndSurvivesLoginOrphanCleanup();
     void ownershipCheckCoversAllThreeBindings();
     void unclaimedStoreIsQuarantinedNotDeleted();
+    void quarantineRetriesASharingViolationAndNeverSplitsTheStore();
+    void quarantineNamesAStoreInUse();
+    void aFailedEntryMoveIsRolledBackAndTheStoreStaysWhole();
     void asciiOnlyCaseFoldingForAdoptionCandidates();
     void repairQuarantinesTheStoreInsteadOfDeletingIt();
     void unreadableSecretBackendIsNeverADestructiveVerdict();
@@ -734,6 +737,106 @@ void SessionStoreIdentityTest::unclaimedStoreIsQuarantinedNotDeleted()
 
     // Nothing to move a second time, and no store is invented.
     QCOMPARE(matrix::app_data::quarantineRustStore(stray), QString());
+}
+
+namespace {
+// Simulates Windows: renames fail while "open files" exist. `failFor` is the
+// number of leading calls that fail; a rename of one named entry (the second
+// seeded file) also fails on the first pass, so a partial move is exercised.
+struct FlakyRename {
+    int failFor = 0;
+    int calls = 0;
+    bool always = false;
+};
+bool flakyRename(const QString &from, const QString &to, void *ctx)
+{
+    auto *f = static_cast<FlakyRename *>(ctx);
+    ++f->calls;
+    if (f->always || f->calls <= f->failFor)
+        return false;
+    return QDir().rename(from, to);
+}
+} // namespace
+
+void SessionStoreIdentityTest::quarantineRetriesASharingViolationAndNeverSplitsTheStore()
+{
+    const auto stray = identityFor(QStringLiteral("@busy:matrix.example"));
+    seedStore(stray.slug, QStringLiteral("held-open"));
+    QFile second(stray.rustStorePath + QLatin1String("/second"));
+    QVERIFY(second.open(QIODevice::WriteOnly));
+    second.write("2");
+    second.close();
+
+    // Dir rename fails, first entry moves, second entry fails (calls 1 and 3),
+    // then the rollback and the whole of the second pass succeed.
+    struct Ctx { FlakyRename f; int n = 0; } ctx;
+    auto rename = [](const QString &from, const QString &to, void *c) {
+        auto *x = static_cast<Ctx *>(c);
+        ++x->n;
+        if (x->n == 1 || x->n == 3)
+            return false;
+        return QDir().rename(from, to);
+    };
+    matrix::app_data::QuarantineFailure why;
+    const QString moved = matrix::app_data::quarantineRustStoreWith(
+        stray, rename, &ctx, 3, 0, &why);
+    QVERIFY2(!moved.isEmpty(), "a transient sharing violation was not retried");
+    QVERIFY(!QFileInfo(stray.rustStorePath).exists());
+    QVERIFY(QFileInfo(moved + QLatin1String("/marker")).exists());
+    QVERIFY(QFileInfo(moved + QLatin1String("/second")).exists());
+}
+
+void SessionStoreIdentityTest::aFailedEntryMoveIsRolledBackAndTheStoreStaysWhole()
+{
+    const auto stray = identityFor(QStringLiteral("@split:matrix.example"));
+    seedStore(stray.slug, QStringLiteral("whole"));
+    QFile second(stray.rustStorePath + QLatin1String("/second"));
+    QVERIFY(second.open(QIODevice::WriteOnly));
+    second.write("2");
+    second.close();
+
+    // One attempt: the directory rename fails, the first entry moves, the
+    // SECOND entry's rename fails. Without a rollback the first stays aside.
+    struct Ctx { int n = 0; } ctx;
+    auto rename = [](const QString &from, const QString &to, void *c) {
+        auto *x = static_cast<Ctx *>(c);
+        ++x->n;
+        if (x->n == 1 || x->n == 3)
+            return false;
+        return QDir().rename(from, to);
+    };
+    matrix::app_data::QuarantineFailure why
+        = matrix::app_data::QuarantineFailure::None;
+    const QString moved = matrix::app_data::quarantineRustStoreWith(
+        stray, rename, &ctx, 1, 0, &why);
+    QVERIFY(moved.isEmpty());
+    QCOMPARE(why, matrix::app_data::QuarantineFailure::InUse);
+    QVERIFY2(QFileInfo(stray.rustStorePath + QLatin1String("/marker")).exists(),
+             "the first entry was left in the aside directory");
+    QVERIFY(QFileInfo(stray.rustStorePath + QLatin1String("/second")).exists());
+    const QDir account(QFileInfo(stray.rustStorePath).absolutePath());
+    QVERIFY(account.entryList({QStringLiteral("*.orphaned-*")},
+                              QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
+}
+
+void SessionStoreIdentityTest::quarantineNamesAStoreInUse()
+{
+    const auto stray = identityFor(QStringLiteral("@held:matrix.example"));
+    seedStore(stray.slug, QStringLiteral("held-open"));
+    FlakyRename always;
+    always.always = true;
+    matrix::app_data::QuarantineFailure why
+        = matrix::app_data::QuarantineFailure::None;
+    const QString moved = matrix::app_data::quarantineRustStoreWith(
+        stray, &flakyRename, &always, 2, 0, &why);
+    QVERIFY(moved.isEmpty());
+    QCOMPARE(why, matrix::app_data::QuarantineFailure::InUse);
+    QVERIFY2(always.calls >= 2, "no retry was made");
+    // Untouched, and no half-made sibling left behind.
+    QCOMPARE(markerIn(stray.slug), QStringLiteral("held-open"));
+    const QDir account(QFileInfo(stray.rustStorePath).absolutePath());
+    QVERIFY(account.entryList({QStringLiteral("*.orphaned-*")},
+                              QDir::Dirs | QDir::NoDotAndDotDot).isEmpty());
 }
 
 void SessionStoreIdentityTest::asciiOnlyCaseFoldingForAdoptionCandidates()

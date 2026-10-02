@@ -178,7 +178,22 @@ RemovalSummary quarantineAccountRustState(const AccountIdentity &identity);
 // or empty when there was nothing to move or the rename failed. Used where the
 // app believes a store is unclaimed; that verdict can be wrong, and the store
 // may hold the only copy of Megolm keys.
-QString quarantineRustStore(const AccountIdentity &identity);
+//
+// On Windows a rename fails while ANY file inside is open (matrix-sdk's SQLite
+// files, a second running instance, antivirus), so a failed move is retried
+// briefly and `failure`, when given, says whether the likely cause is a store
+// in use or a filesystem permission problem.
+enum class QuarantineFailure { None, InUse, Permission };
+QString quarantineRustStore(const AccountIdentity &identity,
+                            QuarantineFailure *failure = nullptr);
+
+// The same, with the rename primitive, the retry count and the pause between
+// tries injectable. Public so a test can simulate a sharing violation on a
+// POSIX host; production code calls quarantineRustStore().
+using RenameFn = bool (*)(const QString &from, const QString &to, void *ctx);
+QString quarantineRustStoreWith(const AccountIdentity &identity, RenameFn rename,
+                                void *ctx, int attempts, int retryDelayMs,
+                                QuarantineFailure *failure = nullptr);
 
 // Legacy roots older builds may have used. Never overlaps primaryRoot().
 QStringList legacyRoots();
