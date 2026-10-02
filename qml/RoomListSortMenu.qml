@@ -7,7 +7,7 @@ import MatrixClient
 // favourites, People, Rooms) are not affected; only the order inside one.
 //
 // The mode is the persisted device setting `app.settings.roomListSort`
-// (0 = Activity, 1 = A-Z). Both layouts and the Space channel list follow it
+// (0 = Activity, 1 = A-Z, 2 = Space order, which is Activity outside a Space). Both layouts and the Space channel list follow it
 // through AppController, so this menu only writes the setting and reads it
 // back; there is no second copy of the choice here.
 AppMenu {
@@ -16,9 +16,10 @@ AppMenu {
 
     menuWidth: 200
 
-    // The two values mirror conversation::SortMode (models/ConversationOrder.h).
+    // The values mirror conversation::SortMode (models/ConversationOrder.h).
     readonly property int sortActivity: 0
     readonly property int sortName: 1
+    readonly property int sortSpace: 2
     readonly property int currentSort: app.settings.roomListSort
 
     MenuSectionLabel { text: qsTr("Sort rooms by") }
@@ -36,5 +37,12 @@ AppMenu {
         radioSelected: root.currentSort === root.sortName
         text: qsTr("A–Z")
         onTriggered: app.settings.roomListSort = root.sortName
+    }
+    AppMenuItem {
+        objectName: "roomSortSpaceItem"
+        radio: true
+        radioSelected: root.currentSort === root.sortSpace
+        text: qsTr("Space order")
+        onTriggered: app.settings.roomListSort = root.sortSpace
     }
 }

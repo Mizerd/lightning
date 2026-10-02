@@ -50,13 +50,17 @@ inline bool moreRecent(const QDateTime &aWhen, const QString &aName,
 enum SortMode {
     SortByActivity = 0,
     SortByName = 1,
+    /// Inside a real Space: the Space's own m.space.child order (its lobby's),
+    /// favourites first. Everywhere else it behaves exactly like Activity.
+    SortBySpaceOrder = 2,
 };
 
-/// An unknown value (hand-edited, or written by a newer build with a third
+/// An unknown value (hand-edited, or written by a newer build with a fourth
 /// mode) is Activity, not the nearest mode: modes have no magnitude.
 inline int normalizedSortMode(int mode)
 {
-    return mode == SortByName ? SortByName : SortByActivity;
+    return mode == SortByName || mode == SortBySpaceOrder ? mode
+                                                          : SortByActivity;
 }
 
 /// The collator A-Z compares with: the user's locale, case-insensitive. Built

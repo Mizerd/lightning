@@ -97,6 +97,11 @@ public:
     // for orphansId().
     Q_INVOKABLE QStringList roomsInSpace(const QString &spaceId) const;
     Q_INVOKABLE bool includesRoom(const QString &spaceId, const QString &roomId) const;
+    /// Each joined room of a real Space mapped to its position in the Space's
+    /// own order (the one the Space lobby lists): the direct children in
+    /// m.space.child order, then those of its subspaces. Empty for a pseudo id
+    /// or an unknown Space. A sidebar that ranks by this agrees with the lobby.
+    QHash<QString, int> childOrder(const QString &spaceId) const;
     // Display name for the room-list workspace header.
     Q_INVOKABLE QString spaceName(const QString &spaceId) const;
 

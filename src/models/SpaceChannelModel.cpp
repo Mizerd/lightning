@@ -182,6 +182,21 @@ void SpaceChannelModel::sortGroup(QVector<Row> &rooms, bool favouritesFirst)
         m_sortPending = true;
 }
 
+void SpaceChannelModel::sortSpaceChannels(QVector<Row> &rooms)
+{
+    if (m_sortMode != conversation::SortBySpaceOrder) {
+        sortGroup(rooms, true);   // Activity or A-Z, as everywhere else
+        return;
+    }
+    // Space order: the Space defines its channels' order, not activity: stable, so the
+    // lobby's order survives within the favourite split. Nothing depends on
+    // activity, so nothing is held or pending.
+    std::stable_sort(rooms.begin(), rooms.end(),
+                     [](const Row &a, const Row &b) {
+                         return a.favourite && !b.favourite;
+                     });
+}
+
 void SpaceChannelModel::scheduleRebuild()
 {
     m_rebuildCoalesce.start();
@@ -869,9 +884,9 @@ int SpaceChannelModel::buildSpace(QVector<Row> &rows,
                 children.append(roomRow(*childInfo));
             }
         }
-        // Newest first within the group; the group structure itself is
-        // unchanged.
-        sortGroup(children, true);
+        // The Space's own order (as in its lobby) under Activity, A-Z by name;
+        // the group structure itself is unchanged.
+        sortSpaceChannels(children);
         shown += appendGroup(rows, header, children);
     }
     shown += appendSpacePeople(rows, byId);

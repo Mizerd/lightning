@@ -24,6 +24,7 @@
 #include "matrix/CppHttpMatrixClient.h"
 #include "matrix/MockMatrixClient.h"
 #endif
+#include "matrix/RoomUnreadRule.h"
 #include "media/MediaManager.h"
 #include "models/MessageComposer.h"
 #include "models/EmojiCatalog.h"
@@ -926,6 +927,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this] { m_trayUnreadCoalesce.start(); });
     connect(m_client.get(), &MatrixClient::roomUpdated, this,
             [this](const QString &) { m_trayUnreadCoalesce.start(); });
+    // Muting or unmuting a room changes what the badge counts without any
+    // room update (GitHub #18).
+    if (m_settings)
+        connect(m_settings.get(), &SettingsManager::roomNotificationModeChanged, this,
+                [this](const QString &) { m_trayUnreadCoalesce.start(); });
 
     m_mediaHistory->setClient(m_client.get());
     m_qrLogin->setClient(m_client.get());
@@ -1487,6 +1493,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_draftStore->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
     m_roomList->setSpaceManager(m_spaces.get());
+    // Muted rooms are silent in the room list's badges too (one rule with the
+    // rail and the tray).
+    m_roomList->setNotificationModeSource([this](const QString &id) {
+        return m_settings->roomNotificationMode(id);
+    });
+    connect(m_settings.get(), &SettingsManager::roomNotificationModeChanged,
+            m_roomList.get(),
+            [this](const QString &) { m_roomList->notificationModeChanged(); });
     // No setSpaceManager: this is the unfiltered list the forward pickers use.
     m_allRooms->setClient(m_client.get());
     // Rail rows: the user's arrangement over the hierarchy, with the drag
@@ -1566,6 +1580,18 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QString &roomId, const QString &, qint64 timestampMs) {
         if (m_activity)
             m_activity->markRoomReadUpTo(roomId, timestampMs);
+    });
+    // The same for a thread's own receipt, and for a room marked read without
+    // a timeline (room menu, notification action, Mark space read).
+    connect(m_thread.get(), &ThreadController::threadReadSent, this,
+            [this](const QString &roomId, const QString &rootId, qint64 ms) {
+        if (m_activity)
+            m_activity->markRoomReadUpTo(roomId, ms, rootId);
+    });
+    connect(m_roomList.get(), &RoomListModel::roomMarkedRead, this,
+            [this](const QString &roomId) {
+        if (m_activity)
+            m_activity->markRoomReadNow(roomId);
     });
 
     // Push the room-activity visibility into both timeline models (the thread
@@ -4816,26 +4842,25 @@ void AppController::refreshTrayUnread()
     // that are no longer unread. Only the badge write needs the icon.
     if (!m_client)
         return;
-    // Derived from the local rooms() snapshot, reading the same fields every
-    // other unread surface reads.
-    int total = 0;
-    bool anyUnread = false;
-    for (const RoomInfo &room : m_client->rooms()) {
-        // Invites have their own notification and are not unread messages.
-        if (room.membership != RoomInfo::Joined)
-            continue;
-        total += qMax(0, room.unreadCount);
-        const bool roomUnread = room.unreadCount > 0 || room.hasUnreadMessages
-                                || room.markedUnread;
-        if (roomUnread)
-            anyUnread = true;
-        // A room that is no longer unread withdraws its notifications, a read
-        // in another client (cleared via sync) included. The manager waits
-        // until the room has read as unread since its latest card: a card can
-        // come before these fields catch up. Cheap for rooms without a card.
-        if (m_notifications)
-            m_notifications->observeRoomUnread(room.id, roomUnread);
-    }
+    // Derived from the local rooms() snapshot with the rail's rule (GitHub
+    // #18: a muted room is neither a dot nor a count).
+    const roomunread::Summary unread = roomunread::summarize(
+        m_client->rooms(),
+        [this](const QString &id) {
+            return m_settings ? m_settings->roomNotificationMode(id)
+                              : roomunread::kModeAllMessages;
+        },
+        [this](const RoomInfo &room, bool roomUnread) {
+            // A room that is no longer unread withdraws its notifications, a
+            // read in another client (cleared via sync) included. The manager
+            // waits until the room has read as unread since its latest card:
+            // a card can come before these fields catch up. Cheap for rooms
+            // without a card.
+            if (m_notifications)
+                m_notifications->observeRoomUnread(room.id, roomUnread);
+        });
+    const int total = unread.total;
+    const bool anyUnread = unread.any;
     if (m_tray.enabled())
         m_tray.setUnread(total, anyUnread);
 }

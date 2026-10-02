@@ -1594,6 +1594,8 @@ if(BUILD_TESTING)
         src/matrix/MatrixClient.cpp
     )
     target_include_directories(activity-model-test PRIVATE src)
+    target_compile_definitions(activity-model-test PRIVATE
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(activity-model-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME activity-model COMMAND activity-model-test)
 
@@ -5267,6 +5269,20 @@ if(TARGET lightning-app-testlib)
     if(APPLE)
         target_link_libraries(lightning-app-testlib PUBLIC "-framework AppKit")
     endif()
+endif()
+
+# The shared unread rule behind the tray badge and the rail (GitHub #18).
+if(BUILD_TESTING)
+    qt_add_executable(room-unread-rule-test
+        tests/RoomUnreadRuleTest.cpp
+        src/matrix/RoomUnreadRule.h
+        src/matrix/RoomInfo.h
+    )
+    target_include_directories(room-unread-rule-test PRIVATE src)
+    target_compile_definitions(room-unread-rule-test PRIVATE
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(room-unread-rule-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-unread-rule COMMAND room-unread-rule-test)
 endif()
 
 # The tray icon's right-click menu (GitHub #17). A QMenu needs a QApplication,

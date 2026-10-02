@@ -579,6 +579,22 @@ bool SpaceManager::includesRoom(const QString &spaceId, const QString &roomId) c
     return it->contains(roomId);
 }
 
+QHash<QString, int> SpaceManager::childOrder(const QString &spaceId) const
+{
+    QHash<QString, int> out;
+    if (!isRealSpaceId(spaceId))
+        return out;
+    for (const SpaceEntry &entry : m_spaces) {
+        if (entry.info.id != spaceId)
+            continue;
+        out.reserve(entry.childRoomIds.size());
+        for (int i = 0; i < entry.childRoomIds.size(); ++i)
+            out.insert(entry.childRoomIds.at(i), i);
+        break;
+    }
+    return out;
+}
+
 // Assigns every joined Space a depth and one primary parent. Matrix permits
 // what a tree does not:
 //

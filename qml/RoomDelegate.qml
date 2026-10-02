@@ -10,7 +10,8 @@ Item {
     Accessible.name: {
         if (model.membership === "invited")
             return qsTr("Invitation to %1").arg(model.name)
-        var base = model.highlightCount > 0
+        // A muted room is silent, mentions included.
+        var base = (model.highlightCount > 0 && !root.muted)
                    ? qsTr("%1, %2 mentions").arg(model.name)
                                             .arg(model.highlightCount)
                    : model.name
@@ -80,8 +81,9 @@ Item {
 
     // One predicate for whether there is a count, shared by the pill and the
     // dots so they never both render.
+    // A muted room is fully silent (as in Element): no count, no mention.
     readonly property bool hasCountBadge:
-        model.unreadCount > 0 || model.highlightCount > 0
+        !root.muted && (model.unreadCount > 0 || model.highlightCount > 0)
 
     // A clock time only for today, as Element does. Identical to
     // HomePane.activityLabel().
@@ -311,7 +313,7 @@ Item {
                 // dot.
                 Rectangle {
                     objectName: "roomUnreadDot"
-                    visible: root.isUnread && !root.hasCountBadge
+                    visible: root.isUnread && !root.hasCountBadge && !root.muted
                     implicitWidth: 8
                     implicitHeight: 8
                     radius: 4

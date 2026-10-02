@@ -8,6 +8,8 @@
 #include <QHash>
 #include <QList>
 #include <QSet>
+
+#include <functional>
 #include <QVariantMap>
 #include <QTimer>
 
@@ -101,6 +103,13 @@ public:
     // SpaceManager::activeSpaceId() are shown. Space rooms themselves are
     // always excluded (they belong to the rail).
     void setSpaceManager(SpaceManager *spaces);
+    /// Where a room's notification mode comes from (SettingsManager's
+    /// roomNotificationMode); unset means every room is All messages. The
+    /// model stays free of the settings class so its test targets need not link
+    /// it.
+    void setNotificationModeSource(std::function<int(const QString &)> modeOf);
+    /// A room's mode changed: the badges and the Unreads filter follow.
+    void notificationModeChanged();
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -227,7 +236,11 @@ private:
     int m_unreadRoomCount = 0;
     int m_highlightRoomCount = 0;
     void updateUnreadTotals();
+    int notificationModeOf(const QString &roomId) const;
+    std::function<int(const QString &)> m_modeOf;
     MatrixClient *m_client = nullptr;
+    /// Rooms with a mark-as-read in flight; see roomMarkedRead.
+    QSet<QString> m_pendingMarkRead;
     SpaceManager *m_spaces = nullptr;
     QList<RoomInfo> m_rooms; // Filtered subset actually shown.
     // Rooms whose successor the user can reach, recomputed once per reconcile
@@ -256,6 +269,10 @@ private:
     QHash<QString, BridgeBadge> m_advertisedBridges;
 
 Q_SIGNALS:
+    /// A room was marked read without opening it (menu, notification action,
+    /// Mark space/all read) and the server ACCEPTED it. Never emitted for a
+    /// request that was rejected or failed. The bell mirrors it.
+    void roomMarkedRead(const QString &roomId);
     void searchQueryChanged();
     void filterGenerationChanged();
     void filterModeChanged();

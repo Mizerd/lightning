@@ -224,7 +224,7 @@ private slots:
     void aSpaceLightsForAnUnreadRoomThatDoesNotNotify();
     void aMarkedUnreadRoomLightsItsSpace();
     void unreadInANestedSubspaceLightsEveryAncestorRow();
-    void aMutedRoomDoesNotLightItsSpaceButItsMentionsCount();
+    void aMutedRoomIsSilentMentionsIncluded();
     void unmutingARoomRelightsItsSpace();
     void mentionsAreTheCountAndPlainUnreadIsOnlyADot();
     void aRoomInTwoSpacesIsCountedOnceByTheirFolder();
@@ -463,7 +463,7 @@ void UnreadBadgeAttributionTest::unreadInANestedSubspaceLightsEveryAncestorRow()
     m_layout->setSpaceExpanded(org, false);
 }
 
-void UnreadBadgeAttributionTest::aMutedRoomDoesNotLightItsSpaceButItsMentionsCount()
+void UnreadBadgeAttributionTest::aMutedRoomIsSilentMentionsIncluded()
 {
     const QString muted = QStringLiteral("!muted-a:x");
     const QString noisy = QStringLiteral("!noisy-a:x");
@@ -478,8 +478,8 @@ void UnreadBadgeAttributionTest::aMutedRoomDoesNotLightItsSpaceButItsMentionsCou
     QVERIFY(!railHasUnread(*m_rail, kWork));
     QCOMPARE(railMentions(*m_rail, kWork), 0);
 
-    // A mention is addressed to the user and survives the mute, as it does
-    // in the room list.
+    // A muted room is fully silent, a mention included (Element's rule); the
+    // "Mentions & keywords" mode is where a mention shows.
     RoomInfo mentioned = room(noisy, QStringLiteral("noisy"), 1, 1);
     mentioned.hasUnreadMessages = true;
     m_settings->setRoomNotificationMode(noisy, 2);
@@ -490,7 +490,12 @@ void UnreadBadgeAttributionTest::aMutedRoomDoesNotLightItsSpaceButItsMentionsCou
     };
     m_client->announce();
     QVERIFY(!railHasUnread(*m_rail, kWork));
+    QCOMPARE(railMentions(*m_rail, kWork), 0);
+
+    m_settings->setRoomNotificationMode(noisy, 1);
+    m_client->announce();
     QCOMPARE(railMentions(*m_rail, kWork), 1);
+    m_settings->setRoomNotificationMode(noisy, 2);
 
     m_settings->setRoomNotificationMode(muted, 0);
     m_settings->setRoomNotificationMode(noisy, 0);

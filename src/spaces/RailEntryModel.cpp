@@ -2,6 +2,7 @@
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+#include "matrix/RoomUnreadRule.h"
 #include "spaces/RailLayoutStore.h"
 #include "spaces/SpaceManager.h"
 
@@ -12,9 +13,8 @@
 namespace {
 const QString kKindFolder = QStringLiteral("folder");
 const QString kKindSpace = QStringLiteral("space");
-// SettingsManager::roomNotificationMode(): 0 is All messages, 2 is mute.
-constexpr int kNotificationModeAllMessages = 0;
-constexpr int kNotificationModeMute = 2;
+constexpr int kNotificationModeAllMessages = roomunread::kModeAllMessages;
+constexpr int kNotificationModeMute = roomunread::kModeMute;
 
 bool isPseudoId(const QString &id)
 {
@@ -327,22 +327,22 @@ void RailEntryModel::stampActivity(QVector<QVariantMap> &rows) const
             activity.direct = r.isDirect;
             // The room list's unread rule: notification_count is 0 for a room
             // whose push rules do not notify.
-            const bool unread = r.hasUnreadMessages || r.markedUnread
-                                || r.unreadCount > 0 || r.highlightCount > 0;
+            const bool unread = roomunread::rawUnread(r);
             // Only an unread room needs its mode, which is a settings read.
             const int mode = unread && m_settings
                             ? m_settings->roomNotificationMode(r.id)
                             : kNotificationModeAllMessages;
             const bool muted = unread && mode == kNotificationModeMute;
             activity.unread = unread && !muted;
-            // A mention survives a mute, as in the room list. Every notifying
+            // A muted room is silent, mentions included (Element's rule, in
+            // roomunread::mentionCount). Every notifying
             // message in an unmuted, All-messages DM counts as one too — a
             // 1:1 chat has no one else the sender could have meant it for. A
             // DM explicitly set to "Mentions & keywords only" has opted out
             // of exactly that: showing its ordinary traffic as a mention
             // count would erase the choice the mode exists to offer, so it
             // falls back to the real highlight count like any other room.
-            activity.mentions = r.highlightCount;
+            activity.mentions = roomunread::mentionCount(r, mode);
             if (r.isDirect && mode == kNotificationModeAllMessages)
                 activity.mentions = std::max(r.unreadCount, r.highlightCount);
             rooms.insert(r.id, activity);

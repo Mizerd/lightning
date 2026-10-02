@@ -285,6 +285,10 @@ private:
     /// Sorts one group by the held stamps, and notes whether sorting by the
     /// live ones would have ordered it differently.
     void sortGroup(QVector<Row> &rooms, bool favouritesFirst);
+    /// A Space's channels. `rooms` arrives in the Space's own order (the one the
+    /// lobby lists); under the Space order mode that order stands, with
+    /// favourites leading. Activity and A-Z sort as everywhere else.
+    void sortSpaceChannels(QVector<Row> &rooms);
     void setOrderHeld(bool held);
 
     /// Cancels any queued rebuild before running, so nothing armed under the

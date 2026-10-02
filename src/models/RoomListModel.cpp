@@ -1,5 +1,7 @@
 #include "models/RoomListModel.h"
 
+#include "matrix/RoomUnreadRule.h"
+
 #include "models/ConversationOrder.h"
 
 #include "matrix/BridgeNetwork.h"
@@ -78,7 +80,24 @@ void RoomListModel::setClient(MatrixClient *client)
                 this, [this](const QString &) { refresh(); });
         connect(m_client, &MatrixClient::loggedOut,
                 this, &RoomListModel::clearProfileCaches);
+        // The client object outlives an account switch and the retired
+        // handle is no longer polled, so its answer never comes: a stale
+        // entry would let the next account's own receipt for the same room
+        // clear that room's bell.
+        connect(m_client, &MatrixClient::loggedOut,
+                this, [this] { m_pendingMarkRead.clear(); });
+        // Only a mark-as-read WE asked for announces itself: the event carries
+        // the room alone (not the event it landed on), and the same event also
+        // follows ordinary in-room receipts.
+        connect(m_client, &MatrixClient::readMarkerAdvanced, this,
+                [this](const QString &roomId) {
+            if (m_pendingMarkRead.remove(roomId))
+                Q_EMIT roomMarkedRead(roomId);
+        });
+        connect(m_client, &MatrixClient::markRoomReadFailed, this,
+                [this](const QString &roomId) { m_pendingMarkRead.remove(roomId); });
     }
+    m_pendingMarkRead.clear();
     // The capability belongs to the backend, so it can only change when the
     // client is swapped.
     Q_EMIT roomFavouritesSupportedChanged();
@@ -394,8 +413,11 @@ bool RoomListModel::passesFilter(const RoomInfo &r) const
             break;
         case 3: // Unreads
             if (!(r.hasUnreadMessages || r.markedUnread
-                  || r.highlightCount > 0 || r.id == m_pinnedRoomId))
-                return false;
+                  || r.highlightCount > 0)
+                || !roomunread::countsAsUnread(r, notificationModeOf(r.id))) {
+                if (r.id != m_pinnedRoomId)
+                    return false;
+            }
             break;
         default:
             break;
@@ -590,8 +612,16 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
         // of its rank: a demotion, not a filter, so the old room stays
         // openable. Applied before recency so a superseded room cannot outrank
         // a live one.
-        const auto order = [&superseded](const QHash<QString, QDateTime> &stamps) {
-            return [&superseded, p = &stamps](const RoomInfo &a, const RoomInfo &b) {
+        // In Space order mode, inside a real Space, the Space defines the order
+        // of its rooms, as its lobby lists them; conversations it does not contain (a DM with one
+        // of its people) follow, by recency.
+        // Only in Space order mode; every other mode is activity here.
+        const QHash<QString, int> spaceOrder =
+            m_spaces && m_sortMode == conversation::SortBySpaceOrder
+                ? m_spaces->childOrder(m_spaces->activeSpaceId())
+                : QHash<QString, int>();
+        const auto order = [&superseded, &spaceOrder](const QHash<QString, QDateTime> &stamps) {
+            return [&superseded, &spaceOrder, p = &stamps](const RoomInfo &a, const RoomInfo &b) {
                 const int aRank = orderRankOf(a);
                 const int bRank = orderRankOf(b);
                 if (aRank != bRank)
@@ -600,6 +630,14 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
                 const bool bOld = superseded.contains(b.id);
                 if (aOld != bOld)
                     return bOld;
+                if (!spaceOrder.isEmpty()) {
+                    const int aPos = spaceOrder.value(a.id, -1);
+                    const int bPos = spaceOrder.value(b.id, -1);
+                    if (aPos >= 0 && bPos >= 0)
+                        return aPos < bPos;
+                    if ((aPos >= 0) != (bPos >= 0))
+                        return aPos >= 0;
+                }
                 return conversation::moreRecent(
                     p->value(a.id), a.name, a.id,
                     p->value(b.id), b.name, b.id);
@@ -844,6 +882,9 @@ void RoomListModel::markRoomRead(const QString &roomId)
     // Prefer the backend that can resolve the latest event without a loaded
     // timeline; the fallback only works for the open room on the Rust backend.
     if (m_client->supportsMarkRoomRead()) {
+        // Asynchronous, and the FFI can reject it: announce only once the
+        // server accepted (onReadMarkerAdvanced), never on the request.
+        m_pendingMarkRead.insert(roomId);
         m_client->markRoomRead(roomId);
         return;
     }
@@ -853,6 +894,7 @@ void RoomListModel::markRoomRead(const QString &roomId)
         for (auto it = events.crbegin(); it != events.crend(); ++it) {
             if (!it->eventId.isEmpty() && !it->eventId.startsWith(QLatin1String("local:"))) {
                 m_client->sendReadReceipt(roomId, it->eventId);
+                Q_EMIT roomMarkedRead(roomId);
                 break;
             }
         }
@@ -893,6 +935,26 @@ QString RoomListModel::categoryOf(const RoomInfo &room)
     }
 }
 
+void RoomListModel::setNotificationModeSource(
+    std::function<int(const QString &)> modeOf)
+{
+    m_modeOf = std::move(modeOf);
+    notificationModeChanged();
+}
+
+int RoomListModel::notificationModeOf(const QString &roomId) const
+{
+    return m_modeOf ? m_modeOf(roomId) : roomunread::kModeAllMessages;
+}
+
+void RoomListModel::notificationModeChanged()
+{
+    updateUnreadTotals();
+    // The Unreads filter reads the same rule.
+    if (m_filterMode == 3)
+        reconcileRooms();
+}
+
 void RoomListModel::updateUnreadTotals()
 {
     // The whole account, not the current view: a filter does not change how
@@ -904,12 +966,15 @@ void RoomListModel::updateUnreadTotals()
         for (const RoomInfo &room : m_client->rooms()) {
             if (room.isSpace || room.membership != RoomInfo::Joined)
                 continue;
-            if (room.highlightCount > 0)
+            // The shared rule: a muted room is neither unread nor a mention.
+            if (!roomunread::rawUnread(room))
+                continue;
+            const int mode = notificationModeOf(room.id);
+            if (!roomunread::countsAsUnread(room, mode))
+                continue;
+            ++unread;
+            if (roomunread::mentionCount(room, mode) > 0)
                 ++highlight;
-            if (room.hasUnreadMessages || room.markedUnread
-                || room.unreadCount > 0 || room.highlightCount > 0) {
-                ++unread;
-            }
         }
     }
     if (unread == m_unreadRoomCount && highlight == m_highlightRoomCount)

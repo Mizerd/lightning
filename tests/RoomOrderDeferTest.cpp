@@ -97,6 +97,17 @@ public:
 
     void announce() { Q_EMIT roomsChanged(); }
 
+    bool supportsMarkRoomRead() const override { return true; }
+    QStringList markReadAsked;
+    /// A rejected FFI call announces failure from inside the call itself.
+    bool rejectMarkRead = false;
+    void markRoomRead(const QString &roomId) override
+    {
+        markReadAsked.append(roomId);
+        if (rejectMarkRead)
+            Q_EMIT markRoomReadFailed(roomId);
+    }
+
     RoomInfo *find(const QString &id)
     {
         for (RoomInfo &r : mirror) {
@@ -638,6 +649,165 @@ private Q_SLOTS:
 
     // -- The setting and its wiring ----------------------------------------
 
+    // The bell must not clear on a REQUEST: markRoomRead is asynchronous and
+    // its FFI call can be rejected. Old code emitted roomMarkedRead before the
+    // action ran, whatever became of it.
+    void aMarkReadAnnouncesOnlyOnceTheServerAcceptedIt()
+    {
+        Classic c;
+        c.build(false, rooms3());
+        QSignalSpy marked(&c.model, &RoomListModel::roomMarkedRead);
+
+        c.model.markRoomRead(kR1);
+        QCOMPARE(c.client.markReadAsked, (QStringList{ kR1 }));
+        QCOMPARE(marked.count(), 0);                  // asked, not yet done
+        Q_EMIT c.client.readMarkerAdvanced(kR2);      // someone else's receipt
+        QCOMPARE(marked.count(), 0);
+        Q_EMIT c.client.readMarkerAdvanced(kR1);
+        QCOMPARE(marked.count(), 1);
+        QCOMPARE(marked.first().first().toString(), kR1);
+        Q_EMIT c.client.readMarkerAdvanced(kR1);      // an ordinary receipt after
+        QCOMPARE(marked.count(), 1);
+    }
+
+    void aRejectedOrFailedMarkReadNeverReachesTheBell()
+    {
+        Classic c;
+        c.build(false, rooms3());
+        QSignalSpy marked(&c.model, &RoomListModel::roomMarkedRead);
+
+        c.client.rejectMarkRead = true;               // FFI refused the command
+        c.model.markRoomRead(kR1);
+        Q_EMIT c.client.readMarkerAdvanced(kR1);      // a later in-room receipt
+        QCOMPARE(marked.count(), 0);
+
+        c.client.rejectMarkRead = false;              // accepted, failed async
+        c.model.markRoomRead(kR2);
+        Q_EMIT c.client.markRoomReadFailed(kR2);
+        Q_EMIT c.client.readMarkerAdvanced(kR2);
+        QCOMPARE(marked.count(), 0);
+    }
+
+    // An account switch keeps the client object; the retired handle is never
+    // polled again, so a mark-read pending at sign-out must not survive to be
+    // popped by the next account's own receipt for the same room.
+    void aMarkReadPendingAtSignOutNeverReachesTheNextAccount()
+    {
+        Classic c;
+        c.build(false, rooms3());
+        QSignalSpy marked(&c.model, &RoomListModel::roomMarkedRead);
+
+        c.model.markRoomRead(kR1);
+        Q_EMIT c.client.loggedOut();
+        Q_EMIT c.client.readMarkerAdvanced(kR1);
+        QCOMPARE(marked.count(), 0);
+    }
+
+    // The room list's own badges follow the one rule: a muted room with a
+    // highlight is neither unread nor a mention; "Mentions & keywords" shows.
+    void classicBadgesAndUnreadsFilterAreSilentForAMutedRoom()
+    {
+        QList<RoomInfo> rooms = rooms3();
+        rooms[0].highlightCount = 1;
+        rooms[0].hasUnreadMessages = true;
+        Classic c;
+        int mode = 2;
+        c.model.setNotificationModeSource([&mode](const QString &) { return mode; });
+        c.build(false, rooms);
+        c.model.setFilterMode(3);
+        QCOMPARE(c.model.unreadRoomCount(), 0);
+        QCOMPARE(c.model.highlightRoomCount(), 0);
+        QVERIFY(!idsOf(c.model).contains(kR1));
+
+        mode = 1;
+        c.model.notificationModeChanged();
+        QCOMPARE(c.model.unreadRoomCount(), 1);
+        QCOMPARE(c.model.highlightRoomCount(), 1);
+        QVERIFY(idsOf(c.model).contains(kR1));
+    }
+
+    // -- A Space's own order (as its lobby lists it) -------------------------
+
+    /// Space order: r3, r1, r2 (m.space.child), against activity r1, r2, r3 and
+    /// A-Z alpha(r1), bravo(r2), charlie(r3). A DM with nobody in the Space and
+    /// a favourite are the other two things the sidebar must place.
+    static QList<RoomInfo> spaceRooms()
+    {
+        RoomInfo work = room(kWork, QStringLiteral("Work"), 500);
+        work.isSpace = true;
+        work.childRoomIds = { kR3, kR1, kR2 };
+        return { work, room(kR1, QStringLiteral("alpha"), 10),
+                 room(kR2, QStringLiteral("bravo"), 60),
+                 room(kR3, QStringLiteral("charlie"), 120) };
+    }
+
+    // Seikm: the sidebar's channels followed activity while the Space lobby
+    // followed m.space.child order. Old code: {r1, r2, r3}.
+    void classicASpacesRoomsFollowTheSpacesOwnOrderInSpaceOrderMode()
+    {
+        Classic c;
+        c.build(false, spaceRooms());
+        c.model.setSortMode(conversation::SortBySpaceOrder);
+        c.spaces.setActiveSpaceId(kWork);
+        QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
+
+        // A message does not move a room the Space has placed.
+        c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
+        c.client.announce();
+        QCOMPARE(idsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
+        QVERIFY(!c.model.orderHeld());
+
+        // A-Z still sorts by name.
+        c.model.setSortMode(conversation::SortByName);
+        QCOMPARE(idsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
+    }
+
+    void channelsASpacesRoomsFollowTheSpacesOwnOrderInSpaceOrderMode()
+    {
+        Channels c;
+        c.build(false, spaceRooms());
+        c.model.setSortMode(conversation::SortBySpaceOrder);
+        c.model.setScopeSpaceId(kWork);
+        c.settle();
+        QCOMPARE(roomIdsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
+
+        c.client.message(kR2, minutesAgo(0), QStringLiteral("ping"));
+        c.client.announce();
+        c.settle();
+        QCOMPARE(roomIdsOf(c.model), (QStringList{ kR3, kR1, kR2 }));
+
+        c.model.setSortMode(conversation::SortByName);
+        c.settle();
+        QCOMPARE(roomIdsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
+    }
+
+    // Outside a real Space (Home) Space order is activity.
+    void classicHomeInSpaceOrderModeIsActivity()
+    {
+        Classic c;
+        c.build(false, spaceRooms());
+        c.model.setSortMode(conversation::SortBySpaceOrder);
+        c.spaces.setActiveSpaceId(SpaceManager::allRoomsId());
+        QCOMPARE(idsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
+    }
+
+    // The default is untouched: Activity inside a Space is still recency, in
+    // both layouts, however the Space lists its children.
+    void activityInsideASpaceIsUnchangedInBothLayouts()
+    {
+        Classic c;
+        c.build(false, spaceRooms());
+        c.spaces.setActiveSpaceId(kWork);
+        QCOMPARE(c.model.sortMode(), int(conversation::SortByActivity));
+        QCOMPARE(idsOf(c.model), (QStringList{ kR1, kR2, kR3 }));
+
+        Channels ch;
+        ch.build(false, spaceRooms());
+        ch.model.setScopeSpaceId(kWork);
+        ch.settle();
+        QCOMPARE(roomIdsOf(ch.model), (QStringList{ kR1, kR2, kR3 }));
+    }
+
     // -- Sort mode (Activity / A-Z) ----------------------------------------
 
     void classicAZOrdersByNameWithinGroupsAndActivityRestoresTheRest()
@@ -768,10 +938,16 @@ private Q_SLOTS:
         SettingsManager next;
         QCOMPARE(next.roomListSort(), int(conversation::SortByName));
 
-        // A value from a newer build, or a hand edit, is Activity, not the
-        // nearest mode (std::clamp would have said A-Z for 2).
+        // Space order is a real mode and survives a round trip.
         QSettings raw;
-        for (const int unknown : { 2, 7, -1 }) {
+        raw.setValue(QStringLiteral("shell/roomListSort"),
+                     int(conversation::SortBySpaceOrder));
+        raw.sync();
+        QCOMPARE(SettingsManager().roomListSort(),
+                 int(conversation::SortBySpaceOrder));
+        // A value from a newer build, or a hand edit, is Activity, not the
+        // nearest mode (std::clamp would have said Space order for 3).
+        for (const int unknown : { 3, 7, -1 }) {
             raw.setValue(QStringLiteral("shell/roomListSort"), unknown);
             raw.sync();
             SettingsManager reader;
