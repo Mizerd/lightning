@@ -6210,6 +6210,101 @@ private Q_SLOTS:
     // samples and must still dispatch on continued upward progress.
     // QmlBindingContractTest's text scan is the primary guard for the
     // mechanism; this checks geometry and behaviour agree.
+    // A reader holding the scroll bar handle at the top keeps getting older
+    // history: the handle does not move while a page lands, so nothing but the
+    // hold timer asks again. Without it the drag stalls after the first page.
+    void scrollBarHandleHeldAtTheTopKeepsLoadingHistory()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        auto *mock = controller.findChild<MockMatrixClient *>();
+        QVERIFY(mock != nullptr);
+        const QString roomId = QStringLiteral("!general:mock.local");
+        controller.setCurrentRoomId(roomId);
+
+        QList<TimelineEvent> events;
+        for (int i = 0; i < 40; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@alice:mock.local");
+            e.senderDisplayName = QStringLiteral("Alice");
+            e.body = QStringLiteral("history message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(90 - i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            events.append(e);
+        }
+        mock->resetTimelineForTest(roomId, events, /*paginationPages=*/8);
+        QList<TimelineEvent> chunk;
+        for (int i = 0; i < 20; ++i) {
+            TimelineEvent e;
+            e.sender = QStringLiteral("@carol:mock.local");
+            e.senderDisplayName = QStringLiteral("Carol");
+            e.body = QStringLiteral("older backfilled message %1").arg(i);
+            e.timestamp =
+                QDateTime::currentDateTimeUtc().addSecs(-(600 + i) * 60);
+            e.type = TimelineEvent::TextMessage;
+            e.status = TimelineEvent::Sent;
+            chunk.append(e);
+        }
+        mock->setPaginationChunkForTest(chunk);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("TimelinePane"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            createdSpy.at(0).at(0).value<QObject *>());
+        QVERIFY(root != nullptr);
+        QQuickWindow window;
+        window.resize(760, 620);
+        root->setParentItem(window.contentItem());
+        root->setSize(QSizeF(window.width(), window.height()));
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+
+        auto *timeline = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineListView"));
+        auto *bar = root->findChild<QQuickItem *>(
+            QStringLiteral("timelineScrollBar"));
+        QVERIFY(timeline != nullptr);
+        QVERIFY(bar != nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("presentationReady").toBool(), kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(timeline->property("count").toInt() >= 40,
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.pagination()->busy(),
+                                 kSignalTimeoutMs);
+        QTRY_VERIFY_WITH_TIMEOUT(bar->isVisible(), kSignalTimeoutMs);
+
+        // Grab the handle where it is (bottom of the track: the live edge),
+        // drag it to the top and hold.
+        const double size = bar->property("size").toDouble();
+        const double position = bar->property("position").toDouble();
+        const QPointF handleLocal(bar->width() / 2,
+                                  (position + size / 2) * bar->height());
+        const QPoint grab = bar->mapToScene(handleLocal).toPoint();
+        const QPoint top = bar->mapToScene(QPointF(bar->width() / 2, 1)).toPoint();
+        const int before = timeline->property("count").toInt();
+        QTest::mousePress(&window, Qt::LeftButton, Qt::NoModifier, grab);
+        for (int i = 1; i <= 10; ++i)
+            QTest::mouseMove(&window,
+                             grab + (top - grab) * i / 10);
+        QTest::qWait(50);
+        QVERIFY2(bar->property("pressed").toBool(), "the handle was not grabbed");
+        // Hold still. Three pages (60 rows) must land without moving the mouse.
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            timeline->property("count").toInt() >= before + 60,
+            qPrintable(QStringLiteral("only %1 of 60 rows loaded while the "
+                                      "handle was held at the top")
+                           .arg(timeline->property("count").toInt() - before)),
+            12000);
+        QTest::mouseRelease(&window, Qt::LeftButton, Qt::NoModifier, top);
+    }
+
     void nearTopProximityIsMeasuredFromLoadedHistoryNotAbsoluteContentY()
     {
         AppController controller(AppController::MockBackend);

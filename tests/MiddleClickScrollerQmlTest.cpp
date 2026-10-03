@@ -240,6 +240,48 @@ private Q_SLOTS:
         QVERIFY2(latched(f), "a long still middle press did not latch");
     }
 
+    // A late timer must not make the scroll slower: each step covers the real
+    // time since the previous one (bounded), not a nominal 16 ms.
+    void aSlowFrameAdvancesByTheTimeThatPassed()
+    {
+        Fixture f;
+        QVERIFY(load(f));
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        f.scroller->setProperty("lastStepMs", double(now - 60));
+        QVariant dt;
+        QVERIFY(QMetaObject::invokeMethod(f.scroller, "elapsedSinceLastStep",
+                                          Q_RETURN_ARG(QVariant, dt),
+                                          Q_ARG(QVariant, 16)));
+        QVERIFY2(dt.toReal() >= 55 && dt.toReal() <= 100,
+                 qPrintable(QStringLiteral("a 60 ms gap stepped %1 ms")
+                                .arg(dt.toReal())));
+        f.scroller->setProperty("lastStepMs", double(now - 5000));
+        QVERIFY(QMetaObject::invokeMethod(f.scroller, "elapsedSinceLastStep",
+                                          Q_RETURN_ARG(QVariant, dt),
+                                          Q_ARG(QVariant, 16)));
+        QCOMPARE(dt.toReal(), f.scroller->property("maxStepMs").toReal());
+    }
+
+    // Pinned against the end of the range while the pointer still asks for
+    // more, the host keeps hearing about it (that is what asks for older
+    // history at the top), and nothing throws or moves.
+    void pinnedAtTheEdgeStillReportsTheGesture()
+    {
+        Fixture f;
+        QVERIFY(load(f));
+        QVERIFY(latchAt(f, spot));
+        QTest::mouseMove(&f.window, spot + QPoint(0, 200));
+        const qreal bottom = f.flick->property("contentHeight").toReal()
+                             - f.flick->height();
+        QTRY_VERIFY_WITH_TIMEOUT(contentY(f) >= bottom - 0.5, kTimeoutMs);
+        QSignalSpy spy(f.scroller, SIGNAL(scrolled()));
+        QTRY_VERIFY2_WITH_TIMEOUT(spy.count() >= 3,
+                                  "no scrolled() once pinned at the end",
+                                  kTimeoutMs);
+        QVERIFY(contentY(f) <= bottom + 0.5);
+        QVERIFY(latched(f));
+    }
+
     // Latched, the pointer steers with no button held, both ways.
     void aLatchScrollsTowardThePointerWithNoButtonHeld()
     {

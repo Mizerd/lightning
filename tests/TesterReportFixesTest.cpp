@@ -497,6 +497,23 @@ private Q_SLOTS:
                  "autoscroll must obey the same bounds as the wheel");
     }
 
+    // Holding the scroll bar handle at the top keeps asking for older history:
+    // a handle that does not move fires no positionChanged, so a timer
+    // re-reads it, and a drag starts a fresh near-top approach budget.
+    void theScrollBarHandleHeldAtTheTopKeepsLoadingHistory()
+    {
+        const QString pane = read(QStringLiteral("TimelinePane.qml"));
+        const int at = pane.indexOf(QStringLiteral("id: timelineScrollBar"));
+        QVERIFY(at > 0);
+        const QString block = pane.mid(at, 3600);
+        QVERIFY2(block.contains(QStringLiteral("timelineScrollBarTopHold"))
+                     && block.contains(QStringLiteral("running: timelineScrollBar.pressed")),
+                 "no timer re-asks for history while the handle rests at the top");
+        QVERIFY2(block.contains(QStringLiteral("onPressedChanged"))
+                     && block.contains(QStringLiteral("nearTopRowsThisApproach = 0")),
+                 "a handle drag does not start a fresh approach budget");
+    }
+
     // The audio card fits its slider, remembers volume and speed, and offers a
     // way back to normal speed.
     void theAudioCardFitsItsSliderAndRemembersPreferences()

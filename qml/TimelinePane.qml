@@ -4448,6 +4448,7 @@ Rectangle {
             // mapping inverts both ways so dragging works.
             AppScrollBar {
                 id: timelineScrollBar
+                objectName: "timelineScrollBar"
                 orientation: Qt.Vertical
                 policy: ScrollBar.AsNeeded
                 anchors.right: parent.right
@@ -4462,11 +4463,49 @@ Rectangle {
                 // Tracking lives in the Binding below: ScrollBar assigns
                 // `position` imperatively while dragged, which would destroy a
                 // plain binding.
+                // A handle drag is its own approach to the top: it starts with
+                // a fresh row/request budget and an armed latch, or a reader
+                // who already spent one on the wheel is never served.
+                onPressedChanged: {
+                    if (pressed) {
+                        timeline.nearTopArmed = true
+                        timeline.nearTopRequestDistance = Infinity
+                        timeline.nearTopRowsThisApproach = 0
+                        timeline.nearTopRequestsThisApproach = 0
+                    }
+                }
+                function handleFraction() {
+                    return (1 - size) > 0 ? position / (1 - size) : 0
+                }
+                // Holding the handle at the top while a page lands moves no
+                // handle, so positionChanged never fires again and the
+                // reader stops loading. While held at the top, follow the new
+                // oldest row and ask again.
+                Timer {
+                    id: scrollBarTopHold
+                    objectName: "timelineScrollBarTopHold"
+                    interval: 120
+                    repeat: true
+                    running: timelineScrollBar.pressed
+                    onTriggered: {
+                        // frac 0 is the top of the track (oldest row).
+                        if (timelineScrollBar.handleFraction() > 0.001)
+                            return
+                        // Holding the handle at the top is an explicit ask
+                        // for more; the automatic-chain budget is not.
+                        if (!app.pagination.busy) {
+                            timeline.nearTopRowsThisApproach = 0
+                            timeline.nearTopRequestsThisApproach = 0
+                        }
+                        timeline.contentY = timeline.wheelMaxY()
+                        timeline.updateStickAndPaginate()
+                    }
+                }
                 onPositionChanged: {
                     // Only follow the handle while the user holds it.
                     if (!pressed)
                         return
-                    var frac = (1 - size) > 0 ? position / (1 - size) : 0
+                    var frac = handleFraction()
                     timeline.cancelWheelMotion()
                     // Dragging the handle retires an unlanded jump, like the
                     // wheel.

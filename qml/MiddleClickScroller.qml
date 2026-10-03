@@ -147,9 +147,25 @@ Item {
         return view !== null && rangeMax() - rangeMin() >= 1
     }
 
+    // Wall-clock of the previous step. A Timer fires late when frames are
+    // slow, and advancing a fixed 16 ms per fire made the scroll slow down
+    // exactly when the view was struggling.
+    property real lastStepMs: 0
+    // Longest interval one step may cover, so a stall cannot become a leap.
+    property real maxStepMs: 100
+
+    function elapsedSinceLastStep(nominalMs) {
+        var now = Date.now()
+        var dt = lastStepMs > 0 ? now - lastStepMs : nominalMs
+        lastStepMs = now
+        return Math.max(1, Math.min(maxStepMs, dt))
+    }
+
     function step(dtMs) {
-        if (!view || !active)
+        if (!view || !active) {
+            lastStepMs = 0
             return
+        }
         var travel = pointerY - anchorY
         var magnitude = Math.abs(travel) - deadZone
         if (magnitude <= 0)
@@ -165,8 +181,13 @@ Item {
         var target = view.contentY + delta
         if (target < lo) target = lo
         if (target > hi) target = hi
-        if (Math.abs(target - view.contentY) < 0.01)
+        if (Math.abs(target - view.contentY) < 0.01) {
+            // Pinned against an end while still asking for more: the host
+            // must keep hearing about it, or a reader held at the oldest row
+            // never asks for older history.
+            root.scrolled()
             return
+        }
         view.contentY = target
         root.scrolled()
     }
@@ -196,7 +217,8 @@ Item {
         interval: 16
         repeat: true
         running: root.active
-        onTriggered: root.step(interval)
+        onRunningChanged: root.lastStepMs = 0
+        onTriggered: root.step(root.elapsedSinceLastStep(interval))
     }
 
     Timer {
