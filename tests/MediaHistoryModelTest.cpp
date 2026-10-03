@@ -449,6 +449,40 @@ private Q_SLOTS:
         QVERIFY(!model.complete());
     }
 
+    // A reset sends a scrolled view back to the top, so an older page must
+    // arrive as an insertion after the rows already shown.
+    void anOlderPageIsAppendedNotReset()
+    {
+        WalkingClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        const QString room = QStringLiteral("!r:example.org");
+        model.setRoomId(room);
+        model.loadMore();
+        Q_EMIT client.mediaHistoryPage(
+            client.lastOp, room,
+            { keyedEntry(QStringLiteral("$a"), QStringLiteral("image")),
+              keyedEntry(QStringLiteral("$b"), QStringLiteral("image")) },
+            60, 60, 0, false, false);
+        QCOMPARE(model.rowCount(), 2);
+        const QString firstId = model.entryAt(0).value(QStringLiteral("eventId")).toString();
+
+        QSignalSpy resets(&model, &QAbstractItemModel::modelReset);
+        QSignalSpy inserts(&model, &QAbstractItemModel::rowsInserted);
+        model.loadMore();
+        Q_EMIT client.mediaHistoryPage(
+            client.lastOp, room,
+            { keyedEntry(QStringLiteral("$c"), QStringLiteral("image")) },
+            60, 120, 0, false, false);
+        QCOMPARE(resets.count(), 0);
+        QCOMPARE(inserts.count(), 1);
+        QCOMPARE(inserts.first().at(1).toInt(), 2);
+        QCOMPARE(inserts.first().at(2).toInt(), 2);
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.entryAt(0).value(QStringLiteral("eventId")).toString(), firstId);
+    }
+
     void aViewThatCannotScrollFillsItselfWithinABound()
     {
         WalkingClient client;

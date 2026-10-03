@@ -380,6 +380,16 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
         added.append(e);
     }
 
+    // Identity of what the view shows now, so the page can be applied as an
+    // insertion rather than a reset: a reset sends a scrolled view to the top.
+    const auto identityOf = [](const Entry &e) {
+        return e.eventId + QChar(0x1F) + e.url;
+    };
+    QStringList oldIds;
+    oldIds.reserve(m_shown.size());
+    for (int idx : std::as_const(m_shown))
+        oldIds.append(identityOf(m_all.at(idx)));
+
     if (!added.isEmpty()) {
         m_all.append(added);
         // Pages already arrive in order; the sort also covers a server
@@ -389,7 +399,35 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
                              return newerFirst(a.timestampMs, b.timestampMs);
                          });
     }
-    rebuild();
+    {
+        QVector<int> next;
+        next.reserve(m_all.size());
+        for (int i = 0; i < m_all.size(); ++i) {
+            if (matches(m_all.at(i)))
+                next.append(i);
+        }
+        bool prefix = next.size() >= oldIds.size();
+        for (int i = 0; prefix && i < oldIds.size(); ++i)
+            prefix = identityOf(m_all.at(next.at(i))) == oldIds.at(i);
+        if (prefix) {
+            // Older pages land after what is shown: append, keep the position.
+            if (next.size() > oldIds.size()) {
+                beginInsertRows(QModelIndex(), int(oldIds.size()),
+                                int(next.size()) - 1);
+                m_shown = next;
+                endInsertRows();
+            } else {
+                m_shown = next;   // indices shifted, rows unchanged
+            }
+            Q_EMIT countsChanged();
+        } else {
+            // A server answering out of order put rows above the view.
+            beginResetModel();
+            m_shown = next;
+            endResetModel();
+            Q_EMIT countsChanged();
+        }
+    }
     // A "show all" walk continues itself, within its budget.
     if (m_walking) {
         if (m_complete || ++m_walkPages >= kMaxWalkPages) {
