@@ -1048,6 +1048,21 @@ Item {
         }
     }
 
+    // Open a picker in the folder last uploaded from, with nothing selected: a
+    // native dialog (Windows) pre-fills its name field from a stale
+    // selectedFile and would offer the previous upload again. currentFolder is
+    // assigned here, never bound, because the dialog moves it itself.
+    function openPicker(dialog) {
+        var last = app.settings.lastAttachFolder()
+        dialog.currentFolder = (last && last.toString() !== "")
+            ? last : app.defaultFileDialogFolder()
+        dialog.selectedFile = ""
+        dialog.open()
+    }
+    function rememberPicked(file) {
+        app.settings.rememberAttachFolder(file)
+    }
+
     // Modern picker (Rust): multiple files, queued in the tray.
     FileDialog {
         id: pickAttachmentsDialog
@@ -1055,6 +1070,8 @@ Item {
         currentFolder: app.defaultFileDialogFolder()
         fileMode: FileDialog.OpenFiles
         onAccepted: {
+            if (selectedFiles.length > 0)
+                root.rememberPicked(selectedFiles[0])
             for (var i = 0; i < selectedFiles.length; ++i)
                 app.composer.addAttachment(selectedFiles[i])
             root.focusStagedAttachmentSend()
@@ -1068,13 +1085,13 @@ Item {
         currentFolder: app.defaultFileDialogFolder()
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"),
                        qsTr("All files (*)") ]
-        onAccepted: app.media.sendPickedImage(app.currentRoomId, selectedFile)
+        onAccepted: { root.rememberPicked(selectedFile); app.media.sendPickedImage(app.currentRoomId, selectedFile) }
     }
     FileDialog {
         id: pickFileDialog
         title: qsTr("Send file")
         currentFolder: app.defaultFileDialogFolder()
-        onAccepted: app.media.sendPickedFile(app.currentRoomId, selectedFile)
+        onAccepted: { root.rememberPicked(selectedFile); app.media.sendPickedFile(app.currentRoomId, selectedFile) }
     }
     AppMenu {
         id: legacyAttachMenu
@@ -1088,12 +1105,12 @@ Item {
         AppMenuItem {
             iconName: "image"
             text: qsTr("Send image…")
-            onTriggered: pickImageDialog.open()
+            onTriggered: root.openPicker(pickImageDialog)
         }
         AppMenuItem {
             iconName: "attach_file"
             text: qsTr("Send file…")
-            onTriggered: pickFileDialog.open()
+            onTriggered: root.openPicker(pickFileDialog)
         }
         // Displaced by a narrow window, as in the Rust-backend menu.
         AppMenuItem {
@@ -1127,7 +1144,7 @@ Item {
         AppMenuItem {
             iconName: "attach_file"
             text: qsTr("Attach files…")
-            onTriggered: pickAttachmentsDialog.open()
+            onTriggered: root.openPicker(pickAttachmentsDialog)
         }
         AppMenuItem {
             objectName: "createPollMenuItem"
@@ -1171,9 +1188,9 @@ Item {
         // The key opens the file picker directly: a menu opened from a key
         // would appear at the mouse pointer.
         if (app.composer.attachmentsSupported)
-            pickAttachmentsDialog.open()
+            root.openPicker(pickAttachmentsDialog)
         else
-            pickFileDialog.open()
+            root.openPicker(pickFileDialog)
     }
     Shortcut {
         // bindingRevision is read inside the binding because sequenceFor()
@@ -1947,7 +1964,7 @@ Item {
                                     || root.compactInputRow)
                                 attachMenu.open()
                             else
-                                pickAttachmentsDialog.open()
+                                root.openPicker(pickAttachmentsDialog)
                         }
                         ToolTip.text: qsTr("Attach")
                         // Hidden while an attach menu is open: the menu is

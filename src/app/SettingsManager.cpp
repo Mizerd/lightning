@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QFileInfo>
+#include <QUrl>
 
 #include "storage/SecretStore.h"
 #include "storage/AppDataPaths.h"
@@ -58,6 +59,7 @@ constexpr auto kRoomListSort = "shell/roomListSort";
 constexpr auto kRoomListVisible   = "shell/roomListVisible";
 constexpr auto kRoomListWidth     = "shell/roomListWidth";
 constexpr auto kMemberPanelOpen   = "shell/memberPanelOpen";
+constexpr auto kLastAttachFolder = "shell/lastAttachFolder";
 constexpr auto kSpacesRailWidth   = "shell/spacesRailWidth";
 constexpr auto kSpacesRailDepthStyle = "shell/spacesRailDepthStyle";
 constexpr auto kSidePanelWidth    = "shell/sidePanelWidth";
@@ -2476,6 +2478,25 @@ void SettingsManager::setRoomListWidth(int px)
         return;
     m_store->setValue(kRoomListWidth, clamped);
     Q_EMIT roomListWidthChanged();
+}
+
+QUrl SettingsManager::lastAttachFolder() const
+{
+    const QString dir = m_store->value(kLastAttachFolder).toString();
+    if (dir.isEmpty() || !QFileInfo(dir).isDir())
+        return {};
+    return QUrl::fromLocalFile(dir);
+}
+
+void SettingsManager::rememberAttachFolder(const QUrl &file)
+{
+    if (!file.isLocalFile())
+        return;
+    const QString dir = QFileInfo(file.toLocalFile()).absolutePath();
+    if (dir.isEmpty() || !QFileInfo(dir).isDir()
+        || m_store->value(kLastAttachFolder).toString() == dir)
+        return;
+    m_store->setValue(kLastAttachFolder, dir);
 }
 
 int SettingsManager::spacesRailWidth() const

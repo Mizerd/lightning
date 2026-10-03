@@ -9,6 +9,7 @@
 #include <QSize>
 #include <QString>
 #include <QStringList>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 #include <memory>
@@ -579,6 +580,11 @@ public:
     void setMemberPanelOpen(bool v);
     int roomListWidth() const;
     void setRoomListWidth(int px);
+    /// The folder the attach dialog last picked from; per device, shared by
+    /// every account. Empty when unset or no longer present on disk.
+    Q_INVOKABLE QUrl lastAttachFolder() const;
+    /// Record the folder containing `file` (a file URL) as the last one used.
+    Q_INVOKABLE void rememberAttachFolder(const QUrl &file);
     int spacesRailWidth() const;
     void setSpacesRailWidth(int px);
     int spacesRailDepthStyle() const;
