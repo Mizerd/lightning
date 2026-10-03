@@ -2904,6 +2904,8 @@ if(BUILD_TESTING)
         tests/MessageSearchControllerTest.cpp
         src/models/MessageSearchController.h
         src/models/MessageSearchController.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
         src/matrix/MockMatrixClient.h

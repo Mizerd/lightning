@@ -9,6 +9,7 @@
 
 class MatrixClient;
 class SettingsManager;
+class UserProfileResolver;
 
 // Message-history search, room-scoped or global.
 //
@@ -115,6 +116,10 @@ public:
     void setClient(MatrixClient *client);
     /// Where the index-all offer's answer is remembered, per account.
     void setSettings(SettingsManager *settings) { m_settings = settings; }
+    // Names and avatars a result row lacks (local-index rows carry none, and a
+    // server hit's profile_info omits senders it has no state for) come from
+    // the global profile, asked once per user.
+    void setProfileResolver(UserProfileResolver *resolver);
 
     QString query() const { return m_query; }
     void setQuery(const QString &query);
@@ -256,6 +261,7 @@ private:
     quint64 m_deepOp = 0;
     int m_minLocalChars = 0;
     SettingsManager *m_settings = nullptr;
+    UserProfileResolver *m_profiles = nullptr;
     QString m_indexAllState = QStringLiteral("idle");
     int m_indexAllTotal = 0;
     int m_indexAllPosition = 0;

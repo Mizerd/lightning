@@ -14,6 +14,12 @@ Rectangle {
     // Callers gate animation on their own on-screen knowledge (a cached
     // ListView row is visible but off screen).
     property bool active: true
+    // A shape that is not a plain rectangle (an avatar's disc or rounded
+    // square) cannot carry the sweeping band: `clip` clips to the item's
+    // bounding rectangle, not its radius, so the band's square ends showed
+    // over the corners as a square placeholder. Such skeletons pulse their
+    // own fill instead, which is inside the shape by construction.
+    property bool pulseOnly: circle
     // Static under reduced motion.
     property bool shimmer: !AppTheme.reducedMotion
 
@@ -27,9 +33,17 @@ Rectangle {
 
     Accessible.ignored: true
 
+    SequentialAnimation on opacity {
+        running: root.animating && root.pulseOnly
+        loops: Animation.Infinite
+        NumberAnimation { to: 0.55; duration: 700; easing.type: Easing.InOutSine }
+        NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutSine }
+        onRunningChanged: if (!running) root.opacity = 1.0
+    }
+
     Rectangle {
         id: band
-        visible: root.animating
+        visible: root.animating && !root.pulseOnly
         width: Math.max(24, root.width * 0.35)
         height: root.height
         // A band in the theme's text colour at low alpha: a gentle darkening on
@@ -44,7 +58,7 @@ Rectangle {
             GradientStop { position: 1.0; color: "transparent" }
         }
         NumberAnimation on x {
-            running: root.animating
+            running: root.animating && !root.pulseOnly
             from: -band.width
             to: root.width
             duration: 1100

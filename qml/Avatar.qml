@@ -381,6 +381,7 @@ Rectangle {
         visible: root.presentationState === "loading"
         active: root.onScreen
         circle: root.circle
+        pulseOnly: true
         radius: root.circle ? Math.min(width, height) / 2 : root.squareRadius
         color: root._paletteKey.length > 0
                ? Qt.alpha(root._paletteColor(root._paletteKey), 0.28)

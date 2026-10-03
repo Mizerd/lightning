@@ -1105,6 +1105,28 @@ private Q_SLOTS:
                  MediaBridge::kMaxMotionSlots - 1);
     }
 
+    // The loading placeholder must stay inside the avatar's shape. A sweeping
+    // band is clipped to the bounding RECTANGLE, so on a disc it drew square
+    // ends over the corners. Old code showed a visible band child here.
+    void loadingSkeletonDrawsNoRectangularBand()
+    {
+        for (bool circle : { true, false }) {
+            Harness h;
+            QVERIFY(createAvatar(h, 40, QStringLiteral("mxc://x/shape"),
+                                 QStringLiteral("Matas"),
+                                 QStringLiteral("@matas:x")));
+            h.avatar->setProperty("circle", circle);
+            QCOMPARE(state(h), QStringLiteral("loading"));
+            auto *skeleton = h.avatar->findChild<QQuickItem *>(
+                QStringLiteral("avatarSkeleton"));
+            QVERIFY(skeleton && skeleton->isVisible());
+            QVERIFY(skeleton->property("animating").toBool());
+            for (QQuickItem *child : skeleton->childItems())
+                QVERIFY2(!child->isVisible(),
+                         "a rectangular band is drawn over a shaped avatar");
+        }
+    }
+
     // A decoded avatar's transparent pixels reveal the surrounding surface,
     // not the fallback colour, at every common size.
     void transparentAvatarRevealsSurfaceNotFallback()

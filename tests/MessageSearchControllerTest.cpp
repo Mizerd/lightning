@@ -6,6 +6,7 @@
 #include "app/SettingsManager.h"
 #include "matrix/MockMatrixClient.h"
 #include "models/MessageSearchController.h"
+#include "profile/UserProfileResolver.h"
 
 #include <QSettings>
 #include <QSignalSpy>
@@ -501,6 +502,41 @@ private Q_SLOTS:
                  "a local row lost its sender display name — the producers "
                  "and MessageSearchController disagree on the key");
     }
+    // A hit whose row carries no avatar (every local-index row, and a server
+    // hit whose profile_info omitted the sender) must show the sender's global
+    // profile, and must repaint when it arrives. Old code never asked.
+    void aRowWithNoAvatarGetsTheSendersGlobalProfile()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.mockDisplayNames.insert(QStringLiteral("@bob:mock.local"),
+                                       QStringLiteral("Bob"));
+        client.mockAvatarUrls.insert(QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("mxc://mock.local/bob"));
+        UserProfileResolver profiles;
+        profiles.setClient(&client);
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        model.setProfileResolver(&profiles);
+        model.setSource(QStringLiteral("server"));
+        client.mockSearchResults = {
+            resultRow(QStringLiteral("!general:mock.local"),
+                      QStringLiteral("$e1"), QStringLiteral("hello"))
+        };
+        model.setQuery(QStringLiteral("hello"));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+        const QModelIndex idx = model.index(0);
+        QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+        // First read asks; nothing is known yet.
+        QVERIFY(model.data(idx, MessageSearchController::SenderAvatarUrlRole)
+                    .toString().isEmpty());
+        QTRY_VERIFY(changed.count() > 0);
+        QCOMPARE(model.data(idx, MessageSearchController::SenderAvatarUrlRole)
+                     .toString(),
+                 QStringLiteral("mxc://mock.local/bob"));
+    }
+
     // ── "Index all rooms" ────────────────────────────────────────────────
     //
     // Old code: the controller had no index-all state and MatrixClient no

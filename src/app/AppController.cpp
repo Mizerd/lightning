@@ -1559,6 +1559,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_discovery->setClient(m_client.get());
     m_messageSearch->setClient(m_client.get());
     m_messageSearch->setSettings(m_settings.get());
+    m_messageSearch->setProfileResolver(m_userProfiles.get());
     m_uia->setClient(m_client.get());
     m_passwordChange->setClient(m_client.get());
     m_moderation->setClient(m_client.get());

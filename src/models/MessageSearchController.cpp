@@ -2,6 +2,7 @@
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+#include "profile/UserProfileResolver.h"
 
 namespace {
 constexpr int kDebounceMs = 400;
@@ -346,6 +347,29 @@ void MessageSearchController::answerIndexAllOffer(const QString &answer)
         indexAllRooms();
 }
 
+void MessageSearchController::setProfileResolver(UserProfileResolver *resolver)
+{
+    if (m_profiles == resolver)
+        return;
+    if (m_profiles)
+        disconnect(m_profiles, nullptr, this, nullptr);
+    m_profiles = resolver;
+    if (!m_profiles)
+        return;
+    connect(m_profiles, &UserProfileResolver::resolved, this,
+            [this](const QString &userId, const QString &, const QString &) {
+                for (int i = 0; i < m_rows.size(); ++i) {
+                    if (m_rows.at(i).value(QStringLiteral("sender")).toString()
+                        != userId)
+                        continue;
+                    const QModelIndex idx = index(i);
+                    Q_EMIT dataChanged(idx, idx,
+                                       { SenderDisplayNameRole,
+                                         SenderAvatarUrlRole });
+                }
+            });
+}
+
 void MessageSearchController::onLocalSearchFinished(
     quint64 opId, bool ok, const QString &category, int minChars,
     const QVariantList &results)
@@ -460,10 +484,25 @@ QVariant MessageSearchController::data(const QModelIndex &index,
     case RoomNameRole: return row.value(QStringLiteral("roomName"));
     case EventIdRole: return row.value(QStringLiteral("eventId"));
     case SenderRole: return row.value(QStringLiteral("sender"));
-    case SenderDisplayNameRole:
-        return row.value(QStringLiteral("senderDisplayName"));
-    case SenderAvatarUrlRole:
-        return row.value(QStringLiteral("senderAvatarUrl"));
+    case SenderDisplayNameRole: {
+        const QVariant own = row.value(QStringLiteral("senderDisplayName"));
+        if (!own.toString().isEmpty() || !m_profiles)
+            return own;
+        return m_profiles->profile(
+            row.value(QStringLiteral("sender")).toString()).displayName;
+    }
+    case SenderAvatarUrlRole: {
+        const QVariant own = row.value(QStringLiteral("senderAvatarUrl"));
+        if (!own.toString().isEmpty() || !m_profiles)
+            return own;
+        const QString sender = row.value(QStringLiteral("sender")).toString();
+        // Rows are built for visible delegates only, so this asks for what is
+        // on screen; the resolver asks once per user per session.
+        const auto cached = m_profiles->profile(sender);
+        if (!cached.known && !sender.isEmpty())
+            m_profiles->request(sender);
+        return cached.avatarUrl;
+    }
     case TimestampMsRole: return row.value(QStringLiteral("timestampMs"));
     case MsgtypeRole: return row.value(QStringLiteral("msgtype"));
     case BodyRole: return row.value(QStringLiteral("body"));
