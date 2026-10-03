@@ -276,6 +276,7 @@ void PaginationController::jumpToEvent(const QString &eventId)
     m_navigationEventId = eventId;
     m_navigationBatches = 0;
     request(Reason::Navigation);
+    Q_EMIT navigationChanged();
     // A room-open fill may own the single flight, or the timeline may not have
     // adopted its generation yet; keep the target pending for finishBatch() or
     // the readiness-driven fill. Without a client, request() dispatches nothing
@@ -783,8 +784,10 @@ void PaginationController::continueNavigation(bool hitStart)
         locateNavigationTarget(row);
         return;
     }
-    if (hitStart || ++m_navigationBatches >= kMaxNavigationBatches) {
-        failNavigation();
+    const int budget = m_navigationPurpose == NavigationPurpose::Reply
+        ? m_jumpBatchBudget : kMaxNavigationBatches;
+    if (hitStart || ++m_navigationBatches >= budget) {
+        failNavigation(!hitStart);
         return;
     }
     request(Reason::Navigation);
@@ -813,7 +816,7 @@ void PaginationController::locateNavigationTarget(int row)
     Q_EMIT targetLocated(row, offset, highlight);
 }
 
-void PaginationController::failNavigation()
+void PaginationController::failNavigation(bool tooFar)
 {
     const bool wasRestore = m_navigationPurpose == NavigationPurpose::Restore;
     clearNavigation(false);
@@ -821,17 +824,18 @@ void PaginationController::failNavigation()
         Q_EMIT restoreLatestRequested();
         return;
     }
-    m_navigationMessage = unavailableTargetMessage();
+    m_navigationMessage = tooFar ? tooFarTargetMessage()
+                                 : unavailableTargetMessage();
     m_navigationMessageTimer.start(kNavigationMessageDurationMs);
     Q_EMIT navigationChanged();
 }
 
 void PaginationController::clearNavigation(bool clearMessage)
 {
+    bool changed = m_navigationPurpose == NavigationPurpose::Reply;
     m_navigationPurpose = NavigationPurpose::None;
     m_navigationEventId.clear();
     m_navigationBatches = 0;
-    bool changed = false;
     if (!m_highlightedEventId.isEmpty()) {
         m_highlightTimer.stop();
         m_highlightedEventId.clear();

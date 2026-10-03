@@ -1355,6 +1355,7 @@ private Q_SLOTS:
         controller.setClient(&client);
         controller.setTimelineModel(&model);
         controller.setRoomId(kRoomA);
+        controller.setJumpBatchBudgetForTest(8);
 
         controller.jumpToEvent(QStringLiteral("$missing:example.org"));
         // Wait for each request before completing it: back-to-back completions
@@ -1368,6 +1369,94 @@ private Q_SLOTS:
                                  2000);
         QTRY_VERIFY_WITH_TIMEOUT(!controller.busy(), 2000);
         QCOMPARE(client.loadOlderCalls, 8);
+    }
+
+    // A hit past the old eight-page budget (here the 12th page). The jump
+    // must keep paging until the event arrives; old code gave up after eight
+    // pages and said "Original message is unavailable."
+    void aJumpReachesAnEventOlderThanTheOldBatchBudget()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        QSignalSpy located(&controller, &PaginationController::targetLocated);
+
+        controller.jumpToEvent(QStringLiteral("$weeks-ago:example.org"));
+        QVERIFY(controller.navigating());
+        for (int batch = 0; batch < 12; ++batch) {
+            QTRY_COMPARE_WITH_TIMEOUT(client.loadOlderCalls, batch + 1, 2000);
+            QVERIFY2(controller.navigationMessage().isEmpty(),
+                     "the jump gave up before reaching the event");
+            client.beginLoading(kRoomA);
+            if (batch < 11) {
+                client.completeEvents(
+                    kRoomA,
+                    { makeEvent(QStringLiteral("$filler%1:example.org")
+                                    .arg(batch)) },
+                    false);
+            } else {
+                client.completeEvents(
+                    kRoomA,
+                    { makeEvent(QStringLiteral("$weeks-ago:example.org")) },
+                    false);
+            }
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(located.count(), 1, 2000);
+        QVERIFY(controller.navigationMessage().isEmpty());
+    }
+
+    // A target beyond the page budget says so, instead of claiming the message
+    // is unavailable, and the progress state ends.
+    void aJumpPastTheBudgetSaysTheMessageIsTooFarBack()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+
+        controller.jumpToEvent(QStringLiteral("$far:example.org"));
+        QVERIFY(controller.navigating());
+        for (int batch = 0; batch < 12; ++batch) {
+            QTRY_COMPARE_WITH_TIMEOUT(client.loadOlderCalls, batch + 1, 2000);
+            client.beginLoading(kRoomA);
+            client.completeEvents(
+                kRoomA,
+                { makeEvent(QStringLiteral("$f%1:example.org").arg(batch)) },
+                false);
+        }
+        QTRY_VERIFY_WITH_TIMEOUT(!controller.navigationMessage().isEmpty(),
+                                 2000);
+        QCOMPARE(controller.navigationMessage(),
+                 PaginationController::tooFarTargetMessage());
+        QVERIFY(controller.navigationMessage()
+                != PaginationController::unavailableTargetMessage());
+        QVERIFY(!controller.navigating());
+        QCOMPARE(client.loadOlderCalls, 12);
+    }
+
+    void cancelNavigationEndsTheProgressState()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        controller.jumpToEvent(QStringLiteral("$far:example.org"));
+        QVERIFY(controller.navigating());
+        controller.cancelNavigation();
+        QVERIFY(!controller.navigating());
     }
 
     void roomSwitchCancelsReplySearch()

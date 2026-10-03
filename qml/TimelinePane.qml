@@ -4903,6 +4903,44 @@ Rectangle {
                 }
             }
 
+            // A jump (search hit, reply, pin) paging back to an older target.
+            Rectangle {
+                objectName: "jumpProgress"
+                visible: app.pagination.navigating
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: jumpToLatestButton.visible
+                                ? jumpToLatestButton.top : parent.bottom
+                anchors.bottomMargin: AppTheme.spacingS
+                implicitWidth: jumpProgressRow.implicitWidth + AppTheme.spacing12 * 2
+                implicitHeight: jumpProgressRow.implicitHeight + AppTheme.spacing6 * 2
+                width: implicitWidth
+                height: implicitHeight
+                color: AppTheme.cardElevated
+                border.color: AppTheme.borderStrong
+                border.width: 1
+                radius: AppTheme.radiusPill
+                z: 21
+                Row {
+                    id: jumpProgressRow
+                    anchors.centerIn: parent
+                    spacing: AppTheme.spacing8
+                    Label {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("Loading older messages…")
+                        color: AppTheme.text
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: AppTheme.weightMedium
+                    }
+                    ToolButton {
+                        objectName: "jumpProgressCancel"
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("Cancel")
+                        onClicked: app.pagination.cancelNavigation()
+                    }
+                }
+            }
+
             Label {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: jumpToLatestButton.visible

@@ -73,6 +73,9 @@ class PaginationController : public QObject
                    NOTIFY stateChanged)
     Q_PROPERTY(QString highlightedEventId READ highlightedEventId NOTIFY navigationChanged)
     Q_PROPERTY(QString navigationMessage READ navigationMessage NOTIFY navigationChanged)
+    // True while a jump the reader asked for is paging back to its target; QML
+    // shows "Loading older messages..." with a Cancel button.
+    Q_PROPERTY(bool navigating READ navigating NOTIFY navigationChanged)
     // True while a NearTop backfill run is in flight or a bounded continuation
     // is scheduled. A page that grew the mirror ends the run (finishBatch());
     // an empty page schedules one more try, up to kMaxNearTopEmptyStrikes. Test
@@ -108,6 +111,14 @@ public:
     // Reply-highlight lifetime and how long the unavailable notice stays,
     // shared with ThreadController so both pulse and expire identically.
     static constexpr int kDefaultHighlightDurationMs = 1800;
+    // Shown when a jump spent its whole page budget without finding the
+    // target, as opposed to a target that does not exist.
+    static QString tooFarTargetMessage()
+    {
+        return QCoreApplication::translate(
+            "PaginationController",
+            "This message is too far back to open here yet.");
+    }
 
     /// The strike bound for a fill walking history the timeline filter empties
     /// while the viewport it exists to fill is still not full. Fills are only
@@ -145,6 +156,8 @@ public:
     bool initialContentSettled() const;
     QString highlightedEventId() const { return m_highlightedEventId; }
     QString navigationMessage() const { return m_navigationMessage; }
+    bool navigating() const
+    { return m_navigationPurpose == NavigationPurpose::Reply; }
 
     // Ask for one more batch because the viewport is not filled yet. Budget-
     // and no-progress-guarded; safe to call repeatedly from size handlers.
@@ -183,6 +196,7 @@ public:
     void setMaxViewportFillRequests(int count) { m_maxFillRequests = count; }
     void setAutomaticRetryPolicyForTest(int attempts, int baseDelayMs)
     { m_maxAutomaticRetries = attempts; m_autoRetryBaseDelayMs = baseDelayMs; }
+    void setJumpBatchBudgetForTest(int batches) { m_jumpBatchBudget = batches; }
     void setHighlightDurationForTest(int durationMs)
     { m_highlightDurationMs = durationMs; }
     void setNearTopContinuationDelayForTest(int delayMs)
@@ -259,7 +273,7 @@ private:
     int batchRowGrowth() const;
     void scheduleAutomaticRetry();
     void continueNavigation(bool reachedStart);
-    void failNavigation();
+    void failNavigation(bool tooFar = false);
     void locateNavigationTarget(int row);
     void clearNavigation(bool clearMessage = true);
 
@@ -345,6 +359,14 @@ private:
     // Much smaller than the filtered-run bound: a page that walked events is
     // progress, a page that never arrived means the backend is not answering.
     static constexpr int kMaxNoProgressStrikes = 12;
+    // A scroll-position restore only walks back to where the reader was.
     static constexpr int kMaxNavigationBatches = 8;
+    // A jump the reader asked for (a search hit, a reply, a pin) gets a few
+    // more pages: 12 x 20 events ~ 240 rows, the pane's maxViewportFillRows.
+    // Every row is a delegate in the un-virtualized Column, so walking much
+    // further freezes the app (600 rows ~ 6 s) until jumps get an
+    // event-focused timeline.
+    static constexpr int kMaxJumpBatches = 12;
+    int m_jumpBatchBudget = kMaxJumpBatches;
     static constexpr int kMaxScrollAnchors = 64;
 };
