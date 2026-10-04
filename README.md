@@ -21,7 +21,7 @@ Lightning implements no Matrix cryptography of its own. It is not Electron,
 not a web view, and not a fork of another client.
 
 Linux is the primary target. Lightning is usable day to day but young: it is
-listed as **Alpha** in the [Matrix client
+listed as **Beta** in the [Matrix client
 directory](https://matrix.org/ecosystem/clients/lightning/), so expect rough
 edges.
 
