@@ -66,17 +66,17 @@ Everything here is outward-facing and done by the maintainer, by hand.
    built); keep *Follow Fedora branching*; *Enable internet access during
    builds* OFF (the crates are vendored into the SRPM; the SRPM step has
    network regardless). The default 5-hour build timeout is enough.
-2. *Packages → New package → SCM*: name `lightning`, clone URL
+2. *Packages → New package → SCM*: name `lightning-matrix`, clone URL
    `https://gitlab.smetonis.net/Mizerd/lightning.git`, committish `main`, SRPM
    build method `make srpm`, *Auto-rebuild* ON. The same with copr-cli:
    `copr-cli add-package-scm mizerd/lightning-matrix --name lightning-matrix --clone-url https://gitlab.smetonis.net/Mizerd/lightning.git --commit main --method make_srpm --webhook-rebuild on`
 3. First build by hand (*Rebuild*, or
-   `copr-cli build-package mizerd/lightning-matrix --name lightning`); watch
+   `copr-cli build-package mizerd/lightning-matrix --name lightning-matrix`); watch
    `builder-live.log`, and check the `%check` output for
    `call media engine built in: yes`.
 4. *Settings → Integrations*: copy the GitLab webhook URL. In GitLab, project 6
-   → *Settings → Webhooks*: that URL with `lightning/` appended (the package
-   name; our tags are `vX.Y.Z`, not `lightning-X.Y.Z`), trigger **Tag push
+   → *Settings → Webhooks*: that URL with `lightning-matrix/` appended (the package
+   name; our tags are `vX.Y.Z`, not `lightning-matrix-X.Y.Z`), trigger **Tag push
    events** only. Push events would rebuild `main` on every commit.
 
 Or upload a source RPM instead of steps 2-4: the `copr-srpm` job keeps one as
