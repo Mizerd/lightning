@@ -52,6 +52,7 @@
 // Needed by the software-renderer fallback in every build.
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
+#include <QOpenGLFunctions>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <QScreen>
@@ -2283,6 +2284,23 @@ int main(int argc, char *argv[])
                 return;
             // Emitted on the render thread; `win` as context queues it to
             // the GUI thread.
+            // Direct connection: the GL context is only current on the render
+            // thread, inside this signal. Logs the driver so a software
+            // rasteriser (llvmpipe) is visible in every log.
+            QObject::connect(
+                win, &QQuickWindow::sceneGraphInitialized, win,
+                [] {
+                    auto *ctx = QOpenGLContext::currentContext();
+                    if (!ctx || !ctx->functions())
+                        return;
+                    const auto *vendor = reinterpret_cast<const char *>(
+                        ctx->functions()->glGetString(GL_VENDOR));
+                    const auto *renderer = reinterpret_cast<const char *>(
+                        ctx->functions()->glGetString(GL_RENDERER));
+                    qInfo("lightning: GL_RENDERER=%s GL_VENDOR=%s",
+                          renderer ? renderer : "?", vendor ? vendor : "?");
+                },
+                Qt::DirectConnection);
             QObject::connect(
                 win, &QQuickWindow::sceneGraphInitialized, win,
                 [win, &controller] {
