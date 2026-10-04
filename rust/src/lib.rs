@@ -7493,6 +7493,16 @@ fn ensure_search_index(bridge: &RustClient) -> Result<(), String> {
     Ok(())
 }
 
+/// The answer for a local search that could not run at all (the index would
+/// not open, or the query failed). It is a real `local_search_result`, so the
+/// panel leaves "loading" and says so.
+fn local_search_failure_event(op_id: u64) -> serde_json::Value {
+    json!({
+        "type": "local_search_result", "op_id": op_id, "ok": false,
+        "category": "index_unavailable", "results": [],
+    })
+}
+
 /// Search the local index. Answers on `local_search_result`.
 ///
 /// Synchronous: it is a local SQLite query, and going through the task pool
@@ -7512,7 +7522,14 @@ pub unsafe extern "C" fn mx_rust_local_search(
         let bridge = unsafe { bridge(ptr)? };
         let query = unsafe { cstr_arg(query) }?;
         let room_id = unsafe { cstr_arg(room_id) }?;
-        ensure_search_index(bridge)?;
+        if let Err(err) = ensure_search_index(bridge) {
+            // The caller holds an op id and waits for an answer; a bare
+            // "error:" return string is discarded by the C++ side and left the
+            // panel spinning for ever.
+            eprintln!("local search: index unavailable: {err}");
+            enqueue(&bridge.events, local_search_failure_event(op_id));
+            return Err(err);
+        }
 
         // Report a query too short for the trigram tokenizer as such, not as
         // "no results".
@@ -7526,12 +7543,20 @@ pub unsafe extern "C" fn mx_rust_local_search(
             return Ok(String::new());
         }
 
-        let hits = {
+        let searched = (|| -> Result<Vec<localsearch::Hit>, String> {
             let guard = bridge.search_index.lock()
                 .map_err(|_| "search index unavailable".to_owned())?;
             let index = guard.as_ref()
                 .ok_or_else(|| "search index unavailable".to_owned())?;
-            index.search(&query, &room_id, limit.max(1) as i64, offset.max(0) as i64)?
+            index.search(&query, &room_id, limit.max(1) as i64, offset.max(0) as i64)
+        })();
+        let hits = match searched {
+            Ok(hits) => hits,
+            Err(err) => {
+                eprintln!("local search: query failed: {err}");
+                enqueue(&bridge.events, local_search_failure_event(op_id));
+                return Ok(String::new());
+            }
         };
 
         let results: Vec<serde_json::Value> = hits
@@ -14432,6 +14457,45 @@ mod live_e2ee_interop_tests {
             super::mx_rust_destroy(handle);
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An index that cannot open must still ANSWER the search. The C++ side
+    /// discards the returned "error:" string and waits for a
+    /// `local_search_result` for its op id, so without one the panel spins for
+    /// ever and nothing says why.
+    #[test]
+    fn a_search_whose_index_cannot_open_still_answers_its_op_id() {
+        let dir = tempfile_dir("lightning-search-unopenable");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("store dir");
+        let store = CString::new(dir.to_string_lossy().as_ref()).unwrap();
+        let handle = super::mx_rust_create(store.as_ptr());
+        assert!(!handle.is_null(), "bridge handle");
+        // Then the "directory" the index would live in becomes a regular file.
+        std::fs::remove_dir_all(&dir).expect("remove store");
+        std::fs::write(&dir, b"x").expect("blocker");
+        unsafe {
+            let query = CString::new("quarterly deployment").unwrap();
+            let any_room = CString::new("").unwrap();
+            let err = take(super::mx_rust_local_search(
+                handle, query.as_ptr(), any_room.as_ptr(), 10, 0, 77));
+            assert!(!err.is_empty(), "the index opened, so this proves nothing");
+            let mut answered = None;
+            for _ in 0..50 {
+                let ev = take(super::mx_rust_poll_event(handle));
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&ev) {
+                    if v["type"] == "local_search_result" && v["op_id"] == 77 {
+                        answered = Some(v);
+                        break;
+                    }
+                }
+            }
+            let ev = answered.expect("no local_search_result for a failed search");
+            assert_eq!(ev["ok"], false);
+            assert_eq!(ev["category"], "index_unavailable");
+            super::mx_rust_destroy(handle);
+        }
+        let _ = std::fs::remove_file(&dir);
     }
 
     fn tempfile_dir(prefix: &str) -> std::path::PathBuf {
