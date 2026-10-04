@@ -11378,7 +11378,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SearchPanel</name>
     <message>
-        <location filename="../qml/SearchPanel.qml" line="+115"/>
+        <location filename="../qml/SearchPanel.qml" line="+144"/>
         <source>Use dates in YYYY-MM-DD format.</source>
         <translation>日期请使用 YYYY-MM-DD 格式。</translation>
     </message>
@@ -11418,7 +11418,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>贴纸</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+42"/>
         <location line="+12"/>
         <source>Search filters</source>
         <translation>搜索筛选条件</translation>
@@ -11454,19 +11454,29 @@ Signing out and signing in again is the only fix.</source>
         <translation>在已加载的消息中查找</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <source>Server-side search. Additional filters are applied to a bounded result window.</source>
-        <translation>服务器端搜索。附加筛选条件仅作用于有限的结果范围。</translation>
-    </message>
-    <message>
-        <location line="+46"/>
+        <location line="+81"/>
         <source>Open message from %1</source>
         <translation>打开来自 %1 的消息</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="-182"/>
         <source>Search could not be completed.</source>
         <translation>搜索未能完成。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Type at least %1 characters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Nothing is indexed yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No matching messages. Try a less common word, or search the local index.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -11474,7 +11484,42 @@ Signing out and signing in again is the only fix.</source>
         <translation>没有匹配的消息</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+108"/>
+        <source>Indexed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lightning&apos;s own index. Works in encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Your homeserver&apos;s search. Covers history this device has never seen, and cannot read encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Searching Lightning&apos;s own index. Works in encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Searching your homeserver. It cannot read encrypted rooms and ignores very common words. Additional filters are applied to a bounded result window.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+141"/>
+        <source>Index all rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>Load more</source>
         <translation>加载更多</translation>
     </message>
@@ -18382,12 +18427,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-474"/>
         <location filename="../qml/TimelinePane.qml" line="+212"/>
-        <location line="+4970"/>
+        <location line="+4971"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-4969"/>
+        <location filename="../qml/TimelinePane.qml" line="-4970"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -18731,7 +18776,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+401"/>
+        <location line="+402"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>房间已添加 —— 正在等待服务器确认。</translation>
     </message>
@@ -19066,21 +19111,21 @@ Note: importing keys does not verify this session.</source>
         <translation>这些房间会继续存在，你也仍在其中 —— 它们只是离开这个空间的列表。</translation>
     </message>
     <message>
-        <location line="-1354"/>
+        <location line="-1355"/>
         <location line="+162"/>
-        <location line="+1206"/>
+        <location line="+1207"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-5520"/>
+        <location line="-5521"/>
         <location line="+91"/>
         <source>View profile</source>
         <translation type="unfinished">查看个人资料</translation>
     </message>
     <message>
-        <location line="+5410"/>
+        <location line="+5411"/>
         <source>Leave %1?</source>
         <translation>退出 %1？</translation>
     </message>

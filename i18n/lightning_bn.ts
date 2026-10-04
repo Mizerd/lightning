@@ -11403,7 +11403,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SearchPanel</name>
     <message>
-        <location filename="../qml/SearchPanel.qml" line="+115"/>
+        <location filename="../qml/SearchPanel.qml" line="+144"/>
         <source>Use dates in YYYY-MM-DD format.</source>
         <translation>YYYY-MM-DD বিন্যাসে তারিখ ব্যবহার করুন।</translation>
     </message>
@@ -11443,7 +11443,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্টিকার</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+42"/>
         <location line="+12"/>
         <source>Search filters</source>
         <translation>অনুসন্ধান ফিল্টার</translation>
@@ -11479,19 +11479,29 @@ Signing out and signing in again is the only fix.</source>
         <translation>লোড হওয়া বার্তায় খুঁজুন</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <source>Server-side search. Additional filters are applied to a bounded result window.</source>
-        <translation>সার্ভার-সাইড অনুসন্ধান। অতিরিক্ত ফিল্টার একটি সীমিত ফলাফল উইন্ডোতে প্রয়োগ হয়।</translation>
-    </message>
-    <message>
-        <location line="+46"/>
+        <location line="+81"/>
         <source>Open message from %1</source>
         <translation>%1-এর বার্তা খুলুন</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="-182"/>
         <source>Search could not be completed.</source>
         <translation>অনুসন্ধান সম্পূর্ণ করা যায়নি।</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Type at least %1 characters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Nothing is indexed yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No matching messages. Try a less common word, or search the local index.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -11499,7 +11509,42 @@ Signing out and signing in again is the only fix.</source>
         <translation>মিলে যাওয়া কোনো বার্তা নেই</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+108"/>
+        <source>Indexed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lightning&apos;s own index. Works in encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Your homeserver&apos;s search. Covers history this device has never seen, and cannot read encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Searching Lightning&apos;s own index. Works in encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Searching your homeserver. It cannot read encrypted rooms and ignores very common words. Additional filters are applied to a bounded result window.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+141"/>
+        <source>Index all rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>Load more</source>
         <translation>আরও লোড করুন</translation>
     </message>
@@ -18427,12 +18472,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-474"/>
         <location filename="../qml/TimelinePane.qml" line="+212"/>
-        <location line="+4970"/>
+        <location line="+4971"/>
         <source>Space</source>
         <translation>স্পেস</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-4969"/>
+        <location filename="../qml/TimelinePane.qml" line="-4970"/>
         <source>Home</source>
         <translation>হোম</translation>
     </message>
@@ -18777,7 +18822,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+401"/>
+        <location line="+402"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>রুম যোগ হয়েছে — সার্ভারের নিশ্চিতকরণের অপেক্ষায়।</translation>
     </message>
@@ -19118,21 +19163,21 @@ Note: importing keys does not verify this session.</source>
         <translation>রুমগুলি থেকেই যায় এবং আপনি সেগুলিতেই থাকেন — কেবল এই স্পেসের তালিকা থেকে সরে যায়।</translation>
     </message>
     <message>
-        <location line="-1354"/>
+        <location line="-1355"/>
         <location line="+162"/>
-        <location line="+1206"/>
+        <location line="+1207"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>বাতিল</translation>
     </message>
     <message>
-        <location line="-5520"/>
+        <location line="-5521"/>
         <location line="+91"/>
         <source>View profile</source>
         <translation type="unfinished">প্রোফাইল দেখুন</translation>
     </message>
     <message>
-        <location line="+5410"/>
+        <location line="+5411"/>
         <source>Leave %1?</source>
         <translation>%1 ছাড়বেন?</translation>
     </message>

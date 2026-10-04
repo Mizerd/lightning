@@ -11428,7 +11428,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>SearchPanel</name>
     <message>
-        <location filename="../qml/SearchPanel.qml" line="+115"/>
+        <location filename="../qml/SearchPanel.qml" line="+144"/>
         <source>Use dates in YYYY-MM-DD format.</source>
         <translation>Используйте даты в формате ГГГГ-ММ-ДД.</translation>
     </message>
@@ -11468,7 +11468,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Стикер</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+42"/>
         <location line="+12"/>
         <source>Search filters</source>
         <translation>Фильтры поиска</translation>
@@ -11504,19 +11504,29 @@ Signing out and signing in again is the only fix.</source>
         <translation>Найти в загруженных сообщениях</translation>
     </message>
     <message>
-        <location line="+11"/>
-        <source>Server-side search. Additional filters are applied to a bounded result window.</source>
-        <translation>Поиск на стороне сервера. Дополнительные фильтры применяются к ограниченному окну результатов.</translation>
-    </message>
-    <message>
-        <location line="+46"/>
+        <location line="+81"/>
         <source>Open message from %1</source>
         <translation>Открыть сообщение от %1</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="-182"/>
         <source>Search could not be completed.</source>
         <translation>Не удалось выполнить поиск.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Type at least %1 characters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Nothing is indexed yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No matching messages. Try a less common word, or search the local index.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
@@ -11524,7 +11534,42 @@ Signing out and signing in again is the only fix.</source>
         <translation>Подходящих сообщений нет</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+108"/>
+        <source>Indexed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lightning&apos;s own index. Works in encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Your homeserver&apos;s search. Covers history this device has never seen, and cannot read encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Searching Lightning&apos;s own index. Works in encrypted rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Searching your homeserver. It cannot read encrypted rooms and ignores very common words. Additional filters are applied to a bounded result window.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+141"/>
+        <source>Index all rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>Load more</source>
         <translation>Загрузить ещё</translation>
     </message>
@@ -18472,12 +18517,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-474"/>
         <location filename="../qml/TimelinePane.qml" line="+212"/>
-        <location line="+4970"/>
+        <location line="+4971"/>
         <source>Space</source>
         <translation>Пространство</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-4969"/>
+        <location filename="../qml/TimelinePane.qml" line="-4970"/>
         <source>Home</source>
         <translation>Главная</translation>
     </message>
@@ -18823,7 +18868,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+401"/>
+        <location line="+402"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>Комната добавлена — ожидается подтверждение сервера.</translation>
     </message>
@@ -19170,21 +19215,21 @@ Note: importing keys does not verify this session.</source>
         <translation>Комнаты продолжат существовать, и вы останетесь в них — они лишь покинут список этого пространства.</translation>
     </message>
     <message>
-        <location line="-1354"/>
+        <location line="-1355"/>
         <location line="+162"/>
-        <location line="+1206"/>
+        <location line="+1207"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location line="-5520"/>
+        <location line="-5521"/>
         <location line="+91"/>
         <source>View profile</source>
         <translation type="unfinished">Посмотреть профиль</translation>
     </message>
     <message>
-        <location line="+5410"/>
+        <location line="+5411"/>
         <source>Leave %1?</source>
         <translation>Покинуть %1?</translation>
     </message>
