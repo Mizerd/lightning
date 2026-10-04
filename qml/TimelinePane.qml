@@ -5320,6 +5320,7 @@ Rectangle {
         Layout.preferredWidth: root.width >= 700 ? 360 : root.width
         Layout.fillWidth: root.searchOpen && root.width < 700
         historyAvailable: root.findHistoryAvailable
+        serverAvailable: root.serverSearchAvailable
         onCloseRequested: root.searchOpen = false
         onFindLoadedRequested: {
             root.searchOpen = false

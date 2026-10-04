@@ -8976,6 +8976,72 @@ private Q_SLOTS:
         }, 4000));
     }
 
+    // The room-header search panel offers the same Indexed/Server choice as
+    // the find bar: local by default, the toggle switches source and re-runs
+    // the query, and the hint says which source is being searched.
+    void theSearchPanelHasASourceToggle()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(!loginAndRoomIdAt(controller, /*row=*/0).isEmpty());
+        const QString roomId = QStringLiteral("!general:mock.local");
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline = nullptr;
+        QList<TimelineEvent> events =
+            textFixture(roomId, 12, QStringLiteral("s"), QStringLiteral("body"));
+        events[3].body = QStringLiteral("the zephyrine protocol landed today");
+        QQuickItem *root = paneWithEvents(controller, engine, window, roomId,
+                                          events, /*paginationPages=*/0,
+                                          /*viewportHeight=*/700, &timeline);
+        QVERIFY(root != nullptr);
+        auto *search = controller.messageSearch();
+        QVERIFY(search->localAvailable());
+
+        // Start from the OLD default so a panel that leaves the source alone
+        // is caught.
+        search->setSource(QStringLiteral("server"));
+        QCOMPARE(search->source(), QStringLiteral("server"));
+
+        root->setProperty("searchOpen", true);
+        QTest::qWait(80);
+        QCOMPARE(search->source(), QStringLiteral("local"));
+
+        auto *hint = root->findChild<QQuickItem *>(
+            QStringLiteral("roomSearchHint"));
+        QVERIFY2(hint != nullptr, "the panel has no source hint");
+        const QString localHint = hint->property("text").toString();
+        QVERIFY2(localHint.contains(QStringLiteral("own index")),
+                 qPrintable(localHint));
+
+        auto *toggle = root->findChild<QQuickItem *>(
+            QStringLiteral("roomSearchSourceToggle"));
+        QVERIFY2(toggle != nullptr, "the panel has no Indexed/Server toggle");
+
+        search->setQuery(QStringLiteral("zephyrine"));
+        QVERIFY2(QTest::qWaitFor([&] {
+                     return search->state() == QLatin1String("results");
+                 }, 4000),
+                 qPrintable(search->state()));
+
+        QSignalSpy states(search, &MessageSearchController::stateChanged);
+        QMetaObject::invokeMethod(toggle, "activated",
+                                  Q_ARG(QVariant, QStringLiteral("server")));
+        QTest::qWait(60);
+        QCOMPARE(search->source(), QStringLiteral("server"));
+        QVERIFY2(states.count() > 0,
+                 "switching source did not re-run the query");
+        const QString serverHint = hint->property("text").toString();
+        QVERIFY2(serverHint.contains(QStringLiteral("homeserver"))
+                     && serverHint != localHint,
+                 qPrintable(serverHint));
+
+        QMetaObject::invokeMethod(toggle, "activated",
+                                  Q_ARG(QVariant, QStringLiteral("local")));
+        QTest::qWait(60);
+        QCOMPARE(search->source(), QStringLiteral("local"));
+        QCOMPARE(hint->property("text").toString(), localHint);
+    }
+
     // "Index this room" beside the coverage line reaches the backend.
     void indexingThisRoomReachesTheBackend()
     {

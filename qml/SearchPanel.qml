@@ -14,6 +14,14 @@ Rectangle {
     signal findLoadedRequested()
 
     property bool historyAvailable: true
+    // Whether the homeserver can search this room (unencrypted, supported).
+    // The Indexed/Server toggle needs both sources; with one, that one is used.
+    property bool serverAvailable: true
+    // The user's last explicit choice, kept for the session ("" = none yet).
+    // Assigned only from the toggle; the controller's `source` is the live
+    // value and is never bound here.
+    property string preferredSource: ""
+    readonly property string activeSource: app.messageSearch.source
     property bool filterEditing: false
     property var draftFrom: []
     property var draftMentions: []
@@ -64,8 +72,29 @@ Rectangle {
     // The roster comes from RoomInfoController, which follows the Room
     // Information panel's room; point it at the searched room before reading
     // members.
-    onVisibleChanged: if (visible) ensureRoster()
-    Component.onCompleted: if (visible) ensureRoster()
+    onVisibleChanged: if (visible) { ensureRoster(); applySource() }
+    Component.onCompleted: if (visible) { ensureRoster(); applySource() }
+
+    // Local first when the index exists (it covers encrypted rooms and needs
+    // no round trip), unless the user chose otherwise this session.
+    function applySource() {
+        var local = app.messageSearch.localAvailable
+        var wanted = preferredSource !== "" ? preferredSource
+                                            : (local ? "local" : "server")
+        if (wanted === "server" && !serverAvailable && local)
+            wanted = "local"
+        if (wanted === "local" && !local)
+            wanted = "server"
+        if (app.messageSearch.source !== wanted)
+            app.messageSearch.source = wanted
+        if (local)
+            app.messageSearch.refreshIndexStats()
+    }
+
+    function chooseSource(value) {
+        preferredSource = value
+        app.messageSearch.source = value   // re-runs the current query
+    }
 
     function ensureRoster() {
         if (!app.roomInfo || !app.currentRoomId)
@@ -154,6 +183,20 @@ Rectangle {
             || (value.afterMs && Number(value.afterMs) > 0)
             || (value.beforeMs && Number(value.beforeMs) > 0)
             || (value.pinnedMode && value.pinnedMode !== "any"))
+    }
+
+    function emptyText() {
+        var st = app.messageSearch.state
+        if (st === "error")
+            return qsTr("Search could not be completed.")
+        if (st === "too_short")
+            return qsTr("Type at least %1 characters.")
+                .arg(app.messageSearch.minLocalChars)
+        if (activeSource === "local" && app.messageSearch.indexedMessages <= 0)
+            return qsTr("Nothing is indexed yet.")
+        if (activeSource === "server")
+            return qsTr("No matching messages. Try a less common word, or search the local index.")
+        return qsTr("No matching messages")
     }
 
     function activateResult(index) {
@@ -252,12 +295,36 @@ Rectangle {
                 }
             }
 
+            SegmentedControl {
+                objectName: "roomSearchSourceToggle"
+                dense: true
+                Layout.fillWidth: false
+                Layout.leftMargin: AppTheme.spacing12
+                visible: root.historyAvailable
+                         && app.messageSearch.localAvailable
+                         && root.serverAvailable
+                model: [
+                    { label: qsTr("Indexed"), value: "local",
+                      tip: qsTr("Lightning's own index. Works in encrypted "
+                                + "rooms.") },
+                    { label: qsTr("Server"), value: "server",
+                      tip: qsTr("Your homeserver's search. Covers history "
+                                + "this device has never seen, and cannot "
+                                + "read encrypted rooms.") }
+                ]
+                current: app.messageSearch.source
+                onActivated: (value) => root.chooseSource(value)
+            }
+
             Label {
+                objectName: "roomSearchHint"
                 visible: root.historyAvailable
                 Layout.fillWidth: true
                 Layout.leftMargin: AppTheme.spacing12
                 Layout.rightMargin: AppTheme.spacing12
-                text: qsTr("Server-side search. Additional filters are applied to a bounded result window.")
+                text: root.activeSource === "local"
+                      ? qsTr("Searching Lightning's own index. Works in encrypted rooms.")
+                      : qsTr("Searching your homeserver. It cannot read encrypted rooms and ignores very common words. Additional filters are applied to a bounded result window.")
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.textMeta
                 lineHeight: AppTheme.lineHeightBody
@@ -380,11 +447,26 @@ Rectangle {
                         Label {
                             visible: app.messageSearch.state === "no_results"
                                      || app.messageSearch.state === "error"
-                            text: app.messageSearch.state === "error"
-                                  ? qsTr("Search could not be completed.")
-                                  : qsTr("No matching messages")
+                                     || app.messageSearch.state === "too_short"
+                            objectName: "roomSearchEmptyLabel"
+                            Layout.fillWidth: true
+                            Layout.maximumWidth: resultsList.width
+                                                 - AppTheme.spacing12 * 2
+                            wrapMode: Text.Wrap
+                            horizontalAlignment: Text.AlignHCenter
+                            text: root.emptyText()
                             color: AppTheme.textMuted
                             font.pixelSize: AppTheme.textBody
+                        }
+                        AppButton {
+                            objectName: "roomSearchIndexAllButton"
+                            visible: root.activeSource === "local"
+                                     && app.messageSearch.state === "no_results"
+                                     && app.messageSearch.indexedMessages <= 0
+                                     && !app.messageSearch.indexAllActive
+                            Layout.alignment: Qt.AlignHCenter
+                            text: qsTr("Index all rooms")
+                            onClicked: app.messageSearch.indexAllRooms()
                         }
                         AppButton {
                             visible: app.messageSearch.canLoadMore
