@@ -2110,6 +2110,18 @@ Rectangle {
                             // visibleFirstRow.
                             rowOnScreen: index >= timeline.visibleFirstRow
                                          && index <= timeline.visibleLastRow
+                            // Qt Quick delivers each wheel and hover event by
+                            // walking every instantiated row, and skips a
+                            // subtree only when it is invisible, disabled,
+                            // or clips and misses the point. Invisible would
+                            // collapse the Column and clip doubles render
+                            // cost (stencil nodes, measured), so rows beyond
+                            // the activation range are disabled: the walk
+                            // stops at their root instead of visiting every
+                            // descendant, and delivery cost stops growing
+                            // with the history loaded. They are off screen
+                            // and cannot be pointed at.
+                            enabled: rowOnScreen
                             // Same for the media band.
                             mediaInBand: index >= timeline.mediaBandFirstRow
                                          && index <= timeline.mediaBandLastRow

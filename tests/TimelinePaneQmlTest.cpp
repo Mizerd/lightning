@@ -1310,9 +1310,14 @@ private Q_SLOTS:
             "contentY",
             bottomY + viewportHeight * (smoothViewports + 0.5));
         QCoreApplication::processEvents();
-        QTRY_VERIFY_WITH_TIMEOUT(
+        QTRY_VERIFY2_WITH_TIMEOUT(
             timeline->property("contentY").toReal()
-                > bottomY + viewportHeight * smoothViewports, 5000);
+                > bottomY + viewportHeight * smoothViewports,
+            qPrintable(QStringLiteral("contentY %1 bottomY %2 vp %3 smooth %4 "
+                                      "max %5")
+                           .arg(timeline->property("contentY").toReal())
+                           .arg(bottomY).arg(viewportHeight)
+                           .arg(smoothViewports).arg(topY)), 5000);
         QQmlExpression jumpFar(qmlContext(timeline), timeline,
                                QStringLiteral("goToLatest()"));
         jumpFar.evaluate();
@@ -1391,6 +1396,97 @@ private Q_SLOTS:
         timeline->setProperty("contentY", maxY * parkFraction);
         QCoreApplication::processEvents();
         return timeline;
+    }
+
+    // Qt Quick delivers every pointer event by walking the item tree, and
+    // only skips a subtree that is invisible or clips and misses the point.
+    // The rows are all instantiated, so before off-screen rows were clipped
+    // the cost of one wheel or hover event grew with the number of loaded
+    // rows (a reader deep in history froze for seconds). Cost per event, in
+    // microseconds, for N rows; the wheel path asserts the 2000-row cost
+    // stays near the 500-row cost.
+    double pointerEventMicros(int rows, bool hover)
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        QQuickWindow window;
+        QQuickItem *timeline =
+            deepHistoryPane(controller, engine, window, rows, 0.5);
+        if (!timeline)
+            return -1;
+        // Let the visible-row range settle.
+        QTest::qWait(300);
+        const QPointF pos(window.width() / 2.0, window.height() / 2.0);
+        const int events = 400;
+        QElapsedTimer t;
+        t.start();
+        for (int i = 0; i < events; ++i) {
+            if (hover) {
+                const QPoint p(int(pos.x()) + (i % 2 ? 3 : -3),
+                               int(pos.y()) + (i % 5));
+                QMouseEvent move(QEvent::MouseMove, p, window.mapToGlobal(p),
+                                 Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+                QCoreApplication::sendEvent(&window, &move);
+            } else {
+                QWheelEvent wheel(pos, window.mapToGlobal(pos.toPoint()),
+                                  QPoint(0, 0), QPoint(0, i % 2 ? 120 : -120),
+                                  Qt::NoButton, Qt::NoModifier,
+                                  Qt::NoScrollPhase, false);
+                QCoreApplication::sendEvent(&window, &wheel);
+            }
+        }
+        return t.nsecsElapsed() / 1000.0 / events;
+    }
+
+    void pointerDeliveryCostDoesNotGrowWithLoadedRows()
+    {
+        for (const bool hover : {false, true}) {
+            const double n500 = pointerEventMicros(500, hover);
+            const double n1000 = pointerEventMicros(1000, hover);
+            const double n2000 = pointerEventMicros(2000, hover);
+            qInfo("pointer delivery %s us/event: 500 rows %.1f, 1000 rows %.1f, "
+                  "2000 rows %.1f", hover ? "hover" : "wheel", n500, n1000,
+                  n2000);
+            QVERIFY(n500 > 0 && n2000 > 0);
+            // Hover is reported, not asserted: Qt's hover walk ignores
+            // disabled rows and still grows with the row count.
+            if (hover)
+                continue;
+            QVERIFY2(n2000 < n500 * 2.5 + 40,
+                     qPrintable(QStringLiteral("%1 delivery grew with rows: "
+                                "%2 -> %3 us/event")
+                                    .arg(hover ? "hover" : "wheel")
+                                    .arg(n500).arg(n2000)));
+        }
+    }
+
+    // Opt-in (LIGHTNING_RENDER_BENCH=1, on a GL platform such as xcb): the
+    // cost of rendering one frame at N rows. Measured to show that a per-row
+    // clip (the other way to prune pointer delivery) doubles it.
+    void renderCostWithOffscreenRowClipping()
+    {
+        if (qEnvironmentVariableIsEmpty("LIGHTNING_RENDER_BENCH"))
+            QSKIP("set LIGHTNING_RENDER_BENCH=1 to run");
+        for (const int rows : {500, 1000, 2000}) {
+            AppController controller(AppController::MockBackend);
+            QQmlApplicationEngine engine;
+            QQuickWindow window;
+            QQuickItem *timeline =
+                deepHistoryPane(controller, engine, window, rows, 0.5);
+            QVERIFY(timeline != nullptr);
+            QTest::qWait(500);
+            window.grabWindow();
+            QElapsedTimer t;
+            t.start();
+            const int frames = 60;
+            for (int i = 0; i < frames; ++i) {
+                timeline->setProperty("contentY",
+                    timeline->property("contentY").toReal() + 7);
+                window.grabWindow();
+            }
+            qInfo("render bench rows=%d: %.2f ms/frame", rows,
+                  t.nsecsElapsed() / 1e6 / frames);
+        }
     }
 
     void rowWindowBoundsRowsWithoutMovingTheReadersMessage()
@@ -1779,6 +1875,10 @@ private Q_SLOTS:
             QCoreApplication::sendEvent(&window, &wheel);
             QCoreApplication::processEvents();
         }
+        // Delivery is fast now, so the notches finish long before the
+        // wheel animation does: wait for the glide to travel.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            timeline->property("contentY").toReal() > startY + 2000, 5000);
         const qreal deepY = timeline->property("contentY").toReal();
         QVERIFY2(deepY > startY + 2000,
                  qPrintable(QStringLiteral(
@@ -8552,6 +8652,9 @@ private Q_SLOTS:
             sendWheelNotch(window, pos, -120, /*inverted=*/false);
             if (timeline->property("stickToBottom").toBool())
                 break;
+            // Delivery is fast, the wheel glide runs on real time: let it.
+            if (i % 10 == 9)
+                QTest::qWait(16);
         }
 
         QCOMPARE(timeline->property("rowWindowSkip").toInt(), 0);
