@@ -515,6 +515,18 @@ char *mx_rust_timeline_send_reply(void *client,
                                   const char *body,
                                   const char *mention_user_ids,
                                   const char *body_spec);
+/* Read-only event context view: a separate event-focused timeline built from
+ * /context, with its own generation. Events: context_reset, context_diff,
+ * context_pagination, context_error, context_closed. Closed by room switches
+ * and shutdown. forward != 0 paginates the newer edge. */
+char *mx_rust_context_open(void *client,
+                           const char *room_id,
+                           const char *event_id);
+char *mx_rust_context_close(void *client);
+char *mx_rust_context_paginate(void *client,
+                               const char *room_id,
+                               const char *event_id,
+                               bool forward);
 /* v0.6.0: SDK-backed thread timelines. One thread panel at a time; it
  * belongs to the open room and is closed automatically by room switches. */
 char *mx_rust_thread_open(void *client,

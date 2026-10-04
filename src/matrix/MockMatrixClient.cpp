@@ -748,6 +748,84 @@ void MockMatrixClient::closeThread()
     m_openThreadTimelineId.clear();
 }
 
+// ── Mock event context view ──────────────────────────────────────────────
+
+void MockMatrixClient::openEventContext(const QString &roomId,
+                                        const QString &eventId)
+{
+    ++m_eventContextOpens;
+    const bool hadOpen = !m_openContextTimelineId.isEmpty();
+    closeEventContext();
+    if (hadOpen)
+        --m_eventContextCloses; // a replace is not a user-visible close
+    const auto &roomTimeline = m_timelines.value(roomId);
+    int hit = -1;
+    for (int i = 0; i < roomTimeline.size(); ++i) {
+        if (roomTimeline.at(i).eventId == eventId) {
+            hit = i;
+            break;
+        }
+    }
+    if (hit < 0) {
+        Q_EMIT eventContextFailed(roomId, eventId,
+                                  QStringLiteral("context_failed"));
+        return;
+    }
+    m_openContextTimelineId = contextTimelineId(roomId, eventId);
+    m_heldContextRoom = roomId;
+    m_heldContextEvent = eventId;
+    if (!m_holdEventContext)
+        deliverHeldEventContext();
+}
+
+void MockMatrixClient::deliverHeldEventContext()
+{
+    const QString roomId = m_heldContextRoom;
+    const QString eventId = m_heldContextEvent;
+    if (roomId.isEmpty())
+        return;
+    const auto &roomTimeline = m_timelines.value(roomId);
+    int hit = -1;
+    for (int i = 0; i < roomTimeline.size(); ++i) {
+        if (roomTimeline.at(i).eventId == eventId) {
+            hit = i;
+            break;
+        }
+    }
+    if (hit < 0)
+        return;
+    const QString id = contextTimelineId(roomId, eventId);
+    QList<TimelineEvent> window;
+    for (int i = qMax(0, hit - kContextRadius);
+         i <= qMin(int(roomTimeline.size()) - 1, hit + kContextRadius); ++i) {
+        TimelineEvent e = roomTimeline.at(i);
+        e.roomId = id;
+        window.append(e);
+    }
+    m_timelines.insert(id, window);
+    Q_EMIT timelineReset(id);
+}
+
+void MockMatrixClient::closeEventContext()
+{
+    if (m_openContextTimelineId.isEmpty())
+        return;
+    ++m_eventContextCloses;
+    m_timelines.remove(m_openContextTimelineId);
+    m_openContextTimelineId.clear();
+}
+
+void MockMatrixClient::paginateEventContext(const QString &roomId,
+                                            const QString &eventId,
+                                            bool forward)
+{
+    ++m_eventContextPaginates;
+    Q_EMIT eventContextPagination(roomId, eventId, forward,
+                                  QStringLiteral("loading"), false);
+    Q_EMIT eventContextPagination(roomId, eventId, forward,
+                                  QStringLiteral("idle"), true);
+}
+
 // ── Mock thread list + follow state ──────────────────────────────────────
 
 void MockMatrixClient::emitThreadList(const QString &roomId)

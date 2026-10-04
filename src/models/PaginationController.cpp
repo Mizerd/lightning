@@ -263,6 +263,9 @@ void PaginationController::jumpToEvent(const QString &eventId)
     }
     const int loadedRow = m_timelineModel->rowForStableId(eventId);
     if (loadedRow >= 0) {
+        // An open context view covers the live timeline; land visibly.
+        if (m_contextCloser)
+            m_contextCloser();
         m_navigationPurpose = NavigationPurpose::Reply;
         m_navigationEventId = eventId;
         locateNavigationTarget(loadedRow);
@@ -271,6 +274,28 @@ void PaginationController::jumpToEvent(const QString &eventId)
     if (m_navigationPurpose == NavigationPurpose::Reply
         && m_navigationEventId == eventId)
         return; // coalesce repeated activation of the same reply
+    // Not loaded: fetch it with its surroundings rather than walk history.
+    if (m_contextOpener) {
+        clearNavigation();
+        if (m_contextOpener(eventId))
+            return;
+    }
+    walkToEvent(eventId);
+}
+
+void PaginationController::walkToEvent(const QString &eventId)
+{
+    if (eventId.isEmpty() || !m_timelineModel || m_roomId.isEmpty()) {
+        failNavigation();
+        return;
+    }
+    const int loadedRow = m_timelineModel->rowForStableId(eventId);
+    if (loadedRow >= 0) {
+        m_navigationPurpose = NavigationPurpose::Reply;
+        m_navigationEventId = eventId;
+        locateNavigationTarget(loadedRow);
+        return;
+    }
     clearNavigation();
     m_navigationPurpose = NavigationPurpose::Reply;
     m_navigationEventId = eventId;

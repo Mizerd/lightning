@@ -214,6 +214,40 @@ public:
         return sep < 0 ? QString{} : timelineId.mid(sep + 1);
     }
 
+    // ---- Read-only event context view.
+    //
+    // A separate event-focused timeline (/context) addressed by its own
+    // composite id so it flows through the same diff signals as a room
+    // timeline without ever touching the room's live one.
+    static QString contextTimelineId(const QString &roomId,
+                                     const QString &eventId)
+    {
+        return roomId + QStringLiteral("\x1f" "ctx" "\x1f") + eventId;
+    }
+    static bool isContextTimelineId(const QString &timelineId)
+    {
+        return timelineId.contains(QStringLiteral("\x1f" "ctx" "\x1f"));
+    }
+    // True when the backend can open event-focused context views.
+    virtual bool supportsEventContext() const { return false; }
+    // Success is timelineReset(contextTimelineId(...)); failure is
+    // eventContextFailed(). A room switch or sign-out closes it.
+    virtual void openEventContext(const QString &roomId, const QString &eventId)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(eventId);
+    }
+    virtual void closeEventContext() {}
+    // One bounded batch at the older (forward=false) or newer edge. Answered
+    // by eventContextPagination().
+    virtual void paginateEventContext(const QString &roomId,
+                                      const QString &eventId, bool forward)
+    {
+        Q_UNUSED(roomId);
+        Q_UNUSED(eventId);
+        Q_UNUSED(forward);
+    }
+
     // True when the backend can open live thread timelines; otherwise the
     // thread UI stays hidden.
     virtual bool supportsThreadTimelines() const { return false; }
@@ -1611,6 +1645,12 @@ Q_SIGNALS:
     void threadTimelineFailed(const QString &roomId,
                               const QString &rootEventId,
                               const QString &category);
+    void eventContextFailed(const QString &roomId, const QString &eventId,
+                            const QString &category);
+    // state: "loading", "idle" or "failed". reachedEdge is meaningful on idle.
+    void eventContextPagination(const QString &roomId, const QString &eventId,
+                                bool forward, const QString &state,
+                                bool reachedEdge);
     // Each thread entry: rootEventId, rootSender, rootSenderName, rootPreview,
     // rootTimestamp, replyCount, latestSender, latestSenderName, latestPreview,
     // latestTimestamp. Bounded to the pages fetched so far.

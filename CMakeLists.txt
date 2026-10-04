@@ -687,6 +687,8 @@ set(APP_SOURCES
     src/threads/ThreadManager.cpp
     src/threads/ThreadController.h
     src/threads/ThreadController.cpp
+    src/models/ContextController.h
+    src/models/ContextController.cpp
     src/presence/PresenceManager.h
     src/presence/PresenceManager.cpp
 
@@ -872,6 +874,7 @@ set(APP_QML_FILES
     qml/InvitePeopleDialog.qml
     qml/RoomInfoPanel.qml
     qml/ThreadPanel.qml
+    qml/ContextView.qml
     qml/ThreadSummaryCard.qml
     qml/ThemePreviewDemo.qml
     qml/ThemeEditorDialog.qml
@@ -3550,6 +3553,53 @@ if(BUILD_TESTING)
         Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Test)
     add_test(NAME thread-controller COMMAND thread-controller-test)
 
+    # Read-only event context view: routing, fallback, generation isolation.
+    qt_add_executable(context-controller-test
+        tests/ContextControllerTest.cpp
+        src/models/ContextController.h
+        src/models/ContextController.cpp
+        src/models/PaginationController.h
+        src/models/PaginationController.cpp
+        src/models/SlashCommands.h
+        src/models/SlashCommands.cpp
+        src/threads/ThreadManager.h
+        src/threads/ThreadManager.cpp
+        src/models/MentionTokenizer.h
+        src/models/MentionTokenizer.cpp
+        src/models/TimelineModel.h
+        src/models/TimelineModel.cpp
+        src/profile/UserProfileResolver.h
+        src/profile/UserProfileResolver.cpp
+        src/models/MessageHtml.h
+        src/models/MessageHtml.cpp
+        src/models/UserLookup.h
+        src/models/UserLookup.cpp
+        src/models/AttachmentQueueModel.h
+        src/models/AttachmentQueueModel.cpp
+        src/media/StagedImageStore.h
+        src/media/StagedImageStore.cpp
+        # The poster hook keeps this suite free of a real media backend.
+        src/media/VideoPosterExtractor.h
+        src/media/VideoPosterExtractor.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        # MockMatrixClient's registry-backed restore needs these:
+        src/app/SettingsManager.cpp
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+        # ThreadController's draft hooks pull in the store.
+        src/app/DraftStore.h
+        src/app/DraftStore.cpp
+    )
+    target_include_directories(context-controller-test PRIVATE src)
+    target_link_libraries(context-controller-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Test)
+    add_test(NAME context-controller COMMAND context-controller-test)
+
     # Read-only E2EE health model: readiness, tri-state trust, backup/recovery
     # distinctions, generation isolation, no secrets.
     qt_add_executable(crypto-health-model-test
@@ -3628,6 +3678,17 @@ if(BUILD_TESTING)
         target_include_directories(browser-sign-in-rollback-test PRIVATE src)
         add_test(NAME browser-sign-in-rollback COMMAND browser-sign-in-rollback-test)
         set_tests_properties(browser-sign-in-rollback PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+        # The context-view handlers: a closed for the replaced view must not
+        # reject the reopen's reset. Real dispatcher, no FFI handle.
+        qt_add_executable(context-handlers-test
+            tests/ContextHandlersTest.cpp
+        )
+        lightning_configure_qml_test(context-handlers-test)
+        target_include_directories(context-handlers-test PRIVATE src)
+        add_test(NAME context-handlers COMMAND context-handlers-test)
+        set_tests_properties(context-handlers PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
         qt_add_executable(offline-restore-state-test

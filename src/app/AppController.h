@@ -71,6 +71,7 @@
 #include "spaces/RoomClosureController.h"
 #include "spaces/SpaceModerationController.h"
 #include "threads/ThreadController.h"
+#include "models/ContextController.h"
 #include "calls/CallController.h"
 #include "calls/CallLanePolicy.h"
 #include "calls/RtcController.h"
@@ -356,6 +357,9 @@ class AppController : public QObject
     Q_PROPERTY(RoomUpgradeController* roomUpgrade READ roomUpgrade CONSTANT)
     // The single open thread panel.
     Q_PROPERTY(ThreadController* thread READ thread CONSTANT)
+    // The read-only view of a message and its surroundings, fetched with
+    // /context when a jump target is not in the loaded timeline.
+    Q_PROPERTY(ContextController* eventContext READ eventContext CONSTANT)
     // Conversation creation, Room Information and the media bridge.
     Q_PROPERTY(ConversationController* conversations READ conversations CONSTANT)
     Q_PROPERTY(RoomDiscoveryController* discovery READ discovery CONSTANT)
@@ -637,6 +641,7 @@ public:
     PinnedMessagesController *pinned() const { return m_pinned.get(); }
     RoomUpgradeController *roomUpgrade() const { return m_roomUpgrade.get(); }
     ThreadController *thread() const { return m_thread.get(); }
+    ContextController *eventContext() const { return m_eventContext.get(); }
     ConversationController *conversations() const { return m_conversations.get(); }
     RoomDiscoveryController *discovery() const { return m_discovery.get(); }
     MessageSearchController *messageSearch() const { return m_messageSearch.get(); }
@@ -1368,6 +1373,7 @@ private:
     std::unique_ptr<PinnedMessagesController> m_pinned;
     std::unique_ptr<RoomUpgradeController> m_roomUpgrade;
     std::unique_ptr<ThreadController> m_thread;
+    std::unique_ptr<ContextController> m_eventContext;
     std::unique_ptr<ConversationController> m_conversations;
     std::unique_ptr<RoomDiscoveryController> m_discovery;
     std::unique_ptr<MessageSearchController> m_messageSearch;

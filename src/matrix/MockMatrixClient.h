@@ -132,6 +132,24 @@ public:
     bool supportsThreadTimelines() const override { return true; }
     void openThread(const QString &roomId, const QString &rootEventId) override;
     void closeThread() override;
+    // Event context view: opt-in so suites written against the history walk
+    // keep their behaviour. The window is a slice of the room's own mock
+    // timeline around the event (kContextRadius each side).
+    bool supportsEventContext() const override { return m_eventContextEnabled; }
+    void setEventContextEnabled(bool enabled) { m_eventContextEnabled = enabled; }
+    void openEventContext(const QString &roomId, const QString &eventId) override;
+    void closeEventContext() override;
+    void paginateEventContext(const QString &roomId, const QString &eventId,
+                              bool forward) override;
+    int eventContextOpenCount() const { return m_eventContextOpens; }
+    int eventContextCloseCount() const { return m_eventContextCloses; }
+    int eventContextPaginateCount() const { return m_eventContextPaginates; }
+    QString openEventContextTimelineId() const { return m_openContextTimelineId; }
+    // Hold the reset back so a test can interleave close/room-switch before
+    // it lands; deliverHeldEventContext() then delivers it as a late result.
+    void setHoldEventContext(bool hold) { m_holdEventContext = hold; }
+    void deliverHeldEventContext();
+    static constexpr int kContextRadius = 2;
     void sendThreadReplyTo(const QString &roomId,
                            const QString &threadRootEventId,
                            const QString &inReplyToEventId,
@@ -348,6 +366,14 @@ private:
     // The single open mock thread timeline (composite id), rebuilt from the
     // room timeline on open and kept in sync by sendThreadReply.
     QString m_openThreadTimelineId;
+    bool m_eventContextEnabled = false;
+    bool m_holdEventContext = false;
+    QString m_openContextTimelineId;
+    QString m_heldContextRoom;
+    QString m_heldContextEvent;
+    int m_eventContextOpens = 0;
+    int m_eventContextCloses = 0;
+    int m_eventContextPaginates = 0;
     void rebuildOpenThreadTimeline();
     QString m_openThreadListRoom;
     QHash<QString, bool> m_threadSubscriptions; // roomId+"\x1f"+rootId → followed

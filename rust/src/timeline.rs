@@ -56,7 +56,7 @@ use matrix_sdk_ui::{
         thread_list_service::{ThreadListItem, ThreadListService},
         AttachmentConfig, AttachmentSource, EncryptedMessage, EventSendState,
         EventTimelineItem, MsgLikeKind, PollResult, Timeline, TimelineBuilder,
-        TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
+        TimelineDetails, TimelineEventFocusThreadMode, TimelineEventItemId, TimelineFocus, TimelineItem,
         TimelineItemContent, TimelineItemKind, TimelineReadReceiptTracking,
         VirtualTimelineItem,
     },
@@ -357,6 +357,27 @@ struct ActiveThread {
     reached_start: Arc<AtomicBool>,
 }
 
+/// A read-only event-focused timeline (`TimelineFocus::Event`, built from
+/// `/context`) for the search/reply "view this message" surface. It has its
+/// own generation and id space, is never the room's live timeline, and is
+/// dropped on close, room change and shutdown.
+struct ActiveContext {
+    room_id: String,
+    event_id: String,
+    context_gen: u64,
+    timeline: Option<Arc<Timeline>>,
+    task: Option<tokio::task::JoinHandle<()>>,
+    back_busy: Arc<AtomicBool>,
+    fwd_busy: Arc<AtomicBool>,
+    reached_start: Arc<AtomicBool>,
+    reached_end: Arc<AtomicBool>,
+}
+
+/// Messages requested on each side of the target when a context view opens.
+const CONTEXT_EVENTS: u16 = 20;
+/// Batch size for one edge pagination of the context view.
+const CONTEXT_PAGE: u16 = 20;
+
 /// The room's paginated `ThreadListService` while the Threads view is open.
 /// Page-sized snapshots are forwarded to C++ on each update batch.
 struct ActiveThreadList {
@@ -374,6 +395,11 @@ pub struct TimelineRegistry {
     active_thread: Mutex<Option<ActiveThread>>,
     /// The open room's thread list view, if any.
     active_thread_list: Mutex<Option<ActiveThreadList>>,
+    /// The open read-only event context view, if any.
+    active_context: Mutex<Option<ActiveContext>>,
+    /// Bumped on every open/close of the context view; stale context events
+    /// are rejected on both sides.
+    context_gen: AtomicU64,
     thread_list_gen: AtomicU64,
     /// Bumped on every open-thread/close-thread call; stale thread events are
     /// rejected on both sides.
@@ -474,6 +500,8 @@ impl TimelineRegistry {
             active: Mutex::new(None),
             active_thread: Mutex::new(None),
             active_thread_list: Mutex::new(None),
+            active_context: Mutex::new(None),
+            context_gen: AtomicU64::new(0),
             thread_list_gen: AtomicU64::new(0),
             thread_gen: AtomicU64::new(0),
             room_gen: AtomicU64::new(0),
@@ -690,6 +718,7 @@ impl TimelineRegistry {
     ) {
         // A thread panel / Threads view never survives into another room.
         self.close_thread();
+        self.close_context();
         self.close_thread_list();
         let room_gen = self.room_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
@@ -751,6 +780,7 @@ impl TimelineRegistry {
     pub fn close(&self) {
         // A thread and the Threads view never outlive their room.
         self.close_thread();
+        self.close_context();
         self.close_thread_list();
         // Invalidate stale pagination/send completions for the closed room.
         self.room_gen.fetch_add(1, Ordering::SeqCst);
@@ -839,6 +869,168 @@ impl TimelineRegistry {
         } else {
             handle.abort();
         }
+    }
+
+    // ── Read-only event context view ────────────────────────────────────
+
+    fn take_active_context(&self) -> Option<(Option<tokio::task::JoinHandle<()>>, String, String)> {
+        let mut guard = self.active_context.lock().ok()?;
+        let ctx = guard.take()?;
+        if let Some(task) = &ctx.task {
+            task.abort();
+        }
+        Some((ctx.task, ctx.room_id, ctx.event_id))
+    }
+
+    fn context_current(&self, context_gen: u64, lifecycle: u64) -> bool {
+        self.context_gen.load(Ordering::SeqCst) == context_gen
+            && self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle
+    }
+
+    /// Open (or replace) the context view for `event_id`. The SDK fetches
+    /// `/context` and decrypts what it can; nothing here can send.
+    pub fn open_context(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        client: Client,
+        room_id: String,
+        event_id: String,
+    ) {
+        let context_gen = self.context_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+        if let Some((_task, old_room, old_event)) = self.take_active_context() {
+            enqueue(
+                &self.events,
+                json!({
+                    "type": "context_closed",
+                    "room_id": old_room,
+                    "event_id": old_event,
+                }),
+            );
+        }
+        let back_busy = Arc::new(AtomicBool::new(false));
+        let fwd_busy = Arc::new(AtomicBool::new(false));
+        let reached_start = Arc::new(AtomicBool::new(false));
+        let reached_end = Arc::new(AtomicBool::new(false));
+        if let Ok(mut guard) = self.active_context.lock() {
+            *guard = Some(ActiveContext {
+                room_id: room_id.clone(),
+                event_id: event_id.clone(),
+                context_gen,
+                timeline: None,
+                task: None,
+                back_busy,
+                fwd_busy,
+                reached_start,
+                reached_end,
+            });
+        }
+        let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        let handle = runtime.spawn(open_context_task(
+            registry, client, room_id, event_id, context_gen, lifecycle, events,
+        ));
+        if let Ok(mut guard) = self.active_context.lock() {
+            match guard.as_mut() {
+                Some(ctx) if ctx.context_gen == context_gen => ctx.task = Some(handle),
+                _ => handle.abort(),
+            }
+        } else {
+            handle.abort();
+        }
+    }
+
+    /// Close the context view. Safe when none is open.
+    pub fn close_context(&self) {
+        self.context_gen.fetch_add(1, Ordering::SeqCst);
+        if let Some((_task, old_room, old_event)) = self.take_active_context() {
+            enqueue(
+                &self.events,
+                json!({
+                    "type": "context_closed",
+                    "room_id": old_room,
+                    "event_id": old_event,
+                }),
+            );
+        }
+    }
+
+    /// One bounded pagination batch at one edge of the open context view.
+    /// Single-flight per direction and suppressed after that edge is reached.
+    pub fn paginate_context(
+        self: &Arc<Self>,
+        runtime: &tokio::runtime::Runtime,
+        room_id: String,
+        event_id: String,
+        forward: bool,
+    ) -> Result<(), String> {
+        let (timeline, context_gen, busy, reached) = {
+            let guard = self
+                .active_context
+                .lock()
+                .map_err(|_| "context registry lock poisoned".to_owned())?;
+            let ctx = guard.as_ref().ok_or("No context view is open.")?;
+            if ctx.room_id != room_id || ctx.event_id != event_id {
+                return Err("No context view is open for that event.".to_owned());
+            }
+            let timeline = ctx.timeline.clone().ok_or("context view not ready")?;
+            if forward {
+                (timeline, ctx.context_gen, Arc::clone(&ctx.fwd_busy),
+                 Arc::clone(&ctx.reached_end))
+            } else {
+                (timeline, ctx.context_gen, Arc::clone(&ctx.back_busy),
+                 Arc::clone(&ctx.reached_start))
+            }
+        };
+        let lifecycle = self.lifecycle_gen.load(Ordering::SeqCst);
+        let dir = if forward { "forward" } else { "backward" };
+        // Always answer, so a caller that has marked the edge as loading can
+        // never be left waiting on an event that will not come.
+        if reached.load(Ordering::SeqCst) {
+            enqueue(
+                &self.events,
+                context_pagination_json(&room_id, &event_id, context_gen,
+                    self.lifecycle_gen.load(Ordering::SeqCst), dir, "idle",
+                    json!({ "reached_edge": true })),
+            );
+            return Ok(());
+        }
+        if busy
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return Ok(()); // single-flight: the flight in the air answers
+        }
+        let registry = Arc::clone(self);
+        let events = Arc::clone(&self.events);
+        enqueue(
+            &events,
+            context_pagination_json(&room_id, &event_id, context_gen, lifecycle,
+                                    dir, "loading", json!({})),
+        );
+        runtime.spawn(async move {
+            let result = if forward {
+                timeline.paginate_forwards(CONTEXT_PAGE).await
+            } else {
+                timeline.paginate_backwards(CONTEXT_PAGE).await
+            };
+            busy.store(false, Ordering::SeqCst);
+            if !registry.context_current(context_gen, lifecycle) {
+                return; // stale completion after close/room switch
+            }
+            let payload = match result {
+                Ok(hit_edge) => {
+                    reached.store(hit_edge, Ordering::SeqCst);
+                    context_pagination_json(&room_id, &event_id, context_gen,
+                        lifecycle, dir, "idle", json!({ "reached_edge": hit_edge }))
+                }
+                Err(_err) => context_pagination_json(&room_id, &event_id,
+                    context_gen, lifecycle, dir, "failed",
+                    json!({ "category": "network" })),
+            };
+            enqueue(&events, payload);
+        });
+        Ok(())
     }
 
     // ── Room thread list and threaded read state ─────────────────────────
@@ -1409,6 +1601,7 @@ impl TimelineRegistry {
         self.lifecycle_gen.fetch_add(1, Ordering::SeqCst);
         self.room_gen.fetch_add(1, Ordering::SeqCst);
         self.thread_gen.fetch_add(1, Ordering::SeqCst);
+        self.close_context();
         self.close_thread_list();
         self.clear_media();
         if let Ok(mut guard) = self.backup_download_attempts.lock() {
@@ -2840,6 +3033,144 @@ async fn open_thread_task(
                     enqueue(&events, value);
                 }
             }
+        }
+    }
+}
+
+/// Build a `context_pagination` envelope.
+fn context_pagination_json(
+    room_id: &str,
+    event_id: &str,
+    context_gen: u64,
+    lifecycle: u64,
+    direction: &str,
+    state: &str,
+    extra: serde_json::Value,
+) -> serde_json::Value {
+    let mut v = json!({
+        "type": "context_pagination",
+        "room_id": room_id,
+        "event_id": event_id,
+        "context_generation": context_gen,
+        "lifecycle": lifecycle,
+        "direction": direction,
+        "state": state,
+    });
+    if let (Some(obj), Some(add)) = (v.as_object_mut(), extra.as_object()) {
+        for (k, val) in add {
+            obj.insert(k.clone(), val.clone());
+        }
+    }
+    v
+}
+
+/// Build the event-focused timeline (`/context`) and forward its snapshot and
+/// diffs with the same serializers the live timeline uses. Read-only: no
+/// receipts, no sends, no key recovery.
+async fn open_context_task(
+    registry: Arc<TimelineRegistry>,
+    client: Client,
+    room_id: String,
+    event_id: String,
+    context_gen: u64,
+    lifecycle: u64,
+    events: EventQueue,
+) {
+    let own_user = client.user_id().map(|u| u.to_string()).unwrap_or_default();
+    let emit_error = |category: &str| {
+        enqueue(
+            &events,
+            json!({
+                "type": "context_error",
+                "room_id": room_id,
+                "event_id": event_id,
+                "context_generation": context_gen,
+                "lifecycle": lifecycle,
+                "category": category,
+            }),
+        );
+    };
+    let Ok(room_ref) = RoomId::parse(&room_id) else {
+        emit_error("invalid_room_id");
+        return;
+    };
+    let Some(room) = client.get_room(&room_ref) else {
+        emit_error("unknown_room");
+        return;
+    };
+    let Ok(event_ref) = EventId::parse(&event_id) else {
+        emit_error("invalid_event_id");
+        return;
+    };
+
+    let timeline = match TimelineBuilder::new(&room)
+        .event_filter(lightning_event_filter)
+        .with_focus(TimelineFocus::Event {
+            target: event_ref,
+            num_context_events: CONTEXT_EVENTS,
+            thread_mode: TimelineEventFocusThreadMode::Automatic {
+                hide_threaded_events: true,
+            },
+        })
+        .build()
+        .await
+    {
+        Ok(timeline) => Arc::new(timeline),
+        Err(_err) => {
+            // `/context` failed (event unknown to the server, no access,
+            // network): the caller falls back to walking history.
+            emit_error("context_failed");
+            return;
+        }
+    };
+
+    let (items, mut stream) = timeline.subscribe().await;
+    {
+        let Ok(mut guard) = registry.active_context.lock() else { return };
+        match guard.as_mut() {
+            Some(ctx) if ctx.context_gen == context_gen => {
+                ctx.timeline = Some(Arc::clone(&timeline));
+            }
+            _ => return, // superseded while building
+        }
+    }
+    if !registry.context_current(context_gen, lifecycle) {
+        return;
+    }
+
+    let reply_details_fetched: Arc<Mutex<HashSet<String>>> =
+        Arc::new(Mutex::new(HashSet::new()));
+    fetch_missing_reply_details(&timeline, items.iter(), &reply_details_fetched);
+
+    let snapshot: Vec<serde_json::Value> =
+        items.iter().map(|item| item_to_json(item, &own_user, &registry)).collect();
+    enqueue(
+        &events,
+        json!({
+            "type": "context_reset",
+            "room_id": room_id,
+            "event_id": event_id,
+            "context_generation": context_gen,
+            "lifecycle": lifecycle,
+            "items": snapshot,
+        }),
+    );
+
+    while let Some(diffs) = stream.next().await {
+        if !registry.context_current(context_gen, lifecycle) {
+            break;
+        }
+        for diff in diffs {
+            let changed = diff_items(&diff);
+            fetch_missing_reply_details(&timeline, changed.iter(), &reply_details_fetched);
+            let base = json!({
+                "type": "context_diff",
+                "room_id": room_id,
+                "event_id": event_id,
+                "context_generation": context_gen,
+                "lifecycle": lifecycle,
+            });
+            enqueue(&events, fill_diff_json(base, &diff, &own_user, &registry));
         }
     }
 }

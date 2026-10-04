@@ -4,6 +4,7 @@
 #include <QList>
 #include <QHash>
 #include <QObject>
+#include <functional>
 #include <QString>
 #include <QSet>
 #include <QTimer>
@@ -170,6 +171,22 @@ public:
     // Clear a failure and request again (user pressed Retry).
     Q_INVOKABLE void retry();
     Q_INVOKABLE void jumpToEvent(const QString &eventId);
+    // A message that is not in the loaded live timeline is fetched with its
+    // surroundings instead of walking history: the opener (set by
+    // AppController) shows the read-only context view and returns true when
+    // it took the request. Without an opener, or when it declines, the
+    // history walk below runs as before.
+    using ContextOpener = std::function<bool(const QString &eventId)>;
+    void setContextOpener(ContextOpener opener)
+    { m_contextOpener = std::move(opener); }
+    // Called before a jump lands in the live timeline, so an open context
+    // view never sits over a jump it cannot show.
+    void setContextCloser(std::function<void()> closer)
+    { m_contextCloser = std::move(closer); }
+    // The history walk for an event the context view could not fetch
+    // (/context failed). The same path jumpToEvent used before the view
+    // existed, including its honest failure messages.
+    void walkToEvent(const QString &eventId);
     // Reveal an event only if it is already loaded: no pagination, and no
     // failure message. Unlike jumpToEvent, which may paginate to reach its
     // target, this is for context around a destination already shown (e.g. a
@@ -369,4 +386,6 @@ private:
     static constexpr int kMaxJumpBatches = 12;
     int m_jumpBatchBudget = kMaxJumpBatches;
     static constexpr int kMaxScrollAnchors = 64;
+    ContextOpener m_contextOpener;
+    std::function<void()> m_contextCloser;
 };

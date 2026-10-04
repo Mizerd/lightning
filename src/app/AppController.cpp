@@ -342,6 +342,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pinned       = std::make_unique<PinnedMessagesController>(this);
     m_roomUpgrade  = std::make_unique<RoomUpgradeController>(this);
     m_thread       = std::make_unique<ThreadController>(this);
+    m_eventContext = std::make_unique<ContextController>(this);
     m_thread->attachments()->setStagedImages(&m_stagedImages);
     // The rich composer bridge serves both composers.
     m_richComposer->setThread(m_thread.get());
@@ -592,6 +593,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // decision. Bodies are never logged or persisted.
     connect(m_client.get(), &MatrixClient::eventAppended, this,
             [this](const QString &composedRoomId, const TimelineEvent &event) {
+        // The read-only context view shows history; what it appends is never
+        // news, so it must not notify or feed the Activity Center.
+        if (MatrixClient::isContextTimelineId(composedRoomId))
+            return;
         // Map a thread copy to its real room rather than dropping it: the
         // live room timeline hides threaded events, so for the open room the
         // thread copy is the only producer. The composite id never leaves
@@ -1489,6 +1494,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_groupCall.get(), &SfuCallController::stateChanged, this,
             pauseVoiceForCall);
     m_thread->setClient(m_client.get());
+    m_eventContext->setClient(m_client.get());
     m_thread->setDraftStore(m_draftStore.get());
     m_draftStore->setClient(m_client.get());
     m_roomList->setClient(m_client.get());
@@ -1571,6 +1577,46 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_mediaBridge->setClient(m_client.get());
     m_pagination->setClient(m_client.get());
     m_pagination->setTimelineModel(m_timeline.get());
+    // Routing: a jump target that is not loaded opens the context view; if
+    // /context fails the old history walk runs as the fallback.
+    m_pagination->setContextOpener([this](const QString &eventId) {
+        return m_eventContext->open(m_currentRoomId, eventId);
+    });
+    m_pagination->setContextCloser([this] { m_eventContext->close(); });
+    connect(m_eventContext.get(), &ContextController::openFailed, this,
+            [this](const QString &roomId, const QString &eventId,
+                   const QString &) {
+        if (roomId == m_currentRoomId && m_pagination)
+            m_pagination->walkToEvent(eventId);
+    });
+    connect(m_eventContext.get(), &ContextController::threadReplyHit, this,
+            [this](const QString &roomId, const QString &rootId,
+                   const QString &eventId) {
+        if (roomId != m_currentRoomId || !m_thread)
+            return;
+        m_thread->openThread(roomId, rootId);
+        if (m_thread->state() == ThreadController::Ready) {
+            m_thread->navigateToEvent(eventId);   // already open
+            return;
+        }
+        // The panel's rows arrive asynchronously; navigate once it is Ready,
+        // and give up if it fails, closes or is replaced first.
+        auto conn = std::make_shared<QMetaObject::Connection>();
+        *conn = connect(m_thread.get(), &ThreadController::stateChanged, this,
+                        [this, conn, roomId, rootId, eventId] {
+            if (!m_thread || m_thread->roomId() != roomId
+                || m_thread->rootEventId() != rootId
+                || m_thread->state() == ThreadController::Closed
+                || m_thread->state() == ThreadController::Failed) {
+                QObject::disconnect(*conn);
+                return;
+            }
+            if (m_thread->state() != ThreadController::Ready)
+                return;
+            QObject::disconnect(*conn);
+            m_thread->navigateToEvent(eventId);
+        });
+    });
     m_readReceipts->setClient(m_client.get());
     m_readReceipts->setTimelineModel(m_timeline.get());
     // Reading a room clears its rows from the Activity Center bell. The read
@@ -1607,6 +1653,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         const bool profiles = m_settings->showProfileChangeEvents();
         m_timeline->setShowMembershipEvents(members);
         m_timeline->setShowProfileChangeEvents(profiles);
+        if (m_eventContext) {
+            m_eventContext->model()->setShowRoomActivity(shown);
+            m_eventContext->model()->setShowMembershipEvents(members);
+            m_eventContext->model()->setShowProfileChangeEvents(profiles);
+        }
         if (m_thread) {
             m_thread->model()->setShowRoomActivity(shown);
             m_thread->model()->setShowMembershipEvents(members);
@@ -3293,6 +3344,7 @@ void AppController::setCurrentRoomId(const QString &roomId)
     m_currentRoomId = roomId;
     // Close the thread panel before the timeline switches rooms.
     m_thread->handleCurrentRoomChanged(roomId);
+    m_eventContext->handleCurrentRoomChanged(roomId);
     // Inline video never survives a room switch: its row is destroyed. The
     // voice/audio player is app-owned and keeps playing (the floating
     // mini-player carries it while its room is elsewhere), so it takes
@@ -3418,6 +3470,8 @@ void AppController::showSettings()
         m_thread->close();
         m_thread->closeList();
     }
+    if (m_eventContext)
+        m_eventContext->close();
     setCurrentScreen(SettingsScreen);
 }
 

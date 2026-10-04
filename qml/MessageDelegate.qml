@@ -23,6 +23,11 @@ Item {
     /// TapHandler's grab permissions do not suspend child handlers (they receive
     /// the press first), so each surface checks this explicitly.
     readonly property bool rowActionsEnabled: !root.selectionMode
+    // The read-only context view (a message with its surroundings): the row is
+    // for reading. No hover action bar, no context menu, no reactions, no
+    // reply. Set by the hosting view; the room timeline never sets it.
+    readonly property bool readOnlyView:
+        root.timelineView && root.timelineView.readOnlyContext === true
     // Only messages are selectable, not call cards or state rows.
     readonly property bool rowSelectable:
         model.isVirtual !== true && model.redacted !== true
@@ -577,7 +582,8 @@ Item {
         return !(owner === "menu" && root.moreMenuOpen)
     }
     readonly property bool actionsVisible:
-        !root.transientOwnerBlocks
+        !root.readOnlyView
+        && !root.transientOwnerBlocks
         && (root.moreMenuOpen
             || (root.timelineView
                 && (root.timelineView.hoveredActionsKey === actionKey
@@ -623,7 +629,7 @@ Item {
     function openContextMenu(x, y, alreadyInOverlaySpace) {
         var eventId = root.eventIdForActions()
         if (eventId === "" || root.isVirtualRow || root.isStateActivity
-            || root.isCallEvent)
+            || root.isCallEvent || root.readOnlyView)
             return
         // Dismiss transient row surfaces first: the picker and this menu share
         // one overlay, so the later one covers the other and z cannot fix it.
@@ -752,7 +758,8 @@ Item {
     }
     function replyOnDoubleTap(host, pos) {
         var id = model.eventId || ""
-        if (!root.rowActionsEnabled || model.redacted === true
+        if (!root.rowActionsEnabled || root.readOnlyView
+                || model.redacted === true
                 || root.isVirtualRow || root.isStateActivity || root.isCallEvent
                 || id.length === 0 || id.indexOf("local:") === 0
                 || !root.timelineModel
@@ -2757,8 +2764,9 @@ Item {
                                     ? AppTheme.borderStrong : AppTheme.border
                     // Whole pixels only: a fractional border blurs at DPR 1.
                     border.width: modelData.byMe ? 2 : 1
-                    // A focus stop, so Tab reaches the chip.
-                    activeFocusOnTab: true
+                    // A focus stop, so Tab reaches the chip (not in the
+                    // read-only context view, where it does nothing).
+                    activeFocusOnTab: !root.readOnlyView
                     Keys.onReturnPressed: (event) => {
                         root.timelineModel.toggleReaction(root.eventIdForActions(),
                                              modelData.key)
@@ -2938,7 +2946,7 @@ Item {
                     }
                     MouseArea {
                         id: reactionMouse
-                        enabled: root.rowActionsEnabled
+                        enabled: root.rowActionsEnabled && !root.readOnlyView
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         // Does not take focus, so a click does not pull the
@@ -2959,8 +2967,10 @@ Item {
                     Accessible.description: reactionChip.reactorSummary
                     // Makes the control activatable by assistive technology,
                     // mirroring onClicked.
-                    Accessible.onPressAction:
-                        root.timelineModel.toggleReaction(root.eventIdForActions(), modelData.key)
+                    Accessible.onPressAction: {
+                        if (!root.readOnlyView)
+                            root.timelineModel.toggleReaction(root.eventIdForActions(), modelData.key)
+                    }
                 }
             }
 
@@ -2970,7 +2980,7 @@ Item {
                 id: reactionAddChip
                 objectName: "reactionAddChip"
                 // Same geometry contract as the chips: paint changes only.
-                visible: !model.redacted
+                visible: !model.redacted && !root.readOnlyView
                          && (model.eventId || "").length > 0
                          && model.eventId.indexOf("local:") !== 0
                 implicitWidth: AppTheme.scaled(34)
@@ -2992,8 +3002,10 @@ Item {
                 border.width: 1
                 border.color: addChipHover.hovered ? AppTheme.borderStrong
                                                    : AppTheme.border
-                activeFocusOnTab: true
+                activeFocusOnTab: !root.readOnlyView
                 function activate() {
+                    if (root.readOnlyView)
+                        return
                     if (root.timelineView)
                         root.timelineView.pinnedActionsKey = root.actionKey
                     root.openReactionPickerFor(root.eventIdForActions(),
@@ -3027,7 +3039,7 @@ Item {
                 HoverHandler { id: addChipHover }
                 MouseArea {
                     id: addChipMouse
-                    enabled: root.rowActionsEnabled
+                    enabled: root.rowActionsEnabled && !root.readOnlyView
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
                     onClicked: reactionAddChip.activate()
@@ -6110,7 +6122,7 @@ Item {
                 Math.max(1, model.pollMaxSelections || 1)
             readonly property bool multiSelect: maxSelections > 1
             readonly property bool canVote:
-                !pollEnded && app.composer.pollsSupported()
+                !pollEnded && !root.readOnlyView && app.composer.pollsSupported()
             readonly property string pollThreadRoot:
                 root.inThreadPanel ? (app.thread.rootEventId || "") : ""
             readonly property int totalVotes: {

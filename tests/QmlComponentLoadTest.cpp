@@ -20,6 +20,7 @@
 #include <QQmlContext>
 #include <QScopeGuard>
 #include <QSignalSpy>
+#include <QDir>
 #include <QFile>
 #include <QtTest/QtTest>
 
@@ -47,6 +48,7 @@ constexpr const char *kComponents[] = {
     "CallDeviceMenu",
     "CallDeviceSettings",
     "MediaBrowser",          // room media/files/links over all history
+    "ContextView",           // read-only message context (app.eventContext)
     "ForwardSelectionDialog",
     "EmojiCompletionPopup",
     // Long-standing surfaces with the same exposure. Cheap to cover, and
@@ -283,6 +285,24 @@ ApplicationWindow {
         QCOMPARE(controller.settings()->roomListSort(), 0);
         QCOMPARE(controller.roomList()->sortMode(), 0);
         QCOMPARE(controller.spaceChannels()->sortMode(), 0);
+    }
+
+    // ContextController::open is not Q_INVOKABLE: a QML call to it is a
+    // TypeError at click time that no load test sees. Navigation goes through
+    // app.pagination.jumpToEvent.
+    void qmlNeverCallsTheNonInvokableContextOpen()
+    {
+        int scanned = 0;
+        const QDir dir(QStringLiteral(QML_DIR));
+        for (const QString &name : dir.entryList({ QStringLiteral("*.qml") })) {
+            QFile file(dir.filePath(name));
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            ++scanned;
+            QVERIFY2(!QString::fromUtf8(file.readAll())
+                          .contains(QStringLiteral("eventContext.open(")),
+                     qPrintable(name));
+        }
+        QVERIFY(scanned > 50);
     }
 
     // `enabled` propagates to children, so `enabled: false` on a delegate

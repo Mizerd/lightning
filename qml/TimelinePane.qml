@@ -386,6 +386,7 @@ Rectangle {
         enabled: app.currentScreen === 1
                  && !timeline.emojiPickerOpen && !middleClickScroller.active
                  && !app.forward.selecting
+                 && !app.eventContext.active
                  && (root.findOpen || root.infoOpen || root.searchOpen
                      || root.threadSurfaceOpen
                      || timeline.pinnedActionsKey !== "")
@@ -5015,6 +5016,25 @@ Rectangle {
                     radius: AppTheme.radiusPill
                 }
             }
+
+            // Read-only view of a message that is not in the loaded timeline,
+            // fetched with its surroundings. Covers the timeline; closing it
+            // returns to the live timeline untouched.
+            ContextView {
+                id: contextView
+                anchors.fill: parent
+                z: 100
+                currentRoom: root.currentRoom
+                openImage: function(mediaKey, httpUrl) {
+                    imageViewer.openFor(mediaKey || "", httpUrl)
+                }
+                saveMedia: function(mediaKey, filename) {
+                    if (!mediaKey || mediaKey.length === 0) return
+                    saveMediaDialog.pendingMediaKey = mediaKey
+                    saveMediaDialog.currentFile = root.suggestedSaveUrl(filename)
+                    saveMediaDialog.open()
+                }
+            }
         }
 
         // Typing indicator: a constant-height slot, so appearing and
@@ -5159,8 +5179,19 @@ Rectangle {
             id: messageComposer
             objectName: "messageComposer"
             Layout.fillWidth: true
-            // Visible during a call: the timeline stays on screen.
-            visible: app.currentRoomId !== ""
+            // Visible during a call: the timeline stays on screen. Hidden
+            // while the read-only context view is open: nothing is sent from
+            // there.
+            visible: app.currentRoomId !== "" && !app.eventContext.active
+        }
+        // The composer comes back when the view closes; give it the keyboard
+        // again instead of leaving focus on nothing.
+        Connections {
+            target: app.eventContext
+            function onStateChanged() {
+                if (!app.eventContext.active && app.currentRoomId !== "")
+                    Qt.callLater(function() { messageComposer.focusEditor() })
+            }
         }
     }
 

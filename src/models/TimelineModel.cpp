@@ -2185,7 +2185,7 @@ void TimelineModel::markVisibleAsRead(int firstVisibleRow, int lastVisibleRow)
     // unthreaded m.read naming a thread reply, which is the wrong receipt (a
     // thread needs an MSC3771 threaded receipt via a different SDK call). No
     // caller today; the guard keeps a future one from sending it.
-    if (MatrixClient::isThreadTimelineId(m_roomId)) return;
+    if (m_roomId.contains(QChar(0x1f))) return;
     // The scan is shared with ReadReceiptCoordinator. This path is for explicit
     // user gestures; the automatic policy lives in the coordinator.
     const QString eventId = latestReadableEventId();
@@ -2390,7 +2390,7 @@ QString TimelineModel::realRoomIdForEvent(const QString &eventId) const
     const auto *event = eventForId(eventId);
     if (!event || event->roomId.isEmpty())
         return {};
-    return MatrixClient::isThreadTimelineId(event->roomId)
+    return event->roomId.contains(QChar(0x1f))
                ? MatrixClient::threadTimelineRoomId(event->roomId)
                : event->roomId;
 }
@@ -2404,7 +2404,7 @@ QString TimelineModel::messagePermalink(const QString &eventId) const
     // Thread-timeline events carry the composite id in roomId; a matrix.to link
     // must use the real room id.
     const QString realRoomId =
-        MatrixClient::isThreadTimelineId(event->roomId)
+        event->roomId.contains(QChar(0x1f))
             ? MatrixClient::threadTimelineRoomId(event->roomId)
             : event->roomId;
     const auto encodeId = [](const QString &id) {
@@ -2495,7 +2495,7 @@ QVariantMap TimelineModel::messageDetails(const QString &eventId) const
     details.insert(QStringLiteral("timestamp"), event->timestamp.toString(Qt::ISODate));
     // Show the real room id, not the composite thread-timeline id.
     details.insert(QStringLiteral("roomId"),
-                   MatrixClient::isThreadTimelineId(event->roomId)
+                   event->roomId.contains(QChar(0x1f))
                        ? MatrixClient::threadTimelineRoomId(event->roomId)
                        : event->roomId);
     details.insert(QStringLiteral("eventId"), event->eventId);

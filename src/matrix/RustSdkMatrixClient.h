@@ -392,6 +392,11 @@ public:
     // SDK-backed thread timelines (TimelineFocus::Thread). A thread uses the
     // same diff signals under its composite id; the pagination methods below
     // handle both id kinds.
+    bool supportsEventContext() const override { return true; }
+    void openEventContext(const QString &roomId, const QString &eventId) override;
+    void closeEventContext() override;
+    void paginateEventContext(const QString &roomId, const QString &eventId,
+                              bool forward) override;
     bool supportsThreadTimelines() const override { return true; }
     void openThread(const QString &roomId, const QString &rootEventId) override;
     void closeThread() override;
@@ -1052,6 +1057,7 @@ private:
         handleRustEvent(event, m_lifecycle.activeGeneration());
     }
     friend class OfflineRestoreStateTest;
+    friend class ContextHandlersTest;
     friend class BrowserSignInRollbackTest;
     friend class RoomNotificationModeTest;
     friend class RtcBridgePayloadTest;
@@ -1103,6 +1109,12 @@ private:
     void handleThreadPagination(const QJsonObject &event);
     void handleThreadError(const QJsonObject &event);
     void handleThreadClosed(const QJsonObject &event);
+    void handleContextReset(const QJsonObject &event);
+    void handleContextDiff(const QJsonObject &event);
+    void handleContextPagination(const QJsonObject &event);
+    void handleContextError(const QJsonObject &event);
+    void handleContextClosed(const QJsonObject &event);
+    void clearContextTimelineState();
     bool threadTimelineActiveFor(const QString &timelineId) const;
     void clearThreadTimelineState();
     /// Retire the C++ mirror of a room whose live SDK timeline is gone (the
@@ -1258,6 +1270,9 @@ private:
     // Same tracker for the single open thread timeline, keyed by composite id
     // and stamped with Rust's thread_generation.
     matrix::rust_timeline::TimelineGenerationTracker m_threadTracker;
+    // The read-only event context view, same scheme, keyed by contextTimelineId
+    // and stamped with Rust's context_generation.
+    matrix::rust_timeline::TimelineGenerationTracker m_contextTracker;
     QHash<QString, PaginationState> m_pagination;
     // The room whose Threads view is open, plus the adopted thread-list
     // generation (stale snapshots are rejected).

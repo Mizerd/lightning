@@ -292,6 +292,7 @@ void RustSdkMatrixClient::clearLocalState()
     m_pendingProbes.clear();
     m_timelineTracker.reset();
     m_threadTracker.reset();
+    m_contextTracker.reset();
     m_pagination.clear();
     m_maxUploadSize = 0;
     m_uploadLimitRequested = false;
@@ -800,6 +801,7 @@ void RustSdkMatrixClient::releaseRustHandle()
     setMediaKeepState({});
     m_timelineTracker.reset();
     m_threadTracker.reset();
+    m_contextTracker.reset();
     m_pagination.clear();
 
     retireRustHandleAsync(retiring, typingRoom, signIn,
@@ -2531,6 +2533,7 @@ void RustSdkMatrixClient::logout()
     }
     m_timelineTracker.reset();
     m_threadTracker.reset();
+    m_contextTracker.reset();
     m_pagination.clear();
     stopSync();
 
@@ -3887,6 +3890,7 @@ void RustSdkMatrixClient::openRoomTimeline(const QString &roomId)
     if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
         return;
     clearThreadTimelineState();
+    clearContextTimelineState();
     // request() forgets the previous room without touching anything keyed by
     // it, so retire the room being left here. Rust's timeline_closed is only
     // the backstop; a rejected generation or released handle never delivers it.
@@ -4423,11 +4427,196 @@ void RustSdkMatrixClient::handleThreadClosed(const QJsonObject &event)
     qCInfo(lcRust) << "thread subscription stopped";
 }
 
+// ── Read-only event context view ────────────────────────────────────────
+
+void RustSdkMatrixClient::openEventContext(const QString &roomId,
+                                           const QString &eventId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty() || eventId.isEmpty()) {
+        Q_EMIT eventContextFailed(roomId, eventId, QStringLiteral("not_ready"));
+        return;
+    }
+    clearContextTimelineState();
+    m_contextTracker.request(contextTimelineId(roomId, eventId));
+    qCInfo(lcRust) << "event context open";
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray eventBytes = eventId.toUtf8();
+    const QString result = takeRustString(mx_rust_context_open(
+        m_rustHandle, roomBytes.constData(), eventBytes.constData()));
+    if (!result.isEmpty()) {
+        m_contextTracker.reset();
+        Q_EMIT eventContextFailed(roomId, eventId,
+                                  QStringLiteral("dispatch_failed"));
+    }
+}
+
+void RustSdkMatrixClient::closeEventContext()
+{
+    if (m_rustHandle && m_contextTracker.hasActiveTimeline())
+        qCInfo(lcRust) << "event context close";
+    if (m_rustHandle)
+        takeRustString(mx_rust_context_close(m_rustHandle));
+    clearContextTimelineState();
+}
+
+void RustSdkMatrixClient::paginateEventContext(const QString &roomId,
+                                               const QString &eventId,
+                                               bool forward)
+{
+    const QString timelineId = contextTimelineId(roomId, eventId);
+    if (!m_rustHandle || !m_contextTracker.readyForPagination(timelineId)) {
+        Q_EMIT eventContextPagination(roomId, eventId, forward,
+                                      QStringLiteral("failed"), false);
+        return;
+    }
+    const QByteArray roomBytes = roomId.toUtf8();
+    const QByteArray eventBytes = eventId.toUtf8();
+    const QString result = takeRustString(mx_rust_context_paginate(
+        m_rustHandle, roomBytes.constData(), eventBytes.constData(), forward));
+    if (!result.isEmpty())
+        Q_EMIT eventContextPagination(roomId, eventId, forward,
+                                      QStringLiteral("failed"), false);
+}
+
+void RustSdkMatrixClient::clearContextTimelineState()
+{
+    for (const QString &timelineId : { m_contextTracker.requestedRoom(),
+                                       m_contextTracker.activeRoom() }) {
+        if (!timelineId.isEmpty())
+            m_timelines.remove(timelineId);
+    }
+    m_contextTracker.reset();
+}
+
+void RustSdkMatrixClient::handleContextReset(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString eventId = event.value(QStringLiteral("event_id")).toString();
+    const QString timelineId = contextTimelineId(roomId, eventId);
+    const auto generation = static_cast<quint64>(
+        event.value(QStringLiteral("context_generation")).toDouble(0));
+    if (!m_contextTracker.adoptReset(timelineId, generation)) {
+        qCInfo(lcRust) << "context stale reset ignored generation="
+                       << generation;
+        return;
+    }
+    const QJsonArray items = event.value(QStringLiteral("items")).toArray();
+    m_timelines[timelineId] =
+        matrix::rust_timeline::eventsFromItemArray(items, timelineId);
+    qCInfo(lcRust) << "event context started generation=" << generation
+                   << "items=" << m_timelines[timelineId].size();
+    Q_EMIT timelineReset(timelineId);
+}
+
+void RustSdkMatrixClient::handleContextDiff(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString eventId = event.value(QStringLiteral("event_id")).toString();
+    const QString timelineId = contextTimelineId(roomId, eventId);
+    const auto generation = static_cast<quint64>(
+        event.value(QStringLiteral("context_generation")).toDouble(0));
+    if (!m_contextTracker.accepts(timelineId, generation)) {
+        qCInfo(lcRust) << "context stale diff ignored generation="
+                       << generation;
+        return;
+    }
+    using matrix::rust_timeline::DiffOutcome;
+    auto &mirror = m_timelines[timelineId];
+    const DiffOutcome outcome =
+        matrix::rust_timeline::applyTimelineDiff(mirror, event, timelineId);
+    switch (outcome.kind) {
+    case DiffOutcome::Appended:
+        for (const auto &item : outcome.items)
+            Q_EMIT eventAppended(timelineId, item);
+        break;
+    case DiffOutcome::Prepended:
+        Q_EMIT eventsPrepended(timelineId, outcome.items);
+        break;
+    case DiffOutcome::Inserted:
+        Q_EMIT eventInsertedAt(timelineId, outcome.index, outcome.items.first());
+        break;
+    case DiffOutcome::Changed:
+        Q_EMIT eventChangedAt(timelineId, outcome.index, outcome.items.first());
+        break;
+    case DiffOutcome::Removed:
+        Q_EMIT eventRemovedAt(timelineId, outcome.index);
+        break;
+    case DiffOutcome::Cleared:
+    case DiffOutcome::Reset:
+        Q_EMIT timelineReset(timelineId);
+        break;
+    case DiffOutcome::Truncated:
+        Q_EMIT eventsTruncatedTo(timelineId, outcome.length);
+        break;
+    case DiffOutcome::Invalid:
+        // Never apply a malformed diff; reopen for a fresh snapshot.
+        qCWarning(lcRust) << "context invalid diff rejected mirror_size="
+                          << mirror.size();
+        openEventContext(roomId, eventId);
+        break;
+    }
+}
+
+void RustSdkMatrixClient::handleContextPagination(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString eventId = event.value(QStringLiteral("event_id")).toString();
+    const QString timelineId = contextTimelineId(roomId, eventId);
+    const auto generation = static_cast<quint64>(
+        event.value(QStringLiteral("context_generation")).toDouble(0));
+    if (!m_contextTracker.accepts(timelineId, generation)) {
+        qCInfo(lcRust) << "context stale pagination ignored generation="
+                       << generation;
+        return;
+    }
+    const bool forward = event.value(QStringLiteral("direction")).toString()
+        == QLatin1String("forward");
+    Q_EMIT eventContextPagination(
+        roomId, eventId, forward,
+        event.value(QStringLiteral("state")).toString(),
+        event.value(QStringLiteral("reached_edge")).toBool(false));
+}
+
+void RustSdkMatrixClient::handleContextError(const QJsonObject &event)
+{
+    const QString roomId = event.value(QStringLiteral("room_id")).toString();
+    const QString eventId = event.value(QStringLiteral("event_id")).toString();
+    const QString timelineId = contextTimelineId(roomId, eventId);
+    const QString category = event.value(QStringLiteral("category"))
+                                 .toString(QStringLiteral("unknown"));
+    qCWarning(lcRust) << "event context error category=" << category;
+    // Only the currently requested view may surface the failure.
+    if (m_contextTracker.requestedRoom() == timelineId
+        || m_contextTracker.activeRoom() == timelineId) {
+        clearContextTimelineState();
+        Q_EMIT eventContextFailed(roomId, eventId, category);
+    }
+}
+
+void RustSdkMatrixClient::handleContextClosed(const QJsonObject &event)
+{
+    const QString timelineId = contextTimelineId(
+        event.value(QStringLiteral("room_id")).toString(),
+        event.value(QStringLiteral("event_id")).toString());
+    // Rust enqueues this for the view it replaced, ahead of the replacement's
+    // own reset, and it carries no generation. A reopen of the SAME event
+    // (invalid-diff recovery, close+reopen within one poll) therefore has the
+    // same id as the view being opened: resetting the tracker or dropping the
+    // mirror here would reject the new reset and freeze the view. Every
+    // C++-initiated close already cleared both synchronously, so only
+    // untracked leftovers are removed.
+    if (m_contextTracker.activeRoom() != timelineId
+        && m_contextTracker.requestedRoom() != timelineId)
+        m_timelines.remove(timelineId);
+    qCInfo(lcRust) << "event context stopped";
+}
+
 void RustSdkMatrixClient::closeRoomTimeline()
 {
     // Thread timelines never outlive their room; Rust closes them on timeline
     // close/open and the C++ mirrors drop now.
     clearThreadTimelineState();
+    clearContextTimelineState();
     m_threadListRoom.clear();
     m_threadListGeneration = 0;
     const QString closingRequested = m_timelineTracker.requestedRoom();
@@ -5317,6 +5506,27 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
     }
     if (type == QLatin1String("thread_closed")) {
         handleThreadClosed(event);
+        return;
+    }
+    // Read-only event context view.
+    if (type == QLatin1String("context_reset")) {
+        handleContextReset(event);
+        return;
+    }
+    if (type == QLatin1String("context_diff")) {
+        handleContextDiff(event);
+        return;
+    }
+    if (type == QLatin1String("context_pagination")) {
+        handleContextPagination(event);
+        return;
+    }
+    if (type == QLatin1String("context_error")) {
+        handleContextError(event);
+        return;
+    }
+    if (type == QLatin1String("context_closed")) {
+        handleContextClosed(event);
         return;
     }
     if (type == QLatin1String("device_list")) {

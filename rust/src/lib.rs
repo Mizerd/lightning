@@ -5191,6 +5191,56 @@ pub unsafe extern "C" fn mx_rust_timeline_send_reply(
     })
 }
 
+// ── Read-only event context view ────────────────────────────────────────
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_context_open(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    event_id: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let event_id = unsafe { cstr_arg(event_id) }?;
+        if room_id.trim().is_empty() || event_id.trim().is_empty() {
+            return Err("empty room or event id".to_owned());
+        }
+        let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
+            return Err("Rust SDK session is not logged in.".to_owned());
+        };
+        bridge.timelines.open_context(&bridge.runtime, client, room_id, event_id);
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_context_close(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        bridge.timelines.close_context();
+        Ok(String::new())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_context_paginate(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    event_id: *const c_char,
+    forward: bool,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let event_id = unsafe { cstr_arg(event_id) }?;
+        bridge
+            .timelines
+            .paginate_context(&bridge.runtime, room_id, event_id, forward)
+            .map(|_| String::new())
+    })
+}
+
 // ── SDK-backed thread timelines ─────────────────────────────────────────
 
 #[no_mangle]
