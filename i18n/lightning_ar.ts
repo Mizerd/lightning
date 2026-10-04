@@ -407,7 +407,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5326"/>
+        <location filename="../src/app/AppController.cpp" line="+5381"/>
         <source>Room invitation</source>
         <translation>دعوة إلى غرفة</translation>
     </message>
@@ -422,7 +422,7 @@
         <translation>تمت دعوتك إلى %1</translation>
     </message>
     <message>
-        <location line="-4215"/>
+        <location line="-4265"/>
         <source>Incoming voice call</source>
         <translation>مكالمة صوتية واردة</translation>
     </message>
@@ -458,7 +458,7 @@
         <translation>فاتتك مكالمة صوتية في %1</translation>
     </message>
     <message>
-        <location line="+474"/>
+        <location line="+521"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>أُنشئت الغرفة، لكن تعذّرت إضافتها إلى الفضاء.</translation>
     </message>
@@ -490,13 +490,13 @@
     <message>
         <location line="+1"/>
         <location line="+45"/>
-        <location line="+3032"/>
+        <location line="+3035"/>
         <location line="+658"/>
         <source>Not connected</source>
         <translation>غير متصل</translation>
     </message>
     <message>
-        <location line="-3732"/>
+        <location line="-3735"/>
         <source>Connecting…</source>
         <translation>جارٍ الاتصال…</translation>
     </message>
@@ -557,24 +557,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1932"/>
+        <location line="+1935"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>تعذّر على Lightning قراءة الملف المحدد.</translation>
     </message>
     <message>
-        <location line="-1938"/>
+        <location line="-1941"/>
         <source>A room-key import is already in progress.</source>
         <translation>هناك استيراد لمفاتيح الغرف قيد التنفيذ بالفعل.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2731"/>
+        <location line="+2734"/>
         <source>Not signed in.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-2729"/>
+        <location line="-2732"/>
         <source>Room-key import failed.</source>
         <translation>فشل استيراد مفاتيح الغرف.</translation>
     </message>
@@ -645,7 +645,7 @@
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1087"/>
+        <location line="+1090"/>
         <location line="+44"/>
         <location line="+206"/>
         <source>This build has no Rust SDK backend.</source>
@@ -2083,6 +2083,45 @@
         <location line="+12"/>
         <source>Reset to the base theme</source>
         <translation>إعادة الضبط إلى السمة الأساس</translation>
+    </message>
+</context>
+<context>
+    <name>ContextView</name>
+    <message>
+        <location filename="../qml/ContextView.qml" line="+91"/>
+        <source>Viewing an older message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Jump to latest</source>
+        <translation type="unfinished">الانتقال إلى الأحدث</translation>
+    </message>
+    <message>
+        <location line="+103"/>
+        <location line="+29"/>
+        <source>Could not load. Try again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-27"/>
+        <source>Load older messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>No more older messages here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Load newer messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Use Jump to latest for newer messages</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -6177,12 +6216,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>تعذّر إرسال صورة GIF.</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+35"/>
         <source>Attach files</source>
         <translation>إرفاق ملفات</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+15"/>
         <source>Send image</source>
         <translation>إرسال صورة</translation>
     </message>
@@ -6464,7 +6503,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تسجيل رسالة صوتية</translation>
     </message>
     <message>
-        <location line="-2887"/>
+        <location line="-2904"/>
         <source>A recording is already in progress.</source>
         <translation>هناك تسجيل قيد التنفيذ بالفعل.</translation>
     </message>
@@ -6474,7 +6513,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>التسجيل الصوتي غير متاح.</translation>
     </message>
     <message>
-        <location line="+2623"/>
+        <location line="+2640"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">المزيد</translation>
@@ -6586,7 +6625,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+971"/>
+        <location filename="../qml/MessageDelegate.qml" line="+978"/>
         <source>Today</source>
         <translation>اليوم</translation>
     </message>
@@ -6634,12 +6673,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+101"/>
         <location line="+912"/>
-        <location line="+852"/>
+        <location line="+857"/>
         <source>Reply</source>
         <translation>رد</translation>
     </message>
     <message>
-        <location line="-1749"/>
+        <location line="-1754"/>
         <source>(original message not loaded)</source>
         <translation>(الرسالة الأصلية غير محمّلة)</translation>
     </message>
@@ -6702,12 +6741,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>إعدادات الأمان</translation>
     </message>
     <message>
-        <location line="-1794"/>
+        <location line="-1796"/>
         <source>Link</source>
         <translation type="unfinished">رابط</translation>
     </message>
     <message>
-        <location line="+1883"/>
+        <location line="+1885"/>
         <source>Show the link preview again</source>
         <translation>إظهار معاينة الرابط مرة أخرى</translation>
     </message>
@@ -6748,29 +6787,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2053"/>
+        <location line="+2058"/>
         <source>Retry</source>
         <translation>إعادة المحاولة</translation>
     </message>
     <message>
-        <location line="-2023"/>
-        <location line="+909"/>
+        <location line="-2028"/>
+        <location line="+914"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-904"/>
+        <location line="-909"/>
         <source>Cancel sending this message</source>
         <translation>إلغاء إرسال هذه الرسالة</translation>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1086"/>
+        <location line="+1091"/>
         <source>Hide image</source>
         <translation>إخفاء الصورة</translation>
     </message>
     <message>
-        <location line="-1082"/>
+        <location line="-1087"/>
         <source>Hide</source>
         <translation>إخفاء</translation>
     </message>
@@ -6805,7 +6844,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>المزيد</translation>
     </message>
     <message>
-        <location line="+176"/>
+        <location line="+177"/>
         <source>%1 and 1 other</source>
         <translation>%1 وواحد آخر</translation>
     </message>
@@ -6845,7 +6884,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تفاعل %1، %2</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+83"/>
         <location line="+4"/>
         <source>Add reaction</source>
         <translation>إضافة تفاعل</translation>
@@ -6968,13 +7007,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1069"/>
-        <location line="+1076"/>
+        <location line="-1074"/>
+        <location line="+1081"/>
         <source>Edit</source>
         <translation>تحرير</translation>
     </message>
     <message>
-        <location line="-3424"/>
+        <location line="-3431"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6990,42 +7029,42 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+530"/>
+        <location line="+532"/>
         <source>Sticker</source>
         <translation type="unfinished">ملصق</translation>
     </message>
     <message>
-        <location line="-527"/>
+        <location line="-529"/>
         <source>Voice message</source>
         <translation type="unfinished">رسالة صوتية</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+524"/>
+        <location line="+526"/>
         <source>Audio</source>
         <translation type="unfinished">صوت</translation>
     </message>
     <message>
-        <location line="-522"/>
-        <location line="+520"/>
+        <location line="-524"/>
+        <location line="+522"/>
         <source>GIF</source>
         <translation type="unfinished">GIF</translation>
     </message>
     <message>
-        <location line="-520"/>
+        <location line="-522"/>
         <location line="+66"/>
-        <location line="+453"/>
-        <location line="+3825"/>
+        <location line="+455"/>
+        <location line="+3830"/>
         <source>Image</source>
         <translation type="unfinished">صورة</translation>
     </message>
     <message>
-        <location line="-4342"/>
+        <location line="-4349"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+500"/>
+        <location line="+502"/>
         <source>%n image(s)</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -7049,7 +7088,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+2907"/>
+        <location line="+2912"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>إزالة التعديلات</translation>
@@ -7159,12 +7198,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>هدف الرد</translation>
     </message>
     <message>
-        <location line="-1658"/>
+        <location line="-1663"/>
         <source>Show preview</source>
         <translation>إظهار المعاينة</translation>
     </message>
     <message>
-        <location line="+1474"/>
+        <location line="+1479"/>
         <source>Remove edits?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7271,10 +7310,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>فشل تحميل الملصق — انقر لإعادة المحاولة</translation>
     </message>
     <message>
-        <location line="-5158"/>
+        <location line="-5165"/>
         <location line="+70"/>
-        <location line="+456"/>
-        <location line="+3823"/>
+        <location line="+458"/>
+        <location line="+3828"/>
         <location line="+1009"/>
         <location line="+66"/>
         <source>Video</source>
@@ -7293,9 +7332,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>فيديو</translation>
     </message>
     <message>
-        <location line="-5436"/>
-        <location line="+522"/>
-        <location line="+3931"/>
+        <location line="-5443"/>
+        <location line="+524"/>
+        <location line="+3936"/>
         <location line="+1113"/>
         <location line="+31"/>
         <source>File</source>
@@ -7474,7 +7513,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+41"/>
-        <location line="+481"/>
+        <location line="+559"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>غرفة غير معروفة: %1</translation>
@@ -8018,9 +8057,14 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>PaginationController</name>
     <message>
-        <location filename="../src/models/PaginationController.h" line="+105"/>
+        <location filename="../src/models/PaginationController.h" line="+109"/>
         <source>Original message is unavailable.</source>
         <translation>الرسالة الأصلية غير متاحة.</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>This message is too far back to open here yet.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -10834,13 +10878,13 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+393"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+394"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>تعذّر على Lightning إنشاء مجلد التخزين المحلي لهذا الحساب. تحقّق من أذونات نظام الملفات والمساحة الحرة.</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+768"/>
+        <location line="+769"/>
         <source>Failed to create Rust SDK backend handle.</source>
         <translation>فشل إنشاء مقبض خلفية Rust SDK.</translation>
     </message>
@@ -10909,7 +10953,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>كانت استجابة تسجيل الدخول غير مكتملة. يرجى المحاولة مرة أخرى.</translation>
     </message>
     <message>
-        <location line="-1334"/>
+        <location line="-1336"/>
         <source>Wrong username or password.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10929,7 +10973,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+745"/>
+        <location line="+747"/>
         <source>Enter a server, for example matrix.org.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10987,12 +11031,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+53"/>
-        <location line="+2164"/>
+        <location line="+2351"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>تعذّر على Lightning إعادة ضبط الجلسة المحلية لهذا الحساب بالكامل. تحقّق من سجلات التطبيق وأذونات نظام الملفات ثم أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="-2180"/>
+        <location line="-2367"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>أُعيد بناء جلسة Lightning المحلية. نُحّي مخزن التعمية السابق جانبًا ولم يُحذف، وما زال في مجلد بيانات هذا الحساب. يمكنك تسجيل الدخول مجددًا.</translation>
     </message>
@@ -11002,10 +11046,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>ليس لدى Lightning جلسة محفوظة أو بيانات محلية لذلك الحساب، لذا لم يكن هناك ما يُعاد ضبطه. تحقّق من معرّف مستخدم Matrix وحاول تسجيل الدخول.</translation>
     </message>
     <message>
-        <location line="+205"/>
+        <location line="+206"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+3580"/>
+        <location line="+3787"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -11014,15 +11058,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>لم تسجّل الدخول.</translation>
     </message>
     <message>
-        <location line="-3978"/>
+        <location line="-4185"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+3772"/>
+        <location line="+3979"/>
         <source>Unknown room: %1</source>
         <translation>غرفة غير معروفة: %1</translation>
     </message>
     <message>
-        <location line="-3980"/>
+        <location line="-4187"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -11030,13 +11074,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+533"/>
-        <location line="+2013"/>
+        <location line="+2220"/>
         <location line="+54"/>
         <source>The sticker could not be sent.</source>
         <translation>لا يمكن إرسال الملصق.</translation>
     </message>
     <message>
-        <location line="-1044"/>
+        <location line="-1065"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11076,7 +11120,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>فشل إجراء الدعوة. أعد المحاولة.</translation>
     </message>
     <message>
-        <location line="+243"/>
+        <location line="+264"/>
         <location line="+26"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
@@ -11118,7 +11162,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4673"/>
+        <location line="-4881"/>
         <source>Enter your username.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11133,7 +11177,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4665"/>
+        <location line="+4873"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>تعذّر إرسال الرسالة. يمكنك إعادة المحاولة من إجراء «إعادة المحاولة» الخاص بالرسالة.</translation>
     </message>
@@ -18534,7 +18578,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TimelinePane</name>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="+485"/>
+        <location filename="../qml/TimelinePane.qml" line="+486"/>
         <source>Seen by 1 person</source>
         <translation>قرأها شخص واحد</translation>
     </message>
@@ -18563,12 +18607,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-474"/>
         <location filename="../qml/TimelinePane.qml" line="+212"/>
-        <location line="+4851"/>
+        <location line="+4970"/>
         <source>Space</source>
         <translation>فضاء</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-4850"/>
+        <location filename="../qml/TimelinePane.qml" line="-4969"/>
         <source>Home</source>
         <translation>الرئيسية</translation>
     </message>
@@ -18623,12 +18667,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3546"/>
+        <location line="+3597"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-3533"/>
+        <location line="-3584"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation type="unfinished"></translation>
@@ -18819,12 +18863,13 @@ Note: importing keys does not verify this session.</source>
         <translation>تعذّر إتمام البحث.</translation>
     </message>
     <message>
-        <location line="+2631"/>
+        <location line="+2682"/>
+        <location line="+394"/>
         <source>Loading older messages…</source>
         <translation>جارٍ تحميل رسائل أقدم…</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-393"/>
         <source>Could not load older messages —</source>
         <translation>تعذّر تحميل الرسائل الأقدم —</translation>
     </message>
@@ -18894,7 +18939,7 @@ Note: importing keys does not verify this session.</source>
         <translation>العودة إلى أحدث رسالة</translation>
     </message>
     <message numerus="yes">
-        <location line="+168"/>
+        <location line="+225"/>
         <source>%n message(s) selected</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -18916,7 +18961,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+390"/>
+        <location line="+401"/>
         <source>Room added — waiting for the server to confirm.</source>
         <translation>أُضيفت الغرفة — في انتظار تأكيد الخادوم.</translation>
     </message>
@@ -19281,20 +19326,21 @@ Note: importing keys does not verify this session.</source>
         <translation>تبقى الغرف موجودة وتبقى أنت فيها — إنما تغادر قائمة هذا الفضاء فحسب.</translation>
     </message>
     <message>
-        <location line="-1181"/>
-        <location line="+1195"/>
+        <location line="-1354"/>
+        <location line="+162"/>
+        <location line="+1206"/>
         <location line="+58"/>
         <source>Cancel</source>
         <translation>إلغاء</translation>
     </message>
     <message>
-        <location line="-5401"/>
+        <location line="-5520"/>
         <location line="+91"/>
         <source>View profile</source>
         <translation type="unfinished">عرض الملف الشخصي</translation>
     </message>
     <message>
-        <location line="+5291"/>
+        <location line="+5410"/>
         <source>Leave %1?</source>
         <translation>مغادرة %1؟</translation>
     </message>
@@ -20446,7 +20492,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2098"/>
+        <location filename="../src/main.cpp" line="+2099"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>عميل Matrix أصلي بـ Qt/QML. الخلفية: --backend={mock,http,rust}. الافتراضي: rust (http في النسخ الخالية من Rust SDK).</translation>
     </message>
