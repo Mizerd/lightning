@@ -725,7 +725,7 @@ current tree, bytecode-only is not slower (GUI-thread CPU 5-8% lower while
 scrolling). `assert_portable_qt_abi` in `scripts/lib.sh` holds the line on
 every package; `validate-rpm-opensuse` installs and runs it on Tumbleweed.
 
-**Fedora COPR** (`mizerd/lightning`) builds the same dependencies from source:
+**Fedora COPR** (`mizerd/lightning-matrix`) builds the same dependencies from source:
 `.copr/Makefile` (COPR's `make_srpm` method) runs
 `scripts/build-copr-srpm.sh`, which vendors the crates and stamps
 `packaging/rpm/lightning-copr.spec.in`. That build reports the

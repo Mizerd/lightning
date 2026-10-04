@@ -261,7 +261,7 @@ updates on its own schedule; the Snap is produced but **not** published to the
 Snap Store. The signed manifest marks both channels unavailable, so Lightning
 never offers to install an update inside a Flatpak or a Snap: a Flatpak user
 updates through their software centre or `flatpak update`. There is no APT
-repository. The DNF one is Fedora COPR (`mizerd/lightning`), which builds each
+repository. The DNF one is Fedora COPR (`mizerd/lightning-matrix`), which builds each
 release after it is published; its `linux-rpm-repo` channel stays unavailable
 until that build is green, and only an install from COPR reads it.
 

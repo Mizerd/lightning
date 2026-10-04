@@ -380,7 +380,7 @@ build-rpm:
     - ./packaging-ci/scripts/build-rpm.sh
     - ./packaging-ci/scripts/write-build-info.sh rpm
 
-# Fedora COPR (mizerd/lightning) compiles Lightning from .copr/Makefile when a
+# Fedora COPR (mizerd/lightning-matrix) compiles Lightning from .copr/Makefile when a
 # release tag is pushed, and no pipeline watches that build. This assembles
 # the same source RPM from the pinned source and checks that its spec declares
 # the release RPM's runtime dependencies, so a COPR build that would break

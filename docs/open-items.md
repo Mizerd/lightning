@@ -37,7 +37,7 @@ before the next release; the full checklist is kept in the maintainer's notes.
 - `validate-rpm-opensuse` is a HARD gate installing from live Tumbleweed
   repositories: a Tumbleweed transition can block a release (the remedy is to
   retry the one job). The alternative is `allow_failure`.
-- The COPR project (mizerd/lightning) needs its one-time setup, webhook and
+- The COPR project (mizerd/lightning-matrix) needs its one-time setup, webhook and
   first build (`packaging-ci/docs/copr.md`); the `dnf copr enable` lines join
   `docs/install.md` only after a green COPR build.
 
@@ -243,7 +243,7 @@ Everything below was found or left open by that round's live testing and its
   CI-built portable rpm (the first comes from the next rpm pipeline, whose
   `validate-rpm-opensuse` is that job's first run), and any openSUSE session
   with an account, a call or a GUI.
-- **DECIDED: Fedora COPR `mizerd/lightning` (Rokas's) builds from
+- **DECIDED: Fedora COPR `mizerd/lightning-matrix` (Rokas's) builds from
   `.copr/Makefile` on tag push; OBS is not pursued unless there is demand;
   Packit is out (it does not serve `gitlab.smetonis.net`).** A COPR install
   reports `linux-rpm-repo` and is updated by dnf. The one-time setup is the

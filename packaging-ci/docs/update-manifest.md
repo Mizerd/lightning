@@ -204,7 +204,7 @@ saying plainly why:
 - **`linux-snap`** — there is no Snap Store publication. Same situation.
 - **`linux-deb-repo`** — there is no APT repository. The `.deb` is a direct
   download, which is why it *is* in `artifacts`.
-- **`linux-rpm-repo`** — Fedora COPR (`mizerd/lightning`). Only an install
+- **`linux-rpm-repo`** — Fedora COPR (`mizerd/lightning-matrix`). Only an install
   built by COPR reads it: `lightning-copr.spec.in` compiles in the
   `linux-rpm-repo` install type, which the client treats as dnf-managed, while
   the GitLab `.rpm` stays `linux-rpm` and updates from `artifacts`. It is

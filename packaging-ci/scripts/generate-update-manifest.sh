@@ -120,7 +120,7 @@ done
 #
 # Driven by variables so enabling a channel needs no code change. All four are
 # false: no Flathub, Snap Store or APT publication exists, and the release
-# bundles are manual downloads. The DNF one is Fedora COPR (mizerd/lightning),
+# bundles are manual downloads. The DNF one is Fedora COPR (mizerd/lightning-matrix),
 # read only by a COPR-built install (linux-rpm-repo). It stays false by default
 # because COPR builds a release after it is published: flip it with a manifest
 # refresh once that build is green (packaging-ci/docs/update-manifest.md).

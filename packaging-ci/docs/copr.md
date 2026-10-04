@@ -1,4 +1,4 @@
-# Fedora COPR (`mizerd/lightning`)
+# Fedora COPR (`mizerd/lightning-matrix`)
 
 Fedora COPR builds Lightning from source for each Fedora release, so dnf and
 the software centre keep it up to date with the rest of the system. It is the
@@ -60,7 +60,7 @@ release pipeline strips with `patchelf`; the COPR spec passes
 
 Everything here is outward-facing and done by the maintainer, by hand.
 
-1. At <https://copr.fedorainfracloud.org/coprs/mizerd/lightning/edit/>:
+1. At <https://copr.fedorainfracloud.org/coprs/mizerd/lightning-matrix/edit/>:
    chroots `fedora-44-x86_64` and `fedora-45-x86_64` (add `fedora-rawhide-x86_64`
    if wanted; `aarch64` only after an x86_64 build has passed, it has never been
    built); keep *Follow Fedora branching*; *Enable internet access during
@@ -69,9 +69,9 @@ Everything here is outward-facing and done by the maintainer, by hand.
 2. *Packages → New package → SCM*: name `lightning`, clone URL
    `https://gitlab.smetonis.net/Mizerd/lightning.git`, committish `main`, SRPM
    build method `make srpm`, *Auto-rebuild* ON. The same with copr-cli:
-   `copr-cli add-package-scm mizerd/lightning --name lightning --clone-url https://gitlab.smetonis.net/Mizerd/lightning.git --commit main --method make_srpm --webhook-rebuild on`
+   `copr-cli add-package-scm mizerd/lightning-matrix --name lightning-matrix --clone-url https://gitlab.smetonis.net/Mizerd/lightning.git --commit main --method make_srpm --webhook-rebuild on`
 3. First build by hand (*Rebuild*, or
-   `copr-cli build-package mizerd/lightning --name lightning`); watch
+   `copr-cli build-package mizerd/lightning-matrix --name lightning`); watch
    `builder-live.log`, and check the `%check` output for
    `call media engine built in: yes`.
 4. *Settings → Integrations*: copy the GitLab webhook URL. In GitLab, project 6
@@ -83,7 +83,7 @@ Or upload a source RPM instead of steps 2-4: the `copr-srpm` job keeps one as
 an artifact for a week (`dist/copr/`), and
 `packaging-ci/scripts/build-copr-srpm.sh <outdir>` makes one on any machine
 with git, cargo, rpmbuild and network; then
-`copr-cli build mizerd/lightning <file>.src.rpm`.
+`copr-cli build mizerd/lightning-matrix <file>.src.rpm`.
 
 ## Each release
 

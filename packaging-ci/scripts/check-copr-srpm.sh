@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fedora COPR (mizerd/lightning) builds Lightning from .copr/Makefile when a
+# Fedora COPR (mizerd/lightning-matrix) builds Lightning from .copr/Makefile when a
 # release tag is pushed, where no pipeline watches. This assembles the same
 # source RPM from the pinned source, exactly as COPR does, and compares the
 # runtime dependencies rpm expands from its spec with the release RPM's, so a

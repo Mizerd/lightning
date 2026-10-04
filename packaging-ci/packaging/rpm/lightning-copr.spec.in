@@ -1,4 +1,4 @@
-# Compiles Lightning from source, for Fedora COPR (mizerd/lightning) or any
+# Compiles Lightning from source, for Fedora COPR (mizerd/lightning-matrix) or any
 # mock chroot. packaging-ci/scripts/build-copr-srpm.sh fills @VERSION@ and
 # @COMMIT@. The release pipeline keeps using lightning.spec, which repacks a
 # staged tree; tests/test-copr-spec-parity.py keeps the two in step.

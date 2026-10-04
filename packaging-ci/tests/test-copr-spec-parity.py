@@ -2,7 +2,7 @@
 """The COPR source spec must not drift from the release RPM.
 
 lightning.spec (release pipeline) and lightning-copr.spec.in (Fedora COPR,
-mizerd/lightning) declare the same dlopen'd runtime dependencies by hand, and
+mizerd/lightning-matrix) declare the same dlopen'd runtime dependencies by hand, and
 the COPR build must configure CMake with the same fail-closed options as
 configure-build.sh. Neither is visible to rpm's dependency generator or to a
 build that happens to succeed. The copr-srpm CI job repeats the dependency
