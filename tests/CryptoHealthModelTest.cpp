@@ -300,6 +300,76 @@ private Q_SLOTS:
                      property.name());
         }
     }
+
+    // The cross-signing setup state the Privacy & security card branches on.
+    // "not_set_up" is the only state that may offer creating an identity;
+    // "keys_missing" (an identity exists, this session lacks its keys) must not,
+    // because creating one would replace it.
+    void crossSigningSetupStateDistinguishesNoIdentityFromMissingKeys()
+    {
+        CryptoHealthModel model;
+        QCOMPARE(model.crossSigningSetup(), QStringLiteral("unknown"));
+        model.setSupported(true);
+        QCOMPARE(model.crossSigningSetup(), QStringLiteral("unknown"));
+
+        QVariantMap none = baseSnapshot();
+        none.insert(QStringLiteral("own_identity_available"), false);
+        none.insert(QStringLiteral("has_master"), false);
+        none.insert(QStringLiteral("has_self_signing"), false);
+        none.insert(QStringLiteral("has_user_signing"), false);
+        model.applySnapshot(none, model.generation());
+        QCOMPARE(model.crossSigningSetup(), QStringLiteral("not_set_up"));
+
+        QVariantMap keysMissing = none;
+        keysMissing.insert(QStringLiteral("own_identity_available"), true);
+        model.applySnapshot(keysMissing, model.generation());
+        QCOMPARE(model.crossSigningSetup(), QStringLiteral("keys_missing"));
+
+        // Some private keys but not all is still "missing", not "complete".
+        QVariantMap partial = keysMissing;
+        partial.insert(QStringLiteral("has_master"), true);
+        model.applySnapshot(partial, model.generation());
+        QCOMPARE(model.crossSigningSetup(), QStringLiteral("keys_missing"));
+
+        QVariantMap verified = baseSnapshot();
+        verified.insert(QStringLiteral("device_cross_signed"), true);
+        verified.insert(QStringLiteral("own_identity_verified"), true);
+        model.applySnapshot(verified, model.generation());
+        QCOMPARE(model.crossSigningSetup(), QStringLiteral("complete"));
+    }
+
+    // Every private key in this session is NOT "set up": matrix-sdk saves a
+    // new identity's keys (and a public copy it marks verified) before the
+    // server accepts the upload, so an interrupted or cancelled setup looks
+    // exactly like this. Reading it as "complete" hid the setup card for good
+    // while the server had no identity. Only the SDK's own verification state
+    // (our device cross-signed by its owner, a signature the server returned)
+    // makes it complete.
+    void localKeysAloneAreNotACompleteSetup()
+    {
+        CryptoHealthModel model;
+        model.setSupported(true);
+        QVariantMap localOnly = baseSnapshot();
+        localOnly.insert(QStringLiteral("device_cross_signed"), false);
+        // What the SDK reports right after the 401: identity "available" and
+        // "verified" locally, all three private keys present.
+        localOnly.insert(QStringLiteral("own_identity_verified"), true);
+        model.applySnapshot(localOnly, model.generation());
+        QVERIFY(model.crossSigningReady());
+        QCOMPARE(model.crossSigningSetup(), QStringLiteral("unconfirmed"));
+
+        // A verified session that is missing a key is still not complete.
+        QVariantMap signedButPartial = localOnly;
+        signedButPartial.insert(QStringLiteral("device_cross_signed"), true);
+        signedButPartial.insert(QStringLiteral("has_user_signing"), false);
+        model.applySnapshot(signedButPartial, model.generation());
+        QCOMPARE(model.crossSigningSetup(), QStringLiteral("keys_missing"));
+
+        QVariantMap confirmed = localOnly;
+        confirmed.insert(QStringLiteral("device_cross_signed"), true);
+        model.applySnapshot(confirmed, model.generation());
+        QCOMPARE(model.crossSigningSetup(), QStringLiteral("complete"));
+    }
 };
 
 QTEST_MAIN(CryptoHealthModelTest)

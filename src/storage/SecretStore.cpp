@@ -2,6 +2,7 @@
 
 #include "storage/InsecureFallbackSecretStore.h"
 #include "storage/LibSecretStore.h"
+#include "storage/MacKeychainStore.h"
 #include "storage/PortableMode.h"
 #include "storage/PortableSecretStore.h"
 #include "storage/WinCredStore.h"
@@ -53,6 +54,17 @@ std::unique_ptr<SecretStore> SecretStore::createDefault(QObject *parent)
         << wincred->lastError()
         << "-- falling back to insecure QSettings store";
 #endif
+#ifdef HAVE_MAC_KEYCHAIN
+    auto mackeychain = std::make_unique<MacKeychainStore>(parent);
+    if (mackeychain->isAvailable()) {
+        qCInfo(lcSecretStore) << "using" << mackeychain->backendName();
+        return mackeychain;
+    }
+    qCWarning(lcSecretStore)
+        << "macOS Keychain unavailable:"
+        << mackeychain->lastError()
+        << "-- falling back to insecure QSettings store";
+#endif
 #ifdef HAVE_LIBSECRET
     auto libsecret = std::make_unique<LibSecretStore>(parent);
     if (libsecret->isAvailable()) {
@@ -69,7 +81,7 @@ std::unique_ptr<SecretStore> SecretStore::createDefault(QObject *parent)
     // not read as "no saved sign-in" and arm the local reset (CLAUDE.md §6).
     // The fallback still reads and writes; it only stops claiming its misses
     // are authoritative.
-#if defined(HAVE_WINCRED) || defined(HAVE_LIBSECRET)
+#if defined(HAVE_WINCRED) || defined(HAVE_LIBSECRET) || defined(HAVE_MAC_KEYCHAIN)
     return std::make_unique<InsecureFallbackSecretStore>(
         parent, /*substitutedForNative=*/true);
 #else

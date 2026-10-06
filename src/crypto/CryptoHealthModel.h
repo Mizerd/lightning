@@ -30,6 +30,24 @@ class CryptoHealthModel : public QObject
     Q_PROPERTY(TriState currentDeviceVerified READ currentDeviceVerified NOTIFY healthChanged)
     Q_PROPERTY(bool crossSigningAvailable READ crossSigningAvailable NOTIFY healthChanged)
     Q_PROPERTY(bool crossSigningReady READ crossSigningReady NOTIFY healthChanged)
+    // Where this account's cross-signing stands, from SDK facts only:
+    //   "unknown"      - no health snapshot yet;
+    //   "not_set_up"   - the account has no cross-signing identity at all;
+    //   "complete"     - this session holds every private key AND the SDK
+    //                    reports it verified by them: its own device is
+    //                    cross-signed by its owner (a signature only the
+    //                    server's copy of the identity can carry) and the own
+    //                    identity is verified;
+    //   "unconfirmed"  - this session holds every private key but the server
+    //                    has not confirmed them (an interrupted or cancelled
+    //                    setup: matrix-sdk saves the keys before uploading).
+    //                    Setting up again uploads them, never replaces an
+    //                    identity the server already has;
+    //   "keys_missing" - an identity exists but this session lacks some or all
+    //                    private keys (normal for a fresh login until it is
+    //                    verified or recovered; if secret storage does not
+    //                    hold them, a new identity would REPLACE the old one).
+    Q_PROPERTY(QString crossSigningSetup READ crossSigningSetup NOTIFY healthChanged)
     Q_PROPERTY(TriState ownIdentityVerified READ ownIdentityVerified NOTIFY healthChanged)
     // Tri-state: "not known" is not "no backup". A failed GET
     // /room_keys/version must not read as "no backup exists", which would
@@ -78,6 +96,7 @@ public:
     QString currentDeviceId() const { return m_deviceId; }
     TriState currentDeviceVerified() const { return m_deviceVerified; }
     bool crossSigningAvailable() const { return m_crossSigningAvailable; }
+    QString crossSigningSetup() const;
     bool crossSigningReady() const { return m_crossSigningReady; }
     bool hasMasterKey() const { return m_hasMasterKey; }
     bool hasSelfSigningKey() const { return m_hasSelfSigningKey; }

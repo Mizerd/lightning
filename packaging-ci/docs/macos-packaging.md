@@ -939,7 +939,11 @@ In order:
    expectation accordingly.
 6. Package as a `.dmg` rather than a zip, if a drag-to-Applications installer is
    wanted.
-7. `SecretStore` on the macOS Keychain, and a universal binary.
+7. A universal binary. (`SecretStore` on the macOS Keychain is written —
+   `src/storage/MacKeychainStore.*`, `HAVE_MAC_KEYCHAIN` — but NOT built or
+   tested on a Mac yet; before it, every macOS build fell through to the
+   plaintext QSettings fallback. An ad-hoc signed bundle changes code identity
+   each release, so expect a Keychain access prompt after an update.)
 
 Separately from signing, the **deployment floor** is the other half of the
 reach problem. `LSMinimumSystemVersion` is derived from the highest `minos`

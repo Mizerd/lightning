@@ -756,6 +756,7 @@ pub unsafe extern "C" fn mx_rust_oauth_restore(
         // A server-issued opaque string.
         let parsed_device: OwnedDeviceId = device_id.clone().into();
 
+        bridge.abandon_uia();
         bridge.stop_sync_and_wait();
         bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
 
@@ -863,6 +864,7 @@ pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
 
+        bridge.abandon_uia();
         bridge.stop_sync_and_wait();
 
         let client_slot = Arc::clone(&bridge.client);

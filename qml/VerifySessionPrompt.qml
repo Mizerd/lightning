@@ -114,5 +114,29 @@ Rectangle {
                 onClicked: app.dismissVerificationWarning()
             }
         }
+
+        // The other way to verify: the recovery key signs this session with
+        // the account's cross-signing key, with no second device. Inline, so
+        // the card stays a nudge and not a modal.
+        AppButton {
+            objectName: "verifySessionPromptRecoveryToggle"
+            storm: true
+            kind: "ghost"
+            size: "sm"
+            visible: app.backendName === "rust"
+            Layout.alignment: Qt.AlignLeft
+            text: recoveryEntry.visible ? qsTr("Hide recovery key")
+                                        : qsTr("Use recovery key instead")
+            Accessible.name: text
+            onClicked: recoveryEntry.visible = !recoveryEntry.visible
+        }
+        RecoveryKeyEntry {
+            id: recoveryEntry
+            objectName: "verifySessionPromptRecoveryEntry"
+            Layout.fillWidth: true
+            visible: false
+            fieldObjectName: "verifySessionPromptRecoveryField"
+            buttonText: qsTr("Use key")
+        }
     }
 }

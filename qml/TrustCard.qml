@@ -23,8 +23,12 @@ Item {
     property string statusText: ""
     // Verify is the only action (SAS is the only real flow).
     property bool showVerify: false
+    // Offer the recovery key as the other way to verify this session, beside
+    // Verify. The embedding surface owns what opens (it never reaches the app).
+    property bool showRecoveryOption: false
 
     signal verifyRequested()
+    signal recoveryRequested()
 
     implicitWidth: 320
     implicitHeight: body.implicitHeight + 2 * AppTheme.spacing16
@@ -346,6 +350,16 @@ Item {
                     visible: verifyButton.visualFocus
                 }
                 onClicked: root.verifyRequested()
+            }
+            AppButton {
+                objectName: "trustCardRecoveryButton"
+                storm: true
+                kind: "ghost"
+                size: "sm"
+                visible: root.showRecoveryOption
+                text: qsTr("Use recovery key instead")
+                Accessible.name: text
+                onClicked: root.recoveryRequested()
             }
             Item { Layout.fillWidth: true }
         }

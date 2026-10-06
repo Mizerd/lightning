@@ -51,19 +51,15 @@ QString CryptoManager::backendDescription() const
         return QStringLiteral(
             "C++ HTTP backend. Talks plain Matrix Client-Server API. Cannot "
             "encrypt or decrypt room messages; encrypted rooms are read-only "
-            "placeholders. Use the Rust SDK backend for E2EE (v0.4+).");
+            "placeholders. Use the Rust SDK backend for E2EE.");
     }
     if (m_backendName == QLatin1String("rust")) {
 #ifdef ENABLE_RUST_SDK_BACKEND
 #  ifdef RUST_SDK_E2EE_WIRED
         return QStringLiteral(
-            "Matrix Rust SDK backend. E2EE support (v0.5.6): "
-            "encrypted send + receive, receive- and initiate-first SAS "
-            "emoji verification with SDK cross-signing state readout, "
-            "Secure Backup recovery-key restore, and encrypted Megolm "
-            "room-key import via matrix-sdk. QR verification and full "
-            "device / cross-signing management UI are not implemented "
-            "yet.");
+            "Matrix Rust SDK backend. End-to-end encryption, device "
+            "verification, cross-signing, Secure Backup recovery and room-key "
+            "import are provided by the official Matrix SDK.");
 #  else
         return QStringLiteral(
             "Matrix Rust SDK backend. Login, restore, joined-room sync, and "
@@ -82,7 +78,7 @@ QString CryptoManager::backendDescription() const
 QString CryptoManager::statusString() const
 {
     if (supportsE2ee())
-        return QStringLiteral("E2EE initial support active (Rust SDK)");
+        return QStringLiteral("E2EE active (Rust SDK)");
     if (m_backendName == QLatin1String("rust"))
         return QStringLiteral("Rust backend active (E2EE not yet verified)");
     return QStringLiteral("E2EE not available on this backend");

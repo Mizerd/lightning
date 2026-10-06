@@ -9,6 +9,7 @@
 //     isAvailable() checks that the session bus is actually reachable. Shared
 //     between installs, so its items are scoped (see setInstallScope()).
 //   * WinCredStore: Windows Credential Manager (HAVE_WINCRED).
+//   * MacKeychainStore: macOS Keychain (HAVE_MAC_KEYCHAIN).
 //   * PortableSecretStore: sealed file for portable installations.
 //   * InsecureFallbackSecretStore: plaintext QSettings; reports insecure and
 //     Settings shows a warning while it is active.
