@@ -38,6 +38,24 @@ constexpr auto kPath = "/org/freedesktop/portal/desktop";
 constexpr auto kScreenCast = "org.freedesktop.portal.ScreenCast";
 constexpr auto kRequest = "org.freedesktop.portal.Request";
 
+/// The portal backend refusing X11 sessions outright (xdg-desktop-portal-kde:
+/// "screen sharing is not available in X11 sessions"). Recognised by its
+/// message so a user's dismissal or an unrelated failure is never mistaken
+/// for it; the text itself is never logged or forwarded.
+QString errorCategory(const QDBusError &error, const QString &fallback)
+{
+    const QString message = error.message();
+    if (message.contains(QLatin1String("X11"), Qt::CaseSensitive)
+        && (message.contains(QLatin1String("not available"),
+                             Qt::CaseInsensitive)
+            || message.contains(QLatin1String("not supported"),
+                                Qt::CaseInsensitive)
+            || message.contains(QLatin1String("unsupported"),
+                                Qt::CaseInsensitive)))
+        return QStringLiteral("x11_unsupported");
+    return fallback;
+}
+
 /// A caller-unique token per request, from which the portal derives the
 /// Request path. Random, so the path is not guessable by other apps on the
 /// bus.
@@ -256,7 +274,8 @@ void ScreenCastPortal::requestShare(int types)
                     // category only.
                     portal::dropSubscription(subscription);
                     reset();
-                    Q_EMIT failed(QStringLiteral("no_portal"));
+                    Q_EMIT failed(errorCategory(reply.error(),
+                                                QStringLiteral("no_portal")));
                     return;
                 }
                 portal::reconcileRequestPath(this, subscription,
@@ -312,7 +331,8 @@ void ScreenCastPortal::selectSources(int types)
                 if (reply.isError()) {
                     portal::dropSubscription(subscription);
                     cancel();
-                    Q_EMIT failed(QStringLiteral("select_failed"));
+                    Q_EMIT failed(errorCategory(
+                        reply.error(), QStringLiteral("select_failed")));
                     return;
                 }
                 portal::reconcileRequestPath(this, subscription,
@@ -368,7 +388,8 @@ void ScreenCastPortal::startSession()
                 if (reply.isError()) {
                     portal::dropSubscription(subscription);
                     cancel();
-                    Q_EMIT failed(QStringLiteral("start_failed"));
+                    Q_EMIT failed(errorCategory(
+                        reply.error(), QStringLiteral("start_failed")));
                     return;
                 }
                 portal::reconcileRequestPath(this, subscription,
