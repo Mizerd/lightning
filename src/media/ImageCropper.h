@@ -101,6 +101,13 @@ public:
     /// width, height, previewUrl, mime, error }. `width`/`height` are the
     /// decoded size, the coordinate space for later calls; sources over
     /// kMaxSourceEdge are decoded downscaled.
+    ///
+    /// An SVG (recognised by shape, not by name) is converted to a PNG in a
+    /// helper process first ("rasterize on send": the picture that is cropped
+    /// and uploaded is that PNG, never the SVG). That takes a moment, so the
+    /// call returns { ok: false, pending: true } at once and the same map
+    /// the synchronous path returns arrives later on svgLoaded(). A refusal
+    /// carries `errorText`, a sentence naming the reason.
     Q_INVOKABLE QVariantMap load(const QUrl &fileUrl);
 
     /// Crops the loaded source to `rect` (source pixels) and writes the result.
@@ -146,10 +153,16 @@ public:
 
 Q_SIGNALS:
     void lastErrorChanged();
+    /// The outcome of a load() that returned `pending`. Not emitted if
+    /// discard() or another load() ran in between.
+    void svgLoaded(const QVariantMap &info);
 
 private:
     void setError(const QString &category);
     QString outputDirectory();
+    /// The decode, stage and animation half of load(), on bytes already known
+    /// to be a raster (a sniffed file, or an SVG's converted PNG).
+    QVariantMap loadBytes(const QByteArray &bytes);
 
     StagedImageStore *m_stagedImages = nullptr;
     std::unique_ptr<QTemporaryDir> m_outputDir;
@@ -164,4 +177,7 @@ private:
     bool m_animatedHandedOut = false;
     QString m_lastError;
     quint64 m_nextOutput = 1;
+    // Bumped by every load() and discard(): a conversion that finishes after
+    // either is dropped.
+    quint64 m_loadGeneration = 0;
 };

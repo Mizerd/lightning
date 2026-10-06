@@ -321,12 +321,11 @@ void MessageComposer::dispatchAttachment(int row)
                                    entry.posterWidth, entry.posterHeight,
                                    entry.replyToEventId);
     } else if (entry.isSvg) {
-        // The PNG rendered from the file becomes thumbnail_info, so receivers
-        // show a preview without decoding SVG. Empty when none could be made.
-        opId = m_client->sendImageWithThumbnail(
-            m_roomId, entry.localPath, entry.mime, caption, entry.width,
-            entry.height, entry.poster, entry.posterWidth, entry.posterHeight,
-            entry.replyToEventId);
+        // Never reached with a converted entry (the conversion replaced the
+        // SVG with a PNG file and cleared isSvg). An SVG that got here was
+        // not converted, and SVG is never uploaded: opId stays 0 and the
+        // entry fails.
+        opId = 0;
     } else {
         // Duration is 0 for non-timed media or an undecodable length; both are
         // sent as absent, never as a literal zero.

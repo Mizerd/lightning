@@ -11,7 +11,9 @@ import MatrixClient
 // Presentation only: it decides where the crop rectangle sits and hands the
 // coordinates to C++. `ImageCropper` reads the file, accepts only the five
 // raster formats by magic bytes (so SVG never reaches a renderer), decodes,
-// crops, caps, encodes and writes a temp file.
+// crops, caps, encodes and writes a temp file. A picked SVG is converted to a
+// PNG by a helper process first (rasterize on send) and only that PNG is
+// previewed, cropped and uploaded.
 //
 // The preview uses `image://lightning-staged/<token>`, bytes the cropper has
 // already sniffed. Pointing an Image at the user's file:// URL would let Qt's
@@ -59,9 +61,26 @@ AppDialog {
         root.animated = false
         root.animatedUrl = ""
         root.canKeepAnimation = false
+        root.converting = false
         var info = app.imageCrop.load(fileUrl)
+        if (info && info.pending === true)
+            // An SVG: converted to a PNG in the background, answered on
+            // svgLoaded. The dialog opens now and says so.
+            root.converting = true
+        else
+            root._applyInfo(info)
+        root.keepAnimation = root.canKeepAnimation
+        root.open()
+        // The viewport has no geometry until the popup is laid out.
+        Qt.callLater(root._reset)
+    }
+
+    /// Show the gate's answer: the staged preview, or the refusal.
+    function _applyInfo(info) {
         if (!info || !info.ok) {
-            root.errorText = root._describe(info ? info.error : "")
+            root.errorText = info && info.errorText
+                ? info.errorText
+                : root._describe(info ? info.error : "")
         } else {
             root.previewUrl = info.previewUrl
             root.srcW = info.width
@@ -71,10 +90,19 @@ AppDialog {
             // Asked once here, not bound: it is a Q_INVOKABLE with no notify.
             root.canKeepAnimation = app.imageCrop.canKeepAnimation(root.role)
         }
-        root.keepAnimation = root.canKeepAnimation
-        root.open()
-        // The viewport has no geometry until the popup is laid out.
-        Qt.callLater(root._reset)
+    }
+
+    // The converted SVG arrives here. Only the dialog that asked reacts.
+    Connections {
+        target: app.imageCrop
+        function onSvgLoaded(info) {
+            if (!root.converting)
+                return
+            root.converting = false
+            root._applyInfo(info)
+            root.keepAnimation = root.canKeepAnimation
+            Qt.callLater(root._reset)
+        }
     }
 
     // ── State (viewport coordinates unless named otherwise) ──
@@ -82,6 +110,9 @@ AppDialog {
     property int srcW: 0                 // decoded source width, in pixels
     property int srcH: 0
     property string errorText: ""
+    /// An SVG is being converted to a PNG (the picker's result, not yet a
+    /// picture).
+    property bool converting: false
     /// The source is an animation, and whether it can be kept in this role.
     property bool animated: false
     property string animatedUrl: ""
@@ -125,7 +156,10 @@ AppDialog {
     width: Math.min(720, parent ? parent.width - 64 : 720)
 
     // However it closes, the staged bytes and decoded source are discarded.
-    onClosed: app.imageCrop.discard()
+    onClosed: {
+        root.converting = false
+        app.imageCrop.discard()
+    }
 
     // ── Geometry helpers ──
     function _describe(category) {
@@ -295,7 +329,7 @@ AppDialog {
                 anchors.fill: parent
                 anchors.margins: 1
                 clip: true
-                visible: root.errorText.length === 0
+                visible: root.errorText.length === 0 && !root.converting
 
                 // Re-fit when the dialog is resized.
                 onWidthChanged: Qt.callLater(root._reset)
@@ -502,6 +536,19 @@ AppDialog {
                         }
                     }
                 }
+            }
+
+            // An SVG being converted, shown where the picture will be.
+            Label {
+                objectName: "cropConvertingLabel"
+                anchors.centerIn: parent
+                width: parent.width - AppTheme.spacing24 * 2
+                visible: root.converting
+                text: qsTr("Converting the SVG to a picture…")
+                wrapMode: Text.WordWrap
+                horizontalAlignment: Text.AlignHCenter
+                color: AppTheme.stormTextSecondary
+                font.pixelSize: AppTheme.textBody
             }
 
             // The refusal, shown where the picture would be.

@@ -1,9 +1,14 @@
 #include "stickers/StickerPackManager.h"
 
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QPointer>
+#include <QTemporaryDir>
 #include <QTimer>
 
 #include "matrix/MatrixClient.h"
+#include "media/SvgRasterJob.h"
 #include "stickers/StickerImageModel.h"
 #include "stickers/StickerPackModel.h"
 
@@ -220,8 +225,63 @@ void StickerPackManager::uploadSticker(const QUrl &fileUrl,
     const QString seed = shortcode.trimmed().isEmpty()
         ? QFileInfo(path).completeBaseName()
         : shortcode.trimmed();
+
+    // An SVG (by shape: the first non-space byte is `<`) is converted to a PNG
+    // before anything is uploaded; Rust would refuse the SVG anyway.
+    namespace svg = lightning::svgraster;
+    QByteArray head;
+    {
+        QFile file(path);
+        if (file.open(QIODevice::ReadOnly))
+            head = file.read(svg::kMaxSourceBytes + 1);
+    }
+    const bool svgz = svg::isGzip(head)
+        && path.endsWith(QLatin1String(".svgz"), Qt::CaseInsensitive);
+    if (svg::looksLikeSvg(head) || svgz) {
+        emitStateChanged();
+        QPointer<StickerPackManager> self(this);
+        svg::rasterizeAsync(
+            head, svg::stickerPolicy(), this,
+            [self, opId, seed](const svg::Result &converted) {
+                if (!self || self->m_saveOp != opId)
+                    return; // signed out, or superseded
+                if (!converted.refusal.isEmpty()) {
+                    self->onSaveFinished(
+                        opId, false,
+                        QStringLiteral("svg_") + converted.refusal, QString());
+                    return;
+                }
+                if (!self->m_convertedDir || !self->m_convertedDir->isValid()) {
+                    const QString root = svg::hooks().scratchRoot
+                        ? svg::hooks().scratchRoot() : QDir::tempPath();
+                    self->m_convertedDir = std::make_unique<QTemporaryDir>(
+                        root + QStringLiteral("/lightning-svgsticker-XXXXXX"));
+                }
+                const QString dir = self->m_convertedDir->isValid()
+                    ? self->m_convertedDir->path() : QString();
+                const QString file = dir.isEmpty() ? QString()
+                    : QDir(dir).filePath(QStringLiteral("%1.png")
+                                             .arg(self->m_nextConverted++));
+                QFile out(file);
+                if (file.isEmpty() || !out.open(QIODevice::WriteOnly)
+                    || out.write(converted.png) != converted.png.size()) {
+                    self->onSaveFinished(opId, false,
+                                         QStringLiteral("svg_encode"), QString());
+                    return;
+                }
+                out.close();
+                self->m_client->uploadStickerToUserPack(seed, seed, file, opId);
+            });
+        return;
+    }
+
     m_client->uploadStickerToUserPack(seed, seed, path, opId);
     emitStateChanged();
+}
+
+QString StickerPackManager::svgMessage(const QString &reason) const
+{
+    return lightning::svgraster::userMessage(reason);
 }
 
 void StickerPackManager::saveSticker(const QString &url, const QString &body,

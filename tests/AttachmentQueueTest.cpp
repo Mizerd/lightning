@@ -6,7 +6,7 @@
 #include "matrix/MatrixClient.h"
 #include "media/ImageFormatSupport.h"
 #include "media/StagedImageStore.h"
-#include "media/SvgThumbnail.h"
+#include "media/SvgRasterJob.h"
 #include "models/MessageComposer.h"
 
 #include <QBuffer>
@@ -70,14 +70,20 @@ public:
     qint64 maxUploadSize() const override { return serverLimit; }
     // Shares `lastDurationMs` with the video path: what matters is the
     // duration the send declared, so players do not show "0:00".
-    quint64 sendAttachment(const QString &, const QString &,
+    QString lastFilePath;
+    int lastFileWidth = 0;
+    int lastFileHeight = 0;
+    quint64 sendAttachment(const QString &, const QString &path,
                            const QString &mime, const QString &caption,
-                           int, int, bool, qint64 durationMs,
+                           int width, int height, bool, qint64 durationMs,
                            const QString &replyTo) override
     {
         if (rejectSends)
             return 0;
         ++fileSends;
+        lastFilePath = path;
+        lastFileWidth = width;
+        lastFileHeight = height;
         lastReplyTo = replyTo;
         lastCaption = caption;
         lastMime = mime;
@@ -920,13 +926,16 @@ private Q_SLOTS:
         QCOMPARE(client.lastMime, QStringLiteral("image/png"));
     }
 
-    // ---- SVG send-side thumbnail (media/SvgThumbnail.h) ----
+    // ---- SVG: rasterized on send (media/SvgRaster.h) ----
+
+    void init() { lightning::svgraster::hooks() = {}; }
+    void cleanup() { lightning::svgraster::hooks() = {}; }
 
     // The screen refuses every way an SVG can make QtSvg read something
     // outside the document, and passes ordinary self-contained drawings.
     void svgScreenRefusesAnythingThatReachesOutsideTheDocument()
     {
-        using lightning::svgthumb::screen;
+        using lightning::svgraster::screen;
         const QByteArray head =
             "<svg xmlns=\"http://www.w3.org/2000/svg\" "
             "xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"10\" "
@@ -982,11 +991,11 @@ private Q_SLOTS:
             { QByteArray("<html><body/></html>"), QStringLiteral("not_svg") },
             { wrap("<rect>"), QStringLiteral("malformed") },
             { QByteArray(), QStringLiteral("empty") },
-            { QByteArray(lightning::svgthumb::kMaxSourceBytes + 1, ' '),
+            { QByteArray(lightning::svgraster::kMaxSourceBytes + 1, ' '),
               QStringLiteral("too_large") },
             { wrap(QByteArray("<g>").repeated(64) + QByteArray("</g>").repeated(64)),
               QStringLiteral("too_deep") },
-            { wrap(QByteArray("<rect/>").repeated(lightning::svgthumb::kMaxElements)),
+            { wrap(QByteArray("<rect/>").repeated(lightning::svgraster::kMaxElements)),
               QStringLiteral("too_many_elements") },
         };
         for (const auto &[bytes, reason] : refused)
@@ -1006,289 +1015,207 @@ private Q_SLOTS:
             QCOMPARE(screen(bytes), QString());
     }
 
-    // Element's box: fit within 800x600, aspect kept, never upscaled.
-    void svgThumbnailBoxFitsAndNeverUpscales()
+    // A picked SVG becomes a PNG file BEFORE it can send: the client is handed
+    // image/png and that file's real dimensions, and nothing named SVG.
+    void aPickedSvgIsUploadedAsAPngNeverAsSvg()
     {
-        using lightning::svgthumb::fitThumbnail;
-        using lightning::svgthumb::intrinsicPixels;
-        QCOMPARE(fitThumbnail(QSizeF(1600, 1200)), QSize(800, 600));
-        QCOMPARE(fitThumbnail(QSizeF(24, 24)), QSize(24, 24));
-        QCOMPARE(fitThumbnail(QSizeF(3000, 100)), QSize(800, 27));
-        QCOMPARE(fitThumbnail(QSizeF(100, 3000)), QSize(20, 600));
-        QCOMPARE(fitThumbnail(QSizeF(0.4, 0.4)), QSize(1, 1));
-        QVERIFY(!fitThumbnail(QSizeF(0, 10)).isValid());
-        QVERIFY(!fitThumbnail(QSizeF(qQNaN(), 10)).isValid());
-        QVERIFY(!fitThumbnail(QSizeF(qInf(), 10)).isValid());
-        QCOMPARE(intrinsicPixels(QSizeF(1e9, 1e9)), QSize(65535, 65535));
-    }
-
-    // The render is a PNG inside the box, never markup, and an SVG naming a
-    // local file renders nothing.
-    void svgRendersToABoundedPngAndRefusesALocalFileReference()
-    {
-        QTemporaryDir dir;
-        const QString secret =
-            writeFile(dir, QStringLiteral("private.png"), tinyPng());
-        const auto trap =
-            lightning::svgthumb::render(svgReadingALocalFile(secret));
-        QCOMPARE(trap.refusal, QStringLiteral("external_image"));
-        QVERIFY(trap.png.isEmpty());
-
-        if (!lightning::svgthumb::available())
+        if (!lightning::svgraster::available())
             QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
-        const auto result = lightning::svgthumb::render(redSquareSvg());
-        QCOMPARE(result.refusal, QString());
-        QCOMPARE(lightning::imagefmt::sniffRasterMime(result.png),
-                 QStringLiteral("image/png"));
-        QCOMPARE(result.size, QSize(800, 600));
-        QCOMPARE(result.intrinsic, QSize(1600, 1200));
-        QVERIFY(result.png.size() <= lightning::svgthumb::kMaxThumbBytes);
-        const QImage decoded = QImage::fromData(result.png, "PNG");
-        QCOMPARE(decoded.size(), QSize(800, 600));
-        QCOMPARE(decoded.pixelColor(400, 300), QColor(Qt::red));
-    }
-
-    // A queued SVG waits for its thumbnail, previews only as the PNG, and
-    // sends the PNG through the image-with-thumbnail path.
-    void svgSendCarriesItsRasterThumbnailAndNeverPreviewsTheSvg()
-    {
+        lightning::svgraster::hooks().inProcess = true;
         FakeClient client;
         MessageComposer composer;
         composer.setClient(&client);
         composer.setRoomId(QStringLiteral("!room:example.org"));
-        StagedImageStore staged;
         AttachmentQueueModel *model = composer.attachments();
-        model->setStagedImages(&staged);
-
-        QString capturedTag;
-        model->setPosterRequestHook(
-            [&capturedTag](const QString &tag, const QString &) {
-                capturedTag = tag;
-            });
 
         QTemporaryDir dir;
-        composer.addAttachment(QUrl::fromLocalFile(
-            writeFile(dir, QStringLiteral("logo.svg"), redSquareSvg())));
+        const QString svgPath =
+            writeFile(dir, QStringLiteral("logo.svg"), redSquareSvg());
+        composer.addAttachment(QUrl::fromLocalFile(svgPath));
         QCOMPARE(model->rowCount(), 1);
-        QCOMPARE(model->data(model->index(0, 0), AttachmentQueueModel::MimeRole)
-                     .toString(),
-                 QStringLiteral("image/svg+xml"));
-        QVERIFY(!capturedTag.isEmpty());
-        // The SVG file is never offered to an Image.
+        // Until the conversion lands there is nothing to show or send.
         QVERIFY(model->data(model->index(0, 0),
                             AttachmentQueueModel::PreviewSourceRole)
                     .toString().isEmpty());
-
         composer.send();
+        QCOMPARE(client.fileSends, 0);
+
+        QTRY_COMPARE_WITH_TIMEOUT(client.fileSends, 1, 10000);
         QCOMPARE(client.imageThumbSends, 0);
-        QCOMPARE(client.fileSends, 0);
-
-        const QByteArray png = tinyPng();
-        model->applyPoster(capturedTag, png, QSize(1, 1), QSize(1600, 1200), 0);
-
-        QCOMPARE(client.imageThumbSends, 1);
-        QCOMPARE(client.fileSends, 0);
         QCOMPARE(client.videoSends, 0);
-        QCOMPARE(client.lastMime, QStringLiteral("image/svg+xml"));
-        QCOMPARE(client.lastThumbnail, png);
-        QCOMPARE(client.lastThumbWidth, 1);
-        QCOMPARE(client.lastThumbHeight, 1);
-        QCOMPARE(client.lastImageWidth, 1600);
-        QCOMPARE(client.lastImageHeight, 1200);
+        QCOMPARE(client.byteSends, 0);
+        QCOMPARE(client.lastMime, QStringLiteral("image/png"));
+        QVERIFY(client.lastFilePath.endsWith(QStringLiteral("/logo.png")));
+        QVERIFY(client.lastFilePath != svgPath);
 
-        const QString preview =
-            model->data(model->index(0, 0),
-                        AttachmentQueueModel::PreviewSourceRole).toString();
-        QVERIFY(preview.startsWith(QStringLiteral("image://lightning-staged/")));
-        QCOMPARE(staged.bytes(preview.mid(
-                     QStringLiteral("image://lightning-staged/").size())),
-                 png);
+        // The declared geometry is the PNG's real geometry, and its bytes are
+        // that PNG: 1600x1200 is above the 1024 floor, so it keeps its size.
+        QFile file(client.lastFilePath);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QByteArray bytes = file.readAll();
+        QCOMPARE(lightning::imagefmt::sniffRasterMime(bytes),
+                 QStringLiteral("image/png"));
+        const QImage decoded = QImage::fromData(bytes, "PNG");
+        QCOMPARE(decoded.size(), QSize(1600, 1200));
+        QCOMPARE(client.lastFileWidth, 1600);
+        QCOMPARE(client.lastFileHeight, 1200);
+        QCOMPARE(decoded.pixelColor(800, 600), QColor(Qt::red));
+
+        // The entry says what it now is.
+        QCOMPARE(model->data(model->index(0, 0), AttachmentQueueModel::FileNameRole)
+                     .toString(), QStringLiteral("logo.png"));
+        QCOMPARE(model->data(model->index(0, 0), AttachmentQueueModel::MimeRole)
+                     .toString(), QStringLiteral("image/png"));
+        QCOMPARE(model->data(model->index(0, 0), AttachmentQueueModel::SizeBytesRole)
+                     .toLongLong(), qint64(bytes.size()));
     }
 
-    // A refused SVG (here one naming a local file) still sends, with no
-    // thumbnail. Holds with or without Qt SVG.
-    void aRefusedSvgStillSendsWithoutAThumbnail()
+    // A small icon is converted at a useful size, not at its own tiny one, and
+    // the PNG's real size is what the send declares.
+    void aTinySvgIsConvertedAtTheAttachmentFloor()
+    {
+        if (!lightning::svgraster::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        lightning::svgraster::hooks().inProcess = true;
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(writeFile(
+            dir, QStringLiteral("icon.svg"),
+            QByteArrayLiteral("<svg xmlns=\"http://www.w3.org/2000/svg\" "
+                              "viewBox=\"0 0 24 12\"><rect width=\"24\" "
+                              "height=\"12\"/></svg>"))));
+        composer.send();
+        QTRY_COMPARE_WITH_TIMEOUT(client.fileSends, 1, 10000);
+        QCOMPARE(client.lastFileWidth, 1024);
+        QCOMPARE(client.lastFileHeight, 512);
+        QCOMPARE(QImage(client.lastFilePath).size(), QSize(1024, 512));
+    }
+
+    // A refused SVG fails ITS entry with a sentence naming the reason. It is
+    // never uploaded in any form (the old behaviour sent it with no thumbnail).
+    void aRefusedSvgFailsWithItsReasonAndSendsNothing()
     {
         FakeClient client;
         MessageComposer composer;
         composer.setClient(&client);
         composer.setRoomId(QStringLiteral("!room:example.org"));
+        AttachmentQueueModel *model = composer.attachments();
 
         QTemporaryDir dir;
         const QString secret =
             writeFile(dir, QStringLiteral("private.png"), tinyPng());
         composer.addAttachment(QUrl::fromLocalFile(writeFile(
             dir, QStringLiteral("trap.svg"), svgReadingALocalFile(secret))));
-        QCOMPARE(composer.attachments()->rowCount(), 1);
-        composer.send();
-        QTRY_COMPARE_WITH_TIMEOUT(client.imageThumbSends, 1, 5000);
-        QVERIFY(client.lastThumbnail.isEmpty());
-        QCOMPARE(client.lastThumbWidth, 0);
-        QCOMPARE(client.fileSends, 0);
-    }
-
-    // A render counts as stuck only once its caller's timeout has fired while
-    // it runs, and stops counting when it returns.
-    void aRenderTicketCountsOnlyRendersPastTheirTimeout()
-    {
-        using lightning::svgthumb::RenderTicket;
-        using lightning::svgthumb::stuckRenders;
-        const int before = stuckRenders().load();
-
-        RenderTicket queued;
-        queued.expire();
-        QVERIFY(!queued.begin()); // cancelled before it ran
-        QCOMPARE(stuckRenders().load(), before);
-
-        RenderTicket quick;
-        QVERIFY(quick.begin());
-        quick.finish();
-        quick.expire();
-        QCOMPARE(stuckRenders().load(), before);
-
-        RenderTicket slow;
-        QVERIFY(slow.begin());
-        slow.expire();
-        QCOMPARE(stuckRenders().load(), before + 1);
-        slow.finish();
-        QCOMPARE(stuckRenders().load(), before);
-    }
-
-    // Ordinary SVGs dropped together all get thumbnails: renders beyond the
-    // pool's threads queue instead of being refused.
-    void severalSvgsAtOnceAllGetThumbnails()
-    {
-        if (!lightning::svgthumb::available())
-            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
-        QVERIFY(lightning::svgthumb::renderPool()->waitForDone(5000));
-        QCOMPARE(lightning::svgthumb::stuckRenders().load(), 0);
-        FakeClient client;
-        MessageComposer composer;
-        composer.setClient(&client);
-        composer.setRoomId(QStringLiteral("!room:example.org"));
-        AttachmentQueueModel *model = composer.attachments();
-
-        QTemporaryDir dir;
-        const int count = lightning::svgthumb::kMaxConcurrentRenders + 2;
-        for (int i = 0; i < count; ++i) {
-            composer.addAttachment(QUrl::fromLocalFile(writeFile(
-                dir, QStringLiteral("logo%1.svg").arg(i), redSquareSvg())));
-        }
-        QCOMPARE(model->rowCount(), count);
-        const auto allResolved = [model] {
-            for (const auto &entry : model->entries()) {
-                if (entry.posterPending)
-                    return false;
-            }
-            return true;
-        };
-        QTRY_VERIFY_WITH_TIMEOUT(allResolved(),
-                                 AttachmentQueueModel::kSvgThumbnailTimeoutMs);
-        for (int i = 0; i < count; ++i)
-            QVERIFY2(!model->entries().at(i).poster.isEmpty(), qPrintable(
-                QStringLiteral("SVG %1 got no thumbnail").arg(i)));
-    }
-
-    // QtSvg cannot be interrupted, so renders stuck on hostile files keep
-    // their threads. They hold the SVG pool only, never the global one. A
-    // render is queued while the pool is merely busy, and refused (sent at
-    // once without a thumbnail) only while every thread is held by a render
-    // past its timeout.
-    void stuckSvgRendersHoldOnlyTheirOwnPoolAndRefuseMore()
-    {
-        if (!lightning::svgthumb::available())
-            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
-        using lightning::svgthumb::RenderTicket;
-        using lightning::svgthumb::stuckRenders;
-        constexpr int threads = lightning::svgthumb::kMaxConcurrentRenders;
-        QThreadPool *pool = lightning::svgthumb::renderPool();
-        QVERIFY(pool != QThreadPool::globalInstance());
-        QCOMPARE(pool->maxThreadCount(), threads);
-        // Earlier cases' renders may still be returning.
-        QVERIFY(pool->waitForDone(5000));
-        QCOMPARE(stuckRenders().load(), 0);
-
-        // Stand-ins for renders hung in QtSvg.
-        QSemaphore running;
-        QSemaphore unblock;
-        QList<std::shared_ptr<RenderTicket>> tickets;
-        const auto cleanup = qScopeGuard([&] {
-            unblock.release(threads);
-            pool->waitForDone(5000);
-        });
-        for (int i = 0; i < threads; ++i) {
-            auto ticket = std::make_shared<RenderTicket>();
-            tickets.append(ticket);
-            pool->start([ticket, &running, &unblock] {
-                ticket->begin();
-                running.release();
-                unblock.acquire();
-                ticket->finish();
-            });
-        }
-        QVERIFY(running.tryAcquire(threads, 5000));
-        const int globalBusy = QThreadPool::globalInstance()->activeThreadCount();
-
-        FakeClient client;
-        MessageComposer composer;
-        composer.setClient(&client);
-        composer.setRoomId(QStringLiteral("!room:example.org"));
-        AttachmentQueueModel *model = composer.attachments();
-        QSignalSpy prepared(model, &AttachmentQueueModel::entryPrepared);
-        QTemporaryDir dir;
-
-        // Busy, not stuck: the render queues.
-        composer.addAttachment(QUrl::fromLocalFile(
-            writeFile(dir, QStringLiteral("queued.svg"), redSquareSvg())));
-        QCOMPARE(prepared.count(), 0);
-        QVERIFY(model->entries().at(0).posterPending);
-
-        // Their timeouts fire while they run: every thread is now stuck, so
-        // the next SVG is resolved at once without a thumbnail.
-        for (const auto &ticket : std::as_const(tickets))
-            ticket->expire();
-        QCOMPARE(stuckRenders().load(), threads);
-        composer.addAttachment(QUrl::fromLocalFile(
-            writeFile(dir, QStringLiteral("refused.svg"), redSquareSvg())));
-        QCOMPARE(prepared.count(), 1);
-        QCOMPARE(prepared.at(0).at(0).toInt(), 1);
-        QVERIFY(!model->entries().at(1).posterPending);
-        QVERIFY(model->entries().at(1).poster.isEmpty());
-        QCOMPARE(QThreadPool::globalInstance()->activeThreadCount(), globalBusy);
-
-        // The hung renders return: nothing counts as stuck any more and the
-        // queued SVG renders.
-        unblock.release(threads);
-        QTRY_COMPARE_WITH_TIMEOUT(stuckRenders().load(), 0, 5000);
-        QTRY_VERIFY_WITH_TIMEOUT(!model->entries().at(0).posterPending,
-                                 AttachmentQueueModel::kSvgThumbnailTimeoutMs);
-        QVERIFY(!model->entries().at(0).poster.isEmpty());
-    }
-
-    // End to end with the real renderer: the event carries a PNG inside the
-    // box and the SVG's own size.
-    void aQueuedSvgIsRenderedToABoundedPngThumbnail()
-    {
-        if (!lightning::svgthumb::available())
-            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
-        FakeClient client;
-        MessageComposer composer;
-        composer.setClient(&client);
-        composer.setRoomId(QStringLiteral("!room:example.org"));
-
-        QTemporaryDir dir;
-        composer.addAttachment(QUrl::fromLocalFile(
-            writeFile(dir, QStringLiteral("logo.svg"), redSquareSvg())));
+        QCOMPARE(model->rowCount(), 1);
         composer.send();
         QTRY_COMPARE_WITH_TIMEOUT(
-            client.imageThumbSends, 1,
-            AttachmentQueueModel::kSvgThumbnailTimeoutMs + 2000);
-        QCOMPARE(lightning::imagefmt::sniffRasterMime(client.lastThumbnail),
-                 QStringLiteral("image/png"));
-        QCOMPARE(client.lastThumbWidth, 800);
-        QCOMPARE(client.lastThumbHeight, 600);
-        QCOMPARE(client.lastImageWidth, 1600);
-        QCOMPARE(client.lastImageHeight, 1200);
+            model->data(model->index(0, 0), AttachmentQueueModel::StateRole)
+                .toString(),
+            QStringLiteral("failed"), 10000);
+        const QString error =
+            model->data(model->index(0, 0), AttachmentQueueModel::ErrorRole)
+                .toString();
+        QVERIFY2(error.contains(QStringLiteral("links to other files")),
+                 qPrintable(error));
+        QCOMPARE(client.fileSends, 0);
+        QCOMPARE(client.imageThumbSends, 0);
+        QCOMPARE(client.byteSends, 0);
+    }
+
+    // An SVG whose PNG would exceed the server's limit fails with the limit
+    // message, not a send the server will refuse.
+    void aConvertedSvgPastTheUploadLimitFails()
+    {
+        if (!lightning::svgraster::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        lightning::svgraster::hooks().inProcess = true;
+        FakeClient client;
+        client.serverLimit = 200;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        AttachmentQueueModel *model = composer.attachments();
+        QTemporaryDir dir;
+        // A source under the limit (so the pre-check passes) whose 1024 px PNG
+        // is far over it.
+        composer.addAttachment(QUrl::fromLocalFile(writeFile(
+            dir, QStringLiteral("big.svg"),
+            QByteArrayLiteral("<svg xmlns=\"http://www.w3.org/2000/svg\" "
+                              "viewBox=\"0 0 8 8\"><circle cx=\"4\" cy=\"4\" "
+                              "r=\"3\"/></svg>"))));
+        QCOMPARE(model->rowCount(), 1);
+        QTRY_COMPARE_WITH_TIMEOUT(
+            model->data(model->index(0, 0), AttachmentQueueModel::StateRole)
+                .toString(),
+            QStringLiteral("failed"), 10000);
+        QVERIFY(model->data(model->index(0, 0), AttachmentQueueModel::ErrorRole)
+                    .toString().contains(QStringLiteral("upload limit")));
+    }
+
+    // The same file twice is refused whether or not it has been converted.
+    void theSameSvgCannotBeQueuedTwice()
+    {
+        if (!lightning::svgraster::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        lightning::svgraster::hooks().inProcess = true;
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        AttachmentQueueModel *model = composer.attachments();
+        QTemporaryDir dir;
+        const QUrl url = QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("logo.svg"), redSquareSvg()));
+        QVERIFY(model->addFile(url).isEmpty());
+        QTRY_VERIFY_WITH_TIMEOUT(!model->entries().at(0).posterPending, 10000);
+        QVERIFY(!model->entries().at(0).isSvg); // converted
+        QVERIFY(!model->addFile(url).isEmpty());
+        QCOMPARE(model->rowCount(), 1);
+    }
+
+    // Removing the entry removes the PNG this model wrote, and only that: the
+    // user's own SVG is never touched.
+    void removingAnEntryDeletesItsConvertedPngButNeverTheSource()
+    {
+        if (!lightning::svgraster::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        lightning::svgraster::hooks().inProcess = true;
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        AttachmentQueueModel *model = composer.attachments();
+        QTemporaryDir dir;
+        const QString svgPath =
+            writeFile(dir, QStringLiteral("logo.svg"), redSquareSvg());
+        QVERIFY(model->addFile(QUrl::fromLocalFile(svgPath)).isEmpty());
+        QTRY_VERIFY_WITH_TIMEOUT(!model->entries().at(0).posterPending, 10000);
+        const QString png = model->entries().at(0).localPath;
+        QVERIFY(QFileInfo::exists(png));
+        QVERIFY(png != svgPath);
+        model->removeAt(0);
+        QVERIFY(!QFileInfo::exists(png));
+        QVERIFY(QFileInfo::exists(svgPath));
+    }
+
+    // Received SVG is untouched: the shape sniff on the bytes a recipient would
+    // fetch still refuses SVG under every label.
+    void receivedSvgStaysRefused()
+    {
+        const QByteArray svg = redSquareSvg();
+        QVERIFY(lightning::imagefmt::sniffRasterMime(svg).isEmpty());
+        QVERIFY(lightning::imagefmt::sniffRasterMime(
+                    QByteArray("<?xml version=\"1.0\"?>") + svg).isEmpty());
+        // The converted output, by contrast, is a raster the sniff accepts.
+        if (lightning::svgraster::available()) {
+            const auto result = lightning::svgraster::rasterize(
+                svg, lightning::svgraster::attachmentPolicy());
+            QCOMPARE(lightning::imagefmt::sniffRasterMime(result.png),
+                     QStringLiteral("image/png"));
+        }
     }
 };
 

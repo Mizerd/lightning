@@ -20,11 +20,15 @@
 // trips, the on-screen picker and Element interoperability are not exercised.
 
 #include "matrix/MatrixClient.h"
+#include "media/SvgRasterJob.h"
 #include "stickers/StickerImageModel.h"
 #include "stickers/StickerPackManager.h"
 #include "stickers/StickerPackModel.h"
 
+#include <QFile>
+#include <QImage>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest/QtTest>
 
 namespace {
@@ -47,6 +51,18 @@ public:
     QString sendRoom, sendRoot, sendUrl, sendBody, sendMime;
     quint64 sendWidth = 0, sendHeight = 0, sendSize = 0;
     QString saveShortcode, saveUrl, saveBody, saveMime;
+    // The last file upload, as it crossed.
+    int uploadCalls = 0;
+    QString uploadPath;
+    quint64 lastUploadOp = 0;
+    void uploadStickerToUserPack(const QString &, const QString &,
+                                 const QString &localPath,
+                                 quint64 opId) override
+    {
+        ++uploadCalls;
+        uploadPath = localPath;
+        lastUploadOp = opId;
+    }
 
     // MatrixClient pure virtuals (inert).
     void login(const QString &, const QString &, const QString &) override {}
@@ -1015,6 +1031,81 @@ private Q_SLOTS:
         // An unknown id answers EMPTY rather than a map of blanks, so a
         // caller cannot mistake it for a real pack it may edit.
         QVERIFY(manager.packInfo(QStringLiteral("nope")).isEmpty());
+    }
+
+    // ---- uploading a picked file (SVG is rasterised on send) -----------------
+
+    void cleanup() { lightning::svgraster::hooks() = {}; }
+
+    void anSvgStickerIsUploadedAsAPngNeverAsSvg()
+    {
+        if (!lightning::svgraster::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        lightning::svgraster::hooks().inProcess = true;
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString svgPath = dir.filePath(QStringLiteral("smile.svg"));
+        {
+            QFile f(svgPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
+                    "<circle cx='8' cy='8' r='7' fill='#fc0'/></svg>");
+        }
+        manager.uploadSticker(QUrl::fromLocalFile(svgPath), QString());
+        // The single-flight slot is held while it converts, nothing sent yet.
+        QVERIFY(manager.saving());
+        QCOMPARE(client.uploadCalls, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(client.uploadCalls, 1, 10000);
+        QVERIFY(client.uploadPath != svgPath);
+        QVERIFY(client.uploadPath.endsWith(QStringLiteral(".png")));
+        // 16x16 is below the sticker floor: drawn at 512, not upscaled.
+        QCOMPARE(QImage(client.uploadPath).size(), QSize(512, 512));
+        QVERIFY(manager.saving());   // until the client answers
+    }
+
+    void aRefusedSvgStickerEndsTheOpWithItsReasonAndUploadsNothing()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString svgPath = dir.filePath(QStringLiteral("trap.svg"));
+        {
+            QFile f(svgPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'>"
+                    "<image href='/etc/hostname'/></svg>");
+        }
+        QSignalSpy finished(&manager, &StickerPackManager::saveFinished);
+        manager.uploadSticker(QUrl::fromLocalFile(svgPath), QString());
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        QCOMPARE(finished.first().at(0).toBool(), false);
+        QCOMPARE(finished.first().at(1).toString(),
+                 QStringLiteral("svg_external_image"));
+        QCOMPARE(client.uploadCalls, 0);
+        QVERIFY(!manager.saving());
+        QVERIFY(manager.svgMessage(QStringLiteral("external_image"))
+                    .contains(QStringLiteral("links to other files")));
+    }
+
+    void aPngStickerStillUploadsItsOwnFile()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString pngPath = dir.filePath(QStringLiteral("cat.png"));
+        QImage image(4, 4, QImage::Format_ARGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(pngPath, "PNG"));
+        manager.uploadSticker(QUrl::fromLocalFile(pngPath), QString());
+        QCOMPARE(client.uploadCalls, 1);
+        QCOMPARE(client.uploadPath, pngPath);
     }
 };
 

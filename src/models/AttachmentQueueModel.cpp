@@ -3,10 +3,11 @@
 #include "media/StagedImageStore.h"
 
 #include "matrix/MatrixClient.h"
-#include "media/SvgThumbnail.h"
+#include "media/SvgRasterJob.h"
 #include "media/VideoPosterExtractor.h"
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
@@ -14,7 +15,7 @@
 #include <QLoggingCategory>
 #include <QPointer>
 #include <QSize>
-#include <QThreadPool>
+#include <QTemporaryDir>
 #include <QTimer>
 
 #include <memory>
@@ -22,6 +23,14 @@
 AttachmentQueueModel::AttachmentQueueModel(QObject *parent)
     : QAbstractListModel(parent)
 {
+}
+
+AttachmentQueueModel::~AttachmentQueueModel()
+{
+    // Before the directory goes, so no sweep is left holding a stale mark.
+    const auto &release = lightning::svgraster::hooks().releaseScratchDir;
+    if (m_convertedDir && release)
+        release(m_convertedDir->path());
 }
 
 void AttachmentQueueModel::setClient(MatrixClient *client)
@@ -132,7 +141,8 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
         return uploadLimitMessage();
     }
     for (const Entry &existing : m_entries) {
-        if (!existing.localPath.isEmpty() && existing.localPath == path)
+        if ((!existing.localPath.isEmpty() && existing.localPath == path)
+            || (!existing.sourcePath.isEmpty() && existing.sourcePath == path))
             return tr("That file is already attached.");
     }
 
@@ -153,9 +163,9 @@ QString AttachmentQueueModel::addFile(const QUrl &fileUrl)
     entry.isImage = entry.mime.startsWith(QLatin1String("image/"));
     entry.animated = entry.mime == QLatin1String("image/gif");
     entry.isVideo = entry.mime.startsWith(QLatin1String("video/"));
-    entry.isSvg = lightning::svgthumb::isSvgMime(entry.mime);
+    entry.isSvg = lightning::svgraster::isSvgMime(entry.mime);
     // An SVG is not read here: QImageReader would hand it to Qt's SVG plugin
-    // unscreened. Its size comes from the screened render.
+    // unscreened. Its size comes from the conversion's PNG.
     if (entry.isImage && !entry.isSvg) {
         // Header-only read; never decodes the full image here.
         QImageReader reader(path);
@@ -196,12 +206,14 @@ void AttachmentQueueModel::startPosterJob(int row)
     if (row < 0 || row >= m_entries.size())
         return;
     const Entry &entry = m_entries.at(row);
-    if (m_posterHook) {
-        m_posterHook(entry.posterTag, entry.localPath);
+    // An SVG is converted, never postered, and the poster hook (a stand-in for
+    // the video decoder) has nothing to say about it.
+    if (entry.isSvg) {
+        startSvgConversion(row);
         return;
     }
-    if (entry.isSvg) {
-        startSvgThumbnailJob(row);
+    if (m_posterHook) {
+        m_posterHook(entry.posterTag, entry.localPath);
         return;
     }
     if (!m_posterExtractor) {
@@ -212,66 +224,110 @@ void AttachmentQueueModel::startPosterJob(int row)
     m_posterExtractor->requestPoster(entry.posterTag, entry.localPath);
 }
 
-// Rendered off the GUI thread on the SVG pool (svgthumb::renderPool()): a
-// complex SVG can take a while. The render cannot be interrupted, so a timer
-// bounds how long it may hold the dispatch and a late result is ignored by
-// applyPoster(). A render queued behind others waits at most that long too:
-// the timer cancels it. Only while every pool thread is held by a render past
-// its timeout (a hostile file) is a new one refused. A refusal or a build
-// without Qt SVG sends the file with no thumbnail.
-void AttachmentQueueModel::startSvgThumbnailJob(int row)
+QString AttachmentQueueModel::convertedDirectory()
 {
+    if (m_convertedDir && m_convertedDir->isValid())
+        return m_convertedDir->path();
+    namespace svg = lightning::svgraster;
+    // The shared scratch root, never QDir::temp() when the app set one: keeps
+    // these files inside a portable folder and within the startup sweep's reach
+    // after a crash.
+    const QString root = svg::hooks().scratchRoot ? svg::hooks().scratchRoot()
+                                                  : QDir::tempPath();
+    m_convertedDir = std::make_unique<QTemporaryDir>(
+        root + QStringLiteral("/lightning-svgsend-XXXXXX"));
+    if (!m_convertedDir->isValid()) {
+        m_convertedDir.reset();
+        return {};
+    }
+    QFile::setPermissions(m_convertedDir->path(),
+                          QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+    // Marked live so another instance's startup sweep cannot delete a picture
+    // an upload is still reading.
+    if (svg::hooks().holdScratchDir)
+        svg::hooks().holdScratchDir(m_convertedDir->path());
+    return m_convertedDir->path();
+}
+
+// "Rasterize on send": the SVG is converted to a PNG in a helper process
+// (SvgRasterJob.h, killed on a timeout) and the entry turns into that PNG. The
+// dispatch of this entry waits on posterPending, exactly as a video waits for
+// its poster. A refusal fails the entry with a sentence naming the reason; a
+// retry converts again.
+void AttachmentQueueModel::startSvgConversion(int row)
+{
+    namespace svg = lightning::svgraster;
     const QString tag = m_entries.at(row).posterTag;
-    if (!lightning::svgthumb::available()) {
-        applyPoster(tag, {}, {}, {}, 0);
-        return;
-    }
-    if (lightning::svgthumb::poolExhausted()) {
-        qCInfo(lcAttach) << "svg thumbnail skipped reason=busy";
-        applyPoster(tag, {}, {}, {}, 0);
-        return;
-    }
     const QString path = m_entries.at(row).localPath;
     QPointer<AttachmentQueueModel> self(this);
-    const auto ticket = std::make_shared<lightning::svgthumb::RenderTicket>();
-    lightning::svgthumb::renderPool()->start([self, tag, path, ticket] {
-        if (!ticket->begin())
-            return; // timed out while queued
-        QByteArray bytes;
-        QFile file(path);
-        // One byte over the bound, so an oversized file is refused rather
-        // than rendered truncated.
-        if (file.open(QIODevice::ReadOnly))
-            bytes = file.read(lightning::svgthumb::kMaxSourceBytes + 1);
-        const lightning::svgthumb::Result result =
-            lightning::svgthumb::render(bytes);
-        ticket->finish();
-        QCoreApplication *app = QCoreApplication::instance();
-        if (!app)
-            return;
-        // Delivered on the GUI thread, where `self` is checked.
-        QMetaObject::invokeMethod(app, [self, tag, result] {
-            if (!self)
-                return;
-            if (!result.refusal.isEmpty())
-                qCInfo(lcAttach) << "svg thumbnail skipped reason="
-                                 << qPrintable(result.refusal);
-            self->applyPoster(tag, result.png, result.size, result.intrinsic, 0);
-        }, Qt::QueuedConnection);
-    });
-    // Not tied to this model: a render still hung after the model is gone
-    // must still count as stuck.
-    if (QCoreApplication *app = QCoreApplication::instance()) {
-        QTimer::singleShot(kSvgThumbnailTimeoutMs, app,
-                           [ticket] { ticket->expire(); });
+    svg::rasterizeFileAsync(
+        path, svg::attachmentPolicy(), this,
+        [self, tag](const svg::Result &result) {
+            if (self)
+                self->finishSvgConversion(tag, result);
+        });
+}
+
+void AttachmentQueueModel::finishSvgConversion(
+    const QString &tag, const lightning::svgraster::Result &result)
+{
+    namespace svg = lightning::svgraster;
+    const int row = rowForPosterTag(tag);
+    if (row < 0)
+        return; // the entry was removed while converting
+    Entry &entry = m_entries[row];
+    if (!entry.posterPending)
+        return;
+    entry.posterPending = false;
+    const auto fail = [&](const QString &message) {
+        entry.state = QStringLiteral("failed");
+        entry.error = message;
+        updateEntry(row);
+        Q_EMIT entryPrepared(row);
+    };
+    if (!result.refusal.isEmpty()) {
+        qCInfo(lcAttach) << "svg conversion refused reason="
+                         << qPrintable(result.refusal);
+        fail(svg::userMessage(result.refusal));
+        return;
     }
-    QTimer::singleShot(kSvgThumbnailTimeoutMs, this, [this, tag] {
-        const int pending = rowForPosterTag(tag);
-        if (pending >= 0 && m_entries.at(pending).posterPending) {
-            qCInfo(lcAttach) << "svg thumbnail skipped reason=timeout";
-            applyPoster(tag, {}, {}, {}, 0);
-        }
-    });
+    if (exceedsUploadLimit(result.png.size())) {
+        fail(uploadLimitMessage());
+        return;
+    }
+    const QString dir = convertedDirectory();
+    QString base = QFileInfo(entry.fileName).completeBaseName();
+    if (base.isEmpty())
+        base = QStringLiteral("image");
+    const QString subdir =
+        QDir(dir).filePath(QString::number(m_nextConverted++));
+    const QString pngPath = QDir(subdir).filePath(base + QStringLiteral(".png"));
+    QFile out(pngPath);
+    if (dir.isEmpty() || !QDir().mkpath(subdir)
+        || !out.open(QIODevice::WriteOnly)
+        || out.write(result.png) != result.png.size()) {
+        fail(tr("The converted picture couldn't be saved."));
+        return;
+    }
+    out.close();
+    out.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
+
+    // The entry IS the PNG from here on: a file with its real size, type and
+    // dimensions, which is all the send path reads.
+    entry.sourcePath = entry.localPath;
+    entry.localPath = pngPath;
+    entry.converted = true;
+    entry.fileName = base + QStringLiteral(".png");
+    entry.mime = QStringLiteral("image/png");
+    entry.sizeBytes = result.png.size();
+    entry.width = result.size.width();
+    entry.height = result.size.height();
+    entry.isSvg = false;
+    entry.isImage = true;
+    entry.animated = false;
+    entry.error.clear();
+    updateEntry(row); // name, size, type and preview all changed
+    Q_EMIT entryPrepared(row);
 }
 
 int AttachmentQueueModel::rowForPosterTag(const QString &tag) const
@@ -300,21 +356,15 @@ void AttachmentQueueModel::applyPoster(const QString &tag,
         entry.poster = poster;
         entry.posterWidth = posterSize.width();
         entry.posterHeight = posterSize.height();
-        // The SVG's composer preview is its PNG, never the SVG itself.
-        if (entry.isSvg && m_stagedImages && entry.stagedToken.isEmpty())
-            entry.stagedToken = m_stagedImages->add(poster);
     }
-    // The decoded frame (or the SVG's own size) is the only source of the
-    // dimensions on the send side; fabricated ones would make receivers lay
-    // it out wrong.
+    // The decoded frame is the only source of the dimensions on the send side;
+    // fabricated ones would make receivers lay it out wrong.
     if (sourceSize.isValid() && !sourceSize.isEmpty()) {
         entry.width = sourceSize.width();
         entry.height = sourceSize.height();
     }
     if (durationMs > 0)
         entry.durationMs = durationMs;
-    if (entry.isSvg)
-        updateEntry(row); // the preview role changed
     Q_EMIT entryPrepared(row);
 }
 
@@ -352,6 +402,9 @@ void AttachmentQueueModel::releaseStaged(const Entry &entry)
 {
     if (m_stagedImages && !entry.stagedToken.isEmpty())
         m_stagedImages->remove(entry.stagedToken);
+    // A converted SVG's PNG is ours; a picked file never is.
+    if (entry.converted && !entry.localPath.isEmpty())
+        QFile::remove(entry.localPath);
 }
 
 void AttachmentQueueModel::removeAt(int row)
@@ -387,6 +440,17 @@ void AttachmentQueueModel::retryAt(int row)
     Entry &entry = m_entries[row];
     if (entry.state != QLatin1String("failed"))
         return;
+    if (entry.isSvg) {
+        // Refused or unreadable conversion: convert again, the file may have
+        // changed. It dispatches once it resolves, if the user already sent.
+        entry.state = QStringLiteral("queued");
+        entry.error.clear();
+        entry.posterPending = true;
+        entry.posterTag = QStringLiteral("send:%1").arg(m_nextPosterTag++);
+        updateEntry(row);
+        startSvgConversion(row);
+        return;
+    }
     entry.state = QStringLiteral("queued");
     entry.error.clear();
     entry.opId = 0;
@@ -425,11 +489,11 @@ QVariant AttachmentQueueModel::data(const QModelIndex &index, int role) const
     case PreviewSourceRole: {
         if (!e.isImage && !e.isVideo)
             return QString();
-        // Never the SVG file: QML would hand it to Qt's SVG plugin.
+        // Never the SVG file: QML would hand it to Qt's SVG plugin. Until its
+        // conversion lands there is no picture; afterwards the entry is the
+        // converted PNG.
         if (e.isSvg)
-            return e.stagedToken.isEmpty()
-                ? QString()
-                : QStringLiteral("image://lightning-staged/") + e.stagedToken;
+            return QString();
         if (!e.localPath.isEmpty())
             return QUrl::fromLocalFile(e.localPath).toString();
         if (!e.stagedToken.isEmpty())

@@ -6,6 +6,7 @@
 #include "stickers/StickerPackModel.h"
 
 #include <QObject>
+#include <memory>
 
 class QTimer;
 #include <QUrl>
@@ -15,6 +16,7 @@ class QTimer;
 #include <QVariantList>
 #include <QVariantMap>
 
+class QTemporaryDir;
 class MatrixClient;
 
 // `app.stickers`: MSC2545 image packs, the sticker picker's controller, and
@@ -108,8 +110,14 @@ public:
     // Uploads a local image and adds it to the account's own pack; the only way
     // to create a pack from nothing. `fileUrl` must be a file:// URL.
     // `shortcode` may be empty; Rust derives and sanitizes one.
+    ///
+    /// An SVG is converted to a PNG first ("rasterize on send", in a helper
+    /// process): the pack gets the PNG, never the SVG. The op is held while it
+    /// converts; a refusal ends it with saveFinished(false, "svg_<reason>").
     Q_INVOKABLE void uploadSticker(const QUrl &fileUrl,
                                    const QString &shortcode);
+    /// The sentence for an "svg_<reason>" category's reason.
+    Q_INVOKABLE QString svgMessage(const QString &reason) const;
 
     // Adds one image to the account's `im.ponies.user_emotes`. `shortcode` may
     // be empty.
@@ -202,6 +210,9 @@ Q_SIGNALS:
 
 private:
     QTimer *m_activeRoomFetch = nullptr;
+    /// Converted stickers wait here until the upload has read them.
+    std::unique_ptr<QTemporaryDir> m_convertedDir;
+    quint64 m_nextConverted = 1;
     void onPacksReceived(quint64 opId, const QString &roomId,
                          bool roomCanManage, const QVariantList &packs);
     void onSaveFinished(quint64 opId, bool ok, const QString &category,

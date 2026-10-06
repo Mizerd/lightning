@@ -8,6 +8,13 @@
 #include <QUrl>
 
 #include <functional>
+#include <memory>
+
+class QTemporaryDir;
+
+namespace lightning::svgraster {
+struct Result;
+}
 
 class MatrixClient;
 class StagedImageStore;
@@ -22,9 +29,12 @@ class VideoPosterExtractor;
 // in memory; no temporary file is written.
 //
 // A queued video also gets a poster frame extracted on add so the event can
-// carry a thumbnail, and a queued SVG gets a PNG rendered from the file (see
-// media/SvgThumbnail.h); dispatchers wait for entryPrepared() for that entry.
-// The SVG itself is never handed to a QML Image: its preview is the PNG.
+// carry a thumbnail. A queued SVG is CONVERTED: it is rasterised to a PNG in a
+// helper process (media/SvgRaster.h, SvgRasterJob.h) and the entry becomes that
+// PNG, a local file in a scratch directory with the PNG's real size and
+// dimensions and mime image/png; the SVG is never uploaded, and never handed
+// to a QML Image. Dispatchers wait for entryPrepared() for that entry. A
+// refused conversion fails the entry with a sentence naming the reason.
 class AttachmentQueueModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -49,6 +59,12 @@ public:
 
     struct Entry {
         QString localPath;   // empty for in-memory (clipboard) data
+        // The SVG the user picked, once localPath names its converted PNG.
+        // Kept only to refuse the same file twice.
+        QString sourcePath;
+        // localPath is a PNG this model wrote into its scratch directory and
+        // removes with the entry.
+        bool converted = false;
         QByteArray data;     // clipboard image bytes; empty for files
         QString fileName;
         QString mime;
@@ -70,13 +86,13 @@ public:
         bool isVideo = false;
         // Decoded for its DURATION only; there is no poster to grab.
         bool isAudio = false;
-        // image/svg+xml (or SVGZ): thumbnailed as a PNG, sent through
-        // sendImageWithThumbnail.
+        // image/svg+xml (or SVGZ) not yet converted. Never dispatched: the
+        // conversion replaces it with a PNG file and clears this.
         bool isSvg = false;
         bool posterPending = false;
         bool sendRequested = false;
         QString posterTag;
-        // JPEG (video) or PNG (SVG) bytes; empty when unavailable.
+        // JPEG (video) bytes; empty when unavailable.
         QByteArray poster;
         int posterWidth = 0;
         int posterHeight = 0;
@@ -93,6 +109,7 @@ public:
     };
 
     explicit AttachmentQueueModel(QObject *parent = nullptr);
+    ~AttachmentQueueModel() override;
 
     void setClient(MatrixClient *client);
     // Where clipboard bytes are registered for preview. Optional: without it a
@@ -134,15 +151,12 @@ public:
     using PosterRequestHook =
         std::function<void(const QString &tag, const QString &localPath)>;
     void setPosterRequestHook(PosterRequestHook hook);
-    // Deliver a poster outcome (a video frame or an SVG's PNG). An empty
+    // Deliver a poster outcome (a video frame). An empty
     // `poster` means none could be made; the entry becomes dispatchable
     // without a thumbnail.
     void applyPoster(const QString &tag, const QByteArray &poster,
                      const QSize &posterSize, const QSize &sourceSize,
                      qint64 durationMs);
-
-    // How long an SVG render may hold its entry's dispatch.
-    static constexpr int kSvgThumbnailTimeoutMs = 8000;
 
 Q_SIGNALS:
     void countChanged();
@@ -152,7 +166,10 @@ Q_SIGNALS:
 
 private:
     void startPosterJob(int row);
-    void startSvgThumbnailJob(int row);
+    void startSvgConversion(int row);
+    void finishSvgConversion(const QString &tag,
+                             const lightning::svgraster::Result &result);
+    QString convertedDirectory();
     int rowForPosterTag(const QString &tag) const;
 
     // Drops an entry's staged-image registration. Every removal path must call
@@ -167,4 +184,8 @@ private:
     VideoPosterExtractor *m_posterExtractor = nullptr;
     PosterRequestHook m_posterHook;
     quint64 m_nextPosterTag = 1;
+    // Converted SVGs live here, one numbered subdirectory each so two files
+    // with the same name never collide.
+    std::unique_ptr<QTemporaryDir> m_convertedDir;
+    quint64 m_nextConverted = 1;
 };

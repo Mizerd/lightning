@@ -7,6 +7,7 @@
 
 #include "media/ImageCropper.h"
 #include "media/StagedImageStore.h"
+#include "media/SvgRasterJob.h"
 
 #include <QBuffer>
 #include <QDir>
@@ -15,6 +16,7 @@
 #include <QImageReader>
 #include <QImageWriter>
 #include <QPainter>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
 
@@ -104,6 +106,8 @@ class ImageCropTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    void cleanup() { lightning::svgraster::hooks() = {}; }
+
 
     // ---- the maths ----
 
@@ -421,31 +425,112 @@ private Q_SLOTS:
         cropper.clearSession();
     }
 
-    // An SVG named .png is refused before anything decodes it, nothing is
-    // staged, and no crop is possible.
-    void anSvgNamedPngIsRefusedAndNothingIsStaged()
+    // An SVG, whatever it is named, is never staged or previewed AS SVG: it is
+    // converted to a PNG in the background and only that PNG is staged, so the
+    // preview Image and the crop see a raster. The call itself answers
+    // "pending" and stages nothing.
+    void anSvgNamedPngIsConvertedAndOnlyThePngIsStaged()
     {
+        if (!lightning::svgraster::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        lightning::svgraster::hooks().inProcess = true;
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const QString path = dir.filePath(QStringLiteral("evil.png"));
         QVERIFY(writeFile(path,
                           "<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\""
-                          " width=\"64\" height=\"64\"><rect width=\"64\" height=\"64\"/>"
-                          "</svg>"));
+                          " width=\"64\" height=\"48\"><rect width=\"64\" height=\"48\""
+                          " fill=\"#336699\"/></svg>"));
 
         StagedImageStore staged;
         ImageCropper cropper;
         cropper.setStagedImages(&staged);
+        QSignalSpy loaded(&cropper, &ImageCropper::svgLoaded);
 
         const QVariantMap info = cropper.load(QUrl::fromLocalFile(path));
         QVERIFY(!info.value(QStringLiteral("ok")).toBool());
-        QCOMPARE(info.value(QStringLiteral("error")).toString(),
-                 QStringLiteral("unsupported_image"));
+        QVERIFY(info.value(QStringLiteral("pending")).toBool());
         QCOMPARE(staged.count(), 0);
         QVERIFY(info.value(QStringLiteral("previewUrl")).toString().isEmpty());
-        // With no source loaded, cropping is refused.
+        // Until it lands there is no source to crop.
         QVERIFY(cropper.crop(0, 0, 10, 10, 512).isEmpty());
         QCOMPARE(cropper.lastError(), QStringLiteral("no_source"));
+
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 10000);
+        const QVariantMap done = loaded.first().first().toMap();
+        QVERIFY(done.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(done.value(QStringLiteral("mime")).toString(),
+                 QStringLiteral("image/png"));
+        // 64x48 is below the 1024 floor: drawn at 1024x768, not upscaled.
+        QCOMPARE(done.value(QStringLiteral("width")).toInt(), 1024);
+        QCOMPARE(done.value(QStringLiteral("height")).toInt(), 768);
+        QCOMPARE(staged.count(), 1);
+        const QString preview = done.value(QStringLiteral("previewUrl")).toString();
+        QVERIFY(preview.startsWith(QStringLiteral("image://lightning-staged/")));
+        QCOMPARE(sniffRasterMime(staged.bytes(preview.mid(
+                     QStringLiteral("image://lightning-staged/").size()))),
+                 QStringLiteral("image/png"));
+
+        // And the crop that follows is a PNG, never SVG.
+        const QUrl out = cropper.crop(0, 0, 1024, 768, 512);
+        QVERIFY(!out.isEmpty());
+        QVERIFY(out.toLocalFile().endsWith(QStringLiteral(".png")));
+        QImageReader reader(out.toLocalFile());
+        QCOMPARE(reader.size(), QSize(512, 384));
+        cropper.clearSession();
+    }
+
+    // A refused SVG says why, stages nothing, and leaves nothing to crop.
+    void aRefusedSvgReportsItsReasonAndStagesNothing()
+    {
+        lightning::svgraster::hooks().inProcess = true;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("trap.svg"));
+        QVERIFY(writeFile(path,
+                          "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" "
+                          "height=\"8\"><image href=\"/etc/hostname\"/></svg>"));
+        StagedImageStore staged;
+        ImageCropper cropper;
+        cropper.setStagedImages(&staged);
+        QSignalSpy loaded(&cropper, &ImageCropper::svgLoaded);
+        QVERIFY(cropper.load(QUrl::fromLocalFile(path))
+                    .value(QStringLiteral("pending")).toBool());
+        QTRY_COMPARE_WITH_TIMEOUT(loaded.count(), 1, 10000);
+        const QVariantMap done = loaded.first().first().toMap();
+        QVERIFY(!done.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(done.value(QStringLiteral("error")).toString(),
+                 QStringLiteral("svg_external_image"));
+        QVERIFY(done.value(QStringLiteral("errorText")).toString()
+                    .contains(QStringLiteral("links to other files")));
+        QCOMPARE(staged.count(), 0);
+        QVERIFY(cropper.crop(0, 0, 10, 10, 512).isEmpty());
+    }
+
+    // Closing the dialog (discard) or choosing another file while a conversion
+    // runs drops its answer: it must never stage a picture for a dialog that is
+    // gone.
+    void aSupersededSvgConversionIsDropped()
+    {
+        if (!lightning::svgraster::available())
+            QSKIP("built without Qt SVG (LIGHTNING_HAVE_QT_SVG unset)");
+        lightning::svgraster::hooks().inProcess = true;
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("a.svg"));
+        QVERIFY(writeFile(path,
+                          "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 4 4\">"
+                          "<rect width=\"4\" height=\"4\"/></svg>"));
+        StagedImageStore staged;
+        ImageCropper cropper;
+        cropper.setStagedImages(&staged);
+        QSignalSpy loaded(&cropper, &ImageCropper::svgLoaded);
+        QVERIFY(cropper.load(QUrl::fromLocalFile(path))
+                    .value(QStringLiteral("pending")).toBool());
+        cropper.discard();
+        QTest::qWait(500);
+        QCOMPARE(loaded.count(), 0);
+        QCOMPARE(staged.count(), 0);
     }
 
     // A refused file releases the previously accepted one, or "Use" would

@@ -3,6 +3,7 @@
 #include "media/AnimatedImageSniff.h"
 
 #include "media/StagedImageStore.h"
+#include "media/SvgRasterJob.h"
 
 #include "storage/PortableMode.h"
 
@@ -176,7 +177,47 @@ QVariantMap ImageCropper::load(const QUrl &fileUrl)
     file.close();
 
     // The gate: magic bytes decide before any decode and before QML gets a URL.
-    // SVG, HTML error pages, video and fake .png files stop here.
+    // HTML error pages, video and fake .png files stop here. An SVG is not
+    // refused: it is converted locally to a PNG first (see load()'s comment),
+    // and only that PNG goes on to the decode below.
+    namespace svg = lightning::svgraster;
+    if (imagecrop::sniffRasterMime(bytes).isEmpty()) {
+        const bool svgz = svg::isGzip(bytes)
+            && path.endsWith(QLatin1String(".svgz"), Qt::CaseInsensitive);
+        if (svg::looksLikeSvg(bytes) || svgz) {
+            const quint64 generation = ++m_loadGeneration;
+            svg::rasterizeAsync(
+                bytes, svg::cropSourcePolicy(), this,
+                [this, generation](const svg::Result &converted) {
+                    if (generation != m_loadGeneration)
+                        return;
+                    QVariantMap info;
+                    if (!converted.refusal.isEmpty()) {
+                        setError(QStringLiteral("svg_") + converted.refusal);
+                        info.insert(QStringLiteral("ok"), false);
+                        info.insert(QStringLiteral("error"), m_lastError);
+                        info.insert(QStringLiteral("errorText"),
+                                    svg::userMessage(converted.refusal));
+                        qCInfo(lcCrop) << "svg refused reason="
+                                       << converted.refusal;
+                    } else {
+                        info = loadBytes(converted.png);
+                    }
+                    Q_EMIT svgLoaded(info);
+                });
+            result.insert(QStringLiteral("pending"), true);
+            result.insert(QStringLiteral("error"), QString());
+            return result;
+        }
+    }
+    return loadBytes(bytes);
+}
+
+QVariantMap ImageCropper::loadBytes(const QByteArray &bytes)
+{
+    QVariantMap result;
+    result.insert(QStringLiteral("ok"), false);
+
     const QString mime = imagecrop::sniffRasterMime(bytes);
     if (mime.isEmpty()) {
         setError(QStringLiteral("unsupported_image"));
@@ -401,6 +442,7 @@ QUrl ImageCropper::useAnimation(const QString &role)
 
 void ImageCropper::discard()
 {
+    ++m_loadGeneration; // an SVG still converting is no longer wanted
     if (m_stagedImages && !m_previewToken.isEmpty())
         m_stagedImages->remove(m_previewToken);
     m_previewToken.clear();
