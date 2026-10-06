@@ -17,6 +17,18 @@ ColumnLayout {
     /// doesn't enumerate.
     property bool activated: false
 
+    // A device test never outlives the page: leaving the section (or closing
+    // Settings) ends it, as does destroying the page.
+    onActivatedChanged: {
+        if (!activated && app.audioTester.mode !== "idle")
+            app.audioTester.stop();
+    }
+    Component.onDestruction: {
+        if (typeof app !== "undefined" && app && app.audioTester
+                && app.audioTester.mode !== "idle")
+            app.audioTester.stop();
+    }
+
     // Bumped on device/selection changes. Bindings that call the controller
     // read it, since Qt can't observe a C++ call as a dependency.
     property int refreshTick: 0
@@ -261,6 +273,132 @@ ColumnLayout {
         }
     }
 
+    // ── Microphone test ──
+    // Discord's "Let's check" and Teams' bar under the microphone: the chosen
+    // microphone, opened the way a call opens it and at the volume above,
+    // into a level bar and optionally back out of the output device. C++
+    // owns the pipeline (app.audioTester); it refuses during a call and ends
+    // by itself.
+    ColumnLayout {
+        id: micTest
+        objectName: "microphoneTestSection"
+        Layout.fillWidth: true
+        Layout.topMargin: AppTheme.spacing4
+        spacing: 6
+
+        readonly property bool running: app.audioTester.microphoneTestRunning
+        readonly property bool usable: app.audioTester.available
+                                       && !app.audioTester.blockedByCall
+        /// Plays the voice back (Discord's test); off is the level bar alone.
+        property bool playBack: true
+
+        readonly property string notice: {
+            if (!app.audioTester.built)
+                return qsTr("This build of Lightning has no call media engine, "
+                            + "so it can't test audio devices.");
+            if (!app.audioTester.available)
+                return qsTr("Audio devices can't be tested: the call media "
+                            + "engine didn't start on this computer.");
+            if (app.audioTester.blockedByCall)
+                return qsTr("Not available during a call. In a call, the "
+                            + "menu next to the microphone button shows your "
+                            + "level.");
+            switch (app.audioTester.error) {
+            case "microphone":
+                return qsTr("The microphone couldn't be opened. Check that "
+                            + "it's connected and that Lightning may use it.");
+            case "output":
+                return qsTr("The output device couldn't be opened.");
+            case "no_meter":
+                return qsTr("This build can't measure the microphone level.");
+            case "pipeline":
+            case "unavailable":
+                return qsTr("The audio test couldn't start.");
+            case "in_call":
+                return qsTr("Not available during a call.");
+            }
+            return "";
+        }
+
+        Label {
+            text: qsTr("Microphone test")
+            color: AppTheme.stormText
+            font.pixelSize: AppTheme.textBody
+            font.weight: AppTheme.weightMedium
+        }
+        Label {
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            wrapMode: Text.WordWrap
+            color: AppTheme.stormTextMuted
+            font.pixelSize: AppTheme.textMeta
+            text: micTest.playBack
+                  ? qsTr("Say something: the bar shows what others would get, "
+                         + "and you'll hear yourself through the output "
+                         + "device below. Use headphones, or the microphone "
+                         + "hears the playback and echoes.")
+                  : qsTr("Say something: the bar shows what others would get.")
+        }
+
+        AudioLevelBar {
+            objectName: "microphoneTestLevel"
+            Layout.fillWidth: true
+            Layout.preferredHeight: 10
+            active: micTest.running
+            level: micTest.running ? app.audioTester.level : 0
+        }
+
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
+
+            AppButton {
+                objectName: "microphoneTestButton"
+                storm: true
+                kind: micTest.running ? "secondary" : "primary"
+                enabled: micTest.usable
+                text: micTest.running ? qsTr("Stop testing")
+                                      : qsTr("Let's check")
+                onClicked: {
+                    if (micTest.running)
+                        app.audioTester.stop();
+                    else
+                        app.audioTester.startMicrophoneTest(micTest.playBack);
+                }
+            }
+            CheckBox {
+                objectName: "microphoneTestPlayBack"
+                palette.windowText: AppTheme.stormText
+                text: qsTr("Hear yourself")
+                checked: micTest.playBack
+                // Changing it mid-test would need a new capture; stop first.
+                enabled: micTest.usable && !micTest.running
+                onToggled: micTest.playBack = checked
+            }
+            Item {
+                Layout.fillWidth: true
+            }
+            Label {
+                objectName: "microphoneTestCountdown"
+                visible: micTest.running && app.audioTester.secondsLeft > 0
+                text: qsTr("Stops in %1 s").arg(app.audioTester.secondsLeft)
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textMeta
+            }
+        }
+
+        Label {
+            objectName: "microphoneTestNotice"
+            Layout.fillWidth: true
+            Layout.preferredWidth: 1
+            visible: text.length > 0
+            wrapMode: Text.WordWrap
+            color: AppTheme.warning
+            font.pixelSize: AppTheme.textMeta
+            text: micTest.notice
+        }
+    }
+
     DevicePicker {
         label: qsTr("Output device")
         kind: "speaker"
@@ -271,6 +409,27 @@ ColumnLayout {
         activeId: {
             var _ = root.refreshTick;
             return app.callDevices.activeSpeakerId;
+        }
+    }
+
+    // Teams' speaker test: a short tone on the chosen output, the way call
+    // audio is played.
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: AppTheme.spacing8
+
+        AppButton {
+            objectName: "outputTestButton"
+            storm: true
+            kind: "secondary"
+            iconName: "volume_up"
+            text: app.audioTester.toneRunning ? qsTr("Playing…")
+                                              : qsTr("Play test sound")
+            enabled: micTest.usable && !app.audioTester.toneRunning
+            onClicked: app.audioTester.playTestSound()
+        }
+        Item {
+            Layout.fillWidth: true
         }
     }
 
