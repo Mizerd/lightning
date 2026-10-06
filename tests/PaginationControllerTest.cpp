@@ -970,6 +970,43 @@ private Q_SLOTS:
                  "strand it visible for the rest of the room visit");
     }
 
+    // A page the timeline filter emptied (the Rust backend says so through
+    // lastPaginationFullyFiltered) has no late rows to wait for, so the
+    // continuation does not pay the row-delivery delay. With the delay, a
+    // filtered MatrixRTC run cost 250 ms per page on top of the page itself.
+    void aFullyFilteredNearTopPageContinuesWithoutTheRowDeliveryWait()
+    {
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        // No setNearTopContinuationDelayForTest(): the shipped value, which a
+        // page that is not known to be filtered still waits out (see
+        // continuationDelayDefaultOutlivesALateRowDelivery).
+
+        controller.requestViewportFill();
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 4, false);
+        const int calls = client.loadOlderCalls;
+
+        controller.requestNearTop(true);
+        QCOMPARE(client.loadOlderCalls, calls + 1);
+        client.fullyFiltered = true;
+        client.beginLoading(kRoomA);
+        client.completeBatch(kRoomA, 0, false); // the filter ate the whole page
+        // Event-loop turns only, no wall-clock wait: far below the 250 ms the
+        // row-delivery delay would cost.
+        for (int i = 0; i < 3 && client.loadOlderCalls == calls + 1; ++i)
+            QCoreApplication::processEvents();
+        QVERIFY2(client.loadOlderCalls == calls + 2,
+                 "a fully filtered page still waited for rows that cannot arrive");
+        QCOMPARE(model.rowCount(), 4);
+    }
+
     void progressResetsNoProgressStrikes()
     {
         FakeClient client;

@@ -30,6 +30,9 @@ private Q_SLOTS:
     void removesStoreSymlinkWithoutFollowingIt();
     void reportsPartialRemovalFailure();
     void removalTakesEveryStoreThatHoldsMessageText();
+    void removalRetriesAStoreThatIsStillOpen();
+    void aStoreThatStaysOpenIsReportedFailedNeverRemoved();
+    void retriesShareOneBudgetAcrossEveryDirectory();
 
 private:
     bool writeFile(const QString &path, const QByteArray &contents = "fixture");
@@ -419,6 +422,112 @@ void AppDataPathsTest::reportsPartialRemovalFailure()
     QCOMPARE(summary.failed, 1);
     QVERIFY(QFileInfo::exists(identity.accountRoot + QStringLiteral("/cache.sqlite")));
     QVERIFY(QDir(identity.rustSmokeSessionPath).removeRecursively());
+}
+
+namespace {
+// Stands in for Windows refusing to delete a file another handle has open
+// (matrix-sdk opens its SQLite files without FILE_SHARE_DELETE): the first
+// `refusals` removals delete one file each and report failure, as
+// QDir::removeRecursively() does on a partly locked tree; later ones remove
+// the directory for real.
+struct HeldOpen {
+    int refusals = 0;
+    int calls = 0;
+};
+
+bool heldOpenRemove(const QString &path, void *ctx)
+{
+    auto *held = static_cast<HeldOpen *>(ctx);
+    ++held->calls;
+    if (held->calls <= held->refusals) {
+        const QStringList names = QDir(path).entryList(QDir::Files);
+        if (!names.isEmpty())
+            QFile::remove(path + QLatin1Char('/') + names.first());
+        return false;
+    }
+    return QDir(path).removeRecursively();
+}
+} // namespace
+
+void AppDataPathsTest::removalRetriesAStoreThatIsStillOpen()
+{
+    // Sign-out on Windows reported "cleanup_incomplete" because the store was
+    // deleted while a retiring client still had it open. A handle that closes
+    // a moment later must not fail the removal.
+    matrix::app_data::AccountIdentity identity;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://heldopen.example"), QStringLiteral("alice"),
+        &identity));
+    for (const char *name : {"matrix-sdk-state.sqlite3",
+                             "matrix-sdk-crypto.sqlite3",
+                             "matrix-sdk-event-cache.sqlite3"})
+        QVERIFY(writeFile(identity.rustStorePath + QLatin1Char('/')
+                          + QLatin1String(name)));
+
+    HeldOpen held;
+    held.refusals = 2;
+    const auto summary = matrix::app_data::removeAccountRustStateWith(
+        identity, &heldOpenRemove, &held, 4, 0);
+    QCOMPARE(held.calls, 3);
+    QVERIFY2(summary.ok(), "a store released a moment later failed the removal");
+    QVERIFY(summary.removedAnything());
+    QVERIFY(!QFileInfo::exists(identity.rustStorePath));
+}
+
+void AppDataPathsTest::aStoreThatStaysOpenIsReportedFailedNeverRemoved()
+{
+    // CLAUDE.md §6: a cleanup that did not remove the store must not report
+    // success, even though some files inside it were deleted.
+    matrix::app_data::AccountIdentity identity;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://stillopen.example"), QStringLiteral("alice"),
+        &identity));
+    for (const char *name : {"a.sqlite3", "b.sqlite3", "c.sqlite3",
+                             "d.sqlite3", "e.sqlite3"})
+        QVERIFY(writeFile(identity.rustStorePath + QLatin1Char('/')
+                          + QLatin1String(name)));
+
+    HeldOpen held;
+    held.refusals = 1000;
+    const auto summary = matrix::app_data::removeAccountRustStateWith(
+        identity, &heldOpenRemove, &held, 3, 0);
+    QCOMPARE(held.calls, 3);
+    QVERIFY(!summary.ok());
+    QCOMPARE(summary.failed, 1);
+    QCOMPARE(summary.deleted, 0);
+    QVERIFY(!summary.removedAnything());
+    QVERIFY(QFileInfo::exists(identity.rustStorePath));
+    QVERIFY(QDir(identity.rustStorePath).removeRecursively());
+}
+
+void AppDataPathsTest::retriesShareOneBudgetAcrossEveryDirectory()
+{
+    // The removal runs on the GUI thread: a store and its quarantined siblings
+    // that all stay locked must not each get the full retry ladder. Six tries
+    // 20 ms apart is a 100 ms budget for the whole removal; per directory it
+    // would be twelve calls here.
+    matrix::app_data::AccountIdentity identity;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://budget.example"), QStringLiteral("alice"),
+        &identity));
+    QVERIFY(writeFile(identity.rustStorePath + QStringLiteral("/a.sqlite3")));
+    const QString sibling = identity.rustStorePath
+        + QStringLiteral(".orphaned-20260101-000000000");
+    QVERIFY(writeFile(sibling + QStringLiteral("/b.sqlite3")));
+
+    HeldOpen held;
+    held.refusals = 1000;
+    const auto summary = matrix::app_data::removeAccountRustStateWith(
+        identity, &heldOpenRemove, &held, 6, 20);
+    QCOMPARE(summary.failed, 2);
+    QCOMPARE(summary.deleted, 0);
+    QVERIFY2(held.calls <= 7,
+             qPrintable(QStringLiteral("%1 removal calls: the retry budget is "
+                                       "per directory, not per removal")
+                            .arg(held.calls)));
+    QVERIFY(held.calls >= 2); // the store itself was retried at least once
+    QVERIFY(QDir(identity.rustStorePath).removeRecursively());
+    QVERIFY(QDir(sibling).removeRecursively());
 }
 
 QTEST_MAIN(AppDataPathsTest)

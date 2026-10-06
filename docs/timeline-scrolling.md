@@ -416,6 +416,26 @@ is that fixture now. GENERALISE: before concluding a defect is untestable,
 check whether the harness can even REPRESENT the input. Detail in
 `docs/round-history.md`, 2026-09-16.
 
+**A FILTERED RUN IS WALKED INSIDE ONE REQUEST (2026-10-06).** The fixes above
+made a page the filter emptied cheap in C++, but each one was still a round
+trip of about twenty events, because `paginate_backwards` serves ONE STORED
+CHUNK per call: a 2026-10-04 log shows a room making ~20 pages with `added= 0`
+while `droppedRtc` climbed to ~987 and `nextBatch` said 60 or 180.
+`rust/src/pagewalk.rs` keeps paging inside one bridge request while the pages
+bring no event the timeline would show, with the SAME count, at most 8 chunks
+and 1 s per request, so one near-top gesture covers ~1,900 filtered events
+instead of ~240. Measured live on `lt-longcall`: a re-open crossed 156 churn
+events in ONE request (`walkedPages= 6`, 0.4 s) and reached the start. **It is
+not page doubling**: it stops on the first chunk that brings anything shown,
+so a request still inserts at most one ordinary page of rows. **And it reads
+what a page brought from the EVENT CACHE's update stream, never from the
+timeline's item count**: the event cache sends a pagination's update before
+`paginate_backwards` returns, while the timeline applies it on its own task
+later, so a count taken right after a page can still be the old one and a page
+of real messages looks empty. A fully filtered near-top page also continues on
+the next event-loop turn instead of after the 250 ms row-delivery wait, since
+no row can arrive from it.
+
 ## A landing sets follow-latest from where it lands (2026-09-29)
 
 **Reported (Flathub 0.9.9):** after alt-tabbing back in, a message on screen

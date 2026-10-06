@@ -154,7 +154,25 @@ bool isSafeAccountIdentity(const AccountIdentity &identity);
 // Remove only account-local Rust SDK state. cache.sqlite and every other file
 // under the account directory are deliberately preserved. Missing targets
 // count as successful/idempotent cleanup.
+//
+// On Windows a file that is still open cannot be deleted (matrix-sdk opens its
+// SQLite files without FILE_SHARE_DELETE), and the last handle of a retiring
+// client can close a moment after the caller's wait. There, a failed directory
+// removal is retried briefly, ~1.5 s for the whole removal; elsewhere an open
+// file can be unlinked, so a failure is not retried. What is still there
+// afterwards counts as `failed`, never as removed.
 RemovalSummary removeAccountRustState(const AccountIdentity &identity);
+
+// The same, with the directory-removal primitive, the retry count and the
+// pause between tries injectable. Public so a test can simulate a sharing
+// violation on a POSIX host; production code calls removeAccountRustState().
+// `removeDir` returns true only when the directory is gone. Each directory
+// gets at most `attempts` tries, and the WHOLE removal (store and every
+// quarantined sibling together) pauses at most (attempts - 1) * retryDelayMs.
+using RemoveDirFn = bool (*)(const QString &path, void *ctx);
+RemovalSummary removeAccountRustStateWith(const AccountIdentity &identity,
+                                          RemoveDirFn removeDir, void *ctx,
+                                          int attempts, int retryDelayMs);
 
 // Removes ONLY identity.rustStorePath: the store a failed sign-in attempt
 // created and opened. No sibling quarantine (`.orphaned-*`, which may hold the

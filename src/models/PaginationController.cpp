@@ -739,8 +739,13 @@ void PaginationController::scheduleNearTopContinuation()
     // Deferred so this batch's completion and anchor restore settle first. The
     // generation/active/room/bound re-checks cancel it cleanly on a room
     // switch, sign-out or re-arm. The delay allows one more bridge poll so the
-    // growth re-check can see late item diffs.
-    QTimer::singleShot(m_nearTopContinuationDelayMs, this,
+    // growth re-check can see late item diffs; after a page the timeline
+    // filter emptied there are none to wait for (the same hint that skips the
+    // completion settle), so it only yields to the event loop. Waiting anyway
+    // made a filtered MatrixRTC run cost 250 ms per page on top of the page.
+    const bool nothingCanArrive = m_client
+        && m_client->lastPaginationFullyFiltered(m_roomId);
+    QTimer::singleShot(nothingCanArrive ? 0 : m_nearTopContinuationDelayMs, this,
                        [this, generation, rowsAtDispatch] {
         if (generation != m_generation) {
             // A room switch, reset or sign-out already cleared the flag; this

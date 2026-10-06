@@ -137,6 +137,11 @@ public:
     // maxInvisibleFillRetries: all three face long runs of filtered history.
     // Continues only when the backend advanced and the mirror gained nothing,
     // and still stops at the start of history or on any inserted row.
+    //
+    // A "page" here is one request. The Rust bridge walks up to
+    // pagewalk::FILTERED_RUN_WALK SDK chunks inside one request while they add
+    // nothing (rust/src/pagewalk.rs), so on that backend one empty page means
+    // up to ~160 filtered events, not ~20.
     static constexpr int kMaxNearTopEmptyStrikes = 12;
     static constexpr int kNavigationMessageDurationMs = 3000;
 

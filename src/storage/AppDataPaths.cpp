@@ -4,6 +4,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QLatin1Char>
@@ -403,22 +404,107 @@ bool isSafeAccountIdentity(const AccountIdentity &identity)
     return !accountInfo.isSymLink();
 }
 
+namespace {
+Q_LOGGING_CATEGORY(lcStoreRemoval, "matrix.appdatapaths.removal")
+
+bool defaultRemoveDir(const QString &path, void *)
+{
+    return QDir(path).removeRecursively();
+}
+
+// One removal's retry allowance, shared by every directory it removes: the
+// whole removal waits at most (attempts - 1) * retryDelayMs in total, however
+// many quarantined siblings fail, because it runs on the GUI thread.
+struct RetryBudget {
+    QElapsedTimer clock;
+    qint64 totalMs = 0;
+    int attempts = 1;
+    int retryDelayMs = 0;
+
+    // Without a pause there is nothing to bound in time; `attempts` alone
+    // limits the tries.
+    bool allowsAnotherTry() const
+    {
+        return retryDelayMs == 0 || clock.elapsed() + retryDelayMs <= totalMs;
+    }
+};
+
+// Removes one store directory, retrying while something still holds a file in
+// it. QDir::removeRecursively() deletes what it can and leaves the rest, so a
+// later try only has to finish the job. Counts `deleted` only when the
+// directory is really gone afterwards, and `failed` otherwise: a partial
+// removal is never reported as a removal.
+void removeStoreDirWithRetry(const QString &path, RemoveDirFn removeDir,
+                             void *ctx, const RetryBudget &budget,
+                             RemovalSummary *summary)
+{
+    const int tries = qMax(1, budget.attempts);
+    int attempt = 0;
+    for (; attempt < tries; ++attempt) {
+        if (attempt > 0) {
+            if (!budget.allowsAnotherTry())
+                break;
+            if (budget.retryDelayMs > 0)
+                QThread::msleep(static_cast<unsigned long>(budget.retryDelayMs));
+        }
+        if (removeDir(path, ctx) && !QFileInfo::exists(path)) {
+            ++summary->deleted;
+            if (attempt > 0) {
+                // Counts only: a path contains the account's localpart.
+                qCInfo(lcStoreRemoval)
+                    << "store removed after retrying attempts=" << attempt + 1;
+            }
+            return;
+        }
+    }
+    qCWarning(lcStoreRemoval)
+        << "store could not be removed (still in use, or not writable)"
+        << "attempts=" << attempt;
+    ++summary->failed;
+}
+} // namespace
+
 RemovalSummary removeAccountRustState(const AccountIdentity &identity)
 {
+#ifdef Q_OS_WIN
+    // Windows only: a file still open elsewhere cannot be deleted there, and a
+    // handle that closes a moment after the caller's retirement wait (a
+    // deferred SQLite close, an antivirus scan) is released within this. Up to
+    // six tries 300 ms apart, ~1.5 s for the WHOLE removal, as
+    // quarantineRustStore().
+    return removeAccountRustStateWith(identity, &defaultRemoveDir, nullptr, 6,
+                                      300);
+#else
+    // Elsewhere an open file can be unlinked, so a failure is a permission or
+    // filesystem problem that waiting does not fix: one try.
+    return removeAccountRustStateWith(identity, &defaultRemoveDir, nullptr, 1,
+                                      0);
+#endif
+}
+
+RemovalSummary removeAccountRustStateWith(const AccountIdentity &identity,
+                                          RemoveDirFn removeDir, void *ctx,
+                                          int attempts, int retryDelayMs)
+{
     RemovalSummary summary;
-    if (!isSafeAccountIdentity(identity)) {
+    if (!isSafeAccountIdentity(identity) || !removeDir) {
         summary.failed = 1;
         return summary;
     }
+    RetryBudget budget;
+    budget.attempts = qMax(1, attempts);
+    budget.retryDelayMs = qMax(0, retryDelayMs);
+    budget.totalMs = qint64(budget.attempts - 1) * budget.retryDelayMs;
+    budget.clock.start();
 
     const QFileInfo storeInfo(identity.rustStorePath);
     if (!storeInfo.exists() && !storeInfo.isSymLink()) {
         ++summary.missing;
     } else if (storeInfo.isSymLink()) {
         removeFileOrLink(identity.rustStorePath, &summary);
-    } else if (storeInfo.isDir()
-               && QDir(identity.rustStorePath).removeRecursively()) {
-        ++summary.deleted;
+    } else if (storeInfo.isDir()) {
+        removeStoreDirWithRetry(identity.rustStorePath, removeDir, ctx, budget,
+                                &summary);
     } else {
         ++summary.failed;
     }
@@ -442,10 +528,9 @@ RemovalSummary removeAccountRustState(const AccountIdentity &identity)
     for (const QFileInfo &entry : quarantined) {
         if (entry.isSymLink())
             removeFileOrLink(entry.absoluteFilePath(), &summary);
-        else if (QDir(entry.absoluteFilePath()).removeRecursively())
-            ++summary.deleted;
         else
-            ++summary.failed;
+            removeStoreDirWithRetry(entry.absoluteFilePath(), removeDir, ctx,
+                                    budget, &summary);
     }
     return summary;
 }
