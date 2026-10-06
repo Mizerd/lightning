@@ -402,8 +402,10 @@ the user did not specify. Lightning does not: the homeserver is the one the user
 types in when signing in, GIF providers are contacted only while the user is
 using the GIF picker, link previews are off by default and each one is a
 deliberate action, there is no telemetry, analytics or crash reporting to opt
-out of, and update checks are off until the user switches them on. Adding a
-consent dialog for transfers that do not happen would be noise, not disclosure.
+out of, and the update check, on by default, is an anonymous fetch of two
+public files that carries no personal data and can be turned off in Settings →
+Updates. Adding a consent dialog for transfers that do not happen would be
+noise, not disclosure.
 The policy is instead linked from the project home page and from every release
 page, and the controls that do matter
 live in **Settings → Privacy & security**. If Lightning ever gains a background
