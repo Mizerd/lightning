@@ -1,6 +1,7 @@
 #include "spaces/SpaceManager.h"
 
 #include "matrix/MatrixClient.h"
+#include "matrix/RoomUnreadRule.h"
 
 SpaceManager::SpaceManager(QObject *parent)
     : QAbstractListModel(parent)
@@ -760,8 +761,30 @@ bool SpaceManager::roomInAnySpace(const QString &roomId) const
     return m_spaceChildRoomIds.contains(roomId);
 }
 
+void SpaceManager::setNotificationModeSource(
+    std::function<int(const QString &)> modeOf)
+{
+    m_modeOf = std::move(modeOf);
+    notificationModesChanged();
+}
+
+void SpaceManager::notificationModesChanged()
+{
+    rebuild();
+}
+
 void SpaceManager::rebuild()
 {
+    // What a room contributes to a rollup: nothing when it is muted.
+    const auto modeOf = [this](const QString &id) {
+        return m_modeOf ? m_modeOf(id) : roomunread::kModeAllMessages;
+    };
+    const auto unreadOf = [&](const RoomInfo &r) {
+        return modeOf(r.id) == roomunread::kModeMute ? 0 : r.unreadCount;
+    };
+    const auto highlightOf = [&](const RoomInfo &r) {
+        return roomunread::mentionCount(r, modeOf(r.id));
+    };
     beginResetModel();
     m_spaces.clear();
     m_membership.clear();
@@ -789,11 +812,11 @@ void SpaceManager::rebuild()
         if (!r.isSpace && r.membership == RoomInfo::Joined) {
             m_allRoomIds.insert(r.id);
             // Home's total is the whole account, as Classic's Home lists it.
-            m_homeUnreadTotal += r.unreadCount;
-            m_homeHighlightTotal += r.highlightCount;
+            m_homeUnreadTotal += unreadOf(r);
+            m_homeHighlightTotal += highlightOf(r);
             if (r.isDirect) {
-                m_peopleUnreadTotal += r.unreadCount;
-                m_peopleHighlightTotal += r.highlightCount;
+                m_peopleUnreadTotal += unreadOf(r);
+                m_peopleHighlightTotal += highlightOf(r);
             }
         }
     }
@@ -822,8 +845,8 @@ void SpaceManager::rebuild()
             }
             if (it->membership != RoomInfo::Joined) continue;
             e.childRoomIds.append(childId);
-            e.unreadTotal += it->unreadCount;
-            e.highlightTotal += it->highlightCount;
+            e.unreadTotal += unreadOf(*it);
+            e.highlightTotal += highlightOf(*it);
             m_membership[r.id].insert(childId);
         }
         // Direct child rooms. Channels' "Rooms" group is the complement, so
@@ -852,8 +875,8 @@ void SpaceManager::rebuild()
             continue;
         if (m_spaceChildRoomIds.contains(roomId))
             continue;
-        m_unparentedUnreadTotal += it->unreadCount;
-        m_unparentedHighlightTotal += it->highlightCount;
+        m_unparentedUnreadTotal += unreadOf(*it);
+        m_unparentedHighlightTotal += highlightOf(*it);
     }
 
     resolveHierarchy(byId);
@@ -1042,8 +1065,13 @@ bool lobbyMatches(const QString &needle, const QString &name,
 QVariantMap lobbyRow(const QString &id, const QString &parentId,
                      const QString &homeId,
                      const QHash<QString, RoomInfo> &byId,
-                     const QHash<QString, QVariantMap> &meta)
+                     const QHash<QString, QVariantMap> &meta,
+                     const std::function<int(const QString &)> &modeOf)
 {
+    // A muted room is silent: no unread, no count, no mention.
+    const auto roomMode = [&](const QString &roomId) {
+        return modeOf ? modeOf(roomId) : roomunread::kModeAllMessages;
+    };
     // Selectable only where the Home's own m.space.child names it: a row
     // only /hierarchy knows has no event here that Remove could change.
     const auto home = byId.constFind(homeId);
@@ -1090,9 +1118,12 @@ QVariantMap lobbyRow(const QString &id, const QString &parentId,
               h.value(QStringLiteral("childrenCount")).toLongLong() },
             // ONE unread rule for the row badge and the section total.
             { QStringLiteral("hasUnread"),
-              it->hasUnreadMessages || it->unreadCount > 0 },
-            { QStringLiteral("unreadCount"), it->unreadCount },
-            { QStringLiteral("highlightCount"), it->highlightCount },
+              roomMode(id) != roomunread::kModeMute
+                  && (it->hasUnreadMessages || it->unreadCount > 0) },
+            { QStringLiteral("unreadCount"),
+              roomMode(id) == roomunread::kModeMute ? 0 : it->unreadCount },
+            { QStringLiteral("highlightCount"),
+              roomunread::mentionCount(*it, roomMode(id)) },
             { QStringLiteral("membership"), QStringLiteral("joined") },
             { QStringLiteral("joinRule"), QString() },
             { QStringLiteral("via"), QStringList() },
@@ -1142,7 +1173,8 @@ QVariantMap lobbyRow(const QString &id, const QString &parentId,
 QVariantList SpaceManager::buildLobbySections(
     const QString &spaceId, const QHash<QString, RoomInfo> &byId,
     const QVariantMap &hierarchyBySpace, const QString &filter,
-    const QSet<QString> &collapsedSections)
+    const QSet<QString> &collapsedSections,
+    const std::function<int(const QString &)> &modeOf)
 {
     QVariantList out;
     if (spaceId.isEmpty())
@@ -1175,7 +1207,7 @@ QVariantList SpaceManager::buildLobbySections(
             if (isRoot && isJoinedSpace(byId, id))
                 continue;
             const QVariantMap row =
-                lobbyRow(id, sectionSpaceId, spaceId, byId, meta);
+                lobbyRow(id, sectionSpaceId, spaceId, byId, meta, modeOf);
             if (row.isEmpty())
                 continue;
             if (row.value(QStringLiteral("isSpace")).toBool())
@@ -1303,7 +1335,7 @@ QVariantList SpaceManager::lobbySections(const QString &spaceId,
     for (const RoomInfo &room : rooms)
         byId.insert(room.id, room);
     return buildLobbySections(spaceId, byId, hierarchyBySpace, filter,
-                              m_lobbyCollapsed.value(spaceId));
+                              m_lobbyCollapsed.value(spaceId), m_modeOf);
 }
 
 QStringList SpaceManager::lobbySubspaceIds(const QString &spaceId) const

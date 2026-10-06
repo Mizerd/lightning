@@ -39,6 +39,12 @@ public:
     // otherwise "1".."9" or "9+". Static so it is testable without a tray.
     static QString badgeLabel(int count, bool anyUnread);
 
+    // The colour badge painted on `base` (a red disc in the bottom-right
+    // corner, with the label). Geometry is in the pixmap's device-independent
+    // units, so it stays inside the pixmap at any devicePixelRatio. Static so
+    // it is testable without a tray.
+    static QPixmap badged(const QPixmap &base, const QString &label);
+
     // Badges a macOS menu-bar TEMPLATE image. AppKit reads only the alpha
     // channel and recolours it per appearance, so the badge is a cleared moat,
     // an opaque disc and a knocked-out digit. Qt's cocoa backend maps

@@ -22,7 +22,9 @@ const QColor kBadgeInk = QColor(0xFF, 0xFF, 0xFF);
 // Several sizes so the tray host picks a sharp one instead of scaling.
 constexpr int kBadgeSizes[] = { 16, 22, 24, 32, 48, 64 };
 
-QPixmap withBadge(const QPixmap &base, const QString &label)
+} // namespace
+
+QPixmap TrayIcon::badged(const QPixmap &base, const QString &label)
 {
     if (base.isNull() || label.isEmpty())
         return base;
@@ -30,10 +32,17 @@ QPixmap withBadge(const QPixmap &base, const QString &label)
     QPainter painter(&out);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    const qreal side = qMin(out.width(), out.height());
+    // QPainter on a pixmap works in device-independent units (it scales by
+    // devicePixelRatio itself), so the geometry must be derived from the
+    // LOGICAL size. At a non-1 ratio (interface zoom) QIcon::pixmap() returns
+    // size*dpr physical pixels, and using those here pushes the disc past
+    // the corner and clips it (#23).
+    const qreal dpr = out.devicePixelRatio() > 0 ? out.devicePixelRatio() : 1.0;
+    const QSizeF logical(out.width() / dpr, out.height() / dpr);
+    const qreal side = qMin(logical.width(), logical.height());
     const bool dotOnly = (label == QStringLiteral("\u2022"));
     const qreal diameter = dotOnly ? side * 0.42 : side * 0.62;
-    const QRectF circle(out.width() - diameter, out.height() - diameter,
+    const QRectF circle(logical.width() - diameter, logical.height() - diameter,
                         diameter, diameter);
 
     painter.setPen(Qt::NoPen);
@@ -51,7 +60,6 @@ QPixmap withBadge(const QPixmap &base, const QString &label)
     return out;
 }
 
-} // namespace
 
 QPixmap TrayIcon::macTemplateBadged(const QPixmap &base, const QString &label)
 {
@@ -73,11 +81,15 @@ QPixmap TrayIcon::macTemplateBadged(const QPixmap &base, const QString &label)
     QPainter painter(&image);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    const qreal side = qMin(image.width(), image.height());
+    // Logical units, as in badged(): the painter scales by the ratio itself.
+    const qreal dpr =
+        image.devicePixelRatio() > 0 ? image.devicePixelRatio() : 1.0;
+    const QSizeF logical(image.width() / dpr, image.height() / dpr);
+    const qreal side = qMin(logical.width(), logical.height());
     const bool dotOnly = (label == QStringLiteral("\u2022"));
     const qreal diameter = dotOnly ? side * 0.42 : side * 0.62;
-    const QRectF circle(image.width() - diameter, image.height() - diameter,
-                        diameter, diameter);
+    const QRectF circle(logical.width() - diameter,
+                        logical.height() - diameter, diameter, diameter);
 
     // Clear a moat first: in a template, badge and mark share one ink and
     // would fuse where they touch.
@@ -261,7 +273,7 @@ void TrayIcon::refreshIcon()
         const QPixmap pixmap = base.pixmap(QSize(size, size));
         if (pixmap.isNull())
             continue;
-        badged.addPixmap(withBadge(pixmap, label));
+        badged.addPixmap(TrayIcon::badged(pixmap, label));
     }
     // An empty QIcon would clear the tray entry.
     m_icon->setIcon(badged.isNull() ? base : badged);

@@ -998,6 +998,42 @@ private Q_SLOTS:
         QCOMPARE(h.model.unseenCount(), 0);
     }
 
+    // A muted room is silent everywhere (as Element): its rows are hidden from
+    // the bell and its badge, not dropped, so unmuting brings them back.
+    void aMutedRoomIsHiddenFromTheBellAndTheBadgeUntilUnmuted()
+    {
+        Harness h;
+        int mode = 0;
+        h.model.setNotificationModeSource(
+            [&mode](const QString &) { return mode; });
+        TimelineEvent mention = text(QStringLiteral("$m1"),
+                                     QStringLiteral("@bob:mock.local"),
+                                     QStringLiteral("hey @me"),
+                                     QDateTime::currentMSecsSinceEpoch() - 5000);
+        mention.mentionsMe = true;
+        QVERIFY(h.model.ingest(mention, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.count(), 1);
+        QCOMPARE(h.model.unseenCount(), 1);
+
+        mode = 2;   // muted: the row is hidden and uncounted
+        h.model.notificationModesChanged();
+        QCOMPARE(h.model.count(), 0);
+        QCOMPARE(h.model.unseenCount(), 0);
+
+        // A new mention in the muted room is kept but hidden too.
+        TimelineEvent again = mention;
+        again.eventId = QStringLiteral("$m2");
+        again.timestamp = QDateTime::currentDateTime();
+        QVERIFY(h.model.ingest(again, QStringLiteral("Lounge")));
+        QCOMPARE(h.model.count(), 0);
+        QCOMPARE(h.model.unseenCount(), 0);
+
+        mode = 0;   // unmuted: both rows are back and counted
+        h.model.notificationModesChanged();
+        QCOMPARE(h.model.count(), 2);
+        QCOMPARE(h.model.unseenCount(), 2);
+    }
+
     void markingARoomReadClearsItsThreadRowsToo()
     {
         Harness h;

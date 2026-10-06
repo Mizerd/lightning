@@ -759,6 +759,155 @@ private Q_SLOTS:
         QCOMPARE(controller.state(), ThreadController::Ready);
     }
 
+    // The Activity bell hears of a thread read only once the homeserver
+    // accepted it, as the main room's mark-as-read does. A failed receipt
+    // must leave the rows (it used to clear them on the request). Answers
+    // are matched on the request id the backend echoes, never on arrival
+    // order: each receipt is its own task and they can complete out of order.
+    void threadReadReachesTheBellOnlyWhenTheServerAccepts()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.setAutoAcceptThreadReadsForTest(false);
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QSignalSpy sent(&controller, &ThreadController::threadReadSent);
+
+        // Requested, not yet answered: nothing is announced.
+        controller.markRead();
+        QCOMPARE(client.markThreadReadCallsForTest(), 1);
+        QCOMPARE(sent.count(), 0);
+        const quint64 first = client.threadReadOpIdsForTest().at(0);
+
+        // Rejected by the server: still nothing, and a late acceptance of the
+        // same request (no longer pending) announces nothing either.
+        Q_EMIT client.threadMarkReadFailed(kGeneral, rootId, first);
+        Q_EMIT client.threadReadMarkerAdvanced(kGeneral, rootId, first);
+        QCOMPARE(sent.count(), 0);
+
+        // A new reply, a new receipt, accepted: announced once, for the thread.
+        controller.sendText(QStringLiteral("advance latest"));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.model()->rowCount() >= 4, kSignalTimeoutMs);
+        controller.markRead();
+        QCOMPARE(sent.count(), 0);
+        const quint64 second = client.threadReadOpIdsForTest().at(1);
+        // An answer for an unknown request releases nothing.
+        Q_EMIT client.threadReadMarkerAdvanced(kGeneral, rootId, second + 100);
+        QCOMPARE(sent.count(), 0);
+        Q_EMIT client.threadReadMarkerAdvanced(kGeneral, rootId, second);
+        QCOMPARE(sent.count(), 1);
+        QCOMPARE(sent.first().at(0).toString(), kGeneral);
+        QCOMPARE(sent.first().at(1).toString(), rootId);
+    }
+
+    // Two receipts in flight for one thread, answered OUT OF ORDER (B before
+    // A): each answer releases its own request's timestamp, whichever arrives
+    // first, and B's acceptance does not consume A's entry.
+    void threadReadAcksAreMatchedToTheirOwnRequestInAnyOrder()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.setAutoAcceptThreadReadsForTest(false);
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QSignalSpy sent(&controller, &ThreadController::threadReadSent);
+
+        qint64 ms1 = 0;
+        controller.model()->latestReadableEventId(&ms1);
+        controller.markRead();                                   // request A
+        controller.sendText(QStringLiteral("second"));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.model()->rowCount() >= 4, kSignalTimeoutMs);
+        qint64 ms2 = 0;
+        controller.model()->latestReadableEventId(&ms2);
+        QVERIFY2(ms2 > ms1, "the fixture's second reply is newer");
+        controller.markRead();                                   // request B
+        const QList<quint64> ops = client.threadReadOpIdsForTest();
+        QCOMPARE(ops.size(), 2);
+        QVERIFY(ops.at(0) != ops.at(1));
+
+        // B answers first: B's own time is announced, not A's.
+        Q_EMIT client.threadReadMarkerAdvanced(kGeneral, rootId, ops.at(1));
+        QCOMPARE(sent.count(), 1);
+        QCOMPARE(sent.at(0).at(2).toLongLong(), ms2);
+        // A then answers: A's own time.
+        Q_EMIT client.threadReadMarkerAdvanced(kGeneral, rootId, ops.at(0));
+        QCOMPARE(sent.count(), 2);
+        QCOMPARE(sent.at(1).at(2).toLongLong(), ms1);
+    }
+
+    // A failure removes only ITS request, and the dedupe is re-armed only when
+    // the failed receipt covered the newest reply.
+    void aFailedThreadReadKeepsTheOtherAndIsRetried()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        client.setAutoAcceptThreadReadsForTest(false);
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QSignalSpy sent(&controller, &ThreadController::threadReadSent);
+
+        controller.markRead();                                   // A
+        controller.sendText(QStringLiteral("second"));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.model()->rowCount() >= 4, kSignalTimeoutMs);
+        qint64 ms2 = 0;
+        controller.model()->latestReadableEventId(&ms2);
+        controller.markRead();                                   // B
+        const QList<quint64> ops = client.threadReadOpIdsForTest();
+        // B answers, then A (older) FAILS: B's announcement stands.
+        Q_EMIT client.threadReadMarkerAdvanced(kGeneral, rootId, ops.at(1));
+        QCOMPARE(sent.count(), 1);
+        QCOMPARE(sent.at(0).at(2).toLongLong(), ms2);
+        Q_EMIT client.threadMarkReadFailed(kGeneral, rootId, ops.at(0));
+        QCOMPARE(sent.count(), 1);
+
+        // A failure of the request that covered the NEWEST reply re-arms the
+        // dedupe: the next markRead() sends it again.
+        const int callsBefore = client.markThreadReadCallsForTest();
+        controller.markRead();                    // deduplicated, nothing new
+        QCOMPARE(client.markThreadReadCallsForTest(), callsBefore);
+        controller.sendText(QStringLiteral("third"));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            controller.model()->rowCount() >= 5, kSignalTimeoutMs);
+        controller.markRead();                                   // C
+        QCOMPARE(client.markThreadReadCallsForTest(), callsBefore + 1);
+        Q_EMIT client.threadMarkReadFailed(
+            kGeneral, rootId, client.threadReadOpIdsForTest().last());
+        controller.markRead();                                   // retried
+        QCOMPARE(client.markThreadReadCallsForTest(), callsBefore + 2);
+    }
+
+    // The default backend (HTTP, no threaded receipt) accepts at once, so the
+    // bell is not left holding thread rows there.
+    void aBackendWithoutThreadReceiptsAcceptsImmediately()
+    {
+        MockMatrixClient client;   // auto-accept is the mock's default
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+        QSignalSpy sent(&controller, &ThreadController::threadReadSent);
+        controller.markRead();
+        QCOMPARE(sent.count(), 1);
+    }
+
     // Manual decryption retry: both the room and thread models dispatch
     // retryDecryption with their own timeline id (the Rust backend maps a
     // composite thread id onto its room and retries both).

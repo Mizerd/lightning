@@ -300,6 +300,32 @@ private Q_SLOTS:
         // The "+N" tail survives.
         QVERIFY(scope.contains(QStringLiteral("names not loaded")));
     }
+
+    // A muted room is silent everywhere (as the room list and Element): Home's
+    // "Jump back in" rows and the space lobby's rows draw no mention pill, no
+    // unread pill and no bold name for it. Source contract: both surfaces
+    // load without a settings object in their harnesses.
+    void mutedRoomsDrawNoPillOnHomeOrInTheLobby()
+    {
+        const QString home = normalized(
+            read(QStringLiteral(QML_DIR "/HomePane.qml")));
+        const QString lobby = normalized(
+            read(QStringLiteral(QML_DIR "/SpaceLobby.qml")));
+        for (const QString &src : {home, lobby}) {
+            QVERIFY(src.contains(QStringLiteral(
+                "app.settings.roomNotificationMode(id)")));
+            QVERIFY(src.contains(QStringLiteral("notificationMode === 2")));
+            QVERIFY(src.contains(QStringLiteral("onRoomNotificationModeChanged")));
+        }
+        QVERIFY(home.contains(QStringLiteral(
+            "visible: !recentRow.muted && (recentRow.modelData.highlightCount || 0) > 0")));
+        QVERIFY(home.contains(QStringLiteral(
+            "visible: !recentRow.muted && recentRow.modelData.hasUnread === true")));
+        QVERIFY(lobby.contains(QStringLiteral(
+            "visible: !row.muted && Number(row.modelData.highlightCount || 0) > 0")));
+        QVERIFY(lobby.contains(QStringLiteral(
+            "visible: !row.muted && row.modelData.hasUnread === true")));
+    }
 };
 
 QTEST_MAIN(ElementParityContractTest)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -324,6 +325,17 @@ private:
     bool m_followAutomatic = false;
     bool m_followBusy = false;
     QString m_lastMarkedReadEventId;
+    // Thread receipts sent and not yet answered by the server, by the request
+    // id each was sent with (the answers echo it, because separate receipts
+    // can complete out of order). Cleared on sign-out.
+    struct PendingThreadRead {
+        QString roomId;
+        QString rootId;
+        QString eventId;
+        qint64 timestampMs = 0;
+    };
+    QHash<quint64, PendingThreadRead> m_pendingThreadReads;
+    quint64 m_nextThreadReadId = 1;
     bool m_listOpen = false;
     bool m_listLoading = false;
     bool m_listEndReached = false;

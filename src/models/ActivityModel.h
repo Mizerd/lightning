@@ -77,6 +77,13 @@ public:
 
     void setClient(MatrixClient *client);
     void setStore(Store store);
+    /// A muted room is silent everywhere, the bell included (as Element): its
+    /// rows are HIDDEN, not dropped, so unmuting brings them back, and they
+    /// do not count toward the badge. `modeOf(roomId)` is the room's
+    /// notification mode (2 = muted); invites are never hidden.
+    void setNotificationModeSource(std::function<int(const QString &)> modeOf);
+    /// A room's notification mode changed: re-evaluate what is hidden.
+    void notificationModesChanged();
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -183,6 +190,7 @@ private:
     };
 
     bool isSeen(const Entry &e) const;
+    bool isMutedRoom(const Entry &e) const;
     /// Marking half of reconcileRoomsAgainstTheirReadState without signalling,
     /// so a batch emits once. True when a row changed.
     bool markRoomReadIfClear(const QString &roomId);
@@ -212,6 +220,8 @@ private:
     QSet<QString> m_ownEventIds;
     QList<QString> m_ownEventOrder; // bounded LRU order for m_ownEventIds
     QSet<QString> m_ownThreadRoots;
+    std::function<int(const QString &)> m_modeOf;
+    mutable QHash<QString, bool> m_muteCache; // cleared by notificationModesChanged()
     QString m_filter = QStringLiteral("all");
     QStringList m_keywords;
     qint64 m_seenUpToMs = 0;

@@ -3,6 +3,7 @@
 #include "matrix/RoomInfo.h"
 
 #include <QAbstractListModel>
+#include <functional>
 #include <QHash>
 #include <QList>
 #include <QObject>
@@ -180,7 +181,15 @@ public:
     static QVariantList buildLobbySections(
         const QString &spaceId, const QHash<QString, RoomInfo> &byId,
         const QVariantMap &hierarchyBySpace, const QString &filter,
-        const QSet<QString> &collapsedSections);
+        const QSet<QString> &collapsedSections,
+        const std::function<int(const QString &)> &modeOf = {});
+    /// Muted rooms are silent in every rollup (the Space badge, Home, People,
+    /// the lobby's counts), by the same rule as the room list
+    /// (matrix/RoomUnreadRule.h). `modeOf(roomId)` is the room's notification
+    /// mode; unset means nothing is muted.
+    void setNotificationModeSource(std::function<int(const QString &)> modeOf);
+    /// A room's mode changed: the totals are recomputed.
+    void notificationModesChanged();
     /// The joined direct child Spaces a lobby draws a section for, so the
     /// view can query /hierarchy for each. Includes every joined child Space,
     /// not only those whose primary parent this is.
@@ -300,6 +309,7 @@ private:
     // Rooms that are a direct child of at least one joined Space.
     QSet<QString> m_spaceChildRoomIds;
     QSet<QString> m_orphanRoomIds;          // Rooms not in any Space.
+    std::function<int(const QString &)> m_modeOf;
     int m_homeUnreadTotal = 0;
     int m_homeHighlightTotal = 0;
     // Joined direct messages.

@@ -198,14 +198,21 @@ public:
     void openThreadList(const QString &roomId) override;
     void closeThreadList() override;
     void paginateThreadList(const QString &roomId) override;
-    void markThreadRead(const QString &roomId,
-                        const QString &rootEventId) override
+    void markThreadRead(const QString &roomId, const QString &rootEventId,
+                        quint64 opId) override
     {
-        Q_UNUSED(roomId);
-        Q_UNUSED(rootEventId);
         ++m_markThreadReadCalls;
+        m_threadReadOpIds.append(opId);
+        // Accepted at once, like the base backend, unless a test holds the
+        // answer back to drive the server's reply itself.
+        if (m_autoAcceptThreadReads)
+            Q_EMIT threadReadMarkerAdvanced(roomId, rootEventId, opId);
     }
+    void setAutoAcceptThreadReadsForTest(bool on) { m_autoAcceptThreadReads = on; }
     int markThreadReadCallsForTest() const { return m_markThreadReadCalls; }
+    // The request ids markThreadRead() received, oldest first, so a test can
+    // answer them in any order.
+    QList<quint64> threadReadOpIdsForTest() const { return m_threadReadOpIds; }
     void retryDecryption(const QString &roomId) override
     {
         m_decryptionRetryRooms.append(roomId);
@@ -378,6 +385,8 @@ private:
     QString m_openThreadListRoom;
     QHash<QString, bool> m_threadSubscriptions; // roomId+"\x1f"+rootId → followed
     int m_markThreadReadCalls = 0;
+    QList<quint64> m_threadReadOpIds;
+    bool m_autoAcceptThreadReads = true;
     QStringList m_decryptionRetryRooms;
     void emitThreadList(const QString &roomId);
     // Thread attachment sending.

@@ -465,6 +465,29 @@ ColumnLayout {
                         delegate: Rectangle {
                             id: row
                             required property int index
+
+                            // Mute state, as RoomDelegate: a muted room is silent everywhere (as in
+                            // Element), so no mention pill, no unread pill, no bold name. Re-queried
+                            // when the id changes and when settings announce a write. `app` can be
+                            // undefined while a delegate is created inside a change handler.
+                            property int notificationMode: 0
+                            readonly property bool muted: notificationMode === 2
+                            function refreshNotificationMode() {
+                                if (typeof app === "undefined" || !app || !app.settings)
+                                    return
+                                var id = modelData.roomId || ""
+                                notificationMode = id.length > 0
+                                                   ? app.settings.roomNotificationMode(id) : 0
+                            }
+                            Component.onCompleted: refreshNotificationMode()
+                            onModelDataChanged: refreshNotificationMode()
+                            Connections {
+                                target: (typeof app !== "undefined" && app) ? app.settings : null
+                                function onRoomNotificationModeChanged(changedRoomId) {
+                                    if (changedRoomId === row.modelData.roomId)
+                                        row.refreshNotificationMode()
+                                }
+                            }
                             readonly property var modelData:
                                 (sectionItem.modelData.rows || [])[index]
                                 || ({})
@@ -537,7 +560,7 @@ ColumnLayout {
                                             color: AppTheme.text
                                             font.family: AppTheme.uiFont
                                             font.pixelSize: AppTheme.scaled(AppTheme.textBody)
-                                            font.weight: row.modelData.hasUnread === true
+                                            font.weight: (row.modelData.hasUnread === true && !row.muted)
                                                          ? AppTheme.weightBold
                                                          : AppTheme.weightMedium
                                             elide: Label.ElideRight
@@ -591,7 +614,8 @@ ColumnLayout {
                                     }
                                 }
                                 Rectangle {
-                                    visible: Number(row.modelData.highlightCount || 0) > 0
+                                    visible: !row.muted
+                                             && Number(row.modelData.highlightCount || 0) > 0
                                     radius: height / 2
                                     color: AppTheme.dangerFill
                                     implicitHeight: 18
@@ -607,7 +631,7 @@ ColumnLayout {
                                     }
                                 }
                                 Rectangle {
-                                    visible: row.modelData.hasUnread === true
+                                    visible: !row.muted && row.modelData.hasUnread === true
                                     radius: height / 2
                                     color: AppTheme.unreadBadge
                                     implicitHeight: 18

@@ -4,6 +4,7 @@
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+#include "matrix/RoomUnreadRule.h"
 #include "spaces/RailLayoutStore.h"
 #include "spaces/SpaceManager.h"
 
@@ -283,6 +284,10 @@ void SpaceChannelModel::setSettings(SettingsManager *settings)
         // loggedOut fires from detachSession() before the active account moves,
         // and its rebuild re-caches the outgoing account's set. This fires
         // after the move.
+        // A mute changes what a row says is unread (one rule with the room
+        // list, the rail and the tray).
+        connect(m_settings, &SettingsManager::roomNotificationModeChanged, this,
+                [this](const QString &) { scheduleRebuild(); });
         connect(m_settings, &SettingsManager::sessionChanged, this, [this] {
             m_collapsedLoaded = false;
             m_collapsed.clear();
@@ -683,12 +688,17 @@ SpaceChannelModel::Row SpaceChannelModel::roomRow(const RoomInfo &info) const
     // The lock glyph is a claim: drawn only for encryption the client knows
     // about.
     row.encrypted = info.encrypted && info.encryptionKnown;
-    row.unread = info.unreadCount;
-    row.highlight = info.highlightCount;
+    // A muted room is silent (counts, mentions and the dot); an invite never is.
+    const int mode = (m_settings && !row.isInvite)
+        ? m_settings->roomNotificationMode(info.id)
+        : roomunread::kModeAllMessages;
+    const bool muted = mode == roomunread::kModeMute;
+    row.unread = muted ? 0 : info.unreadCount;
+    row.highlight = roomunread::mentionCount(info, mode);
     // An invite always reads as unread: it is waiting on the user and has no
     // unread counters of its own.
-    row.hasUnread = row.isInvite || info.hasUnreadMessages || info.markedUnread
-                    || info.unreadCount > 0 || info.highlightCount > 0;
+    row.hasUnread = row.isInvite
+                    || roomunread::countsAsUnread(info, mode);
     row.favourite = info.isFavourite;
     // The stamp the row is ordered by, which is not always the live one.
     row.lastActivity = m_hold.keyFor(info.id, info.lastActivity);

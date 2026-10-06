@@ -437,6 +437,26 @@ private Q_SLOTS:
         QCOMPARE(row[kGrand].value(QStringLiteral("childCount")).toInt(), 1);
     }
 
+    // A muted room is silent in the lobby: no unread dot or count on its row
+    // and none in its section's total ("3 unread" counted it before).
+    void aMutedRoomIsSilentInTheLobbyRollup()
+    {
+        const auto muteA1 = [](const QString &id) { return id == kA1 ? 2 : 0; };
+        const QVariantList secs = SpaceManager::buildLobbySections(
+            kHome, byId(lobbyRooms()), lobbyHierarchy(), QString(), {}, muteA1);
+        QVariantMap row;
+        for (const QVariant &sec : secs)
+            for (const QVariant &r : sec.toMap().value(QStringLiteral("rows")).toList())
+                if (r.toMap().value(QStringLiteral("roomId")).toString() == kA1)
+                    row = r.toMap();
+        QVERIFY(!row.isEmpty());
+        QVERIFY(!row.value(QStringLiteral("hasUnread")).toBool());
+        QCOMPARE(row.value(QStringLiteral("unreadCount")).toInt(), 0);
+        QCOMPARE(row.value(QStringLiteral("highlightCount")).toInt(), 0);
+        QVERIFY(!secs.at(1).toMap().value(QStringLiteral("hasUnread")).toBool());
+        QCOMPARE(secs.at(1).toMap().value(QStringLiteral("unreadTotal")).toInt(), 0);
+    }
+
     void lobbySectionCountsRoomsAndSpacesSeparately()
     {
         const QVariantList secs = sections();

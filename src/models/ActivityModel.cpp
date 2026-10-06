@@ -214,11 +214,38 @@ bool ActivityModel::isSeen(const Entry &e) const
     return e.seenMark || (e.timestampMs > 0 && e.timestampMs <= m_seenUpToMs);
 }
 
+bool ActivityModel::isMutedRoom(const Entry &e) const
+{
+    // An invite names a room the user is not in yet, which has no mode.
+    if (!m_modeOf || e.kind == QLatin1String("invite") || e.roomId.isEmpty())
+        return false;
+    const auto cached = m_muteCache.constFind(e.roomId);
+    if (cached != m_muteCache.constEnd())
+        return *cached;
+    const bool muted = m_modeOf(e.roomId) == 2;
+    m_muteCache.insert(e.roomId, muted);
+    return muted;
+}
+
+void ActivityModel::setNotificationModeSource(
+    std::function<int(const QString &)> modeOf)
+{
+    m_modeOf = std::move(modeOf);
+    notificationModesChanged();
+}
+
+void ActivityModel::notificationModesChanged()
+{
+    m_muteCache.clear();
+    rebuildVisible();
+    Q_EMIT unseenCountChanged();
+}
+
 int ActivityModel::unseenCount() const
 {
     int n = 0;
     for (const Entry &e : m_entries)
-        if (!isSeen(e))
+        if (!isSeen(e) && !isMutedRoom(e))
             ++n;
     return n;
 }
@@ -396,6 +423,8 @@ void ActivityModel::setFilter(const QString &filter)
 
 bool ActivityModel::passesFilter(const Entry &e) const
 {
+    if (isMutedRoom(e))
+        return false;
     if (m_filter == QLatin1String("all"))
         return true;
     if (m_filter == QLatin1String("mentions"))
