@@ -158,6 +158,43 @@ Optionally, the flake also provides a `homeManagerModules` output with settings
 }
 ```
 
+### NixOS AppImage and GPU acceleration
+
+The flake package above is the recommended way to run Lightning on NixOS. If
+you run the AppImage instead, under `appimage-run`, it cannot see the host's
+graphics drivers and falls back to Mesa's software renderer (`llvmpipe`), which
+draws on the CPU. Everything works, but scrolling is slow. The startup log says
+which one you got:
+
+```sh
+appimage-run ./Lightning.AppImage 2>&1 | grep GL_RENDERER
+```
+
+`GL_RENDERER=llvmpipe ...` means software rendering. To use the GPU, point the
+AppImage at the driver NixOS keeps under `/run/opengl-driver`.
+
+NVIDIA:
+
+```sh
+LD_LIBRARY_PATH=/run/opengl-driver/lib \
+__EGL_VENDOR_LIBRARY_FILENAMES=/run/opengl-driver/share/glvnd/egl_vendor.d/10_nvidia.json \
+appimage-run ./Lightning.AppImage
+```
+
+AMD and Intel (Mesa): use the Mesa vendor file in the same directory.
+
+```sh
+LD_LIBRARY_PATH=/run/opengl-driver/lib \
+__EGL_VENDOR_LIBRARY_FILENAMES=/run/opengl-driver/share/glvnd/egl_vendor.d/50_mesa.json \
+appimage-run ./Lightning.AppImage
+```
+
+If the file name differs on your system, list
+`/run/opengl-driver/share/glvnd/egl_vendor.d/` and use the one that matches your
+card. Lightning shows a one-time notice per version when it detects a software
+renderer. It stays quiet if you chose software rendering yourself with
+`QT_QUICK_BACKEND=software`.
+
 ## Windows (x86-64, Windows 10 or later)
 
 Windows packages ship with every release from v0.6.3.
