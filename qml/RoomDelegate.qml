@@ -113,8 +113,8 @@ Item {
         anchors.bottomMargin: root.showGroupDivider ? 1 : 0
         // An 8px rounded highlight chip from the semantic tokens.
         radius: AppTheme.radiusMd
-        color: selected ? (hover.hovered ? AppTheme.selectedHover : AppTheme.selected)
-             : hover.hovered ? AppTheme.hover
+        color: selected ? (hover.hovered ? AppTheme.selectedHover : AppTheme.roomSelected)
+             : hover.hovered ? AppTheme.roomHover
              : root.needsAttention ? AppTheme.chipAccentFill
              : "transparent"
         HoverHandler { id: hover }

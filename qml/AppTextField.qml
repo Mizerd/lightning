@@ -21,13 +21,13 @@ TextField {
     rightPadding: clearButton && text.length > 0 ? 32 : AppTheme.buttonPaddingH
     font.pixelSize: AppTheme.textBody
     color: storm ? AppTheme.stormText : AppTheme.textPrimary
-    placeholderTextColor: storm ? AppTheme.stormTextMuted : AppTheme.textMuted
+    placeholderTextColor: AppTheme.placeholderInk
     // `selectedHover` for the selection: accentSoft (a tile fill) and
     // stormSelection (hover outside Storm) are nearly invisible against the
     // field on several themes, including both defaults. `selected` alone isn't
     // enough either (it equals accentSoft on Moss Light).
     // theTextSelectionIsVisibleOnEveryTheme enforces the floor.
-    selectionColor: AppTheme.selectedHover
+    selectionColor: AppTheme.textSelection
     selectedTextColor: storm ? AppTheme.stormText : AppTheme.textPrimary
     verticalAlignment: TextInput.AlignVCenter
 

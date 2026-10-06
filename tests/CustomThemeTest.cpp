@@ -7,6 +7,8 @@
 #include "app/SettingsManager.h"
 
 #include <QColor>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <QFile>
 #include <QRegularExpression>
 #include <QSettings>
@@ -45,6 +47,31 @@ QSet<QString> paletteKeys(const QString &qml)
         while (kit.hasNext())
             keys.insert(kit.next().captured(1));
     }
+    return keys;
+}
+
+// Every key the object `AppTheme.paletteForTheme()` returns. A role split out
+// of a shared token has no value in any preset block and reaches the editor
+// and the preview through this object alone.
+QSet<QString> resolverKeys(const QString &qml)
+{
+    QSet<QString> keys;
+    const int fn = qml.indexOf(QStringLiteral("function paletteForTheme("));
+    if (fn < 0)
+        return keys;
+    const int ret = qml.indexOf(QStringLiteral("return {"), fn);
+    const int end = qml.indexOf(QStringLiteral("\n        }\n    }"), ret);
+    if (ret < 0 || end < 0)
+        return keys;
+    QString body = qml.mid(ret + 8, end - ret - 8);
+    body.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
+    // A key starts a line: `name:`. Ternary colons sit mid-line.
+    static const QRegularExpression key(
+        QStringLiteral("^\\s*(\\w+)\\s*:"),
+        QRegularExpression::MultilineOption);
+    auto it = key.globalMatch(body);
+    while (it.hasNext())
+        keys.insert(it.next().captured(1));
     return keys;
 }
 
@@ -1062,8 +1089,14 @@ private Q_SLOTS:
     {
         const QString qml = appTheme();
         QVERIFY2(!qml.isEmpty(), "AppTheme.qml not readable");
-        const QSet<QString> keys = paletteKeys(qml);
+        QSet<QString> keys = paletteKeys(qml);
         QVERIFY2(keys.size() > 15, "palette-key scan found almost nothing");
+        const QSet<QString> resolved = resolverKeys(qml);
+        QVERIFY2(resolved.size() > 30,
+                 "the paletteForTheme key scan found almost nothing");
+        // A role that no preset defines (a split role) must be a key of the
+        // resolver, or the editor cannot show its inherited colour.
+        keys.unite(resolved);
 
         for (const QString &role : CustomThemeStore::editableRoles()) {
             QVERIFY2(keys.contains(role),
@@ -1071,6 +1104,432 @@ private Q_SLOTS:
                                                "is not a key any AppTheme "
                                                "palette defines").arg(role)));
         }
+    }
+
+    // The editor's swatch for a role is read from paletteForTheme(), and the
+    // running app reads `_p.<role>`. A role missing from either side is a row
+    // that edits nothing or shows the wrong inherited colour.
+    void everyEditableRoleIsReadByAppThemeAndResolvedForTheEditor()
+    {
+        const QString qml = appTheme();
+        QVERIFY2(!qml.isEmpty(), "AppTheme.qml not readable");
+        const QSet<QString> resolved = resolverKeys(qml);
+        const QStringList roles = CustomThemeStore::editableRoles();
+        const QVariantMap aliases = CustomThemeStore::paletteKeyAliases();
+        int checked = 0;
+        for (const QString &role : roles) {
+            // inputBg / reaction / mention are read under their own store
+            // spelling and resolved under the alias.
+            const QString key = aliases.value(role, role).toString();
+            QVERIFY2(resolved.contains(key),
+                     qPrintable(QStringLiteral("paletteForTheme() does not "
+                                               "return '%1', so the editor "
+                                               "cannot show the colour of "
+                                               "'%2' before it is changed")
+                                    .arg(key, role)));
+            const QRegularExpression read(
+                QStringLiteral("\\b_p\\.%1\\b").arg(role));
+            QVERIFY2(qml.contains(read),
+                     qPrintable(QStringLiteral("nothing in AppTheme.qml reads "
+                                               "_p.%1, so editing '%1' would "
+                                               "paint nothing").arg(role)));
+            ++checked;
+        }
+        QCOMPARE(checked, roles.size());
+    }
+
+    // Roles split out of a shared token (2026-10-06) must default to the token
+    // they were split from, or an existing theme and every imported file would
+    // change colour on upgrade.
+    void aSplitRoleFallsBackToTheTokenItWasSplitFrom()
+    {
+        const QString qml = appTheme();
+        QVERIFY2(!qml.isEmpty(), "AppTheme.qml not readable");
+        QString flat = qml;
+        flat.replace(QRegularExpression(QStringLiteral("\\s+")),
+                     QStringLiteral(" "));
+
+        // role -> the token its live property must fall back to.
+        const QList<QPair<QString, QString>> splits = {
+            { QStringLiteral("popoverSurface"), QStringLiteral("stormPanel") },
+            { QStringLiteral("focusRing"), QStringLiteral("_p.accent") },
+            { QStringLiteral("scrollbarHandle"), QStringLiteral("borderStrong") },
+            { QStringLiteral("reactionSelectedBackground"),
+              QStringLiteral("accentSoft") },
+            { QStringLiteral("ownBubbleText"),
+              QStringLiteral("_ownBubbleTextDefault") },
+            { QStringLiteral("presenceOnline"), QStringLiteral("success") },
+            { QStringLiteral("unreadBadge"), QStringLiteral("accent") },
+            // Round 2: one role per element that used to share a token.
+            { QStringLiteral("dangerTint"), QStringLiteral("mentionBadge") },
+            { QStringLiteral("messageHighlight"), QStringLiteral("selected") },
+            { QStringLiteral("textSelection"), QStringLiteral("selectedHover") },
+            { QStringLiteral("paletteHighlight"), QStringLiteral("selected") },
+            { QStringLiteral("roomSelected"), QStringLiteral("selected") },
+            { QStringLiteral("roomHover"), QStringLiteral("hover") },
+            { QStringLiteral("channelSelected"), QStringLiteral("selected") },
+            { QStringLiteral("channelHover"), QStringLiteral("hover") },
+            { QStringLiteral("menuHighlight"), QStringLiteral("stormSelection") },
+            { QStringLiteral("buttonGhostHover"), QStringLiteral("hover") },
+            { QStringLiteral("timestampInk"), QStringLiteral("textMuted") },
+            { QStringLiteral("placeholderInk"), QStringLiteral("stormTextMuted") },
+            { QStringLiteral("settingsPage"), QStringLiteral("stormDeep") },
+            { QStringLiteral("settingsNav"), QStringLiteral("stormCanvas") },
+        };
+        const QStringList roles = CustomThemeStore::editableRoles();
+        for (const auto &[role, fallback] : splits) {
+            QVERIFY2(roles.contains(role),
+                     qPrintable(role + QStringLiteral(" is not editable")));
+            const QString declaration =
+                QStringLiteral("readonly property color ") + role
+                + QStringLiteral(":");
+            const int at = flat.indexOf(declaration);
+            QVERIFY2(at >= 0, qPrintable(role + QStringLiteral(" is not declared")));
+            const QString body = flat.mid(at, 260);
+            QVERIFY2(body.contains(QStringLiteral("_p.") + role
+                                   + QStringLiteral(" !== undefined")),
+                     qPrintable(role + QStringLiteral(" ignores a palette that "
+                                                      "sets it")));
+            QVERIFY2(body.contains(fallback),
+                     qPrintable(QStringLiteral("%1 no longer falls back to %2, "
+                                               "so existing themes would "
+                                               "change colour")
+                                    .arg(role, fallback)));
+        }
+        // Stock ink on the own bubble stays white.
+        QCOMPARE(colorLiteral(qml, QStringLiteral("_ownBubbleTextDefault")),
+                 QStringLiteral("#FFFFFF"));
+    }
+
+    // A file exported before the split carries none of the new keys and must
+    // import untouched; a file that carries them must keep them.
+    void anOldSharedFileLoadsAndANewKeyRoundTrips()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("old"));
+        store.setColor(QStringLiteral("surface"), QStringLiteral("#102030"));
+        const QString oldFile = store.exportTheme(store.activeThemeId());
+        QVERIFY(!oldFile.isEmpty());
+        QVERIFY2(!oldFile.contains(QStringLiteral("popoverSurface")),
+                 "an untouched split role must not be written into the file");
+
+        QCOMPARE(store.importTheme(oldFile), QString());
+        QCOMPARE(store.colors().value(QStringLiteral("surface")).toString(),
+                 QStringLiteral("#102030"));
+        QVERIFY(!store.colors().contains(QStringLiteral("popoverSurface")));
+
+        store.setColor(QStringLiteral("popoverSurface"), QStringLiteral("#AA5500"));
+        store.setColor(QStringLiteral("ownBubbleText"), QStringLiteral("#101010"));
+        const QString newFile = store.exportTheme(store.activeThemeId());
+        QCOMPARE(store.importTheme(newFile), QString());
+        QCOMPARE(store.colors().value(QStringLiteral("popoverSurface")).toString(),
+                 QStringLiteral("#AA5500"));
+        QCOMPARE(store.colors().value(QStringLiteral("ownBubbleText")).toString(),
+                 QStringLiteral("#101010"));
+        // The pre-split keys survive beside them.
+        QCOMPARE(store.colors().value(QStringLiteral("surface")).toString(),
+                 QStringLiteral("#102030"));
+    }
+
+    // A role nothing reads is a row that edits nothing: split roles exist so a
+    // view can read them, and the split is only real once one does. Greps the
+    // views for the live token (not AppTheme.qml, not the editor itself).
+    void everyEditableRoleIsReadByAView()
+    {
+        const QString themePath = QStringLiteral(APPTHEME_QML_PATH);
+        const QString dir = themePath.left(themePath.lastIndexOf(QLatin1Char('/')) + 1);
+        QString all;
+        int files = 0;
+        QDirIterator it(dir, { QStringLiteral("*.qml") }, QDir::Files);
+        while (it.hasNext()) {
+            const QString path = it.next();
+            const QString name = QFileInfo(path).fileName();
+            if (name == QLatin1String("AppTheme.qml")
+                || name.startsWith(QLatin1String("ThemeEditor"))
+                || name.startsWith(QLatin1String("ThemePreview")))
+                continue;
+            QFile f(path);
+            if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                all += QString::fromUtf8(f.readAll());
+                ++files;
+            }
+        }
+        QVERIFY2(files > 100, "the view scan found almost no QML files");
+        const QVariantMap aliases = CustomThemeStore::paletteKeyAliases();
+        QStringList unread;
+        for (const QString &role : CustomThemeStore::editableRoles()) {
+            const QString key = aliases.value(role, role).toString();
+            const QRegularExpression use(
+                QStringLiteral("AppTheme\\.%1\\b").arg(key));
+            if (!all.contains(use))
+                unread << role;
+        }
+        QVERIFY2(unread.isEmpty(),
+                 qPrintable(QStringLiteral("no view reads the live token for: "
+                                           "%1").arg(unread.join(QStringLiteral(", ")))));
+    }
+
+    // Every role must be paintable in the preview, or it is "impossible to
+    // preview": a Region (click target and outline) names it.
+    void everyEditableRoleHasARegionInThePreview()
+    {
+        const QString themePath = QStringLiteral(APPTHEME_QML_PATH);
+        QFile preview(themePath.left(themePath.lastIndexOf(QLatin1Char('/')) + 1)
+                      + QStringLiteral("ThemePreviewDemo.qml"));
+        QVERIFY2(preview.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "ThemePreviewDemo.qml not readable");
+        QString src = QString::fromUtf8(preview.readAll());
+        src.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
+
+        QStringList missing;
+        int checked = 0;
+        for (const QString &role : CustomThemeStore::editableRoles()) {
+            // `role: "x"`, or a ternary that names it before the next `}`.
+            const QRegularExpression named(
+                QStringLiteral("\\brole:[^}]{0,500}?\"%1\"").arg(role),
+                QRegularExpression::DotMatchesEverythingOption);
+            if (!src.contains(named))
+                missing << role;
+            ++checked;
+        }
+        QVERIFY2(checked > 30, "the role table shrank");
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral("these roles can be edited but the "
+                                           "preview paints no region for "
+                                           "them: %1")
+                                .arg(missing.join(QStringLiteral(", ")))));
+    }
+
+    // The editor tells the user that editing a parent recolours its unset
+    // children, and outlines them, from the store's `follows` field. That is
+    // only true if AppTheme really falls back to that parent, both in the live
+    // property the app paints with and in paletteForTheme(), which the editor
+    // and the preview read. A wrong `follows` would point the user at the
+    // wrong row; a missing one hides a recolour (what this field exists for).
+    void everyFollowingRoleFallsBackToTheRoleItNames()
+    {
+        const QString qml = appTheme();
+        QVERIFY2(!qml.isEmpty(), "AppTheme.qml not readable");
+        QString flat = qml;
+        flat.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
+        flat.replace(QRegularExpression(QStringLiteral("\\s+")),
+                     QStringLiteral(" "));
+
+        // The resolver's body, flattened the same way.
+        const int fn = flat.indexOf(QStringLiteral("function paletteForTheme("));
+        const int ret = flat.indexOf(QStringLiteral("return {"), fn);
+        QVERIFY2(fn >= 0 && ret > fn, "paletteForTheme() not found");
+        const QString resolver = flat.mid(ret);
+
+        // Names a parent goes by in a fallback expression: its own token, or
+        // the live alias that resolves to it for a custom theme (custom is
+        // never Storm, so the storm* aliases resolve to the plain token).
+        const QHash<QString, QStringList> tokens{
+            {QStringLiteral("sidebar"), {QStringLiteral("sidebar")}},
+            {QStringLiteral("surface"),
+             {QStringLiteral("surface"), QStringLiteral("stormPanel")}},
+            {QStringLiteral("background"),
+             {QStringLiteral("background"), QStringLiteral("stormDeep"),
+              QStringLiteral("stormCanvas")}},
+            {QStringLiteral("selected"), {QStringLiteral("selected")}},
+            {QStringLiteral("hover"),
+             {QStringLiteral("hover"), QStringLiteral("stormSelection")}},
+            {QStringLiteral("selectedHover"), {QStringLiteral("selectedHover")}},
+            {QStringLiteral("accentSoft"), {QStringLiteral("accentSoft")}},
+            {QStringLiteral("accent"), {QStringLiteral("accent")}},
+            {QStringLiteral("borderStrong"), {QStringLiteral("borderStrong")}},
+            {QStringLiteral("textMuted"),
+             {QStringLiteral("textMuted"), QStringLiteral("stormTextMuted")}},
+            {QStringLiteral("success"), {QStringLiteral("success")}},
+            {QStringLiteral("mention"), {QStringLiteral("mentionBadge")}},
+        };
+        const auto namesParent = [&](const QString &fallback,
+                                     const QString &parent) {
+            for (const QString &t : tokens.value(parent)) {
+                if (fallback.contains(QRegularExpression(
+                        QStringLiteral("\\b%1\\b").arg(t))))
+                    return true;
+            }
+            return false;
+        };
+
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        const QStringList editable = CustomThemeStore::editableRoles();
+        QStringList wrong;
+        int following = 0;
+        // Read from roles(), the list the editor reads, so this runs (and
+        // fails) against a store that has no `follows` at all.
+        QHash<QString, QString> follows;
+        for (const QVariant &v : store.roles()) {
+            const QVariantMap entry = v.toMap();
+            const QString role = entry.value(QStringLiteral("key")).toString();
+            const QString parent = entry.value(QStringLiteral("follows")).toString();
+            if (parent.isEmpty())
+                continue;
+            follows.insert(role, parent);
+            ++following;
+            if (!editable.contains(parent) || parent == role) {
+                wrong << role + QStringLiteral(" -> ") + parent
+                             + QStringLiteral(" (not an editable role)");
+                continue;
+            }
+            if (!tokens.contains(parent)) {
+                wrong << role + QStringLiteral(" -> ") + parent
+                             + QStringLiteral(" (no token list in this test)");
+                continue;
+            }
+
+            // Live: `readonly property color <role>: _p.<role> !== undefined
+            // ? _p.<role> : <fallback>`, up to the next declaration.
+            const QString decl = QStringLiteral("readonly property color ")
+                                 + role + QStringLiteral(":");
+            const int at = flat.indexOf(decl);
+            const int next = flat.indexOf(QStringLiteral("readonly property"),
+                                          at + decl.size());
+            const QString live = at < 0 ? QString()
+                                        : flat.mid(at, next < 0 ? -1 : next - at);
+            const QString liveHead = QStringLiteral("_p.") + role
+                                     + QStringLiteral(" !== undefined ? _p.")
+                                     + role;
+            const int lh = live.indexOf(liveHead);
+            if (lh < 0 || !namesParent(live.mid(lh + liveHead.size()), parent))
+                wrong << role + QStringLiteral(" -> ") + parent
+                             + QStringLiteral(" (live property: ")
+                             + live.left(160) + QStringLiteral(")");
+
+            // Resolver: `<role>: p.<role> !== undefined ? p.<role> : ...`, up
+            // to the next key.
+            const QRegularExpression key(
+                QStringLiteral("[{,] %1: (p\\.%1 !== undefined \\? p\\.%1)(.*?)"
+                               "(?=, \\w+:|\\} \\})").arg(role));
+            const auto m = key.match(resolver);
+            if (!m.hasMatch() || !namesParent(m.captured(2), parent))
+                wrong << role + QStringLiteral(" -> ") + parent
+                             + QStringLiteral(" (paletteForTheme)");
+        }
+        // Not vacuous: the split roles alone are twenty.
+        QVERIFY2(following >= 20,
+                 qPrintable(QStringLiteral("only %1 roles declare what they "
+                                           "follow").arg(following)));
+        QVERIFY2(wrong.isEmpty(),
+                 qPrintable(QStringLiteral("a role's `follows` is not the role "
+                                           "AppTheme falls back to:\n  %1")
+                                .arg(wrong.join(QStringLiteral("\n  ")))));
+
+        // And the chain has no cycle (the editor walks it).
+        for (const QString &role : editable) {
+            QString p = follows.value(role);
+            int hops = 0;
+            while (!p.isEmpty() && hops < 10) {
+                QVERIFY2(p != role,
+                         qPrintable(role + QStringLiteral(" follows itself")));
+                p = follows.value(p);
+                ++hops;
+            }
+            QVERIFY2(hops < 10, qPrintable(role + QStringLiteral(" has a cycle")));
+        }
+    }
+
+    // The editor's undo. Called through the meta-object so this compiles
+    // against a store without it and fails there, rather than not building.
+    void undoMergesADragAndStepsBackThroughEveryKindOfEdit()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("Undo"));
+        const QString accent = QStringLiteral("accent");
+        const auto canUndo = [&] { return store.property("canUndo").toBool(); };
+        const auto canRedo = [&] { return store.property("canRedo").toBool(); };
+        const auto call = [&](const char *method) {
+            bool result = false;
+            const bool ok = QMetaObject::invokeMethod(
+                &store, method, Q_RETURN_ARG(bool, result));
+            return ok && result;
+        };
+        const auto seal = [&] {
+            QVERIFY2(QMetaObject::invokeMethod(&store, "sealUndoStep"),
+                     "the store has no sealUndoStep()");
+        };
+        const auto value = [&](const QString &role) {
+            return store.colors().value(role).toString();
+        };
+        QVERIFY(!canUndo());
+        QSignalSpy history(&store, SIGNAL(historyChanged()));
+        QVERIFY2(history.isValid(), "the store has no historyChanged()");
+
+        // Three samples of one drag are ONE step: undo goes to before it.
+        store.setColor(accent, QStringLiteral("#111111"));
+        store.setColor(accent, QStringLiteral("#222222"));
+        store.setColor(accent, QStringLiteral("#333333"));
+        QVERIFY(canUndo());
+        QVERIFY(call("undo"));
+        QVERIFY2(!store.colors().contains(accent),
+                 "undo stepped back one sample of a drag, not the drag");
+        QVERIFY(!canUndo());
+        QVERIFY(canRedo());
+        QVERIFY(call("redo"));
+        QCOMPARE(value(accent), QStringLiteral("#333333"));
+
+        // A sealed gesture is a step of its own.
+        seal();
+        store.setColor(accent, QStringLiteral("#444444"));
+        seal();
+        store.setColor(accent, QStringLiteral("#555555"));
+        QVERIFY(call("undo"));
+        QCOMPARE(value(accent), QStringLiteral("#444444"));
+        QVERIFY(call("undo"));
+        QCOMPARE(value(accent), QStringLiteral("#333333"));
+
+        // A new edit after an undo drops what could be redone.
+        QVERIFY(canRedo());
+        store.setColor(QStringLiteral("background"), QStringLiteral("#0A0A0A"));
+        QVERIFY(!canRedo());
+
+        // Another role never merges into the previous step, even unsealed.
+        QVERIFY(call("undo"));
+        QVERIFY(!store.colors().contains(QStringLiteral("background")));
+        QCOMPARE(value(accent), QStringLiteral("#333333"));
+
+        // A reset, Reset all and a base change are each undoable.
+        store.resetColor(accent);
+        QVERIFY(!store.colors().contains(accent));
+        QVERIFY(call("undo"));
+        QCOMPARE(value(accent), QStringLiteral("#333333"));
+
+        store.setColor(QStringLiteral("surface"), QStringLiteral("#123456"));
+        store.resetAll();
+        QCOMPARE(store.overrideCount(), 0);
+        QVERIFY(call("undo"));
+        QCOMPARE(value(accent), QStringLiteral("#333333"));
+        QCOMPARE(value(QStringLiteral("surface")), QStringLiteral("#123456"));
+
+        const int baseBefore = store.baseTheme();
+        const int other = baseBefore == int(SettingsManager::GraphiteTheme)
+                              ? int(SettingsManager::NordTheme)
+                              : int(SettingsManager::GraphiteTheme);
+        store.setBaseTheme(other);
+        QVERIFY(call("undo"));
+        QCOMPARE(store.baseTheme(), baseBefore);
+        QVERIFY(call("redo"));
+        QCOMPARE(store.baseTheme(), other);
+        QVERIFY(history.count() > 0);
+
+        // The history belongs to one theme: switching away clears it, so an
+        // undo can never write one theme's colours into another.
+        QVERIFY(canUndo());
+        const QString first = store.activeThemeId();
+        const QString second = store.createTheme(QStringLiteral("Other"));
+        QVERIFY(!second.isEmpty());
+        QVERIFY(!canUndo());
+        QVERIFY(!canRedo());
+        QVERIFY(!call("undo"));
+        store.setColor(accent, QStringLiteral("#ABCDEF"));
+        QVERIFY(canUndo());
+        store.setActiveThemeId(first);
+        QVERIFY(!canUndo());
+        QCOMPARE(value(accent), QStringLiteral("#333333"));
     }
 
     void theEditorCoversTheFourShellRegionsAndTheMessageSurfaces()

@@ -959,7 +959,7 @@ Popup {
                         readOnly: true
                         selectByMouse: true
                         selectByKeyboard: true
-                        selectionColor: AppTheme.selectedHover
+                        selectionColor: AppTheme.textSelection
                         selectedTextColor: AppTheme.selectedText
                         wrapMode: TextEdit.Wrap
                         color: AppTheme.stormTextSecondary

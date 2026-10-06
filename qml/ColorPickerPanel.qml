@@ -27,6 +27,9 @@ Item {
     property string title: ""
     property string subtitle: ""
     property bool canReset: false
+    // The reset button's words: a role that follows another goes back to
+    // following it, which "the base theme" would misdescribe.
+    property string resetLabel: qsTr("Reset to the base theme")
     // "#RRGGBB" one-click choices from the base theme's palette, since themes
     // mostly reuse existing tones.
     property var suggestions: []
@@ -34,6 +37,10 @@ Item {
     signal picked(color value)
     signal resetRequested()
     signal closed()
+    // One deliberate change is complete: a drag released, a swatch or the
+    // "before" half clicked, a hex value applied. The theme editor ends an
+    // undo step here, so a drag is one step rather than every sample.
+    signal gestureFinished()
 
     implicitWidth: 288
     implicitHeight: layout.implicitHeight
@@ -46,16 +53,42 @@ Item {
     property bool loading: false
 
     function load(c) {
+        root.show(c)
+        originalColor = selectedColor
+    }
+
+    // Shows a colour without making it the "before" half or emitting
+    // `picked`: for a change made elsewhere (undo) while the picker is open.
+    function show(c) {
         loading = true
         var col = typeof c === "string" ? Qt.color(c) : c
         hue = col.hsvHue >= 0 ? col.hsvHue : 0
         sat = col.hsvSaturation
         val = col.hsvValue
         selectedColor = col
-        originalColor = col
         hexField.text = root.toHex(col)
+        root.hexInvalid = false
         loading = false
     }
+
+    // A typed value as "#RRGGBB", or "" if it is not one. Forgiving about
+    // what people paste: no '#', lower case, surrounding spaces, and the
+    // three-digit shorthand ("#abc" is "#AABBCC").
+    function normalizeHex(text) {
+        var t = String(text).trim()
+        if (t.charAt(0) === "#")
+            t = t.substring(1)
+        if (/^[0-9A-Fa-f]{3}$/.test(t))
+            t = t.charAt(0) + t.charAt(0) + t.charAt(1) + t.charAt(1)
+                + t.charAt(2) + t.charAt(2)
+        if (!/^[0-9A-Fa-f]{6}$/.test(t))
+            return ""
+        return "#" + t.toUpperCase()
+    }
+
+    // Set when the field is left holding something that is not a colour, so
+    // it can say so instead of silently ignoring it.
+    property bool hexInvalid: false
 
     function toHex(c) {
         function two(v) {
@@ -81,8 +114,15 @@ Item {
         val = c.hsvValue
         selectedColor = c
         hexField.text = root.toHex(c)
+        root.hexInvalid = false
         loading = false
         root.picked(c)
+    }
+
+    // Back to the colour the picker opened with.
+    function revert() {
+        root.applyColor(root.originalColor)
+        root.gestureFinished()
     }
 
     ColumnLayout {
@@ -197,6 +237,7 @@ Item {
                 anchors.fill: parent
                 onPositionChanged: (m) => field.pick(m)
                 onPressed: (m) => field.pick(m)
+                onReleased: root.gestureFinished()
             }
             function pick(m) {
                 root.sat = Math.max(0, Math.min(1, m.x / width))
@@ -254,6 +295,7 @@ Item {
                 anchors.fill: parent
                 onPositionChanged: (m) => hueStrip.pick(m)
                 onPressed: (m) => hueStrip.pick(m)
+                onReleased: root.gestureFinished()
             }
             function pick(m) {
                 root.hue = Math.max(0, Math.min(0.9999, m.x / width))
@@ -277,10 +319,39 @@ Item {
                 Row {
                     anchors.fill: parent
                     anchors.margins: 1
+                    // The "before" half: click it to go back.
                     Rectangle {
+                        id: beforeHalf
+                        objectName: "colorBeforeSwatch"
                         width: parent.width / 2
                         height: parent.height
                         color: root.originalColor
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Go back to %1")
+                                         .arg(root.toHex(root.originalColor))
+                        Keys.onPressed: (e) => {
+                            if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter
+                                    || e.key === Qt.Key_Space) {
+                                root.revert()
+                                e.accepted = true
+                            }
+                        }
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: beforeHalf.activeFocus
+                                     || beforeHover.containsMouse
+                            color: "transparent"
+                            border.width: 2
+                            border.color: AppTheme.editorAccent
+                        }
+                        MouseArea {
+                            id: beforeHover
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.revert()
+                        }
                     }
                     Rectangle {
                         width: parent.width / 2
@@ -295,9 +366,10 @@ Item {
                 implicitHeight: 34
                 radius: AppTheme.radiusMd
                 color: AppTheme.editorInset
-                border.width: hexField.activeFocus ? 2 : 1
-                border.color: hexField.activeFocus ? AppTheme.editorAccent
-                                                   : AppTheme.editorBorderStrong
+                border.width: hexField.activeFocus || root.hexInvalid ? 2 : 1
+                border.color: root.hexInvalid ? AppTheme.editorDanger
+                              : hexField.activeFocus ? AppTheme.editorAccent
+                                                     : AppTheme.editorBorderStrong
 
                 TextInput {
                     id: hexField
@@ -316,14 +388,51 @@ Item {
                     Accessible.name: qsTr("Colour, as a hex value")
                     // Apply typed hex only when complete and valid, so the
                     // preview doesn't flicker through partial values.
+                    // Six digits apply as typed, with or without '#'; the
+                    // three-digit shorthand waits for Enter, since it is also
+                    // the first half of a six-digit value.
                     onTextEdited: {
+                        root.hexInvalid = false
                         var t = text.trim()
-                        if (!/^#[0-9A-Fa-f]{6}$/.test(t))
+                        if (t.charAt(0) === "#")
+                            t = t.substring(1)
+                        if (t.length !== 6)
                             return
-                        root.applyColor(Qt.color(t))
+                        var hex = root.normalizeHex(t)
+                        if (hex.length === 0)
+                            return
+                        root.applyColor(Qt.color(hex))
+                        root.gestureFinished()
+                    }
+                    onEditingFinished: {
+                        if (root.loading)
+                            return
+                        var hex = root.normalizeHex(text)
+                        if (hex.length === 0) {
+                            root.hexInvalid = text.trim().length > 0
+                            return
+                        }
+                        root.hexInvalid = false
+                        if (hex !== root.toHex(root.selectedColor)) {
+                            root.applyColor(Qt.color(hex))
+                            root.gestureFinished()
+                        }
+                        // Shown in the form the store keeps.
+                        text = hex
                     }
                 }
             }
+        }
+
+        Label {
+            objectName: "colorHexInvalidLabel"
+            Layout.fillWidth: true
+            visible: root.hexInvalid
+            text: qsTr("Not a colour. Use six hex digits, like #3A6EA5.")
+            wrapMode: Text.WordWrap
+            color: AppTheme.editorDanger
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textMeta
         }
 
         // The base theme's own colours.
@@ -350,18 +459,31 @@ Item {
                     height: 26
                     radius: AppTheme.radiusSm
                     color: modelData
-                    border.width: swatchHover.containsMouse ? 2 : 1
-                    border.color: swatchHover.containsMouse
+                    border.width: swatchHover.containsMouse || activeFocus ? 2 : 1
+                    border.color: swatchHover.containsMouse || activeFocus
                                   ? AppTheme.editorAccent
                                   : AppTheme.editorBorderStrong
+                    // Keyboard reachable, like every other control here.
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Use %1").arg(swatch.modelData)
+                    Keys.onPressed: (e) => {
+                        if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter
+                                || e.key === Qt.Key_Space) {
+                            root.applyColor(Qt.color(swatch.modelData))
+                            root.gestureFinished()
+                            e.accepted = true
+                        }
+                    }
                     MouseArea {
                         id: swatchHover
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        Accessible.role: Accessible.Button
-                        Accessible.name: qsTr("Use %1").arg(swatch.modelData)
-                        onClicked: root.applyColor(Qt.color(swatch.modelData))
+                        onClicked: {
+                            root.applyColor(Qt.color(swatch.modelData))
+                            root.gestureFinished()
+                        }
                     }
                 }
             }
@@ -380,7 +502,10 @@ Item {
             border.color: AppTheme.editorBorderStrong
             Label {
                 anchors.centerIn: parent
-                text: qsTr("Reset to the base theme")
+                width: Math.min(implicitWidth,
+                                parent.width - AppTheme.spacing8 * 2)
+                text: root.resetLabel
+                elide: Label.ElideRight
                 color: AppTheme.editorText
                 font.family: AppTheme.uiFont
                 font.pixelSize: AppTheme.textMeta
@@ -392,7 +517,7 @@ Item {
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 Accessible.role: Accessible.Button
-                Accessible.name: qsTr("Reset to the base theme")
+                Accessible.name: root.resetLabel
                 onClicked: root.resetRequested()
             }
         }

@@ -379,7 +379,7 @@ Popup {
                 font.pixelSize: AppTheme.textTitle
                 font.weight: AppTheme.weightMedium
                 color: AppTheme.stormText
-                placeholderTextColor: AppTheme.stormTextMuted
+                placeholderTextColor: AppTheme.placeholderInk
                 selectionColor: AppTheme.stormSelection
                 selectedTextColor: AppTheme.stormText
                 background: Item {}

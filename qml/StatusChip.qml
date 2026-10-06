@@ -36,7 +36,7 @@ Rectangle {
         return tone === "accent" ? AppTheme.accent
              : tone === "success" ? AppTheme.presenceOnline
              : tone === "warning" ? AppTheme.warning
-             : tone === "danger" ? AppTheme.mentionBadge
+             : tone === "danger" ? AppTheme.dangerTint
              : tone === "info" ? AppTheme.info
              : tone === "onAccent" ? AppTheme.accentText
              : AppTheme.textMuted

@@ -375,7 +375,7 @@ private Q_SLOTS:
             { "_selectedTextDark", "_selectedDark", 4.5 },
             { "_selectedTextDark", "_selectedHoverDark", 4.5 },
             // Outgoing bubble body + muted meta ink.
-            { "ownBubbleText", "_outgoingBubbleBlue", 4.5 },
+            { "_ownBubbleTextDefault", "_outgoingBubbleBlue", 4.5 },
             { "onAccentMuted", "_outgoingBubbleBlue", 4.5 },
             // Incoming bubble body, both themes.
             { "_textPrimaryLight", "_hoverLight", 4.5 },
@@ -434,7 +434,7 @@ private Q_SLOTS:
             { "_warSelectedText", "_warSelected", 4.5 },
             { "_warSelectedText", "_warSelectedHover", 4.5 },
             { "_warTextPrimary", "_warHover", 4.5 },
-            { "ownBubbleText", "_warOwnBubble", 4.5 },
+            { "_ownBubbleTextDefault", "_warOwnBubble", 4.5 },
             { "onAccentMuted", "_warOwnBubble", 4.5 },
             { "_onAccent", "_warAccent", 3.0 },
             // Graphite / Nordic / Purple Dusk core readability.
@@ -451,9 +451,9 @@ private Q_SLOTS:
             { "_purTextMuted", "_purCard", 4.5 },
             { "_purSelectedText", "_purSelected", 4.5 },
             // Own-bubble body text stays readable in every preset.
-            { "ownBubbleText", "_graOwnBubble", 4.5 },
-            { "ownBubbleText", "_norOwnBubble", 4.5 },
-            { "ownBubbleText", "_purOwnBubble", 4.5 },
+            { "_ownBubbleTextDefault", "_graOwnBubble", 4.5 },
+            { "_ownBubbleTextDefault", "_norOwnBubble", 4.5 },
+            { "_ownBubbleTextDefault", "_purOwnBubble", 4.5 },
             // Moss Light (design handoff).
             { "_mosTextPrimary", "_mosBg", 4.5 },
             { "_mosTextSecondary", "_mosBg", 4.5 },
@@ -463,7 +463,7 @@ private Q_SLOTS:
             { "_mosSelectedText", "_mosSelected", 4.5 },
             { "_mosSelectedText", "_mosSelectedHover", 4.5 },
             { "_mosTextPrimary", "_mosHover", 4.5 },
-            { "ownBubbleText", "_mosOwnBubble", 4.5 },
+            { "_ownBubbleTextDefault", "_mosOwnBubble", 4.5 },
             { "onAccentMuted", "_mosOwnBubble", 4.5 },
             { "_onAccent", "_mosAccent", 3.0 },
             // Indigo Night (design handoff).
@@ -475,7 +475,7 @@ private Q_SLOTS:
             { "_indSelectedText", "_indSelected", 4.5 },
             { "_indSelectedText", "_indSelectedHover", 4.5 },
             { "_indTextPrimary", "_indCardElevated", 4.5 },
-            { "ownBubbleText", "_indOwnBubble", 4.5 },
+            { "_ownBubbleTextDefault", "_indOwnBubble", 4.5 },
             { "onAccentMuted", "_indOwnBubble", 4.5 },
             { "_onAccent", "_indAccent", 3.0 },
             // Deep Teal (design handoff; accent carries its own dark ink).
@@ -487,7 +487,7 @@ private Q_SLOTS:
             { "_teaSelectedText", "_teaSelected", 4.5 },
             { "_teaSelectedText", "_teaSelectedHover", 4.5 },
             { "_teaTextPrimary", "_teaCardElevated", 4.5 },
-            { "ownBubbleText", "_teaOwnBubble", 4.5 },
+            { "_ownBubbleTextDefault", "_teaOwnBubble", 4.5 },
             { "onAccentMuted", "_teaOwnBubble", 4.5 },
             { "_teaAccentText", "_teaAccent", 4.5 },
             // Primary ink on hover fills: a hovered menu row's ink is
@@ -569,7 +569,7 @@ private Q_SLOTS:
             { "_stoText", "_stoSelectedHover", 4.5 }, // selection ink on hover
             // The unread-pill ink is _stoBoltInk.
             { "_stoBoltInk", "_stoLink", 4.5 },    // badge ink on unread pill
-            { "ownBubbleText", "_stoOwnBubble", 4.5 },
+            { "_ownBubbleTextDefault", "_stoOwnBubble", 4.5 },
             { "onAccentMuted", "_stoOwnBubble", 4.5 },
         };
         for (const Pair &pair : pairs) {

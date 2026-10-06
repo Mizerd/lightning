@@ -102,8 +102,8 @@ MenuItem {
         radius: AppTheme.menuItemRadius
         color: root._active && root.enabled
                ? (root.danger ? AppTheme.stormDangerSoft
-                              : AppTheme.stormSelection)
-               : root.radio && root.radioSelected ? AppTheme.stormSelection
+                              : AppTheme.menuHighlight)
+               : root.radio && root.radioSelected ? AppTheme.menuHighlight
                : "transparent"
 
         // The bolt caret on the highlighted row, flush with the edge:

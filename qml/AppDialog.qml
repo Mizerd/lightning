@@ -113,7 +113,7 @@ Dialog {
             id: dialogPanel
             objectName: "dialogPanel"
             anchors.fill: parent
-            color: root.storm ? AppTheme.stormPanel : AppTheme.surface
+            color: AppTheme.popoverSurface
             border.color: root.storm ? AppTheme.stormBorderStrong
                                      : AppTheme.borderStrong
             border.width: 1

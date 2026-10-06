@@ -31,7 +31,7 @@ TextEdit {
     text: app.linkPreviews ? app.linkPreviews.linkifiedTopic(root.plainText)
                            : ""
     color: AppTheme.textSecondary
-    selectionColor: AppTheme.selectedHover
+    selectionColor: AppTheme.textSelection
     selectedTextColor: AppTheme.selectedText
     // TextEdit does not inherit the Controls font.
     font.family: AppTheme.uiFont

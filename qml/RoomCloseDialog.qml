@@ -294,7 +294,7 @@ AppDialog {
             text: root.ctl ? root.ctl.targetId : ""
             color: AppTheme.stormTextSecondary
             // The text fields' own selection colour, visible on every theme.
-            selectionColor: AppTheme.selectedHover
+            selectionColor: AppTheme.textSelection
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textMeta
         }

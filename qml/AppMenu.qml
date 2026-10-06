@@ -92,7 +92,7 @@ Menu {
         Rectangle {
             id: menuPanel
             anchors.fill: parent
-            color: AppTheme.stormPanel
+            color: AppTheme.popoverSurface
             border.color: AppTheme.stormBorderStrong
             border.width: 1
             radius: AppTheme.menuRadius
