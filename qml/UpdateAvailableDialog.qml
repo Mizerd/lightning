@@ -186,9 +186,12 @@ Dialog {
                 ? qsTr("Updates for this installation are managed by Flatpak.")
                 : root.installType === "linux-snap"
                     ? qsTr("Updates for this installation are managed by Snap.")
-                    : root.installType === "linux-rpm-repo"
-                        ? qsTr("Updates for this installation are managed by dnf.")
-                        : ""
+                    : root.installType === "linux-rpm-repo" && root.um
+                          && root.um.packageManagerName === "zypper"
+                        ? qsTr("Updates for this installation are managed by zypper.")
+                        : root.installType === "linux-rpm-repo"
+                            ? qsTr("Updates for this installation are managed by dnf.")
+                            : ""
         }
         // The exact command and explanation from UpdateManager, revealed after
         // "Get update instructions".

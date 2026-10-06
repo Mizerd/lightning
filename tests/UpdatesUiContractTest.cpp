@@ -252,6 +252,11 @@ private Q_SLOTS:
                 "root.installType === \"linux-rpm-repo\"\n")));
             QVERIFY(source.contains(QStringLiteral(
                 "? qsTr(\"Updates for this installation are managed by dnf.\")")));
+            // The same COPR type on openSUSE is zypper's (repositoryRpmManager).
+            QVERIFY(source.contains(QStringLiteral(
+                "root.um.packageManagerName === \"zypper\"")));
+            QVERIFY(source.contains(QStringLiteral(
+                "? qsTr(\"Updates for this installation are managed by zypper.\")")));
             QVERIFY(source.contains(QStringLiteral("openManagedUpdateHelp()")));
         }
 

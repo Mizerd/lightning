@@ -418,6 +418,51 @@ copr-srpm:
       - dist/copr/
       - dist/copr-*.txt
 
+# COPR also builds for openSUSE (opensuse-tumbleweed-x86_64 and
+# opensuse-leap-16.0-x86_64, packaging-ci/docs/copr.md), from the same source
+# RPM through the spec's %{?suse_version} branch, and no pipeline watches that
+# either. This compiles copr-srpm's source RPM on openSUSE Leap 16.0 as COPR's
+# chroot does: openSUSE's Qt 6.9, GStreamer 1.26 and Rust, no network. Leap is
+# the oldest openSUSE COPR builds for, and the one the release .rpm cannot
+# serve (its Qt is older than Fedora's). The package is a test artifact under
+# dist/opensuse/, never published, so it gates nothing; it shares resource
+# group c with the Ubuntu deb, which starts first and is not delayed by it.
+build-rpm-opensuse:
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+    - when: never
+  extends: .trusted-pipeline
+  stage: build
+  interruptible: true
+  timeout: 3h
+  allow_failure: true
+  image: registry.opensuse.org/opensuse/leap@sha256:cd9aac11608afabc96a10074619cf2a65ccf60ff4b72d09d4e4e125af409035d # opensuse/leap 16.0
+  tags: [dnf, rpm, package]
+  resource_group: lightning-package-build-c
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: copr-srpm
+      artifacts: true
+  before_script:
+    - zypper --non-interactive refresh
+    # The spec's BuildRequires are installed by the script, from the SRPM.
+    - zypper --non-interactive install --no-recommends rpm-build
+  script: [./packaging-ci/scripts/build-rpm-opensuse.sh]
+  artifacts:
+    name: "lightning-rpm-opensuse-${CI_PIPELINE_ID}"
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/opensuse/
+      - dist/rpm-opensuse-*.txt
+      - dist/rpm-opensuse-*.log
+      - dist/source-info.json
+      - dist/version.env
+      - dist/version.json
+
 build-flatpak:
   # Build-only pipelines may select formats via BUILD_FORMATS;
   # publishing pipelines always include every format.
@@ -898,6 +943,44 @@ validate-rpm-opensuse:
     expire_in: 7 days
     # Reports only: publish-packages takes the .rpm from validate-rpm.
     paths:
+      - dist/*rpm*.log
+      - dist/*rpm*.txt
+
+# Installs build-rpm-opensuse's package on a clean Leap 16.0 and runs the same
+# validator in its copr lane (RPM_LANE=copr: dist/opensuse/, keyless). Like the
+# build, a canary for COPR's openSUSE chroots: allow_failure, and publication
+# does not wait for it (test-pipeline-config.py exempts it by name).
+validate-rpm-leap:
+  rules:
+    - if: '$PUBLISH_PACKAGES == "true"'
+    - if: '$BUILD_FORMATS == "all"'
+    - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+    - when: never
+  extends: .trusted-pipeline
+  stage: validate
+  allow_failure: true
+  image: registry.opensuse.org/opensuse/leap@sha256:cd9aac11608afabc96a10074619cf2a65ccf60ff4b72d09d4e4e125af409035d # opensuse/leap 16.0
+  tags: [dnf, rpm, package]
+  variables:
+    RPM_LANE: "copr"
+  needs:
+    - job: resolve-source
+      artifacts: true
+    - job: build-rpm-opensuse
+      artifacts: true
+  before_script:
+    - test ! -e work/lightning
+    - command -v nix >/dev/null 2>&1 && exit 1 || true
+    - zypper --non-interactive refresh
+    - >-
+      zypper --non-interactive install --no-recommends
+      AppStream binutils ca-certificates cpio desktop-file-utils file procps
+  script: [./packaging-ci/scripts/validate-rpm.sh]
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - dist/opensuse/
       - dist/*rpm*.log
       - dist/*rpm*.txt
 

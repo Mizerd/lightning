@@ -1,5 +1,7 @@
-# Compiles Lightning from source, for Fedora COPR (mizerd/lightning-matrix) or any
-# mock chroot. packaging-ci/scripts/build-copr-srpm.sh fills @VERSION@ and
+# Compiles Lightning from source, for COPR (mizerd/lightning-matrix) or any
+# mock chroot: Fedora, and openSUSE Tumbleweed and Leap 16.0 (the
+# %%{?suse_version} branches; the build-rpm-opensuse CI job compiles this spec
+# on Leap 16.0). packaging-ci/scripts/build-copr-srpm.sh fills @VERSION@ and
 # @COMMIT@. The release pipeline keeps using lightning.spec, which repacks a
 # staged tree; tests/test-copr-spec-parity.py keeps the two in step.
 
@@ -11,6 +13,8 @@
 # Fedora turns on GCC LTO for C++; no release lane uses it, and on top of the
 # Rust fat-LTO link it raises the build's peak memory.
 %global _lto_cflags %{nil}
+# openSUSE's rpm-config does not define it.
+%{!?_metainfodir:%global _metainfodir %{_datadir}/metainfo}
 
 Name:           lightning-matrix
 # Renamed from "lightning": Fedora's GNU Lightning (2.x) has that name.
@@ -29,6 +33,44 @@ Source1:        lightning-%{shortcommit}-vendor.tar.xz
 
 ExclusiveArch:  x86_64 aarch64
 
+%if 0%{?suse_version}
+# openSUSE names its packages differently and splits Qt per module, so the
+# build asks for what CMake looks up. Leap 16.0 ships Qt 6.9, GStreamer 1.26
+# and Rust 1.98 (measured 2026-10-06); the build needs Qt >= 6.5.
+BuildRequires:  cmake >= 3.21
+BuildRequires:  ninja
+BuildRequires:  gcc-c++
+BuildRequires:  cargo
+BuildRequires:  rust
+BuildRequires:  pkgconfig
+BuildRequires:  cmake(Qt6Core) >= 6.5
+BuildRequires:  cmake(Qt6DBus)
+BuildRequires:  cmake(Qt6Gui)
+BuildRequires:  cmake(Qt6LinguistTools)
+BuildRequires:  cmake(Qt6Multimedia)
+BuildRequires:  cmake(Qt6Network)
+BuildRequires:  cmake(Qt6Qml)
+BuildRequires:  cmake(Qt6Quick)
+BuildRequires:  cmake(Qt6QuickControls2)
+BuildRequires:  cmake(Qt6Sql)
+BuildRequires:  cmake(Qt6Svg)
+BuildRequires:  cmake(Qt6Widgets)
+BuildRequires:  qt6-gui-private-devel
+# Not pkgconfig(openssl): LibreSSL provides that too, and zypper chose it on
+# Leap 16.0, whose headers CMake reads as OpenSSL 2.0.0 (measured).
+BuildRequires:  libopenssl-devel >= 3.0
+BuildRequires:  pkgconfig(zlib)
+BuildRequires:  pkgconfig(libsecret-1)
+BuildRequires:  pkgconfig(gstreamer-1.0)
+BuildRequires:  pkgconfig(gstreamer-app-1.0)
+BuildRequires:  pkgconfig(gstreamer-rtp-1.0)
+BuildRequires:  pkgconfig(gstreamer-sdp-1.0)
+BuildRequires:  pkgconfig(gstreamer-video-1.0)
+BuildRequires:  pkgconfig(gstreamer-webrtc-1.0)
+BuildRequires:  desktop-file-utils
+BuildRequires:  AppStream
+BuildRequires:  binutils
+%else
 BuildRequires:  cmake >= 3.21
 BuildRequires:  ninja-build
 BuildRequires:  gcc-c++
@@ -49,6 +91,7 @@ BuildRequires:  gstreamer1-plugins-base-devel
 BuildRequires:  gstreamer1-plugins-bad-free-devel
 BuildRequires:  desktop-file-utils
 BuildRequires:  appstream
+%endif
 
 # The runtime dependencies below are the release spec's, line for line (the
 # parity test compares them); see lightning.spec for why each is there. The
@@ -105,6 +148,35 @@ export CARGO_HOME="$PWD/.cargo"
 # code generation. Fedora's default RUSTFLAGS add -Cdebuginfo=2, which only
 # inflates that link while this package ships no debuginfo.
 export RUSTFLAGS="--cap-lints=warn --remap-path-prefix=$PWD=/usr/src/debug/%{name}"
+%if 0%{?suse_version}
+# openSUSE's %%cmake would comment out every set(CMAKE_BUILD_TYPE ...) in the
+# tree, pick Makefiles and differ from %%cmake_build's arguments, so CMake is
+# called directly, with openSUSE's compiler flags. The options from -G Ninja
+# on are the Fedora branch's, line for line (test-copr-spec-parity.py).
+cmake -S . -B build \
+    -DCMAKE_INSTALL_PREFIX=%{_prefix} \
+    -DCMAKE_CXX_FLAGS="%{optflags}" \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_SKIP_INSTALL_RPATH=ON \
+    -DBUILD_TESTING=OFF \
+    -DLIGHTNING_DISABLE_CCACHE=ON \
+    -DENABLE_RUST_SDK_BACKEND=ON \
+    -DLIGHTNING_RUST_ONLY=ON \
+    -DLIGHTNING_ENABLE_WEBRTC=ON \
+    -DLIGHTNING_REQUIRE_WEBRTC=ON \
+    -DLIGHTNING_REQUIRE_QT_SVG=ON \
+    -DLIGHTNING_REQUIRE_GIF_KEYS=OFF \
+    -DLIGHTNING_ARTIFACT_KIND=release \
+    -DLIGHTNING_INSTALL_TYPE=linux-rpm-repo \
+    -DLIGHTNING_PORTABLE_QT_ABI=ON \
+    -DLIGHTNING_UPDATE_PUBKEY_2026A=pnNX0yQfhr66fpbMJ89MCNWkHVtfAr+WwI9c4OHzz50= \
+    -DLIGHTNING_SOURCE_SHA=%{commit}
+# Rust first, two crates at a time, as on Fedora (memory).
+export CARGO_BUILD_JOBS=2
+cmake --build build %{?_smp_mflags} --target matrix-client-rust-build
+cmake --build build %{?_smp_mflags}
+%else
 # No install RPATH: qt_standard_project_setup() asks for $ORIGIN ones, which
 # configure-build.sh strips with patchelf for the release RPM.
 # linux-rpm-repo: dnf owns updates, so the in-app updater only points at it.
@@ -138,9 +210,16 @@ unset LDFLAGS
 export CARGO_BUILD_JOBS=2
 %cmake_build --target matrix-client-rust-build
 %cmake_build
+%endif
 
 %install
+%if 0%{?suse_version}
+# Stripped here: openSUSE runs no strip when there is no debuginfo package,
+# and unstripped the binary is 294 MB (measured on Leap 16.0).
+DESTDIR=%{buildroot} cmake --install build --strip
+%else
 %cmake_install
+%endif
 install -Dpm0644 packaging-ci/packaging/common/lightning.metainfo.xml \
     %{buildroot}%{_metainfodir}/lightning.metainfo.xml
 

@@ -113,7 +113,7 @@ StrategyResult planForMode(const UpdaterArguments &args,
 // Candidate absolute locations, in probe order. Exposed for tests.
 QStringList pkexecCandidates();
 QStringList debFrontendCandidates();  // apt-get, then dpkg
-QStringList rpmFrontendCandidates();  // dnf5, dnf, rpm-ostree, rpm
+QStringList rpmFrontendCandidates();  // dnf5, dnf, zypper, rpm-ostree, rpm
 
 // Argument vector for a resolved package manager. The artifact path is always
 // the last, single element and is never quoted or escaped: QProcess passes it

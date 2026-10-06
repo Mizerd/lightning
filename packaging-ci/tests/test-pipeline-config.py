@@ -49,6 +49,7 @@ required_jobs = [
     "build-flatpak", "build-appimage", "build-snap",
     "build-deb-ubuntu", "validate-deb-ubuntu",
     "validate-deb", "validate-rpm", "validate-rpm-opensuse", "copr-srpm",
+    "build-rpm-opensuse", "validate-rpm-leap",
     "validate-flatpak", "validate-appimage", "validate-snap",
     "publish-packages", "verify-published-packages", "finalize-release",
     "sign-update-manifest", "mirror-release-to-github", "publish-update-manifest",
@@ -72,8 +73,16 @@ validators = sorted(
     and isinstance(doc.get(j), dict)
 )
 check(len(validators) >= 6, f"found the validate-* jobs ({len(validators)})")
+# Canaries validate a package nothing publishes (the COPR spec compiled on
+# openSUSE Leap): allow_failure, and publication does not wait for them. Named
+# here one by one, so a new validator cannot slip out of the gate unnoticed.
+CANARY_VALIDATORS = {"validate-rpm-leap"}
 for job in validators:
-    check(job in publish_needs, f"publish-packages consumes {job}")
+    if job in CANARY_VALIDATORS:
+        check(doc[job].get("allow_failure") is True and job not in publish_needs,
+              f"{job} is a canary: allow_failure, and publication does not wait for it")
+    else:
+        check(job in publish_needs, f"publish-packages consumes {job}")
 
 # --- one dedicated runner pool per format: every build/validate job selects
 # --- exactly one unique selector tag. Each selector matches a runner on both
@@ -88,7 +97,7 @@ FORMAT_SELECTOR = {
 # iterate FORMAT_SELECTOR, so a new format missing here would skip them.
 # validate-deb-ubuntu reuses validate-deb.sh, and validate-rpm-opensuse
 # validate-rpm.sh (the one .rpm, installed on Tumbleweed as well).
-_UBUNTU_REUSES = {"deb-ubuntu": "deb", "rpm-opensuse": "rpm"}
+_UBUNTU_REUSES = {"deb-ubuntu": "deb", "rpm-opensuse": "rpm", "rpm-leap": "rpm"}
 _derived_formats = {
     _UBUNTU_REUSES.get(j[len("validate-"):], j[len("validate-"):])
     for j in validators
@@ -478,7 +487,8 @@ check(build_included("snap", v) and build_included("appimage", v),
 v = {"PUBLISH_PACKAGES": "true", "BUILD_FORMATS": "deb"}
 check(all(build_included(f, v) for f in all_fmts),
       "publishing pipelines build every format regardless of BUILD_FORMATS")
-for job in ("validate-rpm-opensuse", "copr-srpm"):
+for job in ("validate-rpm-opensuse", "copr-srpm", "build-rpm-opensuse",
+            "validate-rpm-leap"):
     check(doc[job].get("rules") == doc["build-rpm"].get("rules"),
           f"{job} runs exactly when build-rpm does")
 for fmt in all_fmts:
@@ -1077,7 +1087,7 @@ _abi_helper = _abi_helper[_abi_helper.index("assert_portable_qt_abi()"):]
 _abi_helper = _abi_helper[:_abi_helper.index("\n}\n")]
 for needle in ('objdump -T "$binary"', "PRIVATE_API", "qt_version_tag", "qt_imports >= 100"):
     check(needle in _abi_helper, f"assert_portable_qt_abi checks {needle}")
-for needle in ("opensuse-tumbleweed)", "zypper --non-interactive install --allow-unsigned-rpm --recommends",
+for needle in ("opensuse-tumbleweed|opensuse-leap)", "zypper --non-interactive install --allow-unsigned-rpm --recommends",
                'if [[ "$distro" == fedora ]]; then\n    rpmlint'):
     check(needle in _rpm_validate,
           f"validate-rpm runs on Tumbleweed as well as Fedora ({needle.splitlines()[0]})")
@@ -1113,6 +1123,49 @@ _copr_check = _strip_shell_comments(_read("scripts", "check-copr-srpm.sh"))
 for needle in ('make -f "$SOURCE_DIR/.copr/Makefile" srpm', "rpmspec -q --requires",
                "diff -u", ">= 15"):
     check(needle in _copr_check, f"check-copr-srpm.sh: {needle}")
+
+# openSUSE through COPR: copr-srpm's source RPM compiled on Leap 16.0, the
+# oldest openSUSE COPR builds for, and installed on a clean Leap 16.0. Both
+# are canaries: the package is never published.
+_leap_build = resolve_extends_dict(doc["build-rpm-opensuse"])
+_LEAP_IMAGE = "registry.opensuse.org/opensuse/leap@sha256:"
+check(str(_leap_build.get("image", "")).startswith(_LEAP_IMAGE),
+      "build-rpm-opensuse runs on the pinned openSUSE Leap image")
+check(_leap_build.get("script") == ["./packaging-ci/scripts/build-rpm-opensuse.sh"],
+      "build-rpm-opensuse compiles through build-rpm-opensuse.sh")
+check("copr-srpm" in needs_names("build-rpm-opensuse")
+      and "resolve-source" in needs_names("build-rpm-opensuse"),
+      "build-rpm-opensuse compiles the source RPM copr-srpm assembled")
+check(_leap_build.get("allow_failure") is True
+      and "build-rpm-opensuse" not in needs_names("publish-packages"),
+      "build-rpm-opensuse gates nothing (COPR builds from the tag on its own)")
+check(_leap_build.get("resource_group") == "lightning-package-build-c",
+      "build-rpm-opensuse is bounded by resource group c, after the Ubuntu deb")
+check(set(_leap_build.get("tags", [])) & UNIQUE_SELECTORS == {"dnf"},
+      "build-rpm-opensuse selects the rpm runner pool")
+_leap_paths = _leap_build.get("artifacts", {}).get("paths", [])
+check("dist/opensuse/" in _leap_paths
+      and not any(p.startswith("dist/*") and p.endswith(".rpm") for p in _leap_paths),
+      "build-rpm-opensuse keeps its package under dist/opensuse/, apart from the release .rpm")
+_leap_script = _strip_shell_comments(_read("scripts", "build-rpm-opensuse.sh"))
+for needle in ('"opensuse-leap 16.0"', '"$ROOT"/dist/copr/*.src.rpm', "rpmbuild --rebuild",
+               '"$ROOT/dist/opensuse"', "write_sha256"):
+    check(needle in _leap_script, f"build-rpm-opensuse.sh: {needle}")
+_leap_val = resolve_extends_dict(doc["validate-rpm-leap"])
+check(str(_leap_val.get("image", "")).startswith(_LEAP_IMAGE)
+      and _leap_val.get("image") == _leap_build.get("image"),
+      "validate-rpm-leap installs on the same pinned Leap image, clean")
+check(_leap_val.get("script") == ["./packaging-ci/scripts/validate-rpm.sh"]
+      and (_leap_val.get("variables") or {}).get("RPM_LANE") == "copr",
+      "validate-rpm-leap runs validate-rpm.sh in its copr lane")
+check("build-rpm-opensuse" in needs_names("validate-rpm-leap"),
+      "validate-rpm-leap installs the package build-rpm-opensuse made")
+for needle in ('RPM_LANE="${RPM_LANE:-release}"', '"$ROOT"/dist/opensuse/*.rpm',
+               "'GIPHY configured: no'", "'KLIPY configured: no'"):
+    check(needle in _rpm_validate, f"validate-rpm.sh copr lane: {needle}")
+# The copr lane must not loosen the release lane: its exact filename stays.
+check('expected="lightning-${RPM_VERSION}-${RPM_RELEASE}.x86_64.rpm"' in _rpm_validate,
+      "validate-rpm.sh still demands the release .rpm's exact filename")
 
 # --- 3. every format asks the shipped artifact ------------------------------
 #

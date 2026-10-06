@@ -83,10 +83,13 @@ QStringList debFrontendCandidates()
 
 QStringList rpmFrontendCandidates()
 {
-    // Probe order per UPDATE-SPEC §10: dnf5, dnf, rpm-ostree, rpm.
+    // Probe order per UPDATE-SPEC §10: dnf5, dnf, zypper, rpm-ostree, rpm.
+    // zypper is openSUSE's: the same .rpm installs there, and bare `rpm -U`
+    // cannot pull in a dependency a new release adds.
     return {
         QStringLiteral("/usr/bin/dnf5"),
         QStringLiteral("/usr/bin/dnf"),
+        QStringLiteral("/usr/bin/zypper"),
         QStringLiteral("/usr/bin/rpm-ostree"),
         QStringLiteral("/usr/bin/rpm"),
         QStringLiteral("/bin/rpm"),
@@ -110,6 +113,15 @@ QStringList packageManagerArguments(const QString &managerPath,
     }
     if (tool == QLatin1String("dnf5") || tool == QLatin1String("dnf")) {
         return {managerPath, QStringLiteral("install"), QStringLiteral("-y"),
+                artifactPath};
+    }
+    if (tool == QLatin1String("zypper")) {
+        // The release .rpm is unsigned; the helper has already checked its
+        // SHA-256 against the signed update manifest, which is what
+        // --allow-unsigned-rpm waives. --non-interactive goes before the
+        // command, as zypper's global options must.
+        return {managerPath, QStringLiteral("--non-interactive"),
+                QStringLiteral("install"), QStringLiteral("--allow-unsigned-rpm"),
                 artifactPath};
     }
     if (tool == QLatin1String("rpm-ostree")) {

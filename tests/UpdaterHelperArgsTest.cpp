@@ -110,7 +110,7 @@ private slots:
     void retargetRefusesAPlanThatDoesNotNameTheLockedFile();
     void debPrefersAptGetThenDpkg();
     void debWithoutPkexecFails();
-    void rpmProbeOrderIsDnf5DnfRpmOstreeRpm();
+    void rpmProbeOrderIsDnf5DnfZypperRpmOstreeRpm();
     void rpmWithNoFrontendFails();
     void noPlanEverCarriesAForceSwitch();
     void awkwardPathSurvivesAsASingleArgvElement();
@@ -1135,7 +1135,7 @@ void UpdaterHelperArgsTest::debWithoutPkexecFails()
     QVERIFY(result.plan.program.isEmpty());
 }
 
-void UpdaterHelperArgsTest::rpmProbeOrderIsDnf5DnfRpmOstreeRpm()
+void UpdaterHelperArgsTest::rpmProbeOrderIsDnf5DnfZypperRpmOstreeRpm()
 {
     UpdaterArguments args;
     args.mode = UpdaterMode::LinuxRpm;
@@ -1158,7 +1158,17 @@ void UpdaterHelperArgsTest::rpmProbeOrderIsDnf5DnfRpmOstreeRpm()
     QVERIFY(result.ok());
     QCOMPARE(result.plan.arguments.first(), QStringLiteral("/usr/bin/dnf"));
 
+    // openSUSE: zypper, which resolves a dependency a new release adds; the
+    // .rpm is unsigned and its hash was checked against the signed manifest.
     absent << QStringLiteral("/usr/bin/dnf");
+    result = planLinuxRpm(args, probe);
+    QVERIFY(result.ok());
+    QCOMPARE(result.plan.arguments,
+             QStringList({QStringLiteral("/usr/bin/zypper"),
+                          QStringLiteral("--non-interactive"), QStringLiteral("install"),
+                          QStringLiteral("--allow-unsigned-rpm"), args.artifactPath}));
+
+    absent << QStringLiteral("/usr/bin/zypper");
     result = planLinuxRpm(args, probe);
     QVERIFY(result.ok());
     QCOMPARE(result.plan.arguments,

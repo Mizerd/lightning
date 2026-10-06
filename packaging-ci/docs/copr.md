@@ -8,7 +8,9 @@ CMake options, the same portable Qt ABI. Two things differ on purpose:
 
 - **Install type `linux-rpm-repo`.** The in-app updater treats it like Flatpak
   and Snap: it never downloads or installs anything, says dnf manages the
-  installation, and shows `sudo dnf upgrade --refresh lightning-matrix`. The GitLab
+  installation, and shows `sudo dnf upgrade --refresh lightning-matrix` (on
+  openSUSE, where `/usr/bin/zypper` exists and no dnf does: zypper, and
+  `sudo zypper refresh && sudo zypper update lightning-matrix`). The GitLab
   `.rpm` stays `linux-rpm` and keeps its automatic install. Nothing at runtime
   tells the two apart, so only the build can say which one it is.
 - **No GIF provider keys.** The source RPM is public, so a COPR build has
@@ -85,6 +87,55 @@ an artifact for a week (`dist/copr/`), and
 with git, cargo, rpmbuild and network; then
 `copr-cli build mizerd/lightning-matrix <file>.src.rpm`.
 
+## openSUSE chroots (Tumbleweed and Leap 16.0)
+
+COPR builds for openSUSE too, from the same source RPM: the spec's
+`%{?suse_version}` branch names openSUSE's packages (`cmake(Qt6…)`,
+`pkgconfig(gstreamer-…)`, `libopenssl-devel` — not `pkgconfig(openssl)`, which
+LibreSSL also provides and zypper picked on Leap) and calls CMake directly,
+since openSUSE's `%cmake` comments out every `set(CMAKE_BUILD_TYPE …)` in the
+tree and picks Makefiles. The runtime `Requires` are the same lines as
+Fedora's; they were written by capability for exactly this.
+
+Why bother when the release `.rpm` installs on Tumbleweed: **Leap 16.0 cannot
+install it** (Qt 6.9.1 against the release `.rpm`'s Qt 6.11 floor) and is
+otherwise left with the Flatpak; and a COPR build links openSUSE's own
+libraries and is updated by zypper with the rest of the system.
+
+Measured 2026-10-06 in rig containers (`opensuse/leap:16.0`: Qt 6.9.1,
+GStreamer 1.26.7, GCC 15, Rust 1.98; Tumbleweed: Qt 6.11.2, GStreamer
+1.28.7), Rust from the distribution: the source RPM from `build-copr-srpm.sh`
+compiles through `rpmbuild --rebuild` on both, about 40 minutes each at -j8.
+The Leap package passes `validate-rpm.sh` on a clean Leap 16.0; the Tumbleweed
+package (29 MB, stripped) installs over the 0.10.0 `lightning` rpm on a
+Tumbleweed KDE desktop and calls (`docs/open-items.md`).
+The pipeline repeats the Leap half on every rpm pipeline: `build-rpm-opensuse`
+compiles `copr-srpm`'s source RPM on Leap 16.0 and `validate-rpm-leap`
+installs it on a clean Leap 16.0. Both are canaries; neither gates a release.
+
+**What the maintainer clicks (once):** at
+<https://copr.fedorainfracloud.org/coprs/mizerd/lightning-matrix/edit/> tick
+the chroots `opensuse-tumbleweed-x86_64` and `opensuse-leap-16.0-x86_64`, save,
+then *Rebuild* the latest build (or wait for the next tag push) so the two new
+chroots get packages. Nothing else changes: same package, same webhook, same
+SRPM method. `aarch64` only after x86_64 is green.
+
+Users then add the repository (form of COPR's generated `.repo` files; check
+the links on the project page once the chroots exist):
+
+```sh
+# Tumbleweed
+sudo zypper addrepo https://copr.fedorainfracloud.org/coprs/mizerd/lightning-matrix/repo/opensuse-tumbleweed/mizerd-lightning-matrix-opensuse-tumbleweed.repo
+# Leap 16.0
+sudo zypper addrepo https://copr.fedorainfracloud.org/coprs/mizerd/lightning-matrix/repo/opensuse-leap-16.0/mizerd-lightning-matrix-opensuse-leap-16.0.repo
+
+sudo zypper --gpg-auto-import-keys refresh
+sudo zypper install lightning-matrix
+```
+
+These lines join `docs/install.md` only after a green COPR build in both
+chroots, as the Fedora ones do.
+
 ## Each release
 
 Nothing, if the webhook is set: the tag push starts the build. The signed
@@ -106,7 +157,16 @@ again. Users should pick one.
 
 ## Not tested
 
+- Any build in COPR's openSUSE chroots: only the Leap 16.0 rig container
+  above has compiled the spec's openSUSE branch, and Tumbleweed only as an
+  install of that Leap build. The `.repo` URLs above are COPR's naming
+  pattern, not yet fetched. The zypper wording of the in-app updater on a
+  COPR install is unit-tested, not seen on screen.
 - A build on COPR itself: only the equivalent mock chroot above has built it.
+  (Seen 2026-10-06 through COPR's API, not reviewed: build 11073358,
+  `0.10.0^20261004git21b6234`, succeeded for fedora-44 and fedora-45; the
+  project has *internet access during builds* ON, which step 1 says to keep
+  OFF.)
 - A COPR build of any tree after v0.9.9, and of `linux-rpm-repo` and
   `-DCMAKE_SKIP_INSTALL_RPATH=ON` at all: the spec's current form has been
   assembled into a source RPM (`copr-srpm`), not compiled.

@@ -6,32 +6,48 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 ROOT="$(project_dir)"
 load_versions
+# RPM_LANE=release (the default) validates build-rpm's release .rpm in dist/.
+# RPM_LANE=copr validates build-rpm-opensuse's package in dist/opensuse/: the
+# COPR spec compiled on openSUSE Leap 16.0, keyless and never published.
+RPM_LANE="${RPM_LANE:-release}"
 shopt -s nullglob
-packages=("$ROOT"/dist/*.rpm)
-(( ${#packages[@]} == 1 )) || die "expected exactly one RPM package"
-package="${packages[0]}"
-expected="lightning-${RPM_VERSION}-${RPM_RELEASE}.x86_64.rpm"
-[[ "$(basename "$package")" == "$expected" ]] || die "unexpected RPM filename"
+case "$RPM_LANE" in
+    release)
+        packages=("$ROOT"/dist/*.rpm)
+        (( ${#packages[@]} == 1 )) || die "expected exactly one RPM package"
+        package="${packages[0]}"
+        expected="lightning-${RPM_VERSION}-${RPM_RELEASE}.x86_64.rpm"
+        [[ "$(basename "$package")" == "$expected" ]] || die "unexpected RPM filename"
+        ;;
+    copr)
+        packages=("$ROOT"/dist/opensuse/*.rpm)
+        (( ${#packages[@]} == 1 )) || die "expected exactly one openSUSE RPM package"
+        package="${packages[0]}"
+        [[ "$(basename "$package")" == lightning-matrix-"$BASE_VERSION"*.x86_64.rpm ]] || \
+            die "unexpected openSUSE RPM filename: $(basename "$package")"
+        ;;
+    *) die "RPM_LANE must be release or copr, not '$RPM_LANE'" ;;
+esac
 [[ ! -e "$ROOT/work/lightning" ]] || die "validation must not receive a source checkout"
 command -v nix >/dev/null 2>&1 && die "Nix must be absent from the validation environment"
 
 # One .rpm is published for Fedora AND openSUSE Tumbleweed, so this runs on
 # both: validate-rpm on the Fedora image that built it, validate-rpm-opensuse
-# on Tumbleweed. rpmlint runs on Fedora only; its checks and the waivers below
-# are Fedora's.
+# on Tumbleweed. validate-rpm-leap runs the copr lane on Leap 16.0. rpmlint
+# runs on Fedora only; its checks and the waivers below are Fedora's.
 distro="$(. /etc/os-release && printf '%s' "${ID:-}")"
 case "$distro" in
     fedora)
         pkg_install=(dnf install -y)
         pkg_remove=(dnf remove -y lightning-matrix)
         ;;
-    opensuse-tumbleweed)
+    opensuse-tumbleweed|opensuse-leap)
         # The package is unsigned (the signed update manifest carries its
         # hash), and zypper installs recommends only when asked in a container.
         pkg_install=(zypper --non-interactive install --allow-unsigned-rpm --recommends)
         pkg_remove=(zypper --non-interactive remove lightning-matrix)
         ;;
-    *) die "validate-rpm runs on Fedora or openSUSE Tumbleweed, not '${distro:-unknown}'" ;;
+    *) die "validate-rpm runs on Fedora or openSUSE, not '${distro:-unknown}'" ;;
 esac
 printf 'validate-rpm: validating on %s\n' "$distro"
 
@@ -69,7 +85,7 @@ if [[ "$distro" == fedora ]]; then
         die "rpmlint reported errors"
     fi
 fi
-(cd "$ROOT/dist" && sha256sum -c "$(basename "$package").sha256")
+(cd "$(dirname "$package")" && sha256sum -c "$(basename "$package").sha256")
 
 audit_root="$(mktemp -d)"
 cleanup() { rm -rf "$audit_root"; }
@@ -178,7 +194,13 @@ gif_env_clear() {
 }
 status_out="$(cd /tmp && gif_env_clear /usr/bin/lightning-matrix --gif-status)"
 printf '%s\n' "$status_out" | tee "$ROOT/dist/rpm-gif-status.txt"
-if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
+if [[ "$RPM_LANE" == copr ]]; then
+    # The COPR source RPM is public, so its build carries no provider key.
+    printf '%s\n' "$status_out" | grep -qx 'GIPHY configured: no' || \
+        die "the COPR-spec RPM reports a GIPHY key; its source RPM is public"
+    printf '%s\n' "$status_out" | grep -qx 'KLIPY configured: no' || \
+        die "the COPR-spec RPM reports a KLIPY key; its source RPM is public"
+elif [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
     printf '%s\n' "$status_out" | grep -qx 'GIPHY configured: yes' || \
         die "packaged RPM reports GIPHY unconfigured with keys unset"
     printf '%s\n' "$status_out" | grep -qx 'KLIPY configured: yes' || \

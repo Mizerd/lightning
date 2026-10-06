@@ -42,7 +42,7 @@ constexpr InstallTypeEntry kInstallTypes[] = {
     { InstallType::LinuxRpm, "linux-rpm", "RPM package" },
     { InstallType::LinuxFlatpak, "linux-flatpak", "Flatpak" },
     { InstallType::LinuxSnap, "linux-snap", "Snap" },
-    { InstallType::LinuxRpmRepo, "linux-rpm-repo", "RPM package (DNF repository)" },
+    { InstallType::LinuxRpmRepo, "linux-rpm-repo", "RPM package (COPR repository)" },
     { InstallType::MacosDmg, "macos-dmg", "macOS disk image" },
     { InstallType::Development, "development", "Development build" },
     { InstallType::Unknown, "unknown", "Unknown installation" },
@@ -168,11 +168,24 @@ QString packageManagerName(InstallType type)
     case InstallType::LinuxSnap:
         return QStringLiteral("Snap");
     case InstallType::LinuxRpmRepo:
-        return QStringLiteral("dnf");
+        return repositoryRpmManager();
     default:
         break;
     }
     return {};
+}
+
+QString repositoryRpmManager(const std::function<bool(const QString &)> &exists)
+{
+    const auto present = [&exists](const QString &path) {
+        return exists ? exists(path) : QFileInfo::exists(path);
+    };
+    if (present(QStringLiteral("/usr/bin/zypper"))
+        && !present(QStringLiteral("/usr/bin/dnf"))
+        && !present(QStringLiteral("/usr/bin/dnf5"))) {
+        return QStringLiteral("zypper");
+    }
+    return QStringLiteral("dnf");
 }
 
 bool fileLooksLikeAppImage(const QString &path)

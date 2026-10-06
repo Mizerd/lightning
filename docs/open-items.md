@@ -1,5 +1,55 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-10-06 — openSUSE: what runs, and the COPR route for Leap
+
+**Measured on a real Tumbleweed desktop** (rig VM, Tumbleweed 20261001, KDE
+Plasma 6.7.5 over xrdp, so an X11 session; Qt 6.11.2, GStreamer 1.28.7), with
+the PUBLISHED 0.10.0 `.rpm` (Fedora-built). zypper resolved every hard
+`Requires` (not a `--nodeps` install: the rig's install log shows
+`--no-recommends`, then a `--force` reinstall); a fresh Tumbleweed container
+installs it the same way. **PASS**: launch, password sign-in, tokens in KWallet
+through libsecret (`org.lightning_matrix.Lightning.Secret` items), session
+restore from KWallet after a restart, tray icon (StatusNotifierItem, after
+enabling "keep running in the tray"), a desktop notification with Reply / Mark
+as read, the click opening its room, sending, an incoming-call notification
+with Join, and a two-party SFU call (ICE connected, tracks attributed and
+frames received in both directions). Headless flags: calls can be placed and
+answered, queue self-test pass, 15/15 call sounds, every image format incl.
+JPEG XL, both GIF providers live. **NOT TESTED**: audio content (the VM has no
+microphone; the silence warning fired correctly), camera, and Wayland.
+Spell checking needs `myspell-<lang>` on openSUSE (the rpm only recommends
+enchant); with `myspell-en_US` it works.
+
+**FOUND, not openSUSE's and NOT FIXED: screen sharing on a KDE Plasma X11
+session cannot start.** `linuxShareRoute()` sends every share to the portal
+when one answers, and xdg-desktop-portal-kde answers on X11 only to refuse
+("screen sharing is not available in X11 sessions"). Lightning then stops;
+the ximagesrc route it has (`FallbackDisplays`) is never tried. Any distro's
+Plasma X11 session should be affected (inferred, seen only on openSUSE); on
+Wayland the portal is the right route. Fix candidates for the calls owner: on
+a session that is X11 by every signal, prefer `FallbackDisplays`, or fall back
+to it when the portal refuses.
+
+**Leap 16.0 cannot install the release `.rpm`** (Qt 6.9.1 against its Qt 6.11
+floor). It gets the COPR route: the COPR spec now has an openSUSE branch, and
+COPR's `opensuse-leap-16.0-x86_64` and `opensuse-tumbleweed-x86_64` chroots
+need ticking (`packaging-ci/docs/copr.md`). Measured in rig containers: that
+spec compiles on Leap 16.0 (40 min at -j8, peak 6.95 GiB — above the 6 GiB
+package runners, so `build-rpm-opensuse` may be OOM-killed there; it is
+allow_failure) and the package passes `validate-rpm.sh` on a clean Leap 16.0
+(559 packages from zypper, calls, queue self-test, images incl. JPEG XL). The
+same spec built on Tumbleweed gives a 29 MB stripped package that zypper
+installed over the 0.10.0 `lightning` rpm on the Tumbleweed desktop (the
+`Obsoletes` took it over), restored both sessions from KWallet, passed every
+headless flag (keyless GIF, as COPR's must be), and carried a two-party call
+with frames in both directions. NOT TESTED: any build on COPR's openSUSE
+chroots, the `.repo` URLs, and a Leap desktop session.
+
+The in-app updater now hands a downloaded `.rpm` to zypper on openSUSE
+(`dnf5`, `dnf`, `zypper`, `rpm-ostree`, `rpm`), so a release that adds a
+dependency installs; and a COPR install there names zypper. Both unit-tested,
+NOT TESTED live.
+
 ## 2026-10-02 — NOT TESTED live: everything since 0.10.0
 
 Code done and unit-tested, never exercised live. All of it must be live-tested
@@ -256,9 +306,9 @@ Everything below was found or left open by that round's live testing and its
 - Follow-up: a Tumbleweed Qt behind Fedora's refuses the rpm until it catches
   up (the version tag is a floor). Tumbleweed has led so far (6.11.2 on both on
   2026-09-24).
-- Follow-up: the GitLab rpm's automatic update on openSUSE goes through
-  `rpm -U` (no zypper arm in `rpmFrontendCandidates`), which cannot pull in a
-  dependency a new release adds. Not exercised.
+- Follow-up, ADDRESSED 2026-10-06: the GitLab rpm's automatic update on
+  openSUSE went through `rpm -U`; `rpmFrontendCandidates` now has a zypper arm.
+  Not exercised live.
 
 ### Keyring: install scoping (phase 1 landed, phase 2 open)
 

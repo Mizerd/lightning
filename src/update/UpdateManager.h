@@ -65,6 +65,9 @@ class UpdateManager : public QObject
     Q_PROPERTY(QString installTypeLabel READ installTypeLabel NOTIFY installTypeChanged)
     Q_PROPERTY(bool canInstallAutomatically READ canInstallAutomatically NOTIFY installTypeChanged)
     Q_PROPERTY(bool packageManaged READ packageManaged NOTIFY installTypeChanged)
+    // Who owns a package-managed install: "Flatpak", "Snap", "dnf" or
+    // "zypper" (a COPR install on openSUSE). Empty otherwise.
+    Q_PROPERTY(QString packageManagerName READ packageManagerName NOTIFY installTypeChanged)
     // A Windows MSI/setup installation "for all users": installing needs
     // administrator approval, so the UI can say so beforehand.
     Q_PROPERTY(bool installNeedsAdministrator READ installNeedsAdministrator
@@ -136,6 +139,10 @@ public:
     QString installTypeLabel() const;
     bool canInstallAutomatically() const { return m_detection.automaticInstallAllowed; }
     bool packageManaged() const { return isPackageManaged(m_detection.type); }
+    QString packageManagerName() const
+    {
+        return lightning::update::packageManagerName(m_detection.type);
+    }
     bool installNeedsAdministrator() const;
     bool automaticChecksEnabled() const { return m_automaticChecksEnabled; }
     void setAutomaticChecksEnabled(bool enabled);

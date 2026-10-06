@@ -33,7 +33,8 @@ enum class InstallType {
     LinuxRpm,
     LinuxFlatpak,
     LinuxSnap,
-    // An RPM installed from a DNF repository (Fedora COPR): dnf owns updates.
+    // An RPM installed from a COPR repository: dnf owns updates on Fedora,
+    // zypper on openSUSE (repositoryRpmManager).
     // Only the COPR spec compiles it in; a downloaded .rpm is LinuxRpm.
     LinuxRpmRepo,
     MacosDmg,
@@ -73,8 +74,15 @@ bool canInstallAutomatically(InstallType type);
 bool isPackageManaged(InstallType type);
 
 // The tool that owns updates for a package-managed type, for "managed by %1":
-// Flatpak, Snap or dnf. Empty for every other type.
+// Flatpak, Snap, or for a repository RPM dnf or zypper (see
+// repositoryRpmManager). Empty for every other type.
 QString packageManagerName(InstallType type);
+
+// Which tool owns a repository RPM. COPR builds the same linux-rpm-repo type
+// for Fedora and for openSUSE, so only the running system can tell: "zypper"
+// where /usr/bin/zypper exists and neither dnf nor dnf5 does, else "dnf".
+// `exists` is injectable for tests; unset reads the real filesystem.
+QString repositoryRpmManager(const std::function<bool(const QString &)> &exists = {});
 
 // Injectable inputs so every branch is testable without setenv races.
 // Defaults read the real environment and filesystem.

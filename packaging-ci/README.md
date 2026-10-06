@@ -104,6 +104,7 @@ Only manually created `web` and `api` pipelines are accepted.
 | build | `build-deb` | Debian 13.6 build |
 | build | `build-rpm` | Fedora 44 build, bytecode-only QML (one `.rpm` for Fedora and openSUSE) |
 | build | `copr-srpm` | Assembles the Fedora COPR source RPM from the pinned source and checks it against the release spec (compiles nothing, gates nothing) |
+| build | `build-rpm-opensuse` | Compiles that source RPM on openSUSE Leap 16.0, as COPR's openSUSE chroots do (test artifact under `dist/opensuse/`, never published, gates nothing) |
 | build | `build-flatpak` | KDE-runtime sandbox build → single-file bundle |
 | build | `build-appimage` | Debian staged build → self-contained AppImage |
 | build | `build-snap` | Snap packed from the AppImage job's AppDir |
@@ -112,6 +113,7 @@ Only manually created `web` and `api` pipelines are accepted.
 | validate | `validate-deb` | Clean Debian install/run/uninstall audit |
 | validate | `validate-rpm` | Clean Fedora install/run/uninstall audit, plus the portable Qt ABI (no private symbol, version tag kept) |
 | validate | `validate-rpm-opensuse` | The same `.rpm` and script on openSUSE Tumbleweed |
+| validate | `validate-rpm-leap` | `build-rpm-opensuse`'s package on a clean Leap 16.0, same script (`RPM_LANE=copr`; a canary, publication does not wait for it) |
 | validate | `validate-flatpak` | Bundle install into a disposable installation, run, uninstall |
 | validate | `validate-appimage` | extract-and-run on a Qt-less image, payload audit |
 | validate | `validate-snap` | Structural + payload audit, launcher run (no snapd in fleet) |
@@ -733,6 +735,16 @@ every package; `validate-rpm-opensuse` installs and runs it on Tumbleweed.
 `tests/test-copr-spec-parity.py` keeps the two specs' dependencies and
 fail-closed options in step; `copr-srpm` proves the source RPM assembles. The
 maintainer's one-time COPR setup is in [`docs/copr.md`](docs/copr.md).
+
+**openSUSE through COPR.** The same source RPM builds in COPR's
+`opensuse-tumbleweed-x86_64` and `opensuse-leap-16.0-x86_64` chroots, through
+the spec's `%{?suse_version}` branch: openSUSE's package names, and CMake called
+directly, because openSUSE's `%cmake` comments out every
+`set(CMAKE_BUILD_TYPE …)` in the tree and picks Makefiles. That is the package
+Leap 16.0 can install (its Qt 6.9 is older than the release `.rpm`'s floor),
+and on Tumbleweed it is linked against openSUSE's own libraries and updated by
+zypper. `build-rpm-opensuse` compiles it on Leap 16.0 in every rpm pipeline and
+`validate-rpm-leap` installs it on a clean Leap 16.0; neither gates a release.
 
 ### The call media engine (GStreamer)
 

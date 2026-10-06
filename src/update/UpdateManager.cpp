@@ -1360,7 +1360,7 @@ void UpdateManager::startInstall(bool restartAfterwards)
     if (!m_detection.automaticInstallAllowed) {
         const QString reason = isPackageManaged(m_detection.type)
             ? QStringLiteral("Updates for this installation are managed by %1.")
-                  .arg(packageManagerName(m_detection.type))
+                  .arg(lightning::update::packageManagerName(m_detection.type))
             : QStringLiteral("Lightning does not install updates for %1 installations.")
                   .arg(installTypeLabel());
         Q_EMIT installRefused(reason);
@@ -1535,7 +1535,10 @@ QString UpdateManager::managedUpdateCommand() const
                               : QStringLiteral("snap refresh %1").arg(name);
     }
     case InstallType::LinuxRpmRepo:
-        return QStringLiteral("sudo dnf upgrade --refresh lightning-matrix");
+        // COPR builds this type for Fedora and openSUSE alike.
+        return lightning::update::packageManagerName(m_detection.type) == QLatin1String("zypper")
+            ? QStringLiteral("sudo zypper refresh && sudo zypper update lightning-matrix")
+            : QStringLiteral("sudo dnf upgrade --refresh lightning-matrix");
     default:
         break;
     }
@@ -1559,8 +1562,9 @@ void UpdateManager::openManagedUpdateHelp()
         break;
     case InstallType::LinuxRpmRepo:
         explanation = QStringLiteral(
-            "Updates for this installation are managed by dnf, from the repository it was "
-            "installed from. Use your software centre, or run the command below.");
+            "Updates for this installation are managed by %1, from the repository it was "
+            "installed from. Use your software centre, or run the command below.")
+                          .arg(lightning::update::packageManagerName(m_detection.type));
         break;
     default:
         explanation = QStringLiteral(

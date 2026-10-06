@@ -30,6 +30,7 @@ using lightning::update::installTypeId;
 using lightning::update::installTypeLabel;
 using lightning::update::isPackageManaged;
 using lightning::update::packageManagerName;
+using lightning::update::repositoryRpmManager;
 using lightning::update::sameInstallDirectory;
 
 namespace {
@@ -93,6 +94,7 @@ private slots:
     void automaticInstallPolicyIsExplicit_data();
     void automaticInstallPolicyIsExplicit();
     void packageManagedIsFlatpakSnapAndTheDnfRepositoryOnly();
+    void aRepositoryRpmOnOpenSuseIsZyppers();
     void aRepositoryRpmIsUpdatedByDnfAndADownloadedOneIsNot();
     void compileTimeValueIsUsedForConcretePackages_data();
     void compileTimeValueIsUsedForConcretePackages();
@@ -242,7 +244,29 @@ void UpdateInstallTypeTest::packageManagedIsFlatpakSnapAndTheDnfRepositoryOnly()
     QCOMPARE(managed, 3);
     QCOMPARE(packageManagerName(InstallType::LinuxFlatpak), QStringLiteral("Flatpak"));
     QCOMPARE(packageManagerName(InstallType::LinuxSnap), QStringLiteral("Snap"));
-    QCOMPARE(packageManagerName(InstallType::LinuxRpmRepo), QStringLiteral("dnf"));
+    // dnf or zypper, decided by the running system (next case).
+    QCOMPARE(packageManagerName(InstallType::LinuxRpmRepo), repositoryRpmManager());
+}
+
+// COPR builds linux-rpm-repo for Fedora and openSUSE chroots alike, so the
+// tool named to the user comes from the system: zypper only where it exists
+// and no dnf does.
+void UpdateInstallTypeTest::aRepositoryRpmOnOpenSuseIsZyppers()
+{
+    const auto only = [](const QStringList &present) {
+        return [present](const QString &path) { return present.contains(path); };
+    };
+    const QString zypper = QStringLiteral("/usr/bin/zypper");
+    const QString dnf = QStringLiteral("/usr/bin/dnf");
+    const QString dnf5 = QStringLiteral("/usr/bin/dnf5");
+    QCOMPARE(repositoryRpmManager(only({zypper})), QStringLiteral("zypper"));
+    QCOMPARE(repositoryRpmManager(only({dnf})), QStringLiteral("dnf"));
+    QCOMPARE(repositoryRpmManager(only({dnf5})), QStringLiteral("dnf"));
+    // A Fedora machine with zypper installed from its repositories is dnf's.
+    QCOMPARE(repositoryRpmManager(only({zypper, dnf})), QStringLiteral("dnf"));
+    QCOMPARE(repositoryRpmManager(only({zypper, dnf5})), QStringLiteral("dnf"));
+    // Neither: keep naming dnf, the COPR default.
+    QCOMPARE(repositoryRpmManager(only({})), QStringLiteral("dnf"));
 }
 
 // The COPR spec compiles in linux-rpm-repo; the GitLab .rpm compiles in

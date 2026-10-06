@@ -70,4 +70,17 @@ cat "$ROOT/dist/copr-requires.txt"
     die "rpmspec expanded too few dependencies; the comparison below would prove nothing"
 diff -u "$ROOT/dist/copr-release-requires.txt" "$ROOT/dist/copr-requires.txt" || \
     die "the COPR package and the release RPM require different things (diff above)"
+
+# COPR's openSUSE chroots expand the same spec through its %{?suse_version}
+# branch (build-rpm-opensuse compiles it). Here only that it expands, with
+# openSUSE's names and none of Fedora's: the runtime Requires above are the
+# same in both branches.
+rpmspec -q --buildrequires --define 'suse_version 1600' "$spec_dir/lightning.spec" \
+    | sort | tee "$ROOT/dist/copr-opensuse-buildrequires.txt"
+grep -qx 'libopenssl-devel >= 3.0' "$ROOT/dist/copr-opensuse-buildrequires.txt" || \
+    die "the spec's openSUSE branch did not expand"
+if grep -E '^(ninja-build|qt6-qt|gstreamer1-|pkgconf-pkg-config|appstream$)' \
+        "$ROOT/dist/copr-opensuse-buildrequires.txt"; then
+    die "the spec's openSUSE branch names Fedora packages (above)"
+fi
 printf 'copr-srpm: %s assembled; its runtime dependencies match the release RPM\n' "$(basename "$srpm")"
