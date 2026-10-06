@@ -291,11 +291,13 @@ private Q_SLOTS:
     void noBadgeDescriptionClaimsAPermissionOrAVerification()
     {
         for (const ProfileBadges::Badge &badge : ProfileBadges::badges()) {
+            // The description is a short thank-you; it once also spelled out
+            // that a badge is no role, and that was cut as noise. What stays
+            // binding is that neither text claims one.
             const QString lowered = badge.description.toLower();
-            QVERIFY2(lowered.contains(QStringLiteral("not a moderation")),
-                     qPrintable(badge.description));
-            QVERIFY2(lowered.contains(QStringLiteral("not a verification")),
-                     qPrintable(badge.description));
+            for (const char *claim : { "verified", "moderator", "admin" })
+                QVERIFY2(!lowered.contains(QLatin1String(claim)),
+                         qPrintable(badge.description));
             const QString label = badge.label.toLower();
             for (const char *banned : { "verified", "admin", "moderator",
                                         "official", "staff", "trusted" }) {

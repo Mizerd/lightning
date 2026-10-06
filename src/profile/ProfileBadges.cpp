@@ -13,13 +13,10 @@ const QVector<ProfileBadges::Badge> &table()
         {
             QStringLiteral("@romanticanimegerl:cutefunny.art"),
             QStringLiteral("idea master"),
-            // Spelled out because readers may assume a tag is a permission or
-            // verification state; it is neither.
             QCoreApplication::translate(
                 "ProfileBadges",
                 "idea master — a thank-you badge for helping develop "
-                "Lightning. Not a moderation role and not a verification "
-                "status."),
+                "Lightning."),
         },
     };
     return kBadges;
