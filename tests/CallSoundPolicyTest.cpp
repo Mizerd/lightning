@@ -378,6 +378,35 @@ private Q_SLOTS:
         QCOMPARE(names.size(), cues.size() + 3);
         QCOMPARE(soundName(Loop::None), QString());
     }
+
+    // A chat notification's chime asks the call state: quiet in a call, while
+    // anything rings, and while a share captures the output mix.
+    void aNotificationChimeIsQuietInsideACallAndWhileRinging()
+    {
+        Policy idle;
+        QVERIFY(idle.allowsNotificationSound());
+
+        qint64 clock = 0;
+        Policy inCall = connectedWith(roster({ QStringLiteral("bob") }), clock);
+        QVERIFY(inCall.inCall());
+        QVERIFY(!inCall.allowsNotificationSound());
+
+        Policy ringing;
+        ringing.setIncomingRing(true);
+        QCOMPARE(ringing.desiredLoop(), Loop::Ring);
+        QVERIFY(!ringing.allowsNotificationSound());
+
+        Policy outgoing;
+        outgoing.legacyPhaseChanged(LegacyPhase::OutgoingRinging, false);
+        QCOMPARE(outgoing.desiredLoop(), Loop::Ringback);
+        QVERIFY(!outgoing.allowsNotificationSound());
+
+        Policy captured;
+        captured.setOutputCapturedByShare(true);
+        QVERIFY(!captured.allowsNotificationSound());
+        captured.setOutputCapturedByShare(false);
+        QVERIFY(captured.allowsNotificationSound());
+    }
 };
 
 QTEST_GUILESS_MAIN(CallSoundPolicyTest)

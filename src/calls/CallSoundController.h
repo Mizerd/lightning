@@ -93,6 +93,16 @@ public:
     /// anything else one cue at call-sound volume, even with the switches off.
     Q_INVOKABLE void preview(const QString &sound);
 
+    /// A delivered chat notification's chime ("message", or "mention" for a
+    /// highlight), at the notification volume, on the system default output.
+    /// Plays nothing and returns false while a call is live or ringing, while
+    /// a share captures the output mix, with no sink, or when the sound is
+    /// not loaded. NotificationManager decides whether a notification (and
+    /// its sound) exists at all.
+    bool playNotificationSound(bool mention);
+    /// Settings "Test" button for the notification chime.
+    Q_INVOKABLE void previewNotification(bool mention);
+
     /// Tests: a deterministic millisecond clock.
     void setClockForTest(std::function<qint64()> clock);
     const callsound::Policy &policy() const { return m_policy; }
@@ -118,6 +128,7 @@ private:
     qint64 now() const;
     qreal cueVolume() const;
     qreal ringVolume() const;
+    qreal notificationVolume() const;
 
     QPointer<SettingsManager> m_settings;
     QPointer<SfuCallController> m_groupCall;

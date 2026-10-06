@@ -73,6 +73,11 @@ bool Policy::inCall() const
         || m_legacy == LegacyPhase::Active;
 }
 
+bool Policy::allowsNotificationSound() const
+{
+    return !m_outputCaptured && !inCall() && desiredLoop() == Loop::None;
+}
+
 bool Policy::deafened() const
 {
     return (groupLive() && m_groupAudio.deafened)

@@ -18,6 +18,13 @@ namespace {
 // Backstop for a stop signal that never comes: no announced ring outlives the
 // longest invite AppController honours (300 s).
 constexpr int kRingCapMs = 300 * 1000;
+
+/// The chat notification chimes: not call cues, so not in the policy's Cue
+/// list, but the same files and the same player.
+QString notificationSoundName(bool mention)
+{
+    return mention ? QStringLiteral("mention") : QStringLiteral("message");
+}
 } // namespace
 
 CallSoundController::CallSoundController(QObject *parent)
@@ -363,6 +370,33 @@ qreal CallSoundController::ringVolume() const
     const int percent = m_settings ? m_settings->ringerVolume()
                                    : SettingsManager::kDefaultRingerVolume;
     return qBound(0, percent, 100) / 100.0;
+}
+
+qreal CallSoundController::notificationVolume() const
+{
+    const int percent = m_settings
+        ? m_settings->notificationSoundVolume()
+        : SettingsManager::kDefaultNotificationSoundVolume;
+    return qBound(0, percent, 100) / 100.0;
+}
+
+bool CallSoundController::playNotificationSound(bool mention)
+{
+    const QString name = notificationSoundName(mention);
+    if (!m_sink || !m_policy.allowsNotificationSound())
+        return false;
+    if (!m_sink->canPlay(name))
+        return false;
+    m_sink->play(name, notificationVolume(), /*inCall=*/false);
+    return true;
+}
+
+void CallSoundController::previewNotification(bool mention)
+{
+    if (!m_sink)
+        return;
+    m_sink->play(notificationSoundName(mention), notificationVolume(),
+                 /*inCall=*/false);
 }
 
 void CallSoundController::emitCues(const QList<Cue> &cues)

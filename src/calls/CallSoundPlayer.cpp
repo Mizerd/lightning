@@ -32,7 +32,8 @@ const QStringList kSounds = {
     QStringLiteral("undeafen"),     QStringLiteral("share-start"),
     QStringLiteral("share-stop"),   QStringLiteral("hand-raised"),
     QStringLiteral("ring"),         QStringLiteral("call-waiting"),
-    QStringLiteral("ringback"),
+    QStringLiteral("ringback"),     QStringLiteral("message"),
+    QStringLiteral("mention"),
 };
 
 // Settings sliders are perceptual; QSoundEffect takes linear gain. Map the

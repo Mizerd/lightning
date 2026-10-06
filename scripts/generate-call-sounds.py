@@ -12,7 +12,7 @@
 #         "python3 scripts/generate-call-sounds.py"              # data/sounds
 #     ... generate-call-sounds.py --direction E2 --out /tmp/e2   # a variant
 #     ... generate-call-sounds.py --check                        # levels only
-#     ... generate-call-sounds.py --preview /tmp/preview.wav     # all 15
+#     ... generate-call-sounds.py --preview /tmp/preview.wav     # all 17
 #
 # Output is deterministic: every random choice (noise, humanised timing and
 # velocity, reverb) comes from a generator seeded by the direction and the
@@ -75,7 +75,8 @@ DEFAULT_DIRECTION = 'E3'
 
 ORDER = ['ring', 'ringback', 'call-waiting', 'connected', 'ended',
          'disconnected', 'join', 'leave', 'mute', 'unmute', 'deafen',
-         'undeafen', 'share-start', 'share-stop', 'hand-raised']
+         'undeafen', 'share-start', 'share-stop', 'hand-raised',
+         'message', 'mention']
 
 # Max momentary loudness (LUFS, as played on stereo speakers) per sound.
 # Ringer loudest; session cues next; social, share and hand a step below;
@@ -86,10 +87,16 @@ TARGET = {
     'join': -18.0, 'leave': -18.5,
     'mute': -21.0, 'unmute': -21.0, 'deafen': -21.0, 'undeafen': -21.0,
     'share-start': -18.0, 'share-stop': -18.5, 'hand-raised': -18.0,
+    # Desktop notifications: not a call cue, but the same voice. A message
+    # sits with the controls (it can repeat all day); a mention one step up.
+    'message': -21.0, 'mention': -18.5,
 }
 PEAK_CAP_DBTP = -1.0
 # Controls are taps: end them once the tail is 50 dB down, not 60.
-TRIM_DB = {'mute': -50.0, 'unmute': -50.0, 'deafen': -50.0, 'undeafen': -50.0}
+TRIM_DB = {'mute': -50.0, 'unmute': -50.0, 'deafen': -50.0, 'undeafen': -50.0,
+           # Notification chimes end once the tail is 35 dB down, so they
+           # stay under half a second however long the room rings.
+           'message': -22.0, 'mention': -22.0}
 
 
 # ── tuning and time ────────────────────────────────────────────────────────
@@ -473,7 +480,8 @@ E4_STYLE = e_style(tr=2, ring='E4')
 
 
 def e_family(S):
-    """The fifteen sounds of E, played in style S."""
+    """The seventeen sounds of E (fifteen for calls, two notification
+    chimes), played in style S."""
 
     def F(name):
         return hz(name) * 2.0 ** (S['tr'] / 12.0)
@@ -736,7 +744,32 @@ def e_family(S):
         m.add(0.0, tone(F('C5'), 0.65, tau=0.18), 0.0, send=send(0.22))
         m.add(0.2, tone(F('C5'), 0.85, tau=0.4), 0.0, send=send(0.22))
 
+    def message(m, rng):
+        # A new message: two soft notes rising a fourth through the tonic's
+        # major seventh and third (D5 - G5 over Ebmaj7). Short, high and
+        # dry, so it can repeat all day without wearing.
+        h = Human(rng, t_ms=2.0)
+        play(m, h, [(0.00, F('D5'), 0.55, dict(tau=0.07, fc_peak=1800.0)),
+                    (0.075, F('G5'), 0.7, dict(tau=0.11, fc_peak=1800.0))],
+             0.14)
+
+    def mention(m, rng):
+        # Someone wants you: the same two notes, then Bb5 on top of them
+        # (the Ebmaj7 arpeggio's last step) held a little longer, with a
+        # small pad under it, so it is plainly the same family and plainly
+        # more.
+        h = Human(rng, t_ms=2.0)
+        play(m, h, [(0.00, F('D5'), 0.58, dict(tau=0.07, fc_peak=1900.0)),
+                    (0.075, F('G5'), 0.72, dict(tau=0.09, fc_peak=1900.0)),
+                    (0.15, F('Bb5'), 0.85, dict(tau=0.12, fc_peak=2000.0))],
+             0.16)
+        m.add(0.15, soft_pad(extra_rng(), [F(x) for x in ('G4', 'Bb4',
+                                                           'D5')],
+                             0.4, 0.12, attack=0.03, release=0.25), 0.0,
+              send=send(0.15))
+
     return {
+        'message': message, 'mention': mention,
         'ring': (ring_e4 if S['ring'] == 'E4' else ring_e, 6.0),
         'ringback': (ringback, 4.0), 'call-waiting': (call_waiting, 4.0),
         'connected': connected, 'ended': ended, 'disconnected': disconnected,

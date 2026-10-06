@@ -15,6 +15,8 @@
 //   * A call that never got going ends silently (failed join, declined ring),
 //     as in Element Web.
 //   * No cue for your own raised hand or camera.
+//   * A chat notification's chime is not a call cue, but it asks this policy
+//     whether the call state allows it (allowsNotificationSound).
 #pragma once
 
 #include <QHash>
@@ -112,6 +114,11 @@ public:
 
     bool inCall() const;
     bool deafened() const;
+    /// Whether a chat notification may make its sound now: never while in a
+    /// call, while a call rings (incoming or outgoing), or while a screen
+    /// share captures this computer's whole output mix. Whether the
+    /// notification itself is shown is NotificationManager's decision.
+    bool allowsNotificationSound() const;
     GroupPhase groupPhase() const { return m_group; }
     LegacyPhase legacyPhase() const { return m_legacy; }
 

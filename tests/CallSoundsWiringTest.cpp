@@ -182,6 +182,56 @@ private Q_SLOTS:
         settings.sync();
     }
 
+    // The notification chime goes through the call sound player, on the real
+    // controller: the plain sound for a message, the other for a mention,
+    // nothing in a call or while a call rings.
+    void theNotificationChimeIsRoutedThroughTheCallSounds()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto log = install(controller, /*ringerLoaded=*/true);
+        auto *notices = controller.notificationsForTest();
+
+        QVERIFY(notices->playOwnSoundForTest(false));
+        QVERIFY(notices->playOwnSoundForTest(true));
+        QCOMPARE(log->events,
+                 (QStringList{ QStringLiteral("play:message"),
+                               QStringLiteral("play:mention") }));
+
+        // A ringing call silences it.
+        log->events.clear();
+        auto *client = mock(controller);
+        QVERIFY(client);
+        client->emitCallSignalForTest(invite(QStringLiteral("call-x")));
+        QCOMPARE(log->loop, QStringLiteral("ring"));
+        QVERIFY(!notices->playOwnSoundForTest(true));
+        QVERIFY(!log->events.contains(QStringLiteral("play:mention")));
+        client->emitCallSignalForTest(hangup(QStringLiteral("call-x")));
+        QTRY_COMPARE(log->loop, QString());
+        QVERIFY(notices->playOwnSoundForTest(true));
+
+        // A sink that has not loaded the sound plays nothing, and says so.
+        auto quiet = install(controller, /*ringerLoaded=*/false);
+        QVERIFY(!notices->playOwnSoundForTest(false));
+        QVERIFY(quiet->events.isEmpty());
+    }
+
+    // The setting that picks whose sound follows live into the manager.
+    void theSoundSourceSettingReachesTheNotificationManager()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto *notices = controller.notificationsForTest();
+        QCOMPARE(notices->soundSource(), NotificationManager::SourceLightning);
+        controller.settings()->setNotificationSoundSource(1);
+        QCOMPARE(notices->soundSource(), NotificationManager::SourceSystem);
+        controller.settings()->setNotificationSoundSource(0);
+        QCOMPARE(notices->soundSource(), NotificationManager::SourceLightning);
+        // An unknown value reads as the default, never as the last source.
+        controller.settings()->setNotificationSoundSource(7);
+        QCOMPARE(controller.settings()->notificationSoundSource(), 0);
+    }
+
     // With Lightning's own ringer loaded, an announced ring loops it and the
     // desktop card goes silent (no themed-sound re-post).
     void ownRingerRingsAndTheCardGoesSilent()

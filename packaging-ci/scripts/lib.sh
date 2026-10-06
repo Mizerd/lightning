@@ -163,7 +163,7 @@ _queue_selftest_soft_complain() {
 # none, so output `none` means unmeasured, not failed. To promote, give the
 # validators a null sink and make the MEASURED SHORT branch fail.
 # test-pipeline-config.py checks the count against data/sounds/*.wav.
-CALL_SOUNDS_EXPECTED=15
+CALL_SOUNDS_EXPECTED=17
 
 # $1 format label, $2 captured output, $3 exit status
 assert_call_sounds_status() {

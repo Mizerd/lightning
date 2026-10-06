@@ -10,6 +10,7 @@
 #include "notifications/NotificationManager.h"
 #include "matrix/TimelineEvent.h"
 
+#include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusError>
 #include <QDBusMessage>
@@ -210,6 +211,7 @@ private Q_SLOTS:
     void aDaemonNotUpYetIsAskedAgain();
     void aDaemonThatNeverComesUpIsAskedABoundedNumberOfTimes();
     void aCallCardIsRaisedOnceAndRetiredIfTheCallEnds();
+    void theCardCarriesSuppressSoundExactlyWhenTheDesktopsSoundIsNotWanted();
 
 private:
     QProcess m_daemon;
@@ -266,6 +268,62 @@ void NotificationDbusTest::cleanupTestCase()
         m_daemon.kill();
         m_daemon.waitForFinished(3000);
     }
+}
+
+namespace {
+QVariantMap lastNotifyHints(const FakeDaemon *fake)
+{
+    const QVariantList args = fake->lastArguments(QStringLiteral("Notify"));
+    return qdbus_cast<QVariantMap>(args.value(6).value<QDBusArgument>());
+}
+} // namespace
+
+void NotificationDbusTest::theCardCarriesSuppressSoundExactlyWhenTheDesktopsSoundIsNotWanted()
+{
+    const QStringList caps{ QStringLiteral("body"), QStringLiteral("actions") };
+    auto deliver = [&](int source, NotificationManager::SoundMode mode,
+                       int *ownPlayed) {
+        m_fake->reset(FakeDaemon::Mode::Answer, caps);
+        NotificationManager manager;
+        manager.setSoundSource(source);
+        manager.setOwnSoundPlayer([ownPlayed](bool) {
+            ++*ownPlayed;
+            return true;
+        });
+        NotificationManager::Context ctx = context();
+        ctx.soundMode = mode;
+        manager.processEvent(incomingText(), ctx);
+        // No QTRY macro: they return void and this returns the hints.
+        QTest::qWaitFor([&] {
+            return m_fake->count(QStringLiteral("Notify")) == 1;
+        }, 5000);
+        return lastNotifyHints(m_fake);
+    };
+
+    // Lightning's chime: ours plays once, the desktop's is told to stay quiet.
+    int own = 0;
+    QVariantMap hints = deliver(NotificationManager::SourceLightning,
+                                NotificationManager::SoundAll, &own);
+    QCOMPARE(own, 1);
+    QCOMPARE(hints.value(QStringLiteral("suppress-sound")).toBool(), true);
+    QVERIFY(!hints.contains(QStringLiteral("sound-name")));
+
+    // System default: the desktop's themed sound, nothing of ours.
+    own = 0;
+    hints = deliver(NotificationManager::SourceSystem,
+                    NotificationManager::SoundAll, &own);
+    QCOMPARE(own, 0);
+    QVERIFY(!hints.contains(QStringLiteral("suppress-sound")));
+    QCOMPARE(hints.value(QStringLiteral("sound-name")).toString(),
+             QStringLiteral("message-new-instant"));
+
+    // Sound off: silent, and the desktop is told not to add one of its own.
+    own = 0;
+    hints = deliver(NotificationManager::SourceLightning,
+                    NotificationManager::SoundOff, &own);
+    QCOMPARE(own, 0);
+    QCOMPARE(hints.value(QStringLiteral("suppress-sound")).toBool(), true);
+    QVERIFY(!hints.contains(QStringLiteral("sound-name")));
 }
 
 void NotificationDbusTest::aDaemonThatNeverAnswersNeverBlocksTheCaller()

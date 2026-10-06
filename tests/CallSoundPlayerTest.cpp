@@ -4,6 +4,7 @@
 // created here, so no audio device is needed.
 #include "calls/CallSoundPlayer.h"
 
+#include <QFile>
 #include <QLoggingCategory>
 #include <QSemaphore>
 #include <QtTest/QtTest>
@@ -58,6 +59,40 @@ private slots:
         QVERIFY(ran);
         player.markReadyForTest(QStringLiteral("ring"));
         QVERIFY(player.canPlay(QStringLiteral("ring")));
+    }
+
+    // The notification chimes are bundled like every other sound, in the same
+    // format (48 kHz, 16-bit, stereo), and short enough to repeat all day.
+    void theNotificationChimesAreBundledInTheCallSoundFormat()
+    {
+        const QStringList known = CallSoundPlayer::knownSounds();
+        for (const char *name : { "message", "mention" }) {
+            const QString sound = QString::fromLatin1(name);
+            QVERIFY2(known.contains(sound),
+                     qPrintable(sound + " is not a known sound"));
+            QFile file(QStringLiteral(SOUNDS_DIR "/") + sound
+                       + QStringLiteral(".wav"));
+            QVERIFY2(file.open(QIODevice::ReadOnly),
+                     qPrintable(file.fileName() + " is missing"));
+            const QByteArray wav = file.readAll();
+            QVERIFY(wav.size() > 44);
+            QCOMPARE(wav.left(4), QByteArrayLiteral("RIFF"));
+            auto u16 = [&wav](int at) {
+                return quint16(quint8(wav[at]) | (quint8(wav[at + 1]) << 8));
+            };
+            auto u32 = [&wav](int at) {
+                return quint32(quint8(wav[at]) | (quint8(wav[at + 1]) << 8)
+                               | (quint8(wav[at + 2]) << 16)
+                               | (quint32(quint8(wav[at + 3])) << 24));
+            };
+            QCOMPARE(u16(22), quint16(2));       // stereo
+            QCOMPARE(u32(24), quint32(48000));   // 48 kHz
+            QCOMPARE(u16(34), quint16(16));      // 16-bit
+            const double seconds = double(wav.size() - 44) / (48000.0 * 4.0);
+            QVERIFY2(seconds >= 0.15 && seconds <= 0.5,
+                     qPrintable(sound + QStringLiteral(" lasts %1 s")
+                                    .arg(seconds)));
+        }
     }
 };
 

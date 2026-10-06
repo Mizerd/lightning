@@ -689,7 +689,9 @@ void NotificationManager::deliverNow(const QString &title,
 #ifdef HAVE_QT_DBUS
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) {
-        // No session bus: fall back to the tray balloon.
+        // No session bus: fall back to the tray balloon. Our chime does not
+        // depend on the bus.
+        takeSoundPlan(sound, payload.value(QStringLiteral("mention")).toBool());
         if (!deliverThroughTray(title, body, payload, avatar))
             qCInfo(lcNotify) << "notification service unavailable";
         return;
@@ -715,17 +717,12 @@ void NotificationManager::deliverNow(const QString &title,
         hints.insert(QStringLiteral("image-data"),
                      QVariant::fromValue(notificationImage(avatar)));
     }
-    if (sound) {
-        // At most one alert per short window.
-        const qint64 now = QDateTime::currentMSecsSinceEpoch();
-        if (now - m_lastSoundMs >= kSoundCoalesceMs) {
-            m_lastSoundMs = now;
-            // Themed sound played by the notification server; Lightning plays
-            // no audio here.
-            hints.insert(QStringLiteral("sound-name"),
-                         QStringLiteral("message-new-instant"));
-        }
-    }
+    // Lightning's chime, or the themed one, or none; the platform's own sound
+    // is suppressed unless the user chose it.
+    const SoundPlan plan = takeSoundPlan(sound, mention);
+    const QVariantMap soundHintMap = soundHints(plan);
+    for (auto it = soundHintMap.cbegin(); it != soundHintMap.cend(); ++it)
+        hints.insert(it.key(), it.value());
     // Escaped iff the daemon renders markup; see bodyForServer(). The title is
     // never escaped.
     const QString safeBody = bodyForServer(body);
@@ -775,10 +772,71 @@ void NotificationManager::deliverNow(const QString &title,
 #else
     // No QtDBus (Windows, macOS): the tray balloon carries the notification
     // (a toast on Windows, a user notification on macOS).
-    Q_UNUSED(sound);
+    // The balloon cannot carry sound settings (QSystemTrayIcon has none), so
+    // the platform may add its own on top of Lightning's chime; see the
+    // notification-sound notes in docs/feature-contracts.md.
+    takeSoundPlan(sound, payload.value(QStringLiteral("mention")).toBool());
     if (!deliverThroughTray(title, body, payload, avatar))
         qCInfo(lcNotify) << "native notifications unavailable on this build";
 #endif
+}
+
+NotificationManager::SoundPlan NotificationManager::planSound(
+    bool allowed, bool coalesced, SoundSource source)
+{
+    SoundPlan plan;
+    if (!allowed || coalesced)
+        return plan; // silent: nothing of ours, nothing of the platform's
+    if (source == SourceSystem) {
+        plan.platformSound = true;
+        plan.suppressPlatform = false;
+    } else {
+        plan.playOwn = true;
+    }
+    return plan;
+}
+
+QVariantMap NotificationManager::soundHints(const SoundPlan &plan)
+{
+    QVariantMap hints;
+    if (plan.suppressPlatform)
+        hints.insert(QStringLiteral("suppress-sound"), true);
+    if (plan.platformSound)
+        hints.insert(QStringLiteral("sound-name"),
+                     QStringLiteral("message-new-instant"));
+    return hints;
+}
+
+void NotificationManager::setSoundSource(int source)
+{
+    m_soundSource = source == SourceSystem ? SourceSystem : SourceLightning;
+}
+
+void NotificationManager::setOwnSoundPlayer(
+    std::function<bool(bool mention)> player)
+{
+    m_ownSound = std::move(player);
+}
+
+NotificationManager::SoundPlan NotificationManager::takeSoundPlan(
+    bool sound, bool mention)
+{
+    bool coalesced = false;
+    if (sound) {
+        // At most one alert per short window.
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (now - m_lastSoundMs < kSoundCoalesceMs)
+            coalesced = true;
+        else
+            m_lastSoundMs = now;
+    }
+    const SoundPlan plan = planSound(sound, coalesced, m_soundSource);
+    if (plan.playOwn) {
+        const bool played = m_ownSound && m_ownSound(mention);
+        qCInfo(lcNotify) << "notification sound own="
+                         << (played ? "played" : "not played");
+    }
+    return plan;
 }
 
 void NotificationManager::setFallbackTray(TrayIcon *tray)

@@ -39,6 +39,31 @@ public:
     // SettingsManager's notificationSound values.
     enum SoundMode { SoundOff = 0, SoundMentionsAndDirect = 1, SoundAll = 2 };
     Q_ENUM(SoundMode)
+    // SettingsManager's notificationSoundSource values: whose sound a
+    // delivered notification makes. Lightning's own chime (the platform's is
+    // suppressed) or the platform's themed one.
+    enum SoundSource { SourceLightning = 0, SourceSystem = 1 };
+    Q_ENUM(SoundSource)
+
+    /// What one delivered notification does about sound. Pure, so the hint
+    /// the daemon receives and the chime Lightning plays are decided in one
+    /// place and tested without a bus.
+    struct SoundPlan {
+        /// Lightning plays its own chime.
+        bool playOwn = false;
+        /// The notification asks the daemon for its themed sound.
+        bool platformSound = false;
+        /// The notification carries `suppress-sound`, so no daemon adds one
+        /// of its own. True whenever the platform sound is not wanted.
+        bool suppressPlatform = true;
+    };
+    /// `allowed`: the policy (mode, mute, focus, ...) allows a sound for this
+    /// notification. `coalesced`: another sound played within the burst
+    /// window.
+    static SoundPlan planSound(bool allowed, bool coalesced,
+                               SoundSource source);
+    /// The freedesktop hints a plan adds to a Notify call.
+    static QVariantMap soundHints(const SoundPlan &plan);
 
     // Everything the decision needs, supplied by the app layer.
     struct Context {
@@ -96,6 +121,17 @@ public:
     /// payload so actions taken after an account switch can be refused.
     void setAccountUserId(const QString &userId) { m_accountUserId = userId; }
     QString accountUserId() const { return m_accountUserId; }
+    /// Whose sound a notification makes; see SoundSource.
+    void setSoundSource(int source);
+    SoundSource soundSource() const { return m_soundSource; }
+    /// Test hook: ask the installed chime player directly, as a delivery does.
+    bool playOwnSoundForTest(bool mention) const
+    { return m_ownSound && m_ownSound(mention); }
+    /// Plays Lightning's chime for a delivered notification (`mention`
+    /// selects the mention variant) and returns whether one played. The
+    /// caller owns the sound policy that is not about the notification
+    /// itself (in a call, silent while a share captures the output mix).
+    void setOwnSoundPlayer(std::function<bool(bool mention)> player);
     /// Whether the daemon offers an inline reply box. False until the first
     /// delivery has queried GetCapabilities, and without D-Bus.
     bool inlineReplySupported() const { return m_inlineReply; }
@@ -298,6 +334,11 @@ private:
     QList<quint32> m_payloadOrder;
     // Monotonic time of the last sound; coalesces bursts into one alert.
     qint64 m_lastSoundMs = 0;
+    SoundSource m_soundSource = SourceLightning;
+    std::function<bool(bool)> m_ownSound;
+    /// Decides and, for Lightning's chime, plays: called once per delivery,
+    /// at the point it leaves for the daemon or the tray.
+    SoundPlan takeSoundPlan(bool sound, bool mention);
     // Escapes a body iff the daemon advertises body-markup. The only place a
     // notification body is escaped; callers pass raw text. Needs the
     // capabilities.

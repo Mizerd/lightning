@@ -73,6 +73,13 @@ private Q_SLOTS:
     void aTrayBalloonClickNeverRoutesToATimelineId();
     void aNotificationWithNoRoomStillBringsTheWindowForward();
     void everySlotTheseCasesDriveByNameStillExists();
+    // Whose sound a notification makes, and the hint the daemon is sent.
+    void theSoundPlanSuppressesThePlatformUnlessItWasChosen();
+    void soundHintsAreSuppressSoundOrTheThemedNameNeverBoth();
+    void aDeliveredNotificationPlaysLightningsChimeOnce();
+    void theChimeFollowsThePolicyThatDecidesTheNotification();
+    void aMentionPlaysTheMentionChime();
+    void theSystemDefaultSourcePlaysNoChimeOfOurs();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
         const auto decision =
@@ -1503,6 +1510,132 @@ void NotificationManagerTest::everySlotTheseCasesDriveByNameStillExists()
                                 "testing anything")
                                 .arg(QString::fromLatin1(name))));
     }
+}
+
+void NotificationManagerTest::theSoundPlanSuppressesThePlatformUnlessItWasChosen()
+{
+    using M = NotificationManager;
+    // Lightning's chime: ours plays, the platform's is suppressed.
+    auto own = M::planSound(true, false, M::SourceLightning);
+    QVERIFY(own.playOwn);
+    QVERIFY(!own.platformSound);
+    QVERIFY(own.suppressPlatform);
+    // System default: the platform plays, nothing of ours, nothing suppressed.
+    auto system = M::planSound(true, false, M::SourceSystem);
+    QVERIFY(!system.playOwn);
+    QVERIFY(system.platformSound);
+    QVERIFY(!system.suppressPlatform);
+    // No sound allowed, or one just played: silence, and the platform's own
+    // default sound is still suppressed.
+    for (auto source : { M::SourceLightning, M::SourceSystem }) {
+        for (auto plan : { M::planSound(false, false, source),
+                           M::planSound(true, true, source) }) {
+            QVERIFY(!plan.playOwn);
+            QVERIFY(!plan.platformSound);
+            QVERIFY(plan.suppressPlatform);
+        }
+    }
+}
+
+void NotificationManagerTest::soundHintsAreSuppressSoundOrTheThemedNameNeverBoth()
+{
+    using M = NotificationManager;
+    const QVariantMap own = M::soundHints(M::planSound(true, false, M::SourceLightning));
+    QCOMPARE(own.value(QStringLiteral("suppress-sound")).toBool(), true);
+    QVERIFY(!own.contains(QStringLiteral("sound-name")));
+    const QVariantMap system = M::soundHints(M::planSound(true, false, M::SourceSystem));
+    QVERIFY(!system.contains(QStringLiteral("suppress-sound")));
+    QCOMPARE(system.value(QStringLiteral("sound-name")).toString(),
+             QStringLiteral("message-new-instant"));
+    const QVariantMap quiet = M::soundHints(M::planSound(false, false, M::SourceSystem));
+    QCOMPARE(quiet.value(QStringLiteral("suppress-sound")).toBool(), true);
+    QVERIFY(!quiet.contains(QStringLiteral("sound-name")));
+}
+
+void NotificationManagerTest::aDeliveredNotificationPlaysLightningsChimeOnce()
+{
+    NotificationManager manager;
+    QList<bool> played;
+    manager.setOwnSoundPlayer([&played](bool mention) {
+        played.append(mention);
+        return true;
+    });
+    NotificationManager::Context context = baseContext();
+    context.soundMode = NotificationManager::SoundAll;
+    // A burst: three messages inside the coalescing window sound once.
+    manager.processEvent(incomingText(), context);
+    manager.processEvent(incomingText(QStringLiteral("two")), context);
+    manager.processEvent(incomingText(QStringLiteral("three")), context);
+    QCOMPARE(played.size(), 1);
+    QCOMPARE(played.first(), false);
+}
+
+void NotificationManagerTest::theChimeFollowsThePolicyThatDecidesTheNotification()
+{
+    NotificationManager manager;
+    int played = 0;
+    manager.setOwnSoundPlayer([&played](bool) { ++played; return true; });
+    NotificationManager::Context context = baseContext();
+    context.soundMode = NotificationManager::SoundAll;
+
+    // Muted room, the room on screen, an ignored sender and a sound mode of
+    // Off all deliver nothing, or nothing audible.
+    NotificationManager::Context muted = context;
+    muted.roomMode = NotificationManager::Muted;
+    manager.processEvent(incomingText(), muted);
+    NotificationManager::Context visible = context;
+    visible.roomVisibleAtLatest = true;
+    manager.processEvent(incomingText(), visible);
+    NotificationManager::Context ignored = context;
+    ignored.senderIsIgnored = true;
+    manager.processEvent(incomingText(), ignored);
+    NotificationManager::Context off = context;
+    off.soundMode = NotificationManager::SoundOff;
+    manager.processEvent(incomingText(), off);
+    NotificationManager::Context disabled = context;
+    disabled.notificationsEnabled = false;
+    manager.processEvent(incomingText(), disabled);
+    QCOMPARE(played, 0);
+
+    // The same event under a policy that allows it does sound.
+    manager.processEvent(incomingText(), context);
+    QCOMPARE(played, 1);
+}
+
+void NotificationManagerTest::aMentionPlaysTheMentionChime()
+{
+    NotificationManager manager;
+    QList<bool> played;
+    manager.setOwnSoundPlayer([&played](bool mention) {
+        played.append(mention);
+        return true;
+    });
+    NotificationManager::Context context = baseContext();
+    context.soundMode = NotificationManager::SoundAll;
+    TimelineEvent mention = incomingText();
+    mention.mentionsMe = true;
+    manager.processEvent(mention, context);
+    QCOMPARE(played, QList<bool>{ true });
+}
+
+void NotificationManagerTest::theSystemDefaultSourcePlaysNoChimeOfOurs()
+{
+    NotificationManager manager;
+    int played = 0;
+    manager.setOwnSoundPlayer([&played](bool) { ++played; return true; });
+    manager.setSoundSource(NotificationManager::SourceSystem);
+    NotificationManager::Context context = baseContext();
+    context.soundMode = NotificationManager::SoundAll;
+    manager.processEvent(incomingText(), context);
+    QCOMPARE(played, 0);
+    // And back: the setting is live (a fresh manager, since the first
+    // delivery opened the burst window).
+    NotificationManager other;
+    other.setOwnSoundPlayer([&played](bool) { ++played; return true; });
+    other.setSoundSource(NotificationManager::SourceSystem);
+    other.setSoundSource(NotificationManager::SourceLightning);
+    other.processEvent(incomingText(QStringLiteral("again")), context);
+    QCOMPARE(played, 1);
 }
 
 QTEST_MAIN(NotificationManagerTest)
