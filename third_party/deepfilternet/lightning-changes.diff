@@ -1,0 +1,215 @@
+diff -ru a/libDF/src/lib.rs b/libDF/src/lib.rs
+--- a/libDF/src/lib.rs
++++ b/libDF/src/lib.rs
+@@ -1,4 +1,7 @@
+ #![allow(dead_code)]
++// Lightning vendoring: silence a lint newer rustc versions raise on upstream's
++// unchanged helper signatures in tract.rs (no behaviour change).
++#![allow(mismatched_lifetime_syntaxes)]
+
+ use std::ops::MulAssign;
+ use std::sync::Arc;
+@@ -12,32 +15,16 @@
+ pub const MEAN_NORM_INIT: [f32; 2] = [-60., -90.];
+ pub const UNIT_NORM_INIT: [f32; 2] = [0.001, 0.0001];
+
+-#[cfg(any(feature = "transforms", feature = "dataset"))]
+-pub mod transforms;
+-#[cfg(feature = "dataset")]
+-#[path = ""]
+-mod reexport_dataset_modules {
+-    pub mod augmentations;
+-    pub mod dataloader;
+-    pub mod dataset;
+-    pub mod hdf5_key_cache;
+-    pub mod util;
+-    pub mod wav_utils;
+-}
+-#[cfg(feature = "dataset")]
+-pub use reexport_dataset_modules::*;
+-#[cfg(feature = "capi")]
+-mod capi;
+-#[cfg(feature = "logging")]
+-pub mod logging;
++// Lightning vendoring (see ../../PROVENANCE.md): only the streaming tract
++// inference path is vendored. Upstream's transforms, dataset/training,
++// capi, logging, wasm and wav-utils modules are not, so their `mod`
++// declarations are removed here.
+ #[cfg(feature = "tract")]
+ pub mod tract;
+-
+-#[cfg(feature = "wasm")]
+-mod wasm;
+-
+-#[cfg(all(feature = "wav-utils", not(feature = "dataset")))]
+-pub mod wav_utils;
++/// Lightning vendoring: re-export of the ndarray version tract uses, so
++/// callers build `DfTract::process` arguments with matching types.
++#[cfg(feature = "tract")]
++pub use tract_core::ndarray;
+
+ pub(crate) fn freq2erb(freq_hz: f32) -> f32 {
+     9.265 * (freq_hz / (24.7 * 9.265)).ln_1p()
+@@ -617,37 +604,6 @@
+     x[mid]
+ }
+
+-#[cfg(test)]
+-mod tests {
+-    use rand::distributions::{Distribution, Uniform};
+-
+-    use super::*;
+-
+-    #[test]
+-    fn test_erb_inout() {
+-        let sr = 24000;
+-        let n_fft = 192;
+-        let n_freqs = n_fft / 2 + 1;
+-        let hop = n_fft / 2;
+-        let nb_bands = 24;
+-        let state = DFState::new(sr, n_fft, hop, nb_bands, 1);
+-        let d = Uniform::new(-1., 1.);
+-        let mut input = Vec::with_capacity(n_freqs);
+-        let mut rng = rand::thread_rng();
+-        for _ in 0..(n_freqs) {
+-            input.push(Complex32::new(d.sample(&mut rng), d.sample(&mut rng)))
+-        }
+-        let mut mask = vec![1.; nb_bands];
+-        mask[3] = 0.3;
+-        mask[nb_bands - 1] = 0.5;
+-        let mut output = input.clone();
+-        apply_band_gain(&mut output, mask.as_slice(), &state.erb);
+-        let mut cumsum = 0;
+-        for (erb_idx, erb_w) in state.erb.iter().enumerate() {
+-            for i in cumsum..cumsum + erb_w {
+-                assert_eq!(input[i] * mask[erb_idx], output[i])
+-            }
+-            cumsum += erb_w;
+-        }
+-    }
+-}
++// Lightning vendoring: upstream's `mod tests` (test_erb_inout) is removed; it
++// needs the `rand` dev-dependency. Lightning's own tests live in
++// rust/src/denoise.rs.
+diff -ru a/libDF/src/tract.rs b/libDF/src/tract.rs
+--- a/libDF/src/tract.rs
++++ b/libDF/src/tract.rs
+@@ -7,7 +7,10 @@
+ use anyhow::{bail, Context, Result};
+ use flate2::read::GzDecoder;
+ use ini::Ini;
+-use ndarray::{prelude::*, Axis};
++// Lightning vendoring: ndarray is taken from tract-core's re-export instead
++// of a separate `ndarray = "^0.15"` dependency, so the array types always
++// match the ones tract returns (tract 0.21.7+ moved to ndarray 0.16).
++use tract_core::ndarray::{prelude::*, Axis};
+ use tar::Archive;
+ use tract_core::internal::tract_itertools::izip;
+ use tract_core::internal::tract_smallvec::alloc::collections::VecDeque;
+@@ -72,14 +75,8 @@
+ impl Default for DfParams {
+     #[allow(unreachable_code)]
+     fn default() -> Self {
+-        #[cfg(feature = "default-model-ll")]
+-        {
+-            log::debug!("Loading model DeepFilterNet3_ll_onnx.tar.gz");
+-            return DfParams::from_bytes(include_bytes!(
+-                "../../models/DeepFilterNet3_ll_onnx.tar.gz"
+-            ))
+-            .expect("Could not load model config");
+-        }
++        // Lightning vendoring: the `default-model-ll` branch is removed; the
++        // DeepFilterNet3_ll model is not vendored (see PROVENANCE.md).
+         #[cfg(feature = "default-model")]
+         {
+             log::debug!("Loading model DeepFilterNet3_onnx.tar.gz");
+@@ -229,7 +226,8 @@
+     skip_counter: usize,  // Increment when wanting to skip processing due to low RMS
+ }
+
+-#[cfg(all(not(feature = "capi"), feature = "default-model"))]
++// Lightning vendoring: the `capi` feature is not vendored.
++#[cfg(feature = "default-model")]
+ impl Default for DfTract {
+     fn default() -> Self {
+         let r_params = RuntimeParams::default();
+@@ -468,12 +466,8 @@
+
+         let (apply_gains, apply_gain_zeros, apply_df) = self.apply_stages(lsnr);
+
+-        log::trace!(
+-            "Enhancing frame with lsnr {:>5.1} dB. Applying stage 1: {} and stage 2: {}.",
+-            lsnr,
+-            apply_gains,
+-            apply_df
+-        );
++        // Lightning vendoring: upstream's per-frame `log::trace!` is removed;
++        // this runs on the real-time audio thread (see PROVENANCE.md).
+
+         let m = if apply_gains {
+             let dec_input = tvec!(
+@@ -510,9 +504,10 @@
+         debug_assert_eq!(noisy.len_of(Axis(0)), enh.len_of(Axis(0)));
+         debug_assert_eq!(noisy.len_of(Axis(1)), enh.len_of(Axis(1)));
+         debug_assert_eq!(noisy.len_of(Axis(1)), self.hop_size);
+-        let (max_a, e) = noisy.iter().fold((0f32, 0f32), |acc, x| {
+-            (acc.0.max(x.abs()), acc.1 + x.powi(2))
+-        });
++        // Lightning vendoring: upstream also tracked the peak here to log a
++        // per-frame "Possible clipping" warning; that logging is removed (it
++        // would run on the real-time audio thread every 10 ms).
++        let e = noisy.iter().fold(0f32, |acc, x| acc + x.powi(2));
+         let rms = e / noisy.len() as f32;
+         if rms < 1e-7 {
+             self.skip_counter += 1;
+@@ -523,10 +518,6 @@
+             enh.fill(0.);
+             return Ok(-15.);
+         }
+-        if max_a > 0.9999 {
+-            log::warn!("Possible clipping detected ({:.3}).", max_a)
+-        }
+-
+         // Signal model: y = f(s + n) = f(x)
+         self.rolling_spec_buf_y.pop_front();
+         self.rolling_spec_buf_x.pop_front();
+@@ -673,7 +664,11 @@
+
+     pub fn set_spec_buffer(&mut self, spec: ArrayView2<f32>) -> Result<()> {
+         debug_assert_eq!(self.spec_buf.shape(), spec.shape());
+-        let mut buf = self.spec_buf.to_array_view_mut()?.into_shape([self.ch, self.n_freqs])?;
++        // Lightning vendoring: `into_shape` is deprecated in ndarray 0.16.
++        let mut buf = self
++            .spec_buf
++            .to_array_view_mut()?
++            .into_shape_with_order([self.ch, self.n_freqs])?;
+         for (i_ch, mut b_ch) in spec.outer_iter().zip(buf.outer_iter_mut()) {
+             for (&i, b) in i_ch.iter().zip(b_ch.iter_mut()) {
+                 *b = i
+@@ -772,7 +767,7 @@
+     n_ch: usize,
+ ) -> Result<TypedModel> {
+     log::debug!("Start init encoder.");
+-    let s = m.symbol_table.sym("S");
++    let s = m.symbols.sym("S"); // Lightning vendoring: tract 0.21.18 renamed `symbol_table`
+
+     let nb_erb = df_cfg.get("nb_erb").unwrap().parse::<usize>()?;
+     let nb_df = df_cfg.get("nb_df").unwrap().parse::<usize>()?;
+@@ -821,7 +816,7 @@
+     mask_reduction: Option<ReduceMask>,
+ ) -> Result<TypedModel> {
+     log::debug!("Start init ERB decoder.");
+-    let s = m.symbol_table.sym("S");
++    let s = m.symbols.sym("S"); // Lightning vendoring: tract 0.21.18 renamed `symbol_table`
+
+     let nb_erb = df_cfg.get("nb_erb").unwrap().parse::<usize>()?;
+     let layer_width = net_cfg.get("conv_ch").unwrap().parse::<usize>()?;
+@@ -934,7 +929,7 @@
+     n_ch: usize,
+ ) -> Result<TypedModel> {
+     log::debug!("Start init DF decoder.");
+-    let s = m.symbol_table.sym("S");
++    let s = m.symbols.sym("S"); // Lightning vendoring: tract 0.21.18 renamed `symbol_table`
+
+     let nb_erb = df_cfg.get("nb_erb").unwrap().parse::<usize>()?;
+     let nb_df = df_cfg.get("nb_df").unwrap().parse::<usize>()?;

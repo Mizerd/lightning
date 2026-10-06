@@ -1,0 +1,52 @@
+# Vendored subset of DeepFilterNet's libDF (crate `deep_filter`) for Lightning.
+# See ../PROVENANCE.md for the upstream commit, the exact files taken and every
+# local modification. This manifest is a LOCAL REWRITE of upstream's
+# libDF/Cargo.toml: it keeps only the streaming `tract` inference path and the
+# dependencies that path needs. Upstream's binaries, dataset/training,
+# transforms, capi, wasm, wav, vorbis/flac and jemalloc features (and their
+# dependencies, including the hdf5 git dependency) are dropped.
+[package]
+name = "deep_filter"
+version = "0.5.7-pre"
+authors = ["Hendrik Schröter"]
+edition = "2021"
+description = "Noise supression using deep filtering (vendored subset for Lightning)"
+repository = "https://github.com/Rikorose/DeepFilterNet"
+license = "MIT OR Apache-2.0"
+rust-version = "1.70"
+publish = false
+
+[lib]
+name = "df"
+path = "src/lib.rs"
+
+[features]
+default = ["tract"]
+tract = [
+  "dep:tract-core",
+  "dep:tract-onnx",
+  "dep:tract-pulse",
+  "dep:rust-ini",
+  "dep:anyhow",
+  "dep:flate2",
+  "dep:tar",
+  "dep:log",
+]
+# Upstream feature kept so `DfParams::default()` still compiles; Lightning does
+# not enable it (it embeds the model itself in rust/src/denoise.rs).
+default-model = []
+timings = []
+
+[dependencies]
+rustfft = "^6.1.0"
+realfft = "^3.1.0"
+itertools = "0.12"
+num-complex = { version = "^0.4", default-features = false, features = ["std"] }
+log = { version = "0.4", optional = true }
+rust-ini = { version = "^0.21", optional = true }
+anyhow = { version = "1.0", optional = true }
+tract-core = { version = "^0.21.4", optional = true }
+tract-onnx = { version = "^0.21.4", optional = true }
+tract-pulse = { version = "^0.21.4", optional = true }
+flate2 = { version = "1.0.24", optional = true }
+tar = { version = "0.4.38", optional = true, default-features = false }

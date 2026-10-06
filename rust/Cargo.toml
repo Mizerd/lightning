@@ -70,6 +70,20 @@ emojis = "=0.8.2"
 # decryption, Olm sessions, key gossip); see `install_sdk_tracing` in lib.rs.
 # Same version already in the lock file.
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# Microphone noise suppression with DeepFilterNet (GitHub #20; rust/src/denoise.rs).
+# libDF is VENDORED (third_party/deepfilternet, see its PROVENANCE.md): a path
+# dependency, never a git or registry fetch of DeepFilterNet itself. Only its
+# streaming tract inference path is enabled; its crates.io dependencies (tract
+# 0.21 and friends) are pinned in Cargo.lock like every other crate, at
+# versions whose rust-version allows the CI toolchain (1.93).
+deep_filter = { path = "../third_party/deepfilternet/libDF", default-features = false, features = ["tract"], optional = true }
+
+[features]
+# `deepfilternet` is on by default; CMake passes --no-default-features when
+# configured with -DLIGHTNING_ENABLE_DEEPFILTERNET=OFF, and every mx_df_* entry
+# point then reports the backend as unavailable.
+default = ["deepfilternet"]
+deepfilternet = ["dep:deep_filter"]
 
 [lints.rust]
 # ruma's `EventContent` derive checks `cfg(ruma_unstable_exhaustive_types)`,
@@ -89,6 +103,32 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 # the test trees). Debuggers follow the split files. Release is unaffected.
 [profile.dev]
 split-debuginfo = "unpacked"
+
+# DeepFilterNet runs on the call's audio thread every 10 ms; unoptimised, the
+# tract inference engine is far too slow for real time, so a debug tree (the
+# dev build-rust tree, CTest) would make a call with DeepFilterNet selected
+# fall behind. Optimise just the inference crates in dev builds; everything
+# else keeps the fast debug build. (Packaged builds use the release profile.)
+[profile.dev.package.deep_filter]
+opt-level = 3
+[profile.dev.package.tract-core]
+opt-level = 3
+[profile.dev.package.tract-data]
+opt-level = 3
+[profile.dev.package.tract-linalg]
+opt-level = 3
+[profile.dev.package.tract-pulse]
+opt-level = 3
+[profile.dev.package.tract-pulse-opl]
+opt-level = 3
+[profile.dev.package.rustfft]
+opt-level = 3
+[profile.dev.package.realfft]
+opt-level = 3
+[profile.dev.package.ndarray]
+opt-level = 3
+[profile.dev.package.matrixmultiply]
+opt-level = 3
 
 [profile.release]
 lto = true

@@ -1298,7 +1298,67 @@ which would remove the microphone entirely rather than leave it quiet. With it
 absent the chain is byte-identical to the pre-existing one, which is also why
 it is deliberately NOT in the engine's required-element list.
 `echo-cancel=false`: real echo cancellation needs a `webrtcechoprobe` in the
-PLAYBACK path, and claiming it without one cancels against nothing.
+PLAYBACK path, and claiming it without one cancels against nothing. There is
+no such point today: every received track has its own receive bin and sink, in
+the subscriber pipeline, so a probe would first need an audiomixer of all of
+them in front of one sink.
+
+## Microphone noise suppression: one selectable suppressor (GitHub #20)
+
+`webrtcdsp` was always created with `noise-suppression=true` (its level
+default, `moderate`), so WebRTC noise suppression already ran on every call
+wherever the element existed; nothing exposed it. It is now one of four modes
+in Settings → Labs, stored machine-wide as `calls/noiseSuppression`: `off`,
+`webrtc` (the default — what every earlier build ran), `rnnoise` and
+`deepfilternet`. Exactly ONE suppressor runs. The voice-processing stage
+(`src/calls/noise/MicProcessing.*`, shared by the call and the Settings
+microphone test) sits after the mute valve:
+
+```
+… ! valve ! audioconvert ! audioresample ! audio/x-raw,format=F32LE,rate=48000,channels=1
+  ! lightningdenoise name=micdenoise mode=<mode>          RNNoise | DeepFilterNet
+  ! audioconvert dithering=none ! audio/x-raw,format=S16LE,rate=48000
+  ! webrtcdsp name=micdsp echo-cancel=false gain-control=true
+              noise-suppression=<mode == webrtc>          high-pass + AGC in every mode
+  ! audioconvert ! volume ! level ! opusenc …
+```
+
+- **Suppression before gain control**, the order WebRTC's own processing
+  module runs (high-pass, echo, noise, gain): the AGC adapts to speech, not to
+  a fan, and the neural models see a steady noise floor rather than one the
+  AGC is pumping. If echo cancellation is ever added it must come BEFORE the
+  neural suppressor (a nonlinear stage in front of an echo canceller breaks
+  its model of the echo path): split `webrtcdsp` into an echo instance before
+  `lightningdenoise` and a gain instance after it.
+- **Off keeps the high-pass filter and the gain control.** They are not noise
+  suppression, and removing them would make Off quieter than every other mode.
+  Through a pass-through `lightningdenoise`, 16-bit capture goes to float and
+  back bit-exact (`dithering=none`).
+- **`lightningdenoise`** is Lightning's own in-process element
+  (`DenoiseElement.cpp`): in place on mono F32 at 48 kHz, any buffer size,
+  through a one-frame (480-sample) delay line, so every buffer keeps its
+  sample count and timestamps and the added delay is constant — 480 samples
+  plus the backend's own latency, answered in the LATENCY query. With no
+  backend running (Off, WebRTC) it does not touch the buffer. A neural backend
+  is built on GStreamer's thread pool, adopted by the streaming thread between
+  two frames, and the one it replaces is destroyed back on the pool; a backend
+  that fails to start leaves the microphone passing through and is reported
+  (`microphone noise suppression mode= … backend ok= false`, and a line in
+  Settings while the call runs).
+- **`webrtcdsp` does not honour a property change while running.** Read in
+  gst-plugins-bad 1.28.6: `set_property` only stores the value, and
+  `ApplyConfig()` runs in `setup()`, i.e. at caps negotiation, which
+  basetransform skips when the caps are unchanged. So a live switch into or
+  out of WebRTC REPLACES the `micdsp` element under an idle pad probe (new
+  element made first; the old one restored if linking fails). Its gain control
+  re-converges after such a switch. Switches among Off, RNNoise and
+  DeepFilterNet never touch it.
+- `--call-media-status` prints which modes this package can run, so a backend
+  that works from the source tree and is missing from a package shows up in
+  package validation.
+
+The 1:1 (legacy `m.call`) lane has no voice processing at all and is not part
+of this.
 
 **The volume curve.** Sliders read 0-200; 200 MEANS 1000% of audio.
 `SfuMediaEngine::audioFactorPercent()` keeps 0-100 literal — a curve there

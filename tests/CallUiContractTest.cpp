@@ -3938,6 +3938,138 @@ ApplicationWindow {
                  "no QML surface may touch QSettings");
     }
 
+    // GitHub #20: Settings → Labs offers the four noise-suppression modes as
+    // ONE choice bound to the setting, and the setting reaches the engine by
+    // the same path as mute and gain — on a change, live, and before every
+    // publish.
+    void noiseSuppressionIsOneChoiceThatReachesTheEngine()
+    {
+        const QString settings =
+            normalized(read(QStringLiteral(QML_DIR "/SettingsScreen.qml")));
+        QVERIFY(settings.contains(QStringLiteral("NoiseSuppressionSelector {")));
+        QVERIFY2(settings.contains(QStringLiteral(
+                     "selected: app.settings.noiseSuppressionMode")),
+                 "the selector must show the stored mode");
+        QVERIFY2(settings.contains(QStringLiteral(
+                     "app.settings.noiseSuppressionMode = key")),
+                 "a choice must be written to the setting, nowhere else");
+        QVERIFY(settings.contains(
+            QStringLiteral("app.groupCall.noiseSuppressionChoices()")));
+        QVERIFY(settings.contains(
+            QStringLiteral("app.groupCall.noiseSuppressionFailedMode")));
+
+        const QString selector =
+            read(QStringLiteral(QML_DIR "/NoiseSuppressionSelector.qml"));
+        QVERIFY(!selector.isEmpty());
+        // Mutually exclusive by construction: radios, never toggles.
+        QVERIFY(selector.contains(QStringLiteral("Accessible.RadioButton")));
+        QVERIFY2(!code(selector).contains(QStringLiteral("CheckBox"))
+                     && !code(selector).contains(QStringLiteral("Switch {")),
+                 "a toggle per engine would let two run at once");
+        QVERIFY2(!code(selector).contains(QStringLiteral("QSettings")),
+                 "no QML surface may touch QSettings");
+
+        const QString controller =
+            read(QStringLiteral(SRC_DIR "/calls/SfuCallController.cpp"));
+        const int connectAt = controller.indexOf(
+            QStringLiteral("&SettingsManager::noiseSuppressionModeChanged"));
+        QVERIFY2(connectAt >= 0, "nothing listens to the setting");
+        QVERIFY2(controller.mid(connectAt, 160).contains(
+                     QStringLiteral("applyAudioState()")),
+                 "a change must reach a running call");
+        const int fn = controller.indexOf(
+            QStringLiteral("void SfuCallController::applyAudioState()"));
+        QVERIFY(fn >= 0);
+        const QString body =
+            controller.mid(fn, controller.indexOf(QStringLiteral("\n}\n"), fn) - fn);
+        QVERIFY2(body.contains(QStringLiteral("m_engine->setNoiseSuppressionMode(")),
+                 "applyAudioState() must hand the mode to the engine");
+        QVERIFY(body.contains(QStringLiteral("m_settings->noiseSuppressionMode()")));
+    }
+
+    // With no media engine, only Off can be chosen, and the others say why.
+    void noiseSuppressionChoicesSayWhyAModeIsMissing()
+    {
+        SfuCallController call;
+        const QVariantList choices = call.noiseSuppressionChoices();
+        const QStringList keys = {QStringLiteral("off"), QStringLiteral("webrtc"),
+                                  QStringLiteral("rnnoise"),
+                                  QStringLiteral("deepfilternet")};
+        QCOMPARE(choices.size(), keys.size());
+        for (int i = 0; i < keys.size(); ++i) {
+            const QVariantMap choice = choices.at(i).toMap();
+            QCOMPARE(choice.value(QStringLiteral("key")).toString(), keys.at(i));
+            const bool off = i == 0;
+            QCOMPARE(choice.value(QStringLiteral("available")).toBool(), off);
+            QCOMPARE(choice.value(QStringLiteral("reason")).toString(),
+                     off ? QString() : QStringLiteral("no-call-engine"));
+        }
+        QVERIFY(call.noiseSuppressionFailedMode().isEmpty());
+    }
+
+    // The selector greys out what cannot run, with the reason, and reports a
+    // click on what can.
+    void theNoiseSuppressionSelectorDisablesWhatCannotRun()
+    {
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import MatrixClient
+
+NoiseSuppressionSelector {
+    width: 480
+    selected: "webrtc"
+    choices: [
+        { key: "off", available: true, reason: "" },
+        { key: "webrtc", available: true, reason: "" },
+        { key: "rnnoise", available: false, reason: "not-in-build" },
+        { key: "deepfilternet", available: true, reason: "" }
+    ]
+}
+)"), QUrl(QStringLiteral("qrc:/noiseselectortest.qml")));
+        QScopedPointer<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *item = qobject_cast<QQuickItem *>(root.data());
+        QVERIFY(item);
+        settle();
+        std::function<QQuickItem *(QQuickItem *, const QString &)> find =
+            [&find](QQuickItem *from, const QString &name) -> QQuickItem * {
+            for (QQuickItem *child : from->childItems()) {
+                if (child->objectName() == name)
+                    return child;
+                if (QQuickItem *deeper = find(child, name))
+                    return deeper;
+            }
+            return nullptr;
+        };
+        QQuickItem *rnnoise =
+            find(item, QStringLiteral("noiseSuppressionOption_rnnoise"));
+        QQuickItem *dfn =
+            find(item, QStringLiteral("noiseSuppressionOption_deepfilternet"));
+        QQuickItem *webrtc =
+            find(item, QStringLiteral("noiseSuppressionOption_webrtc"));
+        QVERIFY(rnnoise && dfn && webrtc);
+        QVERIFY(!rnnoise->isEnabled());
+        QVERIFY(dfn->isEnabled());
+        QVERIFY(webrtc->property("current").toBool());
+        QVERIFY(!dfn->property("current").toBool());
+        QQuickItem *reason =
+            find(item, QStringLiteral("noiseSuppressionReason_rnnoise"));
+        QVERIFY(reason);
+        QVERIFY(reason->property("visible").toBool());
+        QCOMPARE(reason->property("text").toString(),
+                 QStringLiteral("Not included in this build."));
+        QQuickItem *noReason =
+            find(item, QStringLiteral("noiseSuppressionReason_deepfilternet"));
+        QVERIFY(noReason && !noReason->property("visible").toBool());
+
+        QSignalSpy chosen(root.data(), SIGNAL(chosen(QString)));
+        QVERIFY(QMetaObject::invokeMethod(dfn, "clicked"));
+        QCOMPARE(chosen.count(), 1);
+        QCOMPARE(chosen.first().at(0).toString(), QStringLiteral("deepfilternet"));
+    }
+
     // The input level is reachable from the call menu, and writes the same
     // stored value as Settings: `microphoneGainChanged` -> applyAudioState()
     // is the only path to the engine's volume element.
@@ -4733,10 +4865,17 @@ Item {
                  "the Linux refusals do not come from the policy, or no "
                  "longer tell it whether the build is sandboxed — a Flatpak "
                  "would be told to install a host package it cannot load");
-        // The fallback reaches the same picker Windows and macOS use.
-        QVERIFY2(body.contains(QStringLiteral("populateLinuxDisplaySources()")),
+        // The fallback reaches the same picker Windows and macOS use, through
+        // the one helper the portal-refusal fallback also uses.
+        QVERIFY2(body.contains(QStringLiteral("offerLinuxDisplayPicker(/*autoSelectSingle=*/true)")),
+                 "the no-portal route does not offer Lightning's own picker");
+        const int helperBegin = source.indexOf(
+            QStringLiteral("void SfuCallController::offerLinuxDisplayPicker("));
+        QVERIFY2(helperBegin > 0, "offerLinuxDisplayPicker() is gone");
+        const QString helper = source.mid(helperBegin, 1600);
+        QVERIFY2(helper.contains(QStringLiteral("populateLinuxDisplaySources()")),
                  "the fallback does not populate the shared picker's rows");
-        QVERIFY2(body.contains(QStringLiteral("screenShareSourcesAvailable()")),
+        QVERIFY2(helper.contains(QStringLiteral("screenShareSourcesAvailable()")),
                  "the fallback never opens the picker");
 
         // The portal is still asked first.
@@ -5139,6 +5278,36 @@ Item {
                      "isLatestCallRow does not compare against this row's own "
                      "event id, so every row would answer the same. "
                      "Expression was: %1").arg(bindExpr)));
+    }
+
+    // GitHub #20: the in-call microphone menu switches noise suppression live
+    // (the same setting as Settings → Labs, applied to the running call by
+    // applyAudioState) and links to Labs. Engines this build lacks are
+    // disabled, never hidden, and the choices are re-read on open.
+    void theCallMicMenuSwitchesNoiseSuppressionLive()
+    {
+        const QString menu = normalized(
+            read(QStringLiteral(QML_DIR "/CallDeviceMenu.qml")));
+        QVERIFY(menu.contains(QStringLiteral("objectName: \"callMenuNoiseHeading\"")));
+        QVERIFY(menu.contains(
+            QStringLiteral("app.groupCall.noiseSuppressionChoices()")));
+        QVERIFY(menu.contains(QStringLiteral(
+            "app.settings.noiseSuppressionMode = modeKey")));
+        // Choosing the mode that failed in this call again retries it.
+        QVERIFY(menu.contains(QStringLiteral(
+            "app.groupCall.retryNoiseSuppression()")));
+        QVERIFY(menu.contains(QStringLiteral(
+            "enabled: choice !== null && choice.available")));
+        // Fixed rows: a Repeater inside a Menu misplaces its items.
+        for (const char *key : { "off", "webrtc", "rnnoise", "deepfilternet" })
+            QVERIFY(menu.contains(QStringLiteral("NoiseModeItem { modeKey: \"%1\" }")
+                                      .arg(QLatin1String(key))));
+        QVERIFY(menu.contains(QStringLiteral(
+            "onTriggered: app.showSettingsSection(\"labs\")")));
+        // And the engine really reapplies a changed mode mid-call.
+        const QString controller = read(
+            QStringLiteral(QML_DIR "/../src/calls/SfuCallController.cpp"));
+        QVERIFY(controller.contains(QStringLiteral("setNoiseSuppressionMode(")));
     }
 
 private:
