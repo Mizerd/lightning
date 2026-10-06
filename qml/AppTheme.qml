@@ -46,6 +46,15 @@ QtObject {
     // _custom re-checks because the config file is user-editable.
     property var customOverrides: ({})
     property int customBase: 11
+    // The custom theme's surface gradients: role -> { type, angle, stops },
+    // already sanitised by CustomThemeStore::sanitizeGradients(). Pushed in
+    // from Main.qml; applies only while theme 12 is in use.
+    property var customGradients: ({})
+    // Settings -> Appearance "Depth" (0 flat, 1 depth), pushed in from
+    // Main.qml. Gives the shell's large surfaces a two-stop gradient moved
+    // AWAY from the ink, so text contrast can only rise (backdrop::depthStops,
+    // proven on every preset by ChatBackdropTest).
+    property int surfaceDepth: 0
 
     // Reduced-motion hint for skeletons and decorative animation, bound from
     // Main.qml. Defaults to false so a harness that never binds it still
@@ -732,7 +741,8 @@ QtObject {
             icon:            textMuted,
             sectionLabelColor: textMuted,
             ownBubble:       p.ownBubble,
-            ownBubbleText:   ownBubbleText,
+            ownBubbleText:   p.ownBubbleText !== undefined ? p.ownBubbleText
+                                                           : _ownBubbleTextDefault,
             otherBubble:     p.otherBubble,
             otherBubbleText: textPrimary,
             embedSurface:    isStorm ? _stoPanel : cardElevated,
@@ -751,7 +761,54 @@ QtObject {
                                                                : _okInkLight),
             danger:          p.danger !== undefined ? p.danger
                                                     : (isDark ? _dangerInkDark
-                                                              : _dangerInkLight)
+                                                              : _dangerInkLight),
+            // Roles split out of a shared token (2026-10-06). Each falls back
+            // to the token it used to be, so a theme that never set one
+            // looks exactly as before.
+            warning:         p.warning !== undefined ? p.warning
+                                                     : (isDark ? _warnInkDark
+                                                               : _warnInkLight),
+            popoverSurface:  p.popoverSurface !== undefined ? p.popoverSurface
+                                                            : p.surface,
+            focusRing:       p.focusRing !== undefined ? p.focusRing : accent,
+            scrollbarHandle: p.scrollbarHandle !== undefined
+                             ? p.scrollbarHandle : p.borderStrong,
+            reactionSelectedBackground:
+                p.reactionSelectedBackground !== undefined
+                ? p.reactionSelectedBackground
+                : (p.accentSoft !== undefined ? p.accentSoft : p.selected),
+            presenceOnline:  p.presenceOnline !== undefined ? p.presenceOnline
+                             : (p.online !== undefined ? p.online
+                                : (p.success !== undefined ? p.success
+                                   : (isDark ? _okInkDark : _okInkLight))),
+            // Round 2 (2026-10-06): shared tokens split per element. Same rule.
+            dangerTint:      p.dangerTint !== undefined ? p.dangerTint
+                                                        : mentionBadge,
+            messageHighlight: p.messageHighlight !== undefined
+                              ? p.messageHighlight : p.selected,
+            textSelection:   p.textSelection !== undefined ? p.textSelection
+                                                           : p.selectedHover,
+            paletteHighlight: p.paletteHighlight !== undefined
+                              ? p.paletteHighlight : p.selected,
+            roomSelected:    p.roomSelected !== undefined ? p.roomSelected
+                                                          : p.selected,
+            roomHover:       p.roomHover !== undefined ? p.roomHover : p.hover,
+            channelSelected: p.channelSelected !== undefined
+                             ? p.channelSelected : p.selected,
+            channelHover:    p.channelHover !== undefined ? p.channelHover
+                                                          : p.hover,
+            menuHighlight:   p.menuHighlight !== undefined ? p.menuHighlight
+                             : (isStorm ? p.selected : p.hover),
+            buttonGhostHover: p.buttonGhostHover !== undefined
+                              ? p.buttonGhostHover : p.hover,
+            timestampInk:    p.timestampInk !== undefined ? p.timestampInk
+                                                          : textMuted,
+            placeholderInk:  p.placeholderInk !== undefined ? p.placeholderInk
+                                                            : textMuted,
+            settingsPage:    p.settingsPage !== undefined ? p.settingsPage
+                                                          : p.background,
+            settingsNav:     p.settingsNav !== undefined ? p.settingsNav
+                             : (isStorm ? p.sidebar : p.background)
         }
     }
 
@@ -906,8 +963,12 @@ QtObject {
     // dangerInk for icon/label ink; the soft pair for destructive-row fills and
     // warning-chip borders.
     readonly property color dangerInk:           danger
-    readonly property color dangerSoft:          Qt.alpha(mentionBadge, 0.10)
-    readonly property color dangerBorder:        Qt.alpha(mentionBadge, 0.25)
+    // The tint behind destructive rows and the danger chip. Its own role since
+    // 2026-10-06; follows the mention pill until a custom theme sets it.
+    readonly property color dangerTint:          _p.dangerTint !== undefined
+                                                 ? _p.dangerTint : mentionBadge
+    readonly property color dangerSoft:          Qt.alpha(dangerTint, 0.10)
+    readonly property color dangerBorder:        Qt.alpha(dangerTint, 0.25)
     readonly property color textPrimary:         _p.textPrimary
     readonly property color textSecondary:       _p.textSecondary
     readonly property color textMuted:           _p.textMuted
@@ -918,7 +979,8 @@ QtObject {
     readonly property color separator:           border
     readonly property color inputBackground:     _p.inputBg
     readonly property color inputBorder:         border
-    readonly property color focusRing:           _p.accent
+    readonly property color focusRing:           _p.focusRing !== undefined
+                                                 ? _p.focusRing : _p.accent
     // Bare interface icons at rest.
     readonly property color icon:                textMuted
     // Shadow tint for the composer card, slider thumb and centred popovers.
@@ -941,7 +1003,12 @@ QtObject {
     // Message-bubble semantics.
     readonly property color ownMessageBubble:    _p.ownBubble
     readonly property color ownBubble:           ownMessageBubble
-    readonly property color ownBubbleText:       "#FFFFFF"
+    // White unless a custom theme sets its own ink; the literal stays named so
+    // the contrast table can read it.
+    readonly property color _ownBubbleTextDefault: "#FFFFFF"
+    readonly property color ownBubbleText:       _p.ownBubbleText !== undefined
+                                                 ? _p.ownBubbleText
+                                                 : _ownBubbleTextDefault
     readonly property color onAccentMuted:       "#DCE4FF"
     readonly property color otherMessageBubble:  _p.otherBubble
     readonly property color otherBubble:         otherMessageBubble
@@ -960,7 +1027,9 @@ QtObject {
                                                  ? _p.reaction : cardElevated
     readonly property color reactionBorder:      border
     readonly property color reactionInk:         textSecondary
-    readonly property color reactionSelectedBackground: accentSoft
+    readonly property color reactionSelectedBackground:
+        _p.reactionSelectedBackground !== undefined
+        ? _p.reactionSelectedBackground : accentSoft
     readonly property color reactionSelectedBorder:     accentBorder
     readonly property color reactionSelectedInk:        textPrimary
     readonly property color reactionHighlight:   selected
@@ -986,11 +1055,32 @@ QtObject {
     readonly property color undecryptableText:   textMuted
     // Jumped-to message rows and active thread affordances.
     readonly property color pressedSurface:      selectedHover
-    readonly property color messageHighlight:    selected
+    readonly property color messageHighlight:    _p.messageHighlight !== undefined
+                                                 ? _p.messageHighlight : selected
+    // Text selected inside a field or label.
+    readonly property color textSelection:       _p.textSelection !== undefined
+                                                 ? _p.textSelection
+                                                 : selectedHover
+    // The `highlight` of the Qt control palette (Main.qml).
+    readonly property color paletteHighlight:    _p.paletteHighlight !== undefined
+                                                 ? _p.paletteHighlight : selected
+    // The open room's row, and a row of the room list under the pointer.
+    readonly property color roomSelected:        _p.roomSelected !== undefined
+                                                 ? _p.roomSelected : selected
+    readonly property color roomHover:           _p.roomHover !== undefined
+                                                 ? _p.roomHover : hover
+    // Timestamps beside messages, and the hint inside an empty field.
+    readonly property color timestampInk:        _p.timestampInk !== undefined
+                                                 ? _p.timestampInk : textMuted
+    readonly property color placeholderInk:      _p.placeholderInk !== undefined
+                                                 ? _p.placeholderInk
+                                                 : stormTextMuted
     readonly property color threadHighlight:     accent
     // Presence dots: online green, away amber, offline muted.
-    readonly property color presenceOnline:      _p.online !== undefined
-                                                 ? _p.online : success
+    readonly property color presenceOnline:      _p.presenceOnline !== undefined
+                                                 ? _p.presenceOnline
+                                                 : (_p.online !== undefined
+                                                    ? _p.online : success)
     // Kept clear of the Storm bolt hue (see _awayLight).
     readonly property color presenceAway:        _p.away !== undefined
                                                  ? _p.away
@@ -1011,7 +1101,8 @@ QtObject {
     readonly property color buttonNeutralInk:     textPrimary
     readonly property color buttonNeutralBorder:  border
     // Ghost: no resting fill.
-    readonly property color buttonGhostHover:     hover
+    readonly property color buttonGhostHover:     _p.buttonGhostHover !== undefined
+                                                  ? _p.buttonGhostHover : hover
     readonly property color buttonGhostPressed:   selected
     readonly property color buttonGhostInk:       textSecondary
     readonly property color buttonDangerFill:     dangerFill
@@ -1064,7 +1155,9 @@ QtObject {
     // ---- Scrollbars ----
     readonly property color scrollbarTrack:         "transparent"
     readonly property color scrollbarTrackHover:    Qt.alpha(border, 0.35)
-    readonly property color scrollbarHandle:        borderStrong
+    readonly property color scrollbarHandle:        _p.scrollbarHandle !== undefined
+                                                    ? _p.scrollbarHandle
+                                                    : borderStrong
     readonly property color scrollbarHandleHover:   textDisabled
     readonly property color scrollbarHandlePressed: textMuted
     readonly property int   scrollbarWidth:      10
@@ -1101,6 +1194,87 @@ QtObject {
     // Consumers use storm* by role and never branch on the theme.
     readonly property color stormCanvas:        storm ? _stoCanvas : background
     readonly property color stormPanel:         storm ? _stoPanel : surface
+    // Menus, pop-up menus and dialog boxes. A custom theme may set its own;
+    // otherwise this IS stormPanel, so every other theme is unchanged.
+    readonly property color popoverSurface:     _p.popoverSurface !== undefined
+                                                ? _p.popoverSurface : stormPanel
+    // The highlighted item of a menu or list popup (the same colour as
+    // stormSelection until a custom theme sets it).
+    readonly property color menuHighlight:      _p.menuHighlight !== undefined
+                                                ? _p.menuHighlight
+                                                : stormSelection
+    // The Settings page ground and its navigation column.
+    readonly property color settingsPage:       _p.settingsPage !== undefined
+                                                ? _p.settingsPage : stormDeep
+    readonly property color settingsNav:        _p.settingsNav !== undefined
+                                                ? _p.settingsNav : stormCanvas
+
+    // ---- Surface gradients ("Depth" and custom-theme gradients) ----
+    //
+    // ThemedSurface paints through gradientFor(); everything else keeps
+    // reading the flat token, which stays the role's colour of record (and
+    // what the readability table grades alongside the worst stop).
+
+    // The roles "Depth" moves: the shell's three large grounds.
+    readonly property var _depthRoles: ["background", "sidebar", "rail"]
+
+    // The flat colour of a gradient-capable role.
+    function surfaceFlat(role) {
+        switch (role) {
+        case "background":   return background
+        case "sidebar":      return sidebar
+        case "rail":         return rail
+        case "surface":      return surface
+        case "settingsPage": return settingsPage
+        case "settingsNav":  return settingsNav
+        default:             return background
+        }
+    }
+
+    // { type: "linear"|"radial", angle, stops: ["#RRGGBB", ...] } or null for
+    // a flat role. A custom theme's own gradient wins; otherwise "Depth"
+    // derives one. The stops come from C++ (app.backdrops.depthStops), which
+    // is the copy ChatBackdropTest grades on every preset; without `app` (a
+    // harness) the surface stays flat.
+    function gradientFor(role) {
+        if (effectiveTheme === 12 && customGradients) {
+            var own = customGradients[role]
+            if (own && own.stops && own.stops.length >= 2)
+                return own
+        }
+        if (surfaceDepth !== 1 || _depthRoles.indexOf(role) < 0)
+            return null
+        if (typeof app === "undefined" || !app || !app.backdrops)
+            return null
+        var stops = app.backdrops.depthStops(surfaceFlat(role), dark)
+        if (!stops || stops.length < 2)
+            return null
+        return { type: "linear", angle: 180, stops: stops }
+    }
+
+    // The colour a role's surface actually shows at vertical position t
+    // (0 top .. 1 bottom), so a strip painted over it (a fade, a header) can
+    // meet it without a seam. Linear and radial both read their stops along
+    // the vertical, which is exact for Depth and close enough for a custom
+    // gradient's edge.
+    function surfaceColorAt(role, t) {
+        var flat = surfaceFlat(role)
+        var g = gradientFor(role)
+        if (!g)
+            return flat
+        var stops = g.stops
+        var pos = Math.max(0, Math.min(1, t))
+        // A gradient pointing up runs the stops bottom to top.
+        if (g.type !== "radial" && (g.angle < 90 || g.angle > 270))
+            pos = 1 - pos
+        var span = stops.length - 1
+        var i = Math.min(span - 1, Math.floor(pos * span))
+        var f = pos * span - i
+        var a = Qt.color(stops[i])
+        var b = Qt.color(stops[i + 1])
+        return Qt.rgba(a.r + (b.r - a.r) * f, a.g + (b.g - a.g) * f,
+                       a.b + (b.b - a.b) * f, 1)
+    }
     readonly property color stormInset:         storm ? _stoInset : inputBackground
     readonly property color stormDeep:          storm ? _stoDeep : background
     readonly property color stormBorder:        storm ? _stoBorder : border

@@ -223,6 +223,8 @@ char *mx_rust_remove_message_edits(void *client,
                                    const char *room_id,
                                    const char *event_id);
 char *mx_rust_get_room_notification_mode(void *client, const char *room_id);
+/* Reports every joined room with a user-defined rule as room_notification_mode. */
+char *mx_rust_refresh_room_notification_modes(void *client);
 char *mx_rust_accept_invite(void *client, const char *room_id);
 char *mx_rust_reject_invite(void *client, const char *room_id);
 /* Ask the room list to re-emit its index base. Safety net invoked by C++ only
@@ -566,6 +568,21 @@ char *mx_rust_backup_action(void *client,
                             const char *action,
                             unsigned long long op_id);
 char *mx_rust_request_backup_progress(void *client);
+/* Cross-signing setup ("setup_cross_signing") or last-resort reset
+ * ("reset_cross_signing"). recovery_key ("" = not given) is the user's
+ * CURRENT recovery key or passphrase: with secret storage present the new
+ * keys are stored under it and it keeps working. replace_recovery_key is 1
+ * only after the user explicitly confirmed that a new recovery key replaces
+ * one they do not have; with neither, the job ends with category
+ * recovery_key_required before any key is created. May raise uia_required or
+ * cross_signing_approval first; mx_rust_uia_cancel stops a parked or polling
+ * job, which still ends in exactly one backup_action_result. The key is
+ * scrubbed after use and never logged. */
+char *mx_rust_cross_signing_action(void *client,
+                                   const char *action,
+                                   const char *recovery_key,
+                                   unsigned char replace_recovery_key,
+                                   unsigned long long op_id);
 
 /* v0.6.0 checkpoint 8: manual decryption retry for the open room's visible
  * unable-to-decrypt events (incl. the open thread panel). Never resets or
@@ -579,7 +596,8 @@ char *mx_rust_thread_list_close(void *client);
 char *mx_rust_thread_list_paginate(void *client, const char *room_id);
 char *mx_rust_thread_mark_read(void *client,
                                const char *room_id,
-                               const char *root_event_id);
+                               const char *root_event_id,
+                               uint64_t op_id);
 char *mx_rust_thread_subscription_query(void *client,
                                         const char *room_id,
                                         const char *root_event_id);
@@ -849,6 +867,31 @@ char *mx_rust_set_room_banner(void *client,
                               const char *room_id,
                               const char *local_path,
                               unsigned long long op_id);
+/*
+ * Shared chat backgrounds: Lightning's own state event
+ * org.lightning_matrix.room.background (state key ""), one per room or Space.
+ * Content is normalised in Rust (rust/src/backdrop.rs): an mxc:// url only,
+ * clamped presentation fields, unknown keys dropped. Answers as
+ *   {"type":"room_background","op_id",…,"room_id","content":{…}|null,
+ *    "can_set":bool,"unsupported_version":bool}
+ * `can_set` is the room's own required power level for that type, from the
+ * SDK. State is cleartext to the homeserver even in an encrypted room.
+ */
+char *mx_rust_fetch_room_background(void *client,
+                                    const char *room_id,
+                                    unsigned long long op_id);
+/*
+ * Set a room's background. A non-empty `local_path` is uploaded (magic bytes
+ * decide the type; SVG refused) and `content_json` sent with the new url; an
+ * empty path re-sends `content_json` with its own mxc url (presentation-only
+ * change); neither clears it. Answers as
+ *   {"type":"room_background_set","op_id",…,"room_id","ok","content","category"}.
+ */
+char *mx_rust_set_room_background(void *client,
+                                  const char *room_id,
+                                  const char *local_path,
+                                  const char *content_json,
+                                  unsigned long long op_id);
 /*
  * Stickers and custom emoji — MSC2545 image packs (`im.ponies.*`).
  *

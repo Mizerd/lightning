@@ -5,6 +5,8 @@
 #include <QUrl>
 
 #include "storage/SecretStore.h"
+// Header-only use: the mode keys and their parser, no audio code.
+#include "calls/noise/NoiseSuppressor.h"
 #include "storage/AppDataPaths.h"
 #include "matrix/MediaStoreKey.h"
 #include "models/ConversationOrder.h"
@@ -76,6 +78,8 @@ constexpr auto kVoiceMiniPlayerCorner = "media/miniPlayerCorner"; // 0..3
 constexpr auto kGifAutoplay         = "gif/autoplay";       // 0/1/2
 constexpr auto kGifSafeSearch       = "gif/safeSearch";     // gif::Rating id
 constexpr auto kGifStoreRecent      = "gif/storeRecent";    // bool
+constexpr auto kVideoPrefetchEnabled = "media/videoPrefetchEnabled"; // bool
+constexpr auto kVideoPrefetchMaxMb  = "media/videoPrefetchMaxMb";   // int, MB
 constexpr auto kGifProvider         = "gif/provider";       // "giphy"/"klipy"
 // Presentation-only timeline preferences; the model keeps every event, so
 // changing them never requires a resync.
@@ -1590,6 +1594,31 @@ void SettingsManager::setCallPictureInPicture(bool v)
     Q_EMIT callPictureInPictureChanged();
 }
 
+QString SettingsManager::noiseSuppressionMode() const
+{
+    const QByteArray stored =
+        m_store->value(QStringLiteral("calls/noiseSuppression"))
+            .toString()
+            .toUtf8();
+    // A fallback, never a clamp: an unknown key is not "the nearest mode".
+    const calls::noise::Mode mode = calls::noise::modeFromKey(
+        std::string_view(stored.constData(), size_t(stored.size())),
+        calls::noise::kDefaultMode);
+    return QString::fromLatin1(calls::noise::modeKey(mode));
+}
+
+void SettingsManager::setNoiseSuppressionMode(const QString &mode)
+{
+    const QByteArray key = mode.toUtf8();
+    if (!calls::noise::isModeKey(
+            std::string_view(key.constData(), size_t(key.size()))))
+        return;
+    if (noiseSuppressionMode() == mode)
+        return;
+    m_store->setValue(QStringLiteral("calls/noiseSuppression"), mode);
+    Q_EMIT noiseSuppressionModeChanged();
+}
+
 bool SettingsManager::strictDeviceTrust() const
 {
     return m_store->value(QStringLiteral("privacy/strictDeviceTrust"), false)
@@ -1665,6 +1694,40 @@ void SettingsManager::setNotificationSound(int mode)
         return;
     m_store->setValue(QStringLiteral("notifications/sound"), mode);
     Q_EMIT notificationSoundChanged();
+}
+
+int SettingsManager::notificationSoundSource() const
+{
+    // 0 = Lightning's chime. Anything unknown (a newer build's third source)
+    // reads as the default, not as the last one.
+    return m_store->value(QStringLiteral("notifications/soundSource"), 0)
+                   .toInt() == 1 ? 1 : 0;
+}
+
+void SettingsManager::setNotificationSoundSource(int source)
+{
+    source = source == 1 ? 1 : 0;
+    if (notificationSoundSource() == source)
+        return;
+    m_store->setValue(QStringLiteral("notifications/soundSource"), source);
+    Q_EMIT notificationSoundSourceChanged();
+}
+
+int SettingsManager::notificationSoundVolume() const
+{
+    bool ok = false;
+    const int v = m_store->value(QStringLiteral("notifications/soundVolume"),
+                                 kDefaultNotificationSoundVolume).toInt(&ok);
+    return (!ok || v < 0 || v > 100) ? kDefaultNotificationSoundVolume : v;
+}
+
+void SettingsManager::setNotificationSoundVolume(int percent)
+{
+    const int clamped = std::clamp(percent, 0, 100);
+    if (notificationSoundVolume() == clamped)
+        return;
+    m_store->setValue(QStringLiteral("notifications/soundVolume"), clamped);
+    Q_EMIT notificationSoundVolumeChanged();
 }
 
 bool SettingsManager::ringForCalls() const
@@ -2499,6 +2562,65 @@ void SettingsManager::rememberAttachFolder(const QUrl &file)
     m_store->setValue(kLastAttachFolder, dir);
 }
 
+QUrl SettingsManager::lastFileFolder(const QString &purpose) const
+{
+    if (purpose.isEmpty())
+        return {};
+    if (purpose == QLatin1String("attach"))
+        return lastAttachFolder();
+    const QString dir =
+        m_store->value(QStringLiteral("shell/lastFolder/") + purpose).toString();
+    if (dir.isEmpty() || !QFileInfo(dir).isDir())
+        return {};
+    return QUrl::fromLocalFile(dir);
+}
+
+void SettingsManager::rememberFileFolder(const QString &purpose,
+                                         const QUrl &folder)
+{
+    if (purpose.isEmpty() || !folder.isLocalFile())
+        return;
+    const QString dir = QFileInfo(folder.toLocalFile()).absoluteFilePath();
+    if (dir.isEmpty() || !QFileInfo(dir).isDir())
+        return;
+    const QString key = purpose == QLatin1String("attach")
+        ? QString::fromLatin1(kLastAttachFolder)
+        : QStringLiteral("shell/lastFolder/") + purpose;
+    if (m_store->value(key).toString() == dir)
+        return;
+    m_store->setValue(key, dir);
+}
+
+bool SettingsManager::alwaysAskWhereToSave() const
+{
+    return m_store->value(QStringLiteral("downloads/alwaysAsk"), false)
+        .toBool();
+}
+
+void SettingsManager::setAlwaysAskWhereToSave(bool v)
+{
+    if (alwaysAskWhereToSave() == v)
+        return;
+    m_store->setValue(QStringLiteral("downloads/alwaysAsk"), v);
+    Q_EMIT alwaysAskWhereToSaveChanged();
+}
+
+QString SettingsManager::downloadFolder() const
+{
+    return m_store->value(QStringLiteral("downloads/folder")).toString();
+}
+
+void SettingsManager::setDownloadFolder(const QString &path)
+{
+    if (downloadFolder() == path)
+        return;
+    if (path.isEmpty())
+        m_store->remove(QStringLiteral("downloads/folder"));
+    else
+        m_store->setValue(QStringLiteral("downloads/folder"), path);
+    Q_EMIT downloadFolderChanged();
+}
+
 int SettingsManager::spacesRailWidth() const
 {
     // Defaults to the minimum. Clamped on read like roomListWidth.
@@ -2743,6 +2865,43 @@ void SettingsManager::setStoreRecentGifs(bool v)
         return;
     m_store->setValue(kGifStoreRecent, v);
     Q_EMIT storeRecentGifsChanged();
+}
+
+bool SettingsManager::videoPrefetchEnabled() const
+{
+    return m_store->value(kVideoPrefetchEnabled, true).toBool();
+}
+
+void SettingsManager::setVideoPrefetchEnabled(bool v)
+{
+    if (videoPrefetchEnabled() == v)
+        return;
+    m_store->setValue(kVideoPrefetchEnabled, v);
+    Q_EMIT videoPrefetchEnabledChanged();
+}
+
+int SettingsManager::videoPrefetchMaxMb() const
+{
+    // A stored value that is not a whole number in range (hand-edited file,
+    // newer build) reads as the default rather than as an arbitrary end of
+    // the range.
+    bool ok = false;
+    const int v = m_store->value(kVideoPrefetchMaxMb,
+                                 videoPrefetchDefaultMb()).toInt(&ok);
+    if (!ok || v < videoPrefetchMinMb() || v > videoPrefetchLimitMb())
+        return videoPrefetchDefaultMb();
+    return v;
+}
+
+void SettingsManager::setVideoPrefetchMaxMb(int mb)
+{
+    // A quantity: 4000 and 100 are the same intent at different magnitudes.
+    const int clamped = std::clamp(mb, videoPrefetchMinMb(),
+                                   videoPrefetchLimitMb());
+    if (videoPrefetchMaxMb() == clamped)
+        return;
+    m_store->setValue(kVideoPrefetchMaxMb, clamped);
+    Q_EMIT videoPrefetchMaxMbChanged();
 }
 
 QString SettingsManager::gifPreferredProvider() const

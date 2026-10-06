@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Effects
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -167,11 +166,12 @@ AnchoredPopup {
             }
             // Add a sticker from this computer: the only way to create a pack
             // from nothing.
-            FileDialog {
+            NativeFileDialog {
                 id: stickerFileDialog
+                purpose: "image"
                 title: qsTr("Choose a sticker")
                 currentFolder: app.defaultFileDialogFolder()
-                nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif)")]
+                nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.svg)")]
                 // Straight to the pack, no crop step. The bytes are sniffed and
                 // bounded in Rust.
                 onAccepted: picker.stickers.uploadSticker(selectedFile, "")

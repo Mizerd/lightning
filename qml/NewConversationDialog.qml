@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
@@ -212,12 +211,13 @@ Dialog {
         }
     }
 
-    FileDialog {
+    NativeFileDialog {
         id: avatarFileDialog
+        purpose: "image"
         title: qsTr("Choose a room picture")
         currentFolder: app.defaultFileDialogFolder()
-        fileMode: FileDialog.OpenFile
-        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
+        fileMode: "open"
+        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)") ]
         onAccepted: avatarCrop.openFor(selectedFile)
     }
 

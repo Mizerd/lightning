@@ -1,23 +1,40 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
 Rectangle {
     id: root
 
-    // The attachment name is sender-chosen. The bridge reduces it to a bare
-    // leaf (no separators, leading dot or reserved device name) and it is
-    // percent-encoded so '#', '?' and '%' are not read as URL syntax. An empty
-    // result lets the dialog pick its own name.
-    function suggestedSaveUrl(filename) {
-        var leaf = app.mediaBridge.suggestedSaveName(filename || "")
-        if (!leaf || leaf.length === 0)
-            leaf = "download"
-        return "file:///" + encodeURIComponent(leaf)
+    // Every attachment download from this pane, its thread panel, its
+    // context view and the Room Information panel. `ask` is "Save as…";
+    // otherwise Element's Download: straight into the downloads folder unless
+    // the user asked to always choose (app.downloads decides). The name and
+    // type are the sender's; app.downloads sanitizes them and fixes the
+    // extension from the type.
+    function startDownload(mediaKey, filename, mime, ask) {
+        if (!mediaKey || mediaKey.length === 0 || !app.downloads)
+            return
+        if (ask === true)
+            app.downloads.saveAs(mediaKey, filename || "", mime || "")
+        else
+            app.downloads.download(mediaKey, filename || "", mime || "")
     }
     color: AppTheme.background
+
+    // The pane's ground when the theme gives `background` a gradient (Depth or
+    // a custom theme); draws nothing otherwise. Under every child.
+    // Not z: -1: a negative z draws a child BENEATH its parent's own fill,
+    // so the gradient was painted and then covered (GUI check 2026-10-06).
+    // First among the visual children instead, so everything else is above.
+    ThemedSurface {
+        id: paneGround
+        anchors.fill: parent
+        role: "background"
+        flatFill: false
+        // The room list sits above this pane in Depth.
+        innerShadowEdge: "left"
+    }
 
     // Routes Home's create actions to the room list's shared new-conversation
     // dialog. options: {addToSpace: bool} preselects placement in the active
@@ -732,31 +749,20 @@ Rectangle {
                 infoPanel.section = section
         }
     }
-    FileDialog {
-        id: saveMediaDialog
-        property string pendingMediaKey: ""
-        title: qsTr("Save file as…")
-        currentFolder: app.defaultFileDialogFolder()
-        fileMode: FileDialog.SaveFile
-        onAccepted: {
-            if (pendingMediaKey.length > 0) {
-                timeline.noteSaveStarted(pendingMediaKey)
-                app.mediaBridge.saveAs(pendingMediaKey, selectedFile)
-            }
-            pendingMediaKey = ""
-        }
-        onRejected: pendingMediaKey = ""
-    }
+    // Per-card outcomes. The downloads card (below) reports each download
+    // itself, with Open / Show in folder, so the strip at the timeline's foot
+    // no longer repeats it.
     Connections {
         target: app.mediaBridge
+        // Arrives just before saveFinished for the same key.
+        function onSaveCancelled(mediaKey) {
+            timeline.cancelledKey = mediaKey
+        }
         function onSaveFinished(ok, message, mediaKey) {
-            saveResult.ok = ok
-            saveResult.text = message
-            saveResultTimer.restart()
             timeline.noteSaveFinished(ok, mediaKey)
         }
     }
-    // GIF save/unsave feedback via the same auto-clearing banner as Save As.
+    // GIF save/unsave failures via an auto-clearing strip.
     // `message` is already translated and ready to display.
     Connections {
         target: app.gif.starredStore
@@ -800,8 +806,9 @@ Rectangle {
             // newlines).
             clip: true
             // The pane tone, not the card tone, so the composer card lifts off
-            // it and the header runs continuous with the room list.
-            color: AppTheme.sidebar
+            // it and the header runs continuous with the room list (whose
+            // top, under Depth, is the gradient's first stop).
+            color: AppTheme.surfaceColorAt("sidebar", 0)
             RowLayout {
                 id: header
                 anchors.fill: parent
@@ -1922,6 +1929,22 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
 
+            // The room's chat background (shared by the room or its Space, or
+            // this account's own), behind every row. Rows are transparent;
+            // bubbles and cards keep their own surfaces. Draws nothing for a
+            // room without one. See ChatBackdrop.qml for the readability
+            // treatment.
+            ChatBackdrop {
+                id: chatBackdrop
+                anchors.fill: parent
+                z: -1
+                roomId: app.currentRoomId
+                edgeTop: root.height > 0 ? timelineArea.y / root.height : 0
+                edgeBottom: root.height > 0
+                            ? (timelineArea.y + timelineArea.height) / root.height
+                            : 1
+            }
+
             // Solid timeline: every loaded row is a real item in one Column, so
             // contentHeight and row positions are measured. No height
             // estimates, no delegate recycling.
@@ -2987,18 +3010,19 @@ Rectangle {
                                  ? details.threadRootId : eventId
                     app.thread.openThread(app.currentRoomId, rootId)
                 }
-                property var saveMedia: function(mediaKey, filename) {
-                    if (!mediaKey || mediaKey.length === 0) return
-                    saveMediaDialog.pendingMediaKey = mediaKey
-                    saveMediaDialog.currentFile = root.suggestedSaveUrl(filename)
-                    saveMediaDialog.open()
+                property var saveMedia: function(mediaKey, filename, mime, ask) {
+                    root.startDownload(mediaKey, filename, mime, ask)
                 }
-                // Per-card save feedback: the key being written (indeterminate;
-                // saves are atomic) and the last finished key for a brief
-                // flash. Keyed, so no card shows another save's outcome.
+                // Per-card save feedback: the last finished key for a brief
+                // flash (the bridge's savingKeys say what is in flight). Keyed,
+                // so no card shows another save's outcome.
                 property string saveInFlightKey: ""
                 property string lastSavedKey: ""
                 property bool lastSaveOk: true
+                // The user cancelled it: not a failure, and Download stays
+                // offered.
+                property bool lastSaveCancelled: false
+                property string cancelledKey: ""
                 Timer {
                     id: savedFlashTimer
                     interval: 4000
@@ -3017,6 +3041,8 @@ Rectangle {
                         saveInFlightKey = ""
                     lastSavedKey = mediaKey
                     lastSaveOk = ok
+                    lastSaveCancelled = cancelledKey === mediaKey
+                    cancelledKey = ""
                     savedFlashTimer.restart()
                 }
 
@@ -5028,11 +5054,8 @@ Rectangle {
                 openImage: function(mediaKey, httpUrl) {
                     imageViewer.openFor(mediaKey || "", httpUrl)
                 }
-                saveMedia: function(mediaKey, filename) {
-                    if (!mediaKey || mediaKey.length === 0) return
-                    saveMediaDialog.pendingMediaKey = mediaKey
-                    saveMediaDialog.currentFile = root.suggestedSaveUrl(filename)
-                    saveMediaDialog.open()
+                saveMedia: function(mediaKey, filename, mime, ask) {
+                    root.startDownload(mediaKey, filename, mime, ask)
                 }
             }
         }
@@ -5046,7 +5069,9 @@ Rectangle {
                 ? Math.max(typingLabel.implicitHeight, typingMetrics.height) + 6
                 : 0
             visible: app.currentRoomId !== ""
-            color: AppTheme.background
+            // Transparent over a gradient ground, which a flat strip would
+            // cut across.
+            color: paneGround.hasGradient ? "transparent" : AppTheme.background
             FontMetrics {
                 id: typingMetrics
                 font.family: AppTheme.uiFont
@@ -5218,11 +5243,8 @@ Rectangle {
         openImage: function(mediaKey, httpUrl) {
             imageViewer.openFor(mediaKey || "", httpUrl)
         }
-        saveMedia: function(mediaKey, filename) {
-            if (!mediaKey || mediaKey.length === 0) return
-            saveMediaDialog.pendingMediaKey = mediaKey
-            saveMediaDialog.currentFile = root.suggestedSaveUrl(filename)
-            saveMediaDialog.open()
+        saveMedia: function(mediaKey, filename, mime, ask) {
+            root.startDownload(mediaKey, filename, mime, ask)
         }
     }
 
@@ -5291,11 +5313,8 @@ Rectangle {
         }
         onOpenImagesRequested: (entries, index) =>
             imageViewer.openAt(entries, index)
-        onSaveMediaRequested: (mediaKey, filename) => {
-            saveMediaDialog.pendingMediaKey = mediaKey
-            saveMediaDialog.currentFile = root.suggestedSaveUrl(filename)
-            saveMediaDialog.open()
-        }
+        onSaveMediaRequested: (mediaKey, filename) =>
+            root.startDownload(mediaKey, filename, "", false)
         // Pins often lie outside the loaded window; reuse
         // PaginationController::jumpToEvent, the single navigation path.
         onJumpToEventRequested: (eventId) => {
@@ -5736,12 +5755,13 @@ Rectangle {
                         opacity: 0.55
                     }
 
-                    FileDialog {
+                    NativeFileDialog {
                         id: spaceBannerDialog
+                        purpose: "image"
                         title: qsTr("Choose a banner image")
                         currentFolder: app.defaultFileDialogFolder()
-                        fileMode: FileDialog.OpenFile
-                        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp)") ]
+                        fileMode: "open"
+                        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)") ]
                         // The crop dialog decides what is uploaded and refuses
                         // anything but the five raster formats before
                         // rendering.
@@ -6110,12 +6130,13 @@ Rectangle {
                                         + AppTheme.spacing16 * 2
                         // roomInfo is bound to the space for the Space Home's
                         // lifetime (see Component.onCompleted below).
-                        FileDialog {
+                        NativeFileDialog {
                             id: spaceAvatarDialog
+                            purpose: "image"
                             title: qsTr("Choose Space avatar")
                             currentFolder: app.defaultFileDialogFolder()
-                            fileMode: FileDialog.OpenFile
-                            nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
+                            fileMode: "open"
+                            nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)") ]
                             onAccepted: spaceAvatarCrop.openFor(selectedFile)
                         }
                         ImageCropDialog {
@@ -6577,27 +6598,49 @@ Rectangle {
         id: voiceMiniPlayer
         anchors.fill: parent
         z: 300
-        safeArea: {
-            if (!roomColumn.visible)
-                return Qt.rect(0, AppTheme.headerBandHeight, root.width,
-                               Math.max(0, root.height
-                                           - AppTheme.headerBandHeight - 96))
-            var top = roomColumn.y + roomHeaderBand.height + 1
-                + (timelineCallHeaderBar.visible
-                   ? timelineCallHeaderBar.height : 0)
-                + (callStageHost.visible ? callStageHost.height : 0)
-            // The timeline's own bottom edge, so the bars between it and the
-            // composer (typing indicator, forward selection) stay clear.
-            var bottom = roomColumn.y + timelineArea.y + timelineArea.height
-            // The Save As strip overflows upward over the timeline's foot.
-            if (saveResult.text.length > 0)
-                bottom -= saveResult.implicitHeight + AppTheme.spacing8
-            // Clear the jump-to-latest button, which sits in the same corner.
-            if (jumpToLatestButton.visible)
-                bottom -= jumpToLatestButton.height + AppTheme.spacingM + 8
-            return Qt.rect(roomColumn.x, top, roomColumn.width,
-                           Math.max(0, bottom - top))
+        safeArea: root.chatSafeArea
+    }
+    // Downloads (app.downloads owns them, so they survive a room switch):
+    // bottom-left of the same safe area, the corner opposite the mini-player's
+    // default, so never over the Spaces rail, the account and settings
+    // buttons, the header or the composer.
+    DownloadsCard {
+        id: downloadsCard
+        z: 299
+        safeArea: root.chatSafeArea
+        // The mini-player's card, which fills the same parent; when it rests
+        // in this corner the downloads stand above it.
+        avoid: {
+            var kids = voiceMiniPlayer.children
+            for (var i = 0; i < kids.length; ++i) {
+                if (kids[i].objectName === "voiceMiniPlayer")
+                    return kids[i]
+            }
+            return null
         }
+    }
+    // The chat column between the room header (and call bars) and the
+    // composer, in this item's coordinates.
+    readonly property rect chatSafeArea: {
+        if (!roomColumn.visible)
+            return Qt.rect(0, AppTheme.headerBandHeight, root.width,
+                           Math.max(0, root.height
+                                       - AppTheme.headerBandHeight - 96))
+        var top = roomColumn.y + roomHeaderBand.height + 1
+            + (timelineCallHeaderBar.visible
+               ? timelineCallHeaderBar.height : 0)
+            + (callStageHost.visible ? callStageHost.height : 0)
+        // The timeline's own bottom edge, so the bars between it and the
+        // composer (typing indicator, forward selection) stay clear.
+        var bottom = roomColumn.y + timelineArea.y + timelineArea.height
+        // The notice strip overflows upward over the timeline's foot.
+        if (saveResult.text.length > 0)
+            bottom -= saveResult.implicitHeight + AppTheme.spacing8
+        // Clear the jump-to-latest button, which sits in the same corner.
+        if (jumpToLatestButton.visible)
+            bottom -= jumpToLatestButton.height + AppTheme.spacingM + 8
+        return Qt.rect(roomColumn.x, top, roomColumn.width,
+                       Math.max(0, bottom - top))
     }
 
     // Files dragged anywhere over the chat queue as composer attachments.

@@ -18,6 +18,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
+#include <QQuickItem>
 #include <QScopeGuard>
 #include <QSignalSpy>
 #include <QDir>
@@ -47,6 +48,10 @@ constexpr const char *kComponents[] = {
     // and its Settings sibling.
     "CallDeviceMenu",
     "CallDeviceSettings",
+    // The microphone level bar both of those draw.
+    "AudioLevelBar",
+    // Settings → Labs: the microphone noise suppression selector (#20).
+    "NoiseSuppressionSelector",
     "MediaBrowser",          // room media/files/links over all history
     "ContextView",           // read-only message context (app.eventContext)
     "ForwardSelectionDialog",
@@ -90,9 +95,29 @@ constexpr const char *kComponents[] = {
     // The floating voice/audio mini-player; renders app.voicePlayback and
     // app.settings.voiceMiniPlayerCorner, and shows nothing while idle.
     "VoiceMiniPlayer",
+    // The downloads card (app.downloads.items) and the native chooser
+    // wrapper (app.files); both bind app objects at load.
+    "DownloadsCard",
+    "NativeFileDialog",
     // The "..." menu beside the room-list search: Activity / A-Z. Reads and
     // writes app.settings.roomListSort.
     "RoomListSortMenu",
+    // Recovery key entry shared by Settings and the first-run prompt; reads
+    // app.requestRecoverFromBackup and app.sessionTrustState.
+    "RecoveryKeyEntry",
+    // Cross-signing setup/reset card; reads app.cryptoHealth and app.backup.
+    "CrossSigningSetupCard",
+    // The first-run "verify this session" corner card, which hosts it inline.
+    "VerifySessionPrompt",
+    // Chat backgrounds and gradient surfaces (2026-10-06). The backdrop
+    // layer, the gradient-aware surface, the room/Space/default editor, the
+    // Settings section and the theme editor's gradient block; all read
+    // app.backdrops / app.customTheme and render nothing without a room.
+    "ChatBackdrop",
+    "ThemedSurface",
+    "ChatBackgroundEditor",
+    "ChatBackgroundSettings",
+    "GradientEditor",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather
@@ -227,6 +252,54 @@ private Q_SLOTS:
         }
     }
 
+    // "Your profile in this room" and the chat background editor are for every
+    // member: anyone may set their own room profile, their own background
+    // ("Only me") and hide what others set. Both sections used to sit INSIDE
+    // roomAdminBlock, which is visible only to people who can change the join
+    // rule, alias, history visibility or guest access, so an ordinary member
+    // never saw either (found in the 2026-10-06 GUI check with a PL 0
+    // account). Neither may have that block as an ancestor. Fails on the old
+    // layout, where both did.
+    void roomInfoMemberSectionsAreNotInsideTheAdminBlock()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy createdSpy(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("RoomInfoPanel"));
+        if (createdSpy.isEmpty())
+            QVERIFY(createdSpy.wait(8000));
+        QObject *root = createdSpy.at(0).at(0).value<QObject *>();
+        QVERIFY(root != nullptr);
+
+        auto *adminBlock =
+            root->findChild<QQuickItem *>(QStringLiteral("roomAdminBlock"));
+        QVERIFY2(adminBlock, "roomAdminBlock is gone: re-point this test at "
+                             "whatever now gates the admin-only controls");
+
+        int checked = 0;
+        for (const QString &name : { QStringLiteral("roomProfileSection"),
+                                     QStringLiteral("roomChatBackgroundEditor") }) {
+            auto *section = root->findChild<QQuickItem *>(name);
+            QVERIFY2(section, qPrintable(name + QStringLiteral(" not found")));
+            for (QQuickItem *p = section->parentItem(); p; p = p->parentItem()) {
+                QVERIFY2(p != adminBlock,
+                         qPrintable(name + QStringLiteral(
+                             " is inside roomAdminBlock, so a member who cannot "
+                             "change the join rule never sees it")));
+            }
+            ++checked;
+        }
+        QCOMPARE(checked, 2);
+    }
+
     // The room-list "..." menu: it shows the persisted mode, writes it, and
     // the change reaches BOTH layouts' models through the controller.
     void theRoomListSortMenuWritesTheSettingAndBothModelsFollow()
@@ -285,6 +358,104 @@ ApplicationWindow {
         QCOMPARE(controller.settings()->roomListSort(), 0);
         QCOMPARE(controller.roomList()->sortMode(), 0);
         QCOMPARE(controller.spaceChannels()->sortMode(), 0);
+    }
+
+    // Settings' microphone test (Discord's "Let's check") and speaker test:
+    // their controls exist, are disabled with a reason while the tester
+    // cannot run, become usable when it can, and are refused again during a
+    // call. Fails on a tree without the test (no such controls).
+    void theSoundSettingsMicrophoneTestSaysWhyItCannotRun()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+        QVERIFY(controller.audioTester() != nullptr);
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QStringList warnings;
+        connect(&engine, &QQmlEngine::warnings, this,
+                [&warnings](const QList<QQmlError> &errors) {
+                    for (const QQmlError &e : errors)
+                        warnings << e.toString();
+                });
+        QQmlComponent component(&engine);
+        // Not activated: no device is enumerated or opened here.
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 500
+    height: 900
+    property alias settings: s
+    property alias menu: m
+    CallDeviceSettings { id: s; width: 480 }
+    CallDeviceMenu { id: m; kind: "microphone" }
+}
+)"), QUrl(QStringLiteral("qrc:/sounddevicetest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY2(owner != nullptr, "CallDeviceSettings must instantiate");
+        auto *settings = owner->property("settings").value<QObject *>();
+        QVERIFY(settings != nullptr);
+
+        auto *button =
+            settings->findChild<QObject *>(QStringLiteral("microphoneTestButton"));
+        auto *tone =
+            settings->findChild<QObject *>(QStringLiteral("outputTestButton"));
+        auto *notice =
+            settings->findChild<QObject *>(QStringLiteral("microphoneTestNotice"));
+        auto *bar =
+            settings->findChild<QObject *>(QStringLiteral("microphoneTestLevel"));
+        QVERIFY2(button && tone && notice && bar,
+                 "the Sound & video page lost its microphone or speaker test");
+
+        // Tests never find the runtime: disabled, with the reason on screen.
+        QVERIFY(!controller.audioTester()->available());
+        QVERIFY(!button->property("enabled").toBool());
+        QVERIFY(!tone->property("enabled").toBool());
+        QVERIFY(!notice->property("text").toString().isEmpty());
+
+#ifdef HAVE_LIGHTNING_WEBRTC
+        // Usable once the runtime is known (no device is opened by this).
+        controller.audioTester()->setRuntimeAvailable(true);
+        QVERIFY(button->property("enabled").toBool());
+        QVERIFY(tone->property("enabled").toBool());
+        QVERIFY2(notice->property("text").toString().isEmpty(),
+                 qPrintable(notice->property("text").toString()));
+
+        // And refused again, with a reason, during a call.
+        controller.audioTester()->setCallActive(true);
+        QVERIFY(!button->property("enabled").toBool());
+        QVERIFY(!tone->property("enabled").toBool());
+        QVERIFY(!notice->property("text").toString().isEmpty());
+        controller.audioTester()->setCallActive(false);
+        controller.audioTester()->setRuntimeAvailable(false);
+#endif
+
+        // The in-call menu carries the live level row, shown only during a
+        // group call (the 1:1 lane has no meter).
+        auto *menu = owner->property("menu").value<QObject *>();
+        QVERIFY(menu != nullptr);
+        QVERIFY(menu->findChild<QObject *>(QStringLiteral("callMenuMicLevelRow")));
+        QVERIFY(menu->findChild<QObject *>(QStringLiteral("callMenuMicLevelBar")));
+        QVERIFY(!menu->property("showsLevel").toBool());
+
+        // Nothing this feature reads may be undefined at load.
+        for (const QString &warning : warnings) {
+            const bool ours = warning.contains(QStringLiteral("audioTester"))
+                || warning.contains(QStringLiteral("AudioLevelBar"))
+                || warning.contains(QStringLiteral("microphoneLevel"))
+                || warning.contains(QStringLiteral("microphoneTest"));
+            QVERIFY2(!ours && !warning.contains(QStringLiteral("Binding loop")),
+                     qPrintable(warning));
+        }
     }
 
     // ContextController::open is not Q_INVOKABLE: a QML call to it is a

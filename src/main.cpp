@@ -6,6 +6,7 @@
 #include "calls/ShareSourceImageProvider.h"
 #include "calls/GstCallMediaBackend.h"
 #include "calls/SfuMediaEngine.h"
+#include "calls/noise/MicProcessing.h"
 #endif
 #include "i18n/LocalizationManager.h"
 #include "app/BackendSelection.h"
@@ -21,6 +22,7 @@
 #include "app/StormBandPainter.h"
 #include "media/ImageFormatSupport.h"
 #include "media/MediaImageProvider.h"
+#include "media/SvgRasterJob.h"
 #include "media/StagedImageProvider.h"
 #include "app/AsyncLogSink.h"
 #include "app/GuiStallTracer.h"
@@ -33,6 +35,9 @@
 #include "smoke/RustSdkSmokeTest.h"
 #endif
 
+#ifdef Q_OS_UNIX
+#include <sys/resource.h>
+#endif
 #include <QCommandLineOption>
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -67,6 +72,7 @@
 #include <QStandardPaths>
 #include <QStringList>
 #include <QDateTime>
+#include <memory>
 #include <QFile>
 #include <QTextStream>
 
@@ -375,6 +381,7 @@ struct PreflightResult {
         RunImageFormatStatus, // --image-format-status: probe the image decoders
         RunSpellStatus, // --spell-status: probe the platform spell checker
         RunDesktopStatus, // --desktop-status: launcher entry + icon association
+        RunRasterizeSvg,  // --rasterize-svg IN OUT MIN MAX: the SVG helper process
     };
     Action action = Continue;
     // Compile-time default (Rust when built, else HTTP); --backend overrides.
@@ -397,6 +404,13 @@ struct PreflightResult {
     // Grab the window to a PNG once the scene settles, then quit.
     QString demoCapture;
     int demoCaptureDelayMs = 1400;
+    // --rasterize-svg: the helper process behind "rasterize on send"
+    // (media/SvgRasterJob.h). Hidden; never in --help.
+    QString svgIn;
+    QString svgOut;
+    int svgMinEdge = 0;
+    int svgMaxEdge = 0;
+    bool svgNoText = false;
     QString stderrMsg;
     QString stdoutMsg;
 };
@@ -653,6 +667,26 @@ PreflightResult preflightParse(int argc, char *argv[])
             continue;
         }
 #endif
+        if (a == QLatin1String("--rasterize-svg")) {
+            // Exits: it never reaches the Qt parser, so it is not registered
+            // there. Four values follow: input, output, min edge, max edge.
+            if (i + 4 >= argc) {
+                r.action = PreflightResult::ExitError;
+                r.stderrMsg = QStringLiteral(
+                    "lightning-matrix: --rasterize-svg needs IN OUT MIN MAX\n");
+                return r;
+            }
+            r.svgIn = QString::fromLocal8Bit(argv[i + 1]);
+            r.svgOut = QString::fromLocal8Bit(argv[i + 2]);
+            r.svgMinEdge = QString::fromLocal8Bit(argv[i + 3]).toInt();
+            r.svgMaxEdge = QString::fromLocal8Bit(argv[i + 4]).toInt();
+            // Optional 5th value: the job's retry after a GUI-app start
+            // failure, converting without text.
+            r.svgNoText = i + 5 < argc
+                && QString::fromLocal8Bit(argv[i + 5]) == QLatin1String("--no-text");
+            r.action = PreflightResult::RunRasterizeSvg;
+            return r;
+        }
         if (a == QLatin1String("--call-queue-selftest")) {
             r.action = PreflightResult::RunCallQueueSelfTest;
             return r;
@@ -1426,6 +1460,60 @@ static int printDesktopStatus()
     return 0;
 }
 
+/// `--rasterize-svg IN OUT MIN MAX`: the helper process behind "rasterize on
+/// send" (media/SvgRasterJob.h starts it and kills it on a timeout). Reads the
+/// SVG at IN, writes the PNG to OUT and exits 0, or writes a reason code to OUT
+/// and exits 3. Never prints to stdout: a Windows GUI binary has none.
+///
+/// It runs under a QGuiApplication (offscreen on Linux, the native plugin
+/// elsewhere) so SVG text has fonts. A CPU limit backs the parent's kill.
+static int runRasterizeSvg(int &argc, char *argv[], const QString &in,
+                           const QString &out, int minEdge, int maxEdge,
+                           bool noText)
+{
+#ifdef Q_OS_UNIX
+    struct rlimit cpu { 20, 25 };
+    setrlimit(RLIMIT_CPU, &cpu);
+#endif
+    // A QGuiApplication on every platform, so SVG text has a font database.
+    // It never shows a window: Linux uses the offscreen plugin, Windows and
+    // macOS their own native one (shipped in every package). Only when the
+    // parent retries after that failed to start (--no-text) does this fall
+    // back to a core-only app, where the screen refuses text.
+    std::unique_ptr<QCoreApplication> app;
+    bool allowText = !noText;
+#ifdef Q_OS_LINUX
+    qputenv("QT_QPA_PLATFORM", "offscreen");
+#endif
+#ifdef Q_OS_MACOS
+    // A helper must not flash a second Dock icon: keep it a background
+    // process (no Dock icon, no menu bar); Qt skips turning the process into
+    // a foreground application when this is set.
+    qputenv("QT_MAC_DISABLE_FOREGROUND_APPLICATION_TRANSFORM", "1");
+#endif
+    if (allowText)
+        app = std::make_unique<QGuiApplication>(argc, argv);
+    else
+        app = std::make_unique<QCoreApplication>(argc, argv);
+    namespace svg = lightning::svgraster;
+    QByteArray bytes;
+    {
+        QFile file(in);
+        if (file.open(QIODevice::ReadOnly))
+            bytes = file.read(svg::kMaxSourceBytes + 1);
+    }
+    const svg::Result result =
+        svg::rasterize(bytes, { minEdge, maxEdge }, allowText);
+    QFile target(out);
+    if (!target.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return 4;
+    if (!result.refusal.isEmpty()) {
+        target.write(result.refusal.toLatin1());
+        return 3;
+    }
+    return target.write(result.png) == result.png.size() ? 0 : 4;
+}
+
 /// `--image-format-status`: report which image formats this build can decode
 /// and whether that covers what Lightning accepts. Qt image formats are
 /// dlopen'd plugins, so this is a property of the package, not the source.
@@ -1558,6 +1646,26 @@ static int printCallMediaStatus()
         << (sfu ? QStringLiteral("available")
                 : QStringLiteral("unavailable (%1)").arg(sfuWhy))
         << "\n";
+
+    // Microphone noise suppression (#20): which of the four modes this
+    // package can run. Package validation reads this line, so a backend that
+    // works from the source tree and is missing from a package shows up.
+    {
+        QStringList modes;
+        for (const calls::noise::Mode mode :
+             {calls::noise::Mode::Off, calls::noise::Mode::WebRtc,
+              calls::noise::Mode::RNNoise,
+              calls::noise::Mode::DeepFilterNet}) {
+            const auto reason = calls::noise::availability(mode, sfu);
+            modes << QStringLiteral("%1=%2").arg(
+                QLatin1String(calls::noise::modeKey(mode)),
+                reason == calls::noise::Unavailable::None
+                    ? QStringLiteral("available")
+                    : QString::fromLatin1(calls::noise::unavailableKey(reason)));
+        }
+        out << "microphone noise suppression: " << modes.join(QLatin1Char(' '))
+            << "\n";
+    }
 
     // Asks the registry for the JPEG elements rather than checking for the
     // plugin file. Reported, not required: without it cameras fall back to
@@ -1749,6 +1857,10 @@ int main(int argc, char *argv[])
         const int status = loaded == sounds.size() ? 0 : 1;
         CallSoundPlayer::setExitStatus(status);
         return status;
+    }
+    if (pf.action == PreflightResult::RunRasterizeSvg) {
+        return runRasterizeSvg(argc, argv, pf.svgIn, pf.svgOut, pf.svgMinEdge,
+                               pf.svgMaxEdge, pf.svgNoText);
     }
     if (pf.action == PreflightResult::RunImageFormatStatus) {
         // QImageReader needs only a QCoreApplication. Not an offscreen
@@ -1943,6 +2055,17 @@ int main(int argc, char *argv[])
     // watcher, QSystemTrayIcon on X11 falls back to the XEmbed tray, which is
     // a QWidget.
     QApplication app(argc, argv);
+    // "Rasterize on send" keeps its scratch files where every other media
+    // scratch lives (inside a portable folder, swept after a crash).
+    lightning::svgraster::hooks().scratchRoot = [] {
+        return lightning::portable::mediaScratchRoot();
+    };
+    lightning::svgraster::hooks().holdScratchDir = [](const QString &dir) {
+        lightning::portable::holdScratchDirLive(dir);
+    };
+    lightning::svgraster::hooks().releaseScratchDir = [](const QString &dir) {
+        lightning::portable::releaseScratchDir(dir);
+    };
     // Opt-in GUI-thread stall tracing (LIGHTNING_GUI_STALL_TRACE).
     stalltrace::install();
 
@@ -2289,7 +2412,7 @@ int main(int argc, char *argv[])
             // rasteriser (llvmpipe) is visible in every log.
             QObject::connect(
                 win, &QQuickWindow::sceneGraphInitialized, win,
-                [] {
+                [&controller] {
                     auto *ctx = QOpenGLContext::currentContext();
                     if (!ctx || !ctx->functions())
                         return;
@@ -2299,6 +2422,18 @@ int main(int argc, char *argv[])
                         ctx->functions()->glGetString(GL_RENDERER));
                     qInfo("lightning: GL_RENDERER=%s GL_VENDOR=%s",
                           renderer ? renderer : "?", vendor ? vendor : "?");
+                    // On the render thread: hand the string to the GUI thread,
+                    // where AppController decides whether to show the
+                    // "software rendering" notice.
+                    if (renderer) {
+                        const QString glRenderer =
+                            QString::fromLatin1(renderer);
+                        QMetaObject::invokeMethod(
+                            &controller, [&controller, glRenderer] {
+                                controller.setGlRenderer(glRenderer);
+                            },
+                            Qt::QueuedConnection);
+                    }
                 },
                 Qt::DirectConnection);
             QObject::connect(

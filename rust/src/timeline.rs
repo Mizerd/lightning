@@ -133,6 +133,16 @@ pub(crate) fn lightning_event_filter(
     true
 }
 
+/// What `lightning_event_filter` decides, without counting: for asking about
+/// an event the filter has not been offered (rust/src/pagewalk.rs).
+pub(crate) fn shown_by_lightning_filter(
+    event: &AnySyncTimelineEvent,
+    rules: &RoomVersionRules,
+) -> bool {
+    (default_event_filter(event, rules) || is_visible_gallery_message(event))
+        && !is_rtc_membership_event(event)
+}
+
 /// MSC4274 galleries (including Sable's unstable `dm.filament.gallery`).
 /// matrix-sdk-ui's default filter keeps a gallery only with its own
 /// `unstable-msc4274` feature, which this build does not enable, so
@@ -887,6 +897,16 @@ impl TimelineRegistry {
             && self.lifecycle_gen.load(Ordering::SeqCst) == lifecycle
     }
 
+    /// The open read-only context view's timeline, when it belongs to
+    /// `room_id`. Late decryption must reach it exactly as it reaches the
+    /// room's live timeline: it shows the same encrypted events.
+    fn context_timeline_for(&self, room_id: &str) -> Option<Arc<Timeline>> {
+        let guard = self.active_context.lock().ok()?;
+        guard.as_ref().and_then(|ctx| {
+            (ctx.room_id == room_id).then(|| ctx.timeline.clone()).flatten()
+        })
+    }
+
     /// Open (or replace) the context view for `event_id`. The SDK fetches
     /// `/context` and decrypts what it can; nothing here can send.
     pub fn open_context(
@@ -1148,10 +1168,21 @@ impl TimelineRegistry {
         room_id: String,
         root_event_id: String,
         privacy: i32,
+        op_id: u64,
     ) -> Result<(), String> {
+        // `op_id` is the caller's own request id, echoed on the answer: the
+        // receipts are separate tasks, so they can complete out of order.
         // 2 = none. A thread receipt has no fully-read marker to fall back to, so
         // nothing is sent.
+        // The user did read it, and the Activity bell is local state: announce
+        // it as advanced (the main-room path does the same under privacy 2).
         if privacy == 2 {
+            enqueue(&self.events, json!({
+                "type": "thread_read_marker_advanced",
+                "room_id": room_id,
+                "thread_root_id": root_event_id,
+                "op_id": op_id,
+            }));
             return Ok(());
         }
         let Some((timeline, _gen, _lifecycle)) =
@@ -1164,8 +1195,25 @@ impl TimelineRegistry {
         } else {
             ReceiptType::Read
         };
+        // The homeserver's answer is reported, never assumed: the Activity bell
+        // clears a thread's rows only on `thread_read_marker_advanced`.
+        let events = Arc::clone(&self.events);
         runtime.spawn(async move {
-            let _ = timeline.mark_as_read(receipt_type).await;
+            let event = match timeline.mark_as_read(receipt_type).await {
+                Ok(_) => json!({
+                    "type": "thread_read_marker_advanced",
+                    "room_id": room_id,
+                    "thread_root_id": root_event_id,
+                    "op_id": op_id,
+                }),
+                Err(_) => json!({
+                    "type": "thread_mark_read_failed",
+                    "room_id": room_id,
+                    "thread_root_id": root_event_id,
+                    "op_id": op_id,
+                }),
+            };
+            enqueue(&events, event);
         });
         Ok(())
     }
@@ -1691,7 +1739,18 @@ impl TimelineRegistry {
             }),
         );
         runtime.spawn(async move {
-            let result = timeline.paginate_backwards(count).await;
+            // Pages that add no timeline item (a run of filtered MatrixRTC churn)
+            // are walked here, bounded, instead of costing C++ one round trip and
+            // one unit of its fill budget each. See rust/src/pagewalk.rs.
+            let walk = crate::pagewalk::walk_backwards(
+                &timeline,
+                count,
+                crate::pagewalk::FILTERED_RUN_WALK,
+                || registry.is_current(room_gen, lifecycle),
+            )
+            .await;
+            let walked_pages = walk.as_ref().map(|outcome| outcome.pages).unwrap_or(0);
+            let result = walk.map(|outcome| outcome.hit_start);
             busy.store(false, Ordering::SeqCst);
             if !registry.is_current(room_gen, lifecycle) {
                 // Stale completion after room switch / sign-out: drop it.
@@ -1718,6 +1777,9 @@ impl TimelineRegistry {
                                 .load(Ordering::Relaxed),
                             "filter_dropped_rtc": FILTER_DROP_RTC
                                 .load(Ordering::Relaxed),
+                            // SDK pages this request walked (pagewalk.rs); more than
+                            // one means it crossed filtered history.
+                            "walked_pages": walked_pages,
                         }),
                     );
                 }
@@ -2220,31 +2282,28 @@ impl TimelineRegistry {
         runtime.spawn(async move {
             // Generic over the container so the SDK's imbl Vector type need not be
             // named.
-            let find_handle = |items: &_| -> Option<_> {
-                fn scan<'a, I: IntoIterator<Item = &'a Arc<TimelineItem>>>(
-                    items: I,
-                    txn: &str,
-                ) -> Option<matrix_sdk::send_queue::SendHandle>
-                where
-                    I::IntoIter: DoubleEndedIterator,
-                {
-                    items.into_iter().rev().find_map(|item| {
-                        let event = item.as_event()?;
-                        if event.transaction_id().map(|t| t.to_string())
-                            == Some(txn.to_owned())
-                        {
-                            event.local_echo_send_handle()
-                        } else {
-                            None
-                        }
-                    })
-                }
-                scan(items, &transaction_id)
-            };
-            let mut handle = find_handle(&timeline.items().await);
+            fn scan<'a, I: IntoIterator<Item = &'a Arc<TimelineItem>>>(
+                items: I,
+                txn: &str,
+            ) -> Option<matrix_sdk::send_queue::SendHandle>
+            where
+                I::IntoIter: DoubleEndedIterator,
+            {
+                items.into_iter().rev().find_map(|item| {
+                    let event = item.as_event()?;
+                    if event.transaction_id().map(|t| t.to_string())
+                        == Some(txn.to_owned())
+                    {
+                        event.local_echo_send_handle()
+                    } else {
+                        None
+                    }
+                })
+            }
+            let mut handle = scan(&timeline.items().await, &transaction_id);
             if handle.is_none() {
                 if let Some(thread) = thread_timeline.as_ref() {
-                    handle = find_handle(&thread.items().await);
+                    handle = scan(&thread.items().await, &transaction_id);
                 }
             }
             let Some(handle) = handle else {
@@ -2290,31 +2349,28 @@ impl TimelineRegistry {
         runtime.spawn(async move {
             // Generic over the container so the SDK's imbl Vector type need not be
             // named.
-            let find_handle = |items: &_| -> Option<_> {
-                fn scan<'a, I: IntoIterator<Item = &'a Arc<TimelineItem>>>(
-                    items: I,
-                    txn: &str,
-                ) -> Option<matrix_sdk::send_queue::SendHandle>
-                where
-                    I::IntoIter: DoubleEndedIterator,
-                {
-                    items.into_iter().rev().find_map(|item| {
-                        let event = item.as_event()?;
-                        if event.transaction_id().map(|t| t.to_string())
-                            == Some(txn.to_owned())
-                        {
-                            event.local_echo_send_handle()
-                        } else {
-                            None
-                        }
-                    })
-                }
-                scan(items, &transaction_id)
-            };
-            let mut handle = find_handle(&timeline.items().await);
+            fn scan<'a, I: IntoIterator<Item = &'a Arc<TimelineItem>>>(
+                items: I,
+                txn: &str,
+            ) -> Option<matrix_sdk::send_queue::SendHandle>
+            where
+                I::IntoIter: DoubleEndedIterator,
+            {
+                items.into_iter().rev().find_map(|item| {
+                    let event = item.as_event()?;
+                    if event.transaction_id().map(|t| t.to_string())
+                        == Some(txn.to_owned())
+                    {
+                        event.local_echo_send_handle()
+                    } else {
+                        None
+                    }
+                })
+            }
+            let mut handle = scan(&timeline.items().await, &transaction_id);
             if handle.is_none() {
                 if let Some(thread) = thread_timeline.as_ref() {
-                    handle = find_handle(&thread.items().await);
+                    handle = scan(&thread.items().await, &transaction_id);
                 }
             }
             let category = match handle {
@@ -2370,12 +2426,20 @@ impl TimelineRegistry {
                     .flatten()
             })
         };
+        let context_timeline = self.context_timeline_for(&room_id);
         let registry = Arc::clone(self);
         let events = Arc::clone(&self.events);
         runtime.spawn(async move {
             let mut session_ids = utd_session_ids(&timeline).await;
             if let Some(thread) = &thread_timeline {
                 for id in utd_session_ids(thread).await {
+                    if !session_ids.contains(&id) {
+                        session_ids.push(id);
+                    }
+                }
+            }
+            if let Some(context) = &context_timeline {
+                for id in utd_session_ids(context).await {
                     if !session_ids.contains(&id) {
                         session_ids.push(id);
                     }
@@ -2415,6 +2479,9 @@ impl TimelineRegistry {
             if let Some(thread) = &thread_timeline {
                 thread.retry_decryption(session_ids.iter().cloned()).await;
             }
+            if let Some(context) = &context_timeline {
+                context.retry_decryption(session_ids.iter().cloned()).await;
+            }
             if !registry.is_current(room_gen, lifecycle) {
                 return;
             }
@@ -2437,6 +2504,25 @@ impl TimelineRegistry {
         &self,
         sessions_by_room: &[(String, Vec<String>)],
     ) {
+        // The read-only context view shows the same encrypted events as the
+        // live timeline and has its own SDK timeline, so it needs its own
+        // retry: before this, a message that was undecryptable when the view
+        // opened stayed so until the view was closed and reopened.
+        let context = {
+            let guard = self.active_context.lock().ok();
+            guard.and_then(|g| {
+                g.as_ref().and_then(|ctx| {
+                    Some((ctx.timeline.clone()?, ctx.room_id.clone()))
+                })
+            })
+        };
+        if let Some((context_timeline, context_room)) = context {
+            let wanted = sessions_for_room(sessions_by_room, &context_room);
+            if !wanted.is_empty() {
+                context_timeline.retry_decryption(wanted.iter().cloned()).await;
+            }
+        }
+
         let Some((timeline, room_gen, lifecycle, room_id)) = ({
             let guard = self.active.lock().ok();
             guard.and_then(|g| {
@@ -2490,6 +2576,19 @@ impl TimelineRegistry {
             }),
         );
     }
+}
+
+/// The session ids a key import or key arrival names for `room_id`; empty
+/// when it names none. Pure so the routing is testable without a timeline.
+pub(crate) fn sessions_for_room<'a>(
+    sessions_by_room: &'a [(String, Vec<String>)],
+    room_id: &str,
+) -> &'a [String] {
+    sessions_by_room
+        .iter()
+        .find(|(room, _)| room == room_id)
+        .map(|(_, ids)| ids.as_slice())
+        .unwrap_or(&[])
 }
 
 /// Budget for each half of the shrink wait (join and poll), so the helper
@@ -3943,6 +4042,23 @@ fn event_item_to_json(
                     }
                     // After fill_message_content, which sets `formatted_body`.
                     restore_raw_formatted_body(&mut out, event, message.is_edited());
+                    // Opt-in (LIGHTNING_EDIT_TRACE): GitHub #24 reports an edited
+                    // message that still shows its original. Says which of the
+                    // SDK's inputs an edited row was built from, never a body.
+                    if message.is_edited()
+                        && std::env::var_os("LIGHTNING_EDIT_TRACE").is_some()
+                    {
+                        eprintln!(
+                            "edit-trace event={} body_len={} formatted_len={} \
+                             original_json={} latest_edit_json={} local_echo={}",
+                            out["event_id"].as_str().unwrap_or(""),
+                            message.body().len(),
+                            out["formatted_body"].as_str().map_or(0, str::len),
+                            event.original_json().is_some(),
+                            event.latest_edit_json().is_some(),
+                            event.is_local_echo(),
+                        );
+                    }
                 }
                 MsgLikeKind::Redacted => {
                     out["msgtype"] = "redacted".into();
@@ -4538,6 +4654,8 @@ fn fill_message_content(
             let filename = media_display_name(&content.body, content.filename.as_deref());
             out["msgtype"] = "image".into();
             out["body"] = content.body.clone().into();
+            // MSC2530 caption with markup: shown like a text body.
+            set_formatted_body(out, content.formatted.as_ref());
             out["media_filename"] = filename.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
@@ -4573,6 +4691,8 @@ fn fill_message_content(
         MessageType::File(content) => {
             out["msgtype"] = "file".into();
             out["body"] = content.body.clone().into();
+            // MSC2530 caption with markup: shown like a text body.
+            set_formatted_body(out, content.formatted.as_ref());
             let filename = media_display_name(&content.body, content.filename.as_deref());
             out["media_filename"] = filename.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
@@ -4604,6 +4724,8 @@ fn fill_message_content(
             let filename = media_display_name(&content.body, content.filename.as_deref());
             out["msgtype"] = "audio".into();
             out["body"] = content.body.clone().into();
+            // MSC2530 caption with markup: shown like a text body.
+            set_formatted_body(out, content.formatted.as_ref());
             out["media_filename"] = filename.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
@@ -4653,6 +4775,8 @@ fn fill_message_content(
             let filename = media_display_name(&content.body, content.filename.as_deref());
             out["msgtype"] = "video".into();
             out["body"] = content.body.clone().into();
+            // MSC2530 caption with markup: shown like a text body.
+            set_formatted_body(out, content.formatted.as_ref());
             out["media_filename"] = filename.clone().into();
             if let MediaSource::Plain(mxc) = &content.source {
                 out["media_mxc"] = mxc.to_string().into();
@@ -5839,6 +5963,60 @@ mod tests {
         assert!(
             raw_displayed_formatted_body(true, Some(&original), Some(&emoji_edit))
                 .is_some_and(|html| html.contains("data-mx-emoticon"))
+        );
+    }
+
+    /// Late decryption reaches the read-only context view through the same
+    /// routing as the live timeline: the sessions a key arrival names for the
+    /// context view's room, and nothing for any other room.
+    #[test]
+    fn key_arrival_routes_its_sessions_to_the_context_views_room() {
+        use super::sessions_for_room;
+        let by_room = vec![
+            ("!a:x".to_owned(), vec!["s1".to_owned(), "s2".to_owned()]),
+            ("!b:x".to_owned(), vec!["s3".to_owned()]),
+        ];
+        assert_eq!(sessions_for_room(&by_room, "!a:x"), ["s1", "s2"]);
+        assert_eq!(sessions_for_room(&by_room, "!b:x"), ["s3"]);
+        assert!(sessions_for_room(&by_room, "!c:x").is_empty());
+        assert!(sessions_for_room(&[], "!a:x").is_empty());
+    }
+
+    /// Both retry entry points must reach the read-only context view's
+    /// timeline. The timeline itself cannot be built in a unit test, so this
+    /// reads the two functions' own source (the same technique as the edit()
+    /// scans above): deleting either context retry makes it fail, which the
+    /// pure-helper test above cannot.
+    #[test]
+    fn both_decryption_retry_paths_reach_the_context_timeline() {
+        let src = include_str!("timeline.rs");
+        let body = |def: &str, end: &str| -> String {
+            let after = src
+                .split(def)
+                .nth(1)
+                .unwrap_or_else(|| panic!("{def} not found"));
+            let cut = after.find(end).unwrap_or(after.len());
+            after[..cut].to_owned()
+        };
+        let import_def = concat!("pub async fn ", "retry_decryption_after_import(");
+        let manual_def = concat!("pub fn ", "retry_visible_decryption(");
+        let after_import = body(import_def, "\n}\n");
+        let manual = body(manual_def, import_def);
+
+        // Key arrival / import: the context timeline is looked up and retried
+        // with the sessions routed to its room.
+        assert!(
+            after_import.contains("active_context")
+                && after_import.contains("sessions_for_room(")
+                && after_import.contains(".retry_decryption("),
+            "retry_decryption_after_import no longer retries the context view",
+        );
+        // Manual retry: its undecryptable sessions are collected and retried.
+        assert!(
+            manual.contains("context_timeline_for(")
+                && manual.contains("utd_session_ids(context)")
+                && manual.contains("context.retry_decryption("),
+            "retry_visible_decryption no longer retries the context view",
         );
     }
 
@@ -7284,14 +7462,17 @@ mod tests {
 #[cfg(test)]
 mod gallery_tests {
     use super::{
-        fill_message_media, gallery_item_key, lightning_event_filter, message_summary,
+        fill_message_content, fill_message_media, gallery_item_key, lightning_event_filter, message_summary,
         parse_gallery, MediaRegistry, StoredMedia, TimelineRegistry, GALLERY_ITEM_CAP,
         MEDIA_SOURCE_CAP,
     };
     use std::collections::VecDeque;
     use std::sync::{Arc, Mutex};
     use matrix_sdk::ruma::events::{
-        room::{message::RoomMessageEventContent, MediaSource},
+        room::{
+            message::{MessageType, RoomMessageEventContent},
+            MediaSource,
+        },
         AnySyncTimelineEvent,
     };
     use matrix_sdk::ruma::room_version_rules::RoomVersionRules;
@@ -7408,6 +7589,45 @@ mod gallery_tests {
         assert!(!lightning_event_filter(&event(edit), &rules));
         let custom = json!({ "msgtype": "com.example.custom", "body": "hi" });
         assert!(!lightning_event_filter(&event(custom), &rules));
+    }
+
+    /// MSC2530: a caption is `body` (different from `filename`), and it may
+    /// carry markup. The formatted caption must reach the row, for encrypted
+    /// (`file`) and plain (`url`) sources alike; before, only text, notice and
+    /// emote forwarded `formatted_body`.
+    #[test]
+    fn a_media_caption_keeps_its_filename_and_its_formatted_body() {
+        for source in [
+            json!({ "url": "mxc://x/y" }),
+            json!({ "file": {
+                "url": "mxc://x/y", "v": "v2", "mimetype": "image/png",
+                "key": { "kty": "oct", "key_ops": ["encrypt", "decrypt"], "alg": "A256CTR",
+                         "k": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "ext": true },
+                "iv": "AAAAAAAAAAAAAAAAAAAAAA", "hashes": { "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+            } }),
+        ] {
+            for kind in ["m.image", "m.video", "m.audio", "m.file"] {
+                let mut wire = json!({
+                    "msgtype": kind,
+                    "body": "look **here**",
+                    "filename": "photo.png",
+                    "format": "org.matrix.custom.html",
+                    "formatted_body": "look <strong>here</strong>",
+                });
+                for (k, v) in source.as_object().unwrap() {
+                    wire[k] = v.clone();
+                }
+                let msgtype: MessageType = serde_json::from_value(wire).unwrap();
+                let mut out = json!({});
+                let _ = fill_message_content(&mut out, &msgtype);
+                assert_eq!(out["media_filename"], "photo.png", "{kind}");
+                assert_eq!(out["body"], "look **here**", "{kind}");
+                assert_eq!(
+                    out["formatted_body"], "look <strong>here</strong>",
+                    "{kind}: the formatted caption was dropped"
+                );
+            }
+        }
     }
 
     #[test]

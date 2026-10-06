@@ -1193,7 +1193,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         visible: root.rowSelected
-        color: AppTheme.selected
+        color: AppTheme.messageHighlight
         opacity: 0.55
         z: -1
     }
@@ -1244,7 +1244,7 @@ Item {
         y: layout.y
         width: root.width + AppTheme.spacingXS * 2
         height: layout.height
-        color: navigationLanded ? AppTheme.selected : AppTheme.hover
+        color: navigationLanded ? AppTheme.messageHighlight : AppTheme.hover
         // Soft theme tint at an 8px radius, no border or elevation.
         radius: AppTheme.radiusMd
         z: 0
@@ -1350,7 +1350,7 @@ Item {
                         text: Qt.formatDateTime(model.timestamp,
                                                 app.settings.clockTimeFormat)
                         horizontalAlignment: Text.AlignRight
-                        color: AppTheme.textMuted
+                        color: AppTheme.timestampInk
                         // Scaled like the identity-line timestamp.
                         font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                         Accessible.name: qsTr("Sent at %1").arg(text)
@@ -1550,7 +1550,7 @@ Item {
                             objectName: "senderTimestamp"
                             text: Qt.formatDateTime(model.timestamp,
                                                     app.settings.clockTimeFormat)
-                            color: AppTheme.textMuted
+                            color: AppTheme.timestampInk
                             font.pixelSize: AppTheme.scaled(10)
                             Accessible.name: qsTr("Sent at %1").arg(text)
                         }
@@ -3072,6 +3072,13 @@ Item {
                                          : receipts.length
         readonly property int overflowCount:
             Math.max(0, totalOthers - shown.length)
+        // Element's "sent" check: this is the newest message of ours the
+        // server has, and nobody has read it yet. It rides the same rail as the
+        // facepile (and gives way to it once someone reads), so the right-rail
+        // reservations that already key on this strip's visibility and its
+        // row's width cover it in every layout, Bubbles included.
+        readonly property bool sentOnly:
+            model.sentReceipt === true && receipts.length === 0
 
         // Identity-guarded chip payload: `receipts` is a fresh array on every
         // read, so `shown` is reassigned only when the projected content
@@ -3095,6 +3102,8 @@ Item {
         // One line for the tooltip, accessible name and test: at most two
         // names, then the total.
         readonly property string summary: {
+            if (sentOnly)
+                return qsTr("Sent")
             if (totalOthers <= 0 || receipts.length === 0)
                 return ""
             var first = receipts[0].displayName || ""
@@ -3115,7 +3124,7 @@ Item {
                 .arg(first).arg(second).arg(totalOthers - 2)
         }
         // Only on a row with a body of its own.
-        visible: !model.redacted && receipts.length > 0
+        visible: !model.redacted && (receipts.length > 0 || sentOnly)
                  && root.naturalImplicitHeight > 0
         // Placement is identical for every message, own or not (the
         // one-left-aligned-sender contract; its scan bans the right-align
@@ -3179,6 +3188,28 @@ Item {
                     }
                 }
             }
+            Item {
+                objectName: "sentReceiptCheck"
+                visible: readReceiptStrip.sentOnly
+                width: 18
+                height: 18
+                // Outlined circle with a check, muted: a state, not content.
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 16
+                    height: 16
+                    radius: 8
+                    color: "transparent"
+                    border.width: 1
+                    border.color: AppTheme.textMuted
+                    Icon {
+                        anchors.centerIn: parent
+                        name: "check"
+                        size: 11
+                        color: AppTheme.textMuted
+                    }
+                }
+            }
             Rectangle {
                 objectName: "readReceiptOverflow"
                 visible: readReceiptStrip.overflowCount > 0
@@ -3201,7 +3232,7 @@ Item {
             }
 
             TapHandler {
-                enabled: root.rowActionsEnabled
+                enabled: root.rowActionsEnabled && !readReceiptStrip.sentOnly
                 // Click opens the full reader list (up to 16, newest first,
                 // plus a truthful "+N more").
                 onTapped: (eventPoint) => {
@@ -3631,7 +3662,8 @@ Item {
                         && root.timelineView.saveMedia)
                         root.timelineView.saveMedia(
                             model.mediaKey || "",
-                            model.mediaFilename || "download")
+                            model.mediaFilename || "",
+                            model.mediaMimetype || "", true)
                 }
             }
             // A sibling of "Save as…": nested inside it, it would paint over
@@ -3671,6 +3703,23 @@ Item {
                          && !root.isGallery   // see "Save as…" above
                 enabled: visible && root.menuEventId !== ""
                 onTriggered: app.copyImageToClipboard(model.mediaKey || "")
+            }
+            AppMenuItem {
+                objectName: "useAsBackgroundMenuItem"
+                iconName: "image"
+                text: qsTr("Use as my background here")
+                // Unencrypted rooms only (the controller re-checks): keeping
+                // an encrypted room's picture as a file would be decrypted
+                // media at rest.
+                visible: model.isImage === true
+                         && model.mediaSourceAvailable === true
+                         && app.mediaBridge.supported
+                         && !root.isGallery
+                         && !root.roomEncrypted
+                         && !!app.backdrops
+                enabled: visible && root.menuEventId !== ""
+                onTriggered: app.backdrops.useMessageImage(app.currentRoomId,
+                                                           model.mediaKey || "")
             }
             // Separates the copy group from the people/editing group.
             AppMenuSeparator { }
@@ -4737,7 +4786,9 @@ Item {
                                                && root.timelineView.saveMedia) {
                                         root.timelineView.saveMedia(
                                             galleryTile.key,
-                                            galleryTile.modelData.filename || "")
+                                            galleryTile.modelData.filename || "",
+                                            galleryTile.modelData.mimetype || "",
+                                            false)
                                     }
                                 }
                             }
@@ -4793,11 +4844,16 @@ Item {
                                 iconName: "download"
                                 iconSize: 18
                                 implicitWidth: 30; implicitHeight: 30
-                                Accessible.name: qsTr("Save %1 as…")
+                                Accessible.name: qsTr("Download %1")
                                     .arg(galleryFile.modelData.filename || qsTr("file"))
+                                ToolTip.text: qsTr("Download")
+                                ToolTip.visible: hovered
+                                ToolTip.delay: 600
                                 onClicked: root.timelineView.saveMedia(
                                     galleryFile.modelData.mediaKey,
-                                    galleryFile.modelData.filename || "")
+                                    galleryFile.modelData.filename || "",
+                                    galleryFile.modelData.mimetype || "",
+                                    false)
                             }
                         }
                     }
@@ -5146,8 +5202,9 @@ Item {
                     if (root.timelineView && root.timelineView.saveMedia
                         && model.mediaSourceAvailable === true)
                         root.timelineView.saveMedia(model.mediaKey || "",
-                                                    model.mediaFilename
-                                                    || "image.svg")
+                                                    model.mediaFilename || "",
+                                                    model.mediaMimetype
+                                                    || "image/svg+xml", true)
                     return
                 }
                 if (root.timelineView && root.timelineView.openImage)
@@ -5556,12 +5613,17 @@ Item {
                 // (Never means no passive downloads); a size of 0 makes
                 // MediaBridge decline. Uses the declared size, else the size
                 // learned from a previous fetch.
-                var prefetchSize = app.settings.gifAutoplay !== 2
+                // The "Preload short videos" switch and its limit are read
+                // here on every refresh, so a change applies without a
+                // restart; off declines like Never does.
+                var prefetchSize = (app.settings.gifAutoplay !== 2
+                                    && app.settings.videoPrefetchEnabled)
                                    ? (model.mediaSize
                                       || app.settings.knownMediaSizeBytes(
                                              model.mediaKey || "")
                                       || 0)
                                    : 0
+                var prefetchCap = app.settings.videoPrefetchMaxMb * 1024 * 1024
                 if (model.mediaThumbAvailable === true) {
                     // Thumbnails are never gated.
                     bridgeSource = app.mediaBridge.mediaSource(model.mediaKey,
@@ -5570,7 +5632,7 @@ Item {
                     // videoPosterSource materializes the payload to extract a
                     // frame, so it is speculative work too.
                     bridgeSource = app.mediaBridge.videoPosterSource(
-                        model.mediaKey, prefetchSize)
+                        model.mediaKey, prefetchSize, prefetchCap)
                 } else {
                     // Rows off screen or swept past mid-gesture do no
                     // poster/prefetch work; the observers below re-run this
@@ -5582,7 +5644,7 @@ Item {
                 if (root.speculativeMediaAllowed && playbackAvailable
                     && prefetchSize > 0)
                     app.mediaBridge.prefetchPlayable(model.mediaKey,
-                                                     prefetchSize)
+                                                     prefetchSize, prefetchCap)
             }
             // Re-run when the row appears or the view settles.
             readonly property bool coverOnScreen: root.speculativeMediaAllowed
@@ -5744,7 +5806,7 @@ Item {
                     }
                 }
             }
-            // Explicit Save As stays available from the cover.
+            // Download stays available from the cover.
             IconButton {
                 objectName: "videoSaveButton"
                 visible: !videoBox.playerActive && videoBox.playbackAvailable
@@ -5754,13 +5816,17 @@ Item {
                 iconName: "download"
                 iconSize: 15
                 implicitWidth: 26; implicitHeight: 26
-                Accessible.name: qsTr("Save %1 as…")
+                Accessible.name: qsTr("Download %1")
                     .arg(model.mediaFilename || qsTr("video"))
+                ToolTip.text: qsTr("Download")
+                ToolTip.visible: hovered
+                ToolTip.delay: 600
                 onClicked: {
                     if (root.timelineView && root.timelineView.saveMedia)
                         root.timelineView.saveMedia(model.mediaKey || "",
-                                                     model.mediaFilename
-                                                     || "video")
+                                                     model.mediaFilename || "",
+                                                     model.mediaMimetype || "",
+                                                     false)
                 }
             }
             TapHandler {
@@ -5829,7 +5895,9 @@ Item {
             onSaveRequested: {
                 if (root.timelineView && root.timelineView.saveMedia)
                     root.timelineView.saveMedia(model.mediaKey || "",
-                                                 model.mediaFilename || "audio")
+                                                 model.mediaFilename || "",
+                                                 model.mediaMimetype || "",
+                                                 false)
             }
             onOpenExternalRequested: {
                 if (model.mediaUrl && model.mediaUrl.toString().length > 0)
@@ -5853,16 +5921,22 @@ Item {
             // Save state keyed by this card's media. Only the main timeline
             // exposes the keys; thread-panel delegates stay stateless.
             readonly property var tlView: root.timelineView
+            // The bridge owns in-flight saves, so this survives a room switch
+            // (the row is rebuilt) and shows every concurrent save, in the
+            // thread panel too.
             readonly property bool saving:
-                tlView && tlView.saveInFlightKey !== undefined
-                && (model.mediaKey || "") !== ""
-                && tlView.saveInFlightKey === model.mediaKey
+                (model.mediaKey || "") !== ""
+                && typeof app !== "undefined" && app && app.mediaBridge
+                && app.mediaBridge.savingKeys.indexOf(model.mediaKey) >= 0
             readonly property bool savedFlash:
                 tlView && tlView.lastSavedKey !== undefined
                 && (model.mediaKey || "") !== ""
                 && tlView.lastSavedKey === model.mediaKey
             readonly property bool savedOk:
                 savedFlash && tlView.lastSaveOk === true
+            // The user cancelled it: not a failure, and Download stays offered.
+            readonly property bool savedCancelled:
+                savedFlash && !savedOk && tlView.lastSaveCancelled === true
 
             function fileTypeIcon(mime) {
                 var m = (mime || "").toLowerCase()
@@ -5933,13 +6007,16 @@ Item {
                             var status = fileCard.saving ? qsTr("Saving…")
                                        : fileCard.savedFlash
                                          ? (fileCard.savedOk ? qsTr("Saved")
-                                                             : qsTr("Save failed"))
+                                            : fileCard.savedCancelled
+                                              ? qsTr("Cancelled")
+                                              : qsTr("Save failed"))
                                          : ""
                             var base = size.length === 0 ? (kind || "")
                                      : kind ? size + " • " + kind : size
                             return status ? base + " • " + status : base
                         }
                         color: fileCard.savedFlash && !fileCard.savedOk
+                               && !fileCard.savedCancelled
                                ? AppTheme.danger
                                : fileCard.savedFlash ? AppTheme.success
                                : AppTheme.textMuted
@@ -5958,8 +6035,21 @@ Item {
                     Layout.preferredWidth: 26
                     Layout.preferredHeight: 26
                 }
+                IconButton {
+                    objectName: "fileSaveCancelButton"
+                    visible: fileCard.saving
+                    iconName: "close"
+                    iconSize: 16
+                    implicitWidth: 30; implicitHeight: 30
+                    Accessible.name: qsTr("Cancel download")
+                    ToolTip.text: qsTr("Cancel download")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
+                    onClicked: app.mediaBridge.cancelSave(model.mediaKey || "")
+                }
                 Icon {
                     visible: fileCard.savedFlash && !fileCard.saving
+                             && !fileCard.savedCancelled
                     name: fileCard.savedOk ? "check_circle" : "error"
                     size: 20
                     color: fileCard.savedOk ? AppTheme.success : AppTheme.danger
@@ -5969,20 +6059,24 @@ Item {
                     visible: model.mediaSourceAvailable === true
                              && app.mediaBridge.supported && !fileCard.saving
                     iconName: fileCard.savedFlash && !fileCard.savedOk
+                              && !fileCard.savedCancelled
                               ? "refresh" : "download"
                     iconSize: 18
                     implicitWidth: 30; implicitHeight: 30
-                    Accessible.name: qsTr("Save %1 as…")
+                    Accessible.name: qsTr("Download %1")
                         .arg(model.mediaFilename || qsTr("file"))
-                    ToolTip.text: fileCard.savedFlash && !fileCard.savedOk
-                                  ? qsTr("Retry save") : qsTr("Save as…")
+                    ToolTip.text: fileCard.savedCancelled
+                                  ? qsTr("Download again")
+                                  : fileCard.savedFlash && !fileCard.savedOk
+                                    ? qsTr("Try again") : qsTr("Download")
                     ToolTip.visible: hovered
                     ToolTip.delay: 600
                     onClicked: {
                         if (root.timelineView && root.timelineView.saveMedia)
                             root.timelineView.saveMedia(model.mediaKey || "",
-                                                         model.mediaFilename
-                                                         || "download")
+                                                         model.mediaFilename || "",
+                                                         model.mediaMimetype || "",
+                                                         false)
                     }
                 }
                 // HTTP backend keeps its external-open path.

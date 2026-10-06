@@ -15,6 +15,7 @@
 #include <QImageReader>
 #include <QLoggingCategory>
 #include <QTemporaryDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QDir>
 #include <QSignalSpy>
@@ -1992,6 +1993,142 @@ private Q_SLOTS:
 
     // writeSaveFile resolves the parent directory first and attaches a
     // sanitised leaf to it, so a `../` in the leaf cannot escape.
+    // A save is owned by the bridge: it is listed from the moment it starts,
+    // survives anything a room switch does (dropQueuedSpeculative), and
+    // leaves the list when it finishes.
+    void aSaveIsListedWhileInFlightAndSurvivesARoomSwitch()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy listChanged(&bridge, &MediaBridge::activeSavesChanged);
+        QSignalSpy saved(&bridge, &MediaBridge::saveFinished);
+
+        QVERIFY(bridge.savingKeys().isEmpty());
+        bridge.saveAs(QStringLiteral("$file"),
+                      QUrl::fromLocalFile(dir.path() + QStringLiteral("/a.bin")));
+        QCOMPARE(bridge.savingKeys(), QStringList{QStringLiteral("$file")});
+        QCOMPARE(bridge.activeSaves().size(), 1);
+        QCOMPARE(bridge.activeSaves().at(0).toMap().value(
+                     QStringLiteral("fileName")).toString(),
+                 QStringLiteral("a.bin"));
+
+        // What AppController::setCurrentRoomId does on a room switch.
+        bridge.dropQueuedSpeculative();
+        QCOMPARE(bridge.savingKeys().size(), 1);
+        QCOMPARE(client.cancels.size(), 0);
+
+        client.succeed(client.fetches.at(0).opId, QByteArray("payload"),
+                       QStringLiteral("text/plain"));
+        QVERIFY(saved.wait(3000) || saved.count() > 0);
+        QVERIFY(bridge.savingKeys().isEmpty());
+        QVERIFY(listChanged.count() >= 2);
+        QVERIFY(QFileInfo::exists(dir.path() + QStringLiteral("/a.bin")));
+    }
+
+    void cancellingASaveCancelsTheFetchAndWritesNothing()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy saved(&bridge, &MediaBridge::saveFinished);
+
+        bridge.saveAs(QStringLiteral("$file"),
+                      QUrl::fromLocalFile(dir.path() + QStringLiteral("/b.bin")));
+        QCOMPARE(client.fetches.size(), 1);
+        const quint64 opId = client.fetches.at(0).opId;
+
+        QSignalSpy cancelled(&bridge, &MediaBridge::saveCancelled);
+        bridge.cancelSave(QStringLiteral("$file"));
+        // A cancel is its own outcome, announced before the generic finish,
+        // so views say "Cancelled" rather than "Save failed".
+        QCOMPARE(cancelled.count(), 1);
+        QCOMPARE(cancelled.at(0).at(0).toString(), QStringLiteral("$file"));
+        QVERIFY(bridge.savingKeys().isEmpty());
+        QCOMPARE(client.cancels.size(), 1);
+        QCOMPARE(client.cancels.at(0), opId);
+        QCOMPARE(saved.count(), 1);
+        QCOMPARE(saved.at(0).at(0).toBool(), false);
+        QCOMPARE(saved.at(0).at(2).toString(), QStringLiteral("$file"));
+
+        // A late completion for the cancelled op writes nothing.
+        client.succeed(opId, QByteArray("payload"), QStringLiteral("text/plain"));
+        QTest::qWait(50);
+        QVERIFY(!QFileInfo::exists(dir.path() + QStringLiteral("/b.bin")));
+        QCOMPARE(saved.count(), 1);
+
+        // Cancelling something that is not being saved is a no-op.
+        bridge.cancelSave(QStringLiteral("$other"));
+        QCOMPARE(saved.count(), 1);
+    }
+
+    // Element's Download: saveInto() never replaces a file that is there; a
+    // second copy is "name (1).ext", and the written path is reported for the
+    // download notice's Open / Show in folder.
+    void saveIntoNeverReplacesAnExistingFile()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        {
+            QFile existing(dir.filePath(QStringLiteral("a.bin")));
+            QVERIFY(existing.open(QIODevice::WriteOnly));
+            existing.write("old");
+        }
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy completed(&bridge, &MediaBridge::saveCompleted);
+        QSignalSpy saved(&bridge, &MediaBridge::saveFinished);
+
+        bridge.saveInto(QStringLiteral("$file"), dir.path(),
+                        QStringLiteral("a.bin"));
+        QCOMPARE(client.fetches.size(), 1);
+        client.succeed(client.fetches.at(0).opId, QByteArray("new"),
+                       QStringLiteral("application/octet-stream"));
+        QVERIFY(saved.count() > 0 || saved.wait(3000));
+        QCOMPARE(saved.at(0).at(0).toBool(), true);
+        QCOMPARE(completed.count(), 1);
+        QCOMPARE(completed.at(0).at(0).toString(), QStringLiteral("$file"));
+        const QString written = completed.at(0).at(1).toString();
+        QCOMPARE(QFileInfo(written).fileName(), QStringLiteral("a (1).bin"));
+
+        QFile oldFile(dir.filePath(QStringLiteral("a.bin")));
+        QVERIFY(oldFile.open(QIODevice::ReadOnly));
+        QCOMPARE(oldFile.readAll(), QByteArray("old"));
+        QFile newFile(written);
+        QVERIFY(newFile.open(QIODevice::ReadOnly));
+        QCOMPARE(newFile.readAll(), QByteArray("new"));
+
+        // Save As, by contrast, writes the name the dialog confirmed.
+        QSignalSpy completed2(&bridge, &MediaBridge::saveCompleted);
+        bridge.saveAs(QStringLiteral("$file"),
+                      QUrl::fromLocalFile(dir.filePath(QStringLiteral("a.bin"))));
+        QCOMPARE(client.fetches.size(), 2);
+        client.succeed(client.fetches.at(1).opId, QByteArray("replaced"),
+                       QStringLiteral("application/octet-stream"));
+        QVERIFY(completed2.count() > 0 || completed2.wait(3000));
+        QCOMPARE(QFileInfo(completed2.at(0).at(1).toString()).fileName(),
+                 QStringLiteral("a.bin"));
+    }
+
+    void clearingTheSessionDropsTheSaveList()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        bridge.saveAs(QStringLiteral("$file"),
+                      QUrl::fromLocalFile(dir.path() + QStringLiteral("/c.bin")));
+        QCOMPARE(bridge.savingKeys().size(), 1);
+        bridge.clear();
+        QVERIFY(bridge.savingKeys().isEmpty());
+    }
+
     void savingWithATraversingLeafStaysInTheReportedDirectory()
     {
         QTemporaryDir dir;
@@ -2184,6 +2321,27 @@ private Q_SLOTS:
         bridge.cancelPlayable(QStringLiteral("$shared"));
         QCOMPARE(client.cancels.size(), 0);
         QCOMPARE(bridge.inflightCountForTest(), 1);
+    }
+
+    // The "Preload short videos" limit replaces the default cap per call, in
+    // both directions: a larger limit admits a payload the default refuses,
+    // a smaller one refuses what the default admits.
+    void prefetchPlayableHonorsCallerCap()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const double mb = 1024.0 * 1024.0;
+        // 48 MB is over the 32 MB default but inside a 64 MB limit.
+        bridge.prefetchPlayable(QStringLiteral("$48"), 48 * mb);
+        QCOMPARE(client.fetches.size(), 0);
+        bridge.prefetchPlayable(QStringLiteral("$48"), 48 * mb, 64 * mb);
+        QCOMPARE(client.fetches.size(), 1);
+        // 8 MB is inside the default but over a 4 MB limit.
+        bridge.prefetchPlayable(QStringLiteral("$8"), 8 * mb, 4 * mb);
+        QCOMPARE(client.fetches.size(), 1);
+        bridge.prefetchPlayable(QStringLiteral("$8"), 8 * mb, 16 * mb);
+        QCOMPARE(client.fetches.size(), 2);
     }
 
     // Playable prefetch is bounded: declared in-cap sizes dispatch at the

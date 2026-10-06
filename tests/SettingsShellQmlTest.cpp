@@ -327,6 +327,61 @@ private slots:
             item("spacesRail") && item("spacesRail")->isVisible(), 3000);
     }
 
+    // "Preload short videos": the switch, slider and number field live in the
+    // Media card, show the stored values on first open, and stay in sync
+    // both ways.
+    void videoPrefetchRowLoadsAndSliderAndFieldStayInSync()
+    {
+        auto *settings = m_controller->settings();
+        settings->setVideoPrefetchEnabled(true);
+        settings->setVideoPrefetchMaxMb(40);
+        m_controller->showSettings();
+        m_controller->showSettingsSection(QStringLiteral("privacy"));
+        QCoreApplication::processEvents();
+        auto *check = item("videoPrefetchCheck");
+        auto *slider = item("videoPrefetchSlider");
+        auto *field = item("videoPrefetchField");
+        QVERIFY(check && slider && field);
+        QTRY_COMPARE_WITH_TIMEOUT(check->property("checked").toBool(), true,
+                                  3000);
+        QTRY_COMPARE_WITH_TIMEOUT(slider->property("value").toInt(), 40, 3000);
+        QTRY_COMPARE_WITH_TIMEOUT(field->property("text").toString(),
+                                  QStringLiteral("40"), 3000);
+        QCOMPARE(slider->property("from").toInt(), 1);
+        QCOMPARE(slider->property("to").toInt(), 100);
+        // Setting -> slider and field.
+        settings->setVideoPrefetchMaxMb(75);
+        QTRY_COMPARE_WITH_TIMEOUT(slider->property("value").toInt(), 75, 3000);
+        QTRY_COMPARE_WITH_TIMEOUT(field->property("text").toString(),
+                                  QStringLiteral("75"), 3000);
+        // Field -> setting; an out-of-range number lands in range and the
+        // field shows what was applied.
+        field->setProperty("text", QStringLiteral("500"));
+        QMetaObject::invokeMethod(field, "editingFinished");
+        QCOMPARE(settings->videoPrefetchMaxMb(), 100);
+        QTRY_COMPARE_WITH_TIMEOUT(field->property("text").toString(),
+                                  QStringLiteral("100"), 3000);
+        // An empty field reverts to the stored value.
+        field->setProperty("text", QString());
+        QMetaObject::invokeMethod(field, "editingFinished");
+        QCOMPARE(settings->videoPrefetchMaxMb(), 100);
+        QTRY_COMPARE_WITH_TIMEOUT(field->property("text").toString(),
+                                  QStringLiteral("100"), 3000);
+        // Off hides the limit controls.
+        settings->setVideoPrefetchEnabled(false);
+        QTRY_COMPARE_WITH_TIMEOUT(check->property("checked").toBool(), false,
+                                  3000);
+        QTRY_VERIFY_WITH_TIMEOUT(!item("videoPrefetchLimitRow")->isVisible(),
+                                 3000);
+        settings->setVideoPrefetchEnabled(true);
+        settings->setVideoPrefetchMaxMb(32);
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        m_controller->showMain();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            item("spacesRail") && item("spacesRail")->isVisible(), 3000);
+    }
+
     // 2026-10-01, a COSMIC desktop with no Secret Service: "Keep downloaded
     // media on this device" stayed ticked while nothing at all was kept, and
     // the only word of it was a sentence in a long grey paragraph. The line
@@ -1651,6 +1706,40 @@ private slots:
         // opening Settings and inherit it from the case before.
     }
 
+    // Notifications carries the choice of whose sound a notification makes,
+    // its volume and the two Test buttons, bound to the real settings.
+    void notificationsOffersLightningsChimeAndItsVolume()
+    {
+        m_controller->showSettingsSection(QStringLiteral("notifications"));
+        QCoreApplication::processEvents();
+
+        auto *combo = item("notificationSoundSourceCombo");
+        QVERIFY2(combo, "Notifications has no sound style picker");
+        QTRY_VERIFY(combo->isVisible());
+        QCOMPARE(combo->property("currentIndex").toInt(), 0); // Lightning
+        QCOMPARE(combo->property("count").toInt(), 2);
+
+        auto *volume = item("notificationSoundVolumeSlider");
+        QVERIFY2(volume, "Notifications has no notification volume slider");
+        QCOMPARE(volume->property("value").toInt(),
+                 SettingsManager::kDefaultNotificationSoundVolume);
+        QVERIFY(item("notificationSoundPreviewButton"));
+        QVERIFY(item("notificationMentionPreviewButton"));
+
+        // The picker follows the setting, and the volume slider is only
+        // live while Lightning's own chime is the one that plays.
+        m_controller->settings()->setNotificationSoundSource(1);
+        QTRY_COMPARE(combo->property("currentIndex").toInt(), 1);
+        QTRY_VERIFY(!volume->property("enabled").toBool());
+        m_controller->settings()->setNotificationSoundSource(0);
+        QTRY_VERIFY(volume->property("enabled").toBool());
+
+        // Test buttons press without a sink (offscreen: no audio) and without
+        // a warning.
+        clickItem(item("notificationSoundPreviewButton"));
+        clickItem(item("notificationMentionPreviewButton"));
+    }
+
     // The sound section is reachable by search with the words people type.
     void searchingForAMicrophoneFindsTheSoundSection()
     {
@@ -1751,6 +1840,19 @@ private slots:
             QStringLiteral("unreadBadge"),     QStringLiteral("mentionHighlight"),
             QStringLiteral("mentionBadge"),    QStringLiteral("success"),
             QStringLiteral("danger"),
+            // Roles split out of a shared token: each must resolve, in the
+            // editor's palette, to what the live token paints.
+            QStringLiteral("warning"),         QStringLiteral("popoverSurface"),
+            QStringLiteral("focusRing"),       QStringLiteral("scrollbarHandle"),
+            QStringLiteral("reactionSelectedBackground"),
+            QStringLiteral("presenceOnline"),
+            QStringLiteral("dangerTint"),      QStringLiteral("messageHighlight"),
+            QStringLiteral("textSelection"),   QStringLiteral("paletteHighlight"),
+            QStringLiteral("roomSelected"),    QStringLiteral("roomHover"),
+            QStringLiteral("channelSelected"), QStringLiteral("channelHover"),
+            QStringLiteral("menuHighlight"),   QStringLiteral("buttonGhostHover"),
+            QStringLiteral("timestampInk"),    QStringLiteral("placeholderInk"),
+            QStringLiteral("settingsPage"),    QStringLiteral("settingsNav"),
         };
         const int original = int(m_controller->settings()->theme());
         for (int id = 1; id <= 11; ++id) {

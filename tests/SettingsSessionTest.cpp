@@ -112,6 +112,7 @@ private Q_SLOTS:
     void roomActivityDefaultsEnabledAndPersists();
     void wheelSpeedDefaultsToFastPersistsAndFallsBack();
     void gifPolicyDefaultsPersistAndClamp();
+    void videoPrefetchDefaultsPersistAndValidate();
     void messageLayoutAndTextScalePersistAndClamp();
     void interfaceZoomAndRoomFilterPersistAndClamp();
     void spacesRailWidthDefaultsToTheOldFixedWidthAndClamps();
@@ -132,6 +133,8 @@ private Q_SLOTS:
     void theEncryptedPreviewLevelDefaultsToFollowingTheGeneralOne();
     void anUnknownEncryptionStateTakesTheStricterLevel();
     void strictDeviceTrustDefaultsOffAndPersists();
+    // Microphone noise suppression (#20): one of four keys, never clamped.
+    void noiseSuppressionDefaultsToWebrtcPersistsAndFallsBack();
     void keepMediaOnDeviceDefaultsOnAndPersists();
     void theKeepMediaCheckboxSaysWhereEncryptedMediaIsKept();
     // Every account-scoped value is re-announced on an account switch.
@@ -824,6 +827,56 @@ void SettingsSessionTest::wheelSpeedDefaultsToFastPersistsAndFallsBack()
     }
 }
 
+void SettingsSessionTest::videoPrefetchDefaultsPersistAndValidate()
+{
+    {
+        SettingsManager s;
+        // Defaults: on, at the threshold the app shipped with (32 MB).
+        QCOMPARE(s.videoPrefetchEnabled(), true);
+        QCOMPARE(s.videoPrefetchMaxMb(), 32);
+        QCOMPARE(s.videoPrefetchMinMb(), 1);
+        QCOMPARE(s.videoPrefetchLimitMb(), 100);
+
+        QSignalSpy en(&s, &SettingsManager::videoPrefetchEnabledChanged);
+        QSignalSpy mb(&s, &SettingsManager::videoPrefetchMaxMbChanged);
+        s.setVideoPrefetchEnabled(false);
+        s.setVideoPrefetchEnabled(false); // no change, no signal
+        QCOMPARE(en.count(), 1);
+        QCOMPARE(s.videoPrefetchEnabled(), false);
+        s.setVideoPrefetchMaxMb(50);
+        s.setVideoPrefetchMaxMb(50);
+        QCOMPARE(mb.count(), 1);
+        QCOMPARE(s.videoPrefetchMaxMb(), 50);
+        // A quantity clamps.
+        s.setVideoPrefetchMaxMb(4000);
+        QCOMPARE(s.videoPrefetchMaxMb(), 100);
+        s.setVideoPrefetchMaxMb(-5);
+        QCOMPARE(s.videoPrefetchMaxMb(), 1);
+        s.setVideoPrefetchMaxMb(20);
+    }
+    {
+        SettingsManager reopened; // persists across restart
+        QCOMPARE(reopened.videoPrefetchEnabled(), false);
+        QCOMPARE(reopened.videoPrefetchMaxMb(), 20);
+    }
+    {
+        // A stored value that is nonsense reads as the default, not as an
+        // end of the range.
+        QSettings raw;
+        raw.setValue(QStringLiteral("media/videoPrefetchMaxMb"), 5000);
+        raw.sync();
+        SettingsManager s;
+        QCOMPARE(s.videoPrefetchMaxMb(), 32);
+        raw.setValue(QStringLiteral("media/videoPrefetchMaxMb"),
+                     QStringLiteral("lots"));
+        raw.sync();
+        QCOMPARE(s.videoPrefetchMaxMb(), 32);
+        raw.setValue(QStringLiteral("media/videoPrefetchMaxMb"), 0);
+        raw.sync();
+        QCOMPARE(s.videoPrefetchMaxMb(), 32);
+    }
+}
+
 void SettingsSessionTest::gifPolicyDefaultsPersistAndClamp()
 {
     {
@@ -1367,6 +1420,48 @@ void SettingsSessionTest::strictDeviceTrustDefaultsOffAndPersists()
     // client build and has no runtime setter.
     SettingsManager reopened;
     QVERIFY(reopened.strictDeviceTrust());
+}
+
+void SettingsSessionTest::noiseSuppressionDefaultsToWebrtcPersistsAndFallsBack()
+{
+    {
+        SettingsManager settings;
+        // WebRTC: what every build before the selector ran.
+        QCOMPARE(settings.noiseSuppressionMode(), QStringLiteral("webrtc"));
+
+        QSignalSpy spy(&settings, &SettingsManager::noiseSuppressionModeChanged);
+        settings.setNoiseSuppressionMode(QStringLiteral("rnnoise"));
+        QCOMPARE(settings.noiseSuppressionMode(), QStringLiteral("rnnoise"));
+        QCOMPARE(spy.count(), 1);
+        settings.setNoiseSuppressionMode(QStringLiteral("rnnoise"));
+        QCOMPARE(spy.count(), 1);
+        // Anything but the four keys is refused and changes nothing.
+        for (const char *bad : {"RNNoise", "2", "3", "loud", "", "deepfilternet "}) {
+            settings.setNoiseSuppressionMode(QString::fromLatin1(bad));
+            QCOMPARE(settings.noiseSuppressionMode(), QStringLiteral("rnnoise"));
+        }
+        QCOMPARE(spy.count(), 1);
+        settings.setNoiseSuppressionMode(QStringLiteral("off"));
+        QCOMPARE(spy.count(), 2);
+    }
+    {
+        SettingsManager reopened;
+        QCOMPARE(reopened.noiseSuppressionMode(), QStringLiteral("off"));
+    }
+    // A stored value this build cannot read (a newer build's mode, an enum
+    // index, a hand edit) reads as the default, never as the "nearest" mode:
+    // 3 is DeepFilterNet's index, and a clamp would pick the heaviest engine.
+    for (const QVariant &stored :
+         {QVariant(QStringLiteral("krisp")), QVariant(3), QVariant(99),
+          QVariant(QStringLiteral("DeepFilterNet"))}) {
+        {
+            QSettings raw;
+            raw.setValue(QStringLiteral("calls/noiseSuppression"), stored);
+            raw.sync();
+        }
+        SettingsManager settings;
+        QCOMPARE(settings.noiseSuppressionMode(), QStringLiteral("webrtc"));
+    }
 }
 
 void SettingsSessionTest::keepMediaOnDeviceDefaultsOnAndPersists()

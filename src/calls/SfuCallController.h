@@ -45,6 +45,7 @@
 
 // Included, not forward-declared: these are Q_PROPERTY types, and
 // moc_SfuCallController.cpp sees only this header, so they must be complete.
+#include "calls/AudioLevelMeter.h"
 #include "calls/CallParticipantModel.h"
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
@@ -96,6 +97,25 @@ class SfuCallController : public QObject
     /// SfuMediaEngine::localAudioSilent.
     Q_PROPERTY(bool microphoneSilent READ microphoneSilent
                    NOTIFY microphoneSilentChanged)
+    /// Microphone noise suppression (GitHub #20): the setting's mode key when
+    /// the selected suppressor could not start in the running call, so the
+    /// microphone is being sent without it. Empty when it runs, or when
+    /// there is no call.
+    Q_PROPERTY(QString noiseSuppressionFailedMode
+                   READ noiseSuppressionFailedMode
+                   NOTIFY noiseSuppressionFailedModeChanged)
+    /// With a failed mode: WebRTC suppression runs in its place (false: the
+    /// microphone goes out unsuppressed, there being no webrtcdsp).
+    Q_PROPERTY(bool noiseSuppressionFallbackToWebrtc
+                   READ noiseSuppressionFallbackToWebrtc
+                   NOTIFY noiseSuppressionFailedModeChanged)
+    /// Our own capture's level for the in-call meter, 0 (nothing, muted or
+    /// no call) to 1 (0 dBFS). Fed by the call's own `level` element, so it
+    /// is what the far end receives after gain and processing; see
+    /// AudioLevelMeter.h for the scale. Updates at most every
+    /// kMeterMinIntervalMs.
+    Q_PROPERTY(double microphoneLevel READ microphoneLevel
+                   NOTIFY microphoneLevelChanged)
     /// NOTIFY is the model's own countChanged, forwarded: the model is rebuilt
     /// from paths that do not all emit participantsChanged.
     Q_PROPERTY(int participantCount READ participantCount
@@ -208,6 +228,26 @@ public:
     bool mediaEncrypted() const { return m_mediaEncrypted; }
     bool remoteMediaBlocked() const { return !m_blockedStreams.isEmpty(); }
     bool microphoneSilent() const { return m_microphoneSilent; }
+    QString noiseSuppressionFailedMode() const
+    {
+        return m_noiseSuppressionFailedMode;
+    }
+    bool noiseSuppressionFallbackToWebrtc() const
+    {
+        return m_noiseSuppressionFallbackToWebrtc;
+    }
+    /// Settings: one entry per noise-suppression mode, in display order:
+    /// {key, available, reason}. `reason` is "" when available, otherwise
+    /// "no-call-engine", "no-webrtcdsp" or "not-in-build"; the UI words it.
+    Q_INVOKABLE QVariantList noiseSuppressionChoices() const;
+    /// The selected noise suppressor failed in this call: try it again (the
+    /// UI's re-select of the failed mode). The failure line stays until the
+    /// new attempt reports.
+    Q_INVOKABLE void retryNoiseSuppression();
+    double microphoneLevel() const { return m_microphoneLevel; }
+    /// One capture level reading (peak dBFS) taken at `nowMs` on a monotonic
+    /// clock. Public so tests drive it without an engine.
+    void noteMicrophoneLevelAt(double peakDb, qint64 nowMs);
     /// Whether this participant's media is blocked, for a per-tile mark.
     Q_INVOKABLE bool mediaBlockedFor(const QString &identity) const;
     /// Read from the model, so the count and the tiles always agree.
@@ -297,6 +337,19 @@ public:
                                            const QString &x11Display,
                                            bool captureElementPresent);
 
+    /// Whether a failed portal share should fall back to Lightning's own
+    /// display picker. Pure. True only for the portal's recognised "not
+    /// available in X11 sessions" refusal (category `x11_unsupported`), on a
+    /// session that is X11 by every signal (xcb platform, no Wayland session
+    /// type or display, a DISPLAY) with the capture element present. A
+    /// dismissal, a busy portal or any other failure never falls back, and
+    /// Wayland never does (XWayland's root window captures black). The
+    /// fallback always shows the picker, never auto-selects a display.
+    static bool portalFailureFallsBackToDisplays(
+        const QString &category, const QString &platformName,
+        const QString &sessionType, const QString &waylandDisplay,
+        const QString &x11Display, bool captureElementPresent);
+
     /// The user-facing refusal for a route, or empty. Pure so the wording is
     /// tested. `sandboxed` changes only the missing-element advice: a Flatpak
     /// or Snap cannot use host GStreamer plugins, and the KDE runtime ships no
@@ -316,11 +369,15 @@ public:
 
     /// Choose the camera route. Pure, every input passed in. In order:
     ///
-    ///  1. Sandboxed always takes the portal, even if it looks unusable:
+    ///  1. Sandboxed with a visible device node and NO usable portal camera
+    ///     (the user granted device access, e.g. Flatseal's Webcam toggle):
+    ///     direct.
+    ///  2. Otherwise sandboxed takes the portal, even if it looks unusable:
     ///     Flathub allows no device access, and a portal error is actionable.
-    ///  2. A visible device node keeps the direct route.
-    ///  3. No device node and a usable portal: the portal.
-    ///  4. Otherwise direct, including its honest failure.
+    ///     A usable portal wins over visible nodes (MIPI/IPU6 laptops).
+    ///  3. A visible device node keeps the direct route.
+    ///  4. No device node and a usable portal: the portal.
+    ///  5. Otherwise direct, including its honest failure.
     ///
     /// `portalUsable` folds `CameraPortal::available()` and
     /// `CameraPortal::cameraPresent()`: a permission dialog for a camera that
@@ -533,6 +590,8 @@ Q_SIGNALS:
     void mediaStateChanged();
     void remoteMediaBlockedChanged();
     void microphoneSilentChanged();
+    void noiseSuppressionFailedModeChanged();
+    void microphoneLevelChanged();
     void participantsChanged();
     /// Forwarded from CallParticipantModel::countChanged. See the property.
     void participantCountChanged();
@@ -614,6 +673,11 @@ private:
     /// Fill `m_screenShareSources` with displays for the Linux no-portal
     /// fallback. False when there is none to offer (a refusal).
     bool populateLinuxDisplaySources();
+    /// Fill and offer Lightning's own display picker. `autoSelectSingle`
+    /// shares a lone display without asking (the no-portal route); the
+    /// fallback after a portal refusal passes false so consent is always an
+    /// explicit pick.
+    void offerLinuxDisplayPicker(bool autoSelectSingle);
     /// The native root rectangle of the screen named `name`, or invalid if it
     /// is not connected now. Resolved by name at choice time, since an
     /// unplugged monitor renumbers the others.
@@ -866,6 +930,14 @@ private:
     };
     QHash<QString, RemoteTrackMute> m_remoteTrackMuted;
     bool m_microphoneSilent = false;
+    QString m_noiseSuppressionFailedMode;
+    bool m_noiseSuppressionFallbackToWebrtc = false;
+    void setNoiseSuppressionFailedMode(const QString &mode,
+                                       bool fallbackToWebrtc = false);
+    double m_microphoneLevel = 0.0;
+    lightning::calls::MeterThrottle m_microphoneMeter;
+    /// Empties the meter and forgets its history (mute, leave, new call).
+    void resetMicrophoneLevel();
     /// Whether the room is encrypted, so call media must be. Captured at join;
     /// unknown fails closed to true.
     bool m_roomEncrypted = true;

@@ -10,6 +10,20 @@ Rectangle {
     id: root
     color: AppTheme.sidebar
 
+    // The room list's ground when the theme gives `sidebar` a gradient (Depth
+    // or a custom theme); draws nothing otherwise. The header strips below
+    // turn transparent over it so the gradient runs unbroken.
+    // Not z: -1, which draws beneath this Rectangle's own fill; declared
+    // first, so every other child paints above it.
+    ThemedSurface {
+        id: sidebarGround
+        anchors.fill: parent
+        role: "sidebar"
+        flatFill: false
+        // The Spaces rail sits above this column in Depth.
+        innerShadowEdge: "left"
+    }
+
     // Entry point for Home's and the rail's create actions (routed by
     // MainScreen) into this column's shared new-conversation dialog. mode:
     // "dm", "room" or "space"; options may carry {addToSpace: bool}.
@@ -122,7 +136,7 @@ Rectangle {
         // column headers.
         Rectangle {
             Layout.fillWidth: true
-            color: AppTheme.sidebar
+            color: sidebarGround.hasGradient ? "transparent" : AppTheme.sidebar
             implicitHeight: Math.max(AppTheme.headerBandHeight,
                 headerRow.implicitHeight + AppTheme.spacing12 * 2)
 
@@ -226,7 +240,7 @@ Rectangle {
         Rectangle {
             id: searchHeader
             Layout.fillWidth: true
-            color: AppTheme.sidebar
+            color: sidebarGround.hasGradient ? "transparent" : AppTheme.sidebar
             implicitHeight: searchRow.implicitHeight + AppTheme.spacing8 * 2
 
             // The header wraps to two rows below a derived threshold rather
@@ -302,7 +316,7 @@ Rectangle {
                             onTextChanged: app.roomList.searchQuery = text
                             font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                             color: AppTheme.textPrimary
-                            placeholderTextColor: AppTheme.textMuted
+                            placeholderTextColor: AppTheme.placeholderInk
                             selectionColor: AppTheme.accentSoft
                             selectedTextColor: AppTheme.textPrimary
                             verticalAlignment: TextInput.AlignVCenter
@@ -440,7 +454,7 @@ Rectangle {
         // which the model follows through the Binding below.
         Rectangle {
             Layout.fillWidth: true
-            color: AppTheme.sidebar
+            color: sidebarGround.hasGradient ? "transparent" : AppTheme.sidebar
             implicitHeight: filterChips.implicitHeight + AppTheme.spacing6 * 2
             // storm: false, like MenuKeycap here.
             SegmentedControl {

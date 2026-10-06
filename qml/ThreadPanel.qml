@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -16,7 +15,9 @@ Rectangle {
     signal closeRequested()
     // Media entry points supplied by TimelinePane.
     property var openImage: function(mediaKey, httpUrl) {}
-    property var saveMedia: function(mediaKey, filename) {}
+    // (mediaKey, filename, mimetype, ask): ask = "Save as…", otherwise
+    // Download (app.downloads).
+    property var saveMedia: function(mediaKey, filename, mime, ask) {}
 
     property var rootData: ({})
     function refreshRoot() { rootData = app.thread.rootInfo() }
@@ -115,6 +116,7 @@ Rectangle {
         function onStateChanged() {
             panel.refreshRoot()
             // A thread switch/close abandons any open mention popup.
+            threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
             // Any lifecycle transition cancels in-flight wheel motion.
             app.threadScroll.cancel()
@@ -1336,7 +1338,7 @@ Rectangle {
                                 textFormat: TextEdit.RichText
                                 placeholderText: panel.threadRichBlank
                                                  ? qsTr("Reply in thread") : ""
-                                placeholderTextColor: AppTheme.textMuted
+                                placeholderTextColor: AppTheme.placeholderInk
                                 inputMethodHints: Qt.ImhNone
                                 wrapMode: TextArea.Wrap
                                 enabled: app.thread.state === ThreadController.Ready
@@ -1380,6 +1382,7 @@ Rectangle {
                                             event.accepted = true; return
                                         }
                                         if (event.key === Qt.Key_Escape) {
+                                            threadMentionPopup.tokenActive = false
                                             threadMentionPopup.close()
                                             event.accepted = true; return
                                         }
@@ -1435,7 +1438,7 @@ Rectangle {
                             id: threadComposerInput
                             objectName: "threadComposerInput"
                             placeholderText: qsTr("Reply in thread")
-                            placeholderTextColor: AppTheme.textMuted
+                            placeholderTextColor: AppTheme.placeholderInk
                             // Declared and deliberately empty; see the room
                             // composer.
                             inputMethodHints: Qt.ImhNone
@@ -1610,6 +1613,7 @@ Rectangle {
                                         event.accepted = true; return
                                     }
                                     if (event.key === Qt.Key_Escape) {
+                                        threadMentionPopup.tokenActive = false
                                         threadMentionPopup.close()
                                         event.accepted = true; return
                                     }
@@ -1917,11 +1921,12 @@ Rectangle {
     }
 
     // Attachment picker for the thread composer.
-    FileDialog {
+    NativeFileDialog {
         id: threadAttachDialog
+        purpose: "attach"
         title: qsTr("Attach files")
         currentFolder: app.defaultFileDialogFolder()
-        fileMode: FileDialog.OpenFiles
+        fileMode: "openMany"
         onAccepted: {
             for (var i = 0; i < selectedFiles.length; ++i)
                 app.thread.addAttachment(selectedFiles[i])
@@ -2054,6 +2059,7 @@ Rectangle {
         panel.lastThreadMentionScanText = threadComposerInput.text
         panel.lastThreadMentionScanCursor = threadComposerInput.cursorPosition
         if (!app.thread.active) {
+            threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
             panel.refreshThreadMentionHighlight()
             return
@@ -2070,16 +2076,18 @@ Rectangle {
             var p = threadInputFlick.mapToItem(Overlay.overlay, 0, 0)
             threadMentionPopup.anchorInputTop = Qt.point(p.x, p.y)
             threadMentionPopup.anchorWidth = threadInputFlick.width
-            if (!threadMentionPopup.visible)
+            threadMentionPopup.tokenActive = true
+            if (threadMentionPopup.shouldShow && !threadMentionPopup.visible)
                 threadMentionPopup.open()
         } else {
             panel.threadMentionTokenStart = -1
+            threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
         }
         panel.refreshThreadMentionHighlight()
     }
-    // The in-progress "@token" chip: app.thread.mentionRanges plus one
-    // presentation-only range while the popup is open, never written back.
+    // app.thread.mentionRanges ONLY: a typed "@word" is plain text until a
+    // member is picked from the popup (no in-progress chip).
     // Assigned explicitly (a binding on cursor signals would loop), and copied
     // rather than stored as read (on Qt 6.8 a stored QVariantList stays live).
     // See MessageComposerBar's refreshMentionHighlight.
@@ -2089,13 +2097,6 @@ Rectangle {
         var live = app.thread.mentionRanges
         for (var k = 0; k < live.length; ++k)
             ranges.push({ start: live[k].start, length: live[k].length })
-        if (threadMentionPopup.visible && panel.threadMentionTokenStart >= 0) {
-            var len = threadComposerInput.cursorPosition
-                      - panel.threadMentionTokenStart
-            if (len > 0)
-                ranges = ranges.concat([{ start: panel.threadMentionTokenStart,
-                                          length: len }])
-        }
         // Assign only on a real change.
         var current = panel.threadMentionHighlightRanges
         if (current.length === ranges.length) {
@@ -2346,6 +2347,7 @@ Rectangle {
         function onCurrentRoomIdChanged() {
             threadReactionPicker.close()
             threadSenderProfile.close()
+            threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
             // One reset point, as closeRowAnchoredSurfaces() in the room
             // timeline.
@@ -2471,9 +2473,11 @@ Rectangle {
             app.richComposer.loadMarkdown(threadRichInput.textDocument,
                                           app.thread.text)
             panel.richSyncing = false
+            threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
             Qt.callLater(function () { threadRichInput.forceActiveFocus() })
         } else {
+            threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
             Qt.callLater(function () { threadComposerInput.forceActiveFocus() })
         }
@@ -2541,6 +2545,7 @@ Rectangle {
         if (!panel.richMode)
             return
         if (!app.thread.active) {
+            threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
             return
         }
@@ -2554,10 +2559,12 @@ Rectangle {
             var p = threadRichFlick.mapToItem(Overlay.overlay, 0, 0)
             threadMentionPopup.anchorInputTop = Qt.point(p.x, p.y)
             threadMentionPopup.anchorWidth = threadRichFlick.width
-            if (!threadMentionPopup.visible)
+            threadMentionPopup.tokenActive = true
+            if (threadMentionPopup.shouldShow && !threadMentionPopup.visible)
                 threadMentionPopup.open()
         } else {
             panel.threadMentionTokenStart = -1
+            threadMentionPopup.tokenActive = false
             threadMentionPopup.close()
         }
     }

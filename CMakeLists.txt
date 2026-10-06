@@ -190,10 +190,10 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS
     # Inline video/audio playback.
     Multimedia
 )
-# Qt SVG library for thumbnails of SVGs the user sends. Linking it makes the
+# Qt SVG library to rasterise SVGs the user picks to upload. Linking it makes the
 # deploy tools add the qsvg image PLUGIN, which the AppImage, macOS and Windows
 # builds leave out: nothing received is decoded as SVG. Global so every target
-# compiling SvgThumbnail.h sees one definition.
+# compiling SvgRaster.h sees one definition.
 option(LIGHTNING_REQUIRE_QT_SVG "Fail configure without Qt SVG" OFF)
 find_package(Qt6 6.5 QUIET COMPONENTS Svg)
 if(TARGET Qt6::Svg)
@@ -322,6 +322,13 @@ else()
     message(STATUS "pkg-config not found — cannot probe libsecret; using insecure fallback")
 endif()
 
+# Vendored RNNoise (third_party/rnnoise): option, C library, C++ wrapper.
+include(cmake/ThirdPartyRnnoise.cmake)
+
+# Vendored DeepFilterNet (third_party/deepfilternet): option, cargo feature
+# arguments, C++ wrapper. Must precede the Rust block and the noise block.
+include(cmake/ThirdPartyDeepFilterNet.cmake)
+
 # Optional GStreamer webrtcbin call media engine, built when the GStreamer
 # WebRTC dev files are present; without it CallController refuses calls. The
 # engine also re-probes its element factories at runtime.
@@ -343,7 +350,11 @@ if(LIGHTNING_ENABLE_WEBRTC AND PkgConfig_FOUND)
         # gstreamer-rtp-1.0: Lightning's own VP8 payloader subclasses
         # GstRTPBasePayload, because rtpvp8pay parses the bitstream and so
         # cannot payload an end-to-end encrypted frame (RtpVp8Payloader.h).
-        gstreamer-rtp-1.0)
+        gstreamer-rtp-1.0
+        # gstreamer-base-1.0: the microphone noise suppressor element
+        # (src/calls/noise/DenoiseElement.cpp) subclasses GstBaseTransform.
+        # Part of GStreamer core, so every host with the above has it.
+        gstreamer-base-1.0)
     if(GSTWEBRTC_FOUND)
         set(HAVE_LIGHTNING_WEBRTC ON)
         message(STATUS "GStreamer WebRTC found (${GSTWEBRTC_gstreamer-webrtc-1.0_VERSION}) — building the voice-call media engine")
@@ -436,6 +447,11 @@ set(APP_SOURCES
     src/calls/CallSoundPlayer.cpp
     src/calls/CallDeviceController.h
     src/calls/CallDeviceController.cpp
+    # Settings microphone/speaker test. Always built: without the media
+    # engine it is a stub whose `built` is false, so the UI can say why.
+    src/calls/AudioLevelMeter.h
+    src/calls/AudioDeviceTester.h
+    src/calls/AudioDeviceTester.cpp
     src/calls/CameraPortal.h
     src/calls/CameraPortal.cpp
     src/calls/ScreenCastPortal.h
@@ -502,6 +518,8 @@ set(APP_SOURCES
     src/storage/LibSecretStore.cpp
     src/storage/WinCredStore.h
     src/storage/WinCredStore.cpp
+    src/storage/MacKeychainStore.h
+    src/storage/MacKeychainStore.cpp
 
     src/models/RoomListModel.h
     src/models/RoomListModel.cpp
@@ -614,6 +632,14 @@ set(APP_SOURCES
     src/media/MediaManager.cpp
     src/app/UrlLauncher.h
     src/app/UrlLauncher.cpp
+    src/app/SaveNaming.h
+    src/app/SaveNaming.cpp
+    src/app/FileChooser.h
+    src/app/FileChooser.cpp
+    src/app/FileLauncher.h
+    src/app/FileLauncher.cpp
+    src/app/DownloadsController.h
+    src/app/DownloadsController.cpp
     src/media/MediaBridge.h
     src/media/MediaBridge.cpp
     src/media/PlayableFileWriter.h
@@ -640,6 +666,12 @@ set(APP_SOURCES
     src/profile/UserProfileResolver.cpp
     src/profile/ProfileBadges.h
     src/profile/ProfileBadges.cpp
+    # Chat backgrounds: shared (room/Space state) and personal, plus the
+    # readability scrim and surface depth math.
+    src/backdrop/BackdropMath.h
+    src/backdrop/BackdropMath.cpp
+    src/backdrop/ChatBackdropController.h
+    src/backdrop/ChatBackdropController.cpp
     src/media/StagedImageStore.h
     src/media/StagedImageStore.cpp
     src/media/StagedImageProvider.h
@@ -743,6 +775,32 @@ endif()
 
 # Everything except main.cpp, shared with the QML test targets. Keeps mock/http
 # so mock-based tests build even with LIGHTNING_RUST_ONLY.
+# Microphone noise suppression (GitHub #20): the backend contract, its
+# factory, Lightning's in-process `lightningdenoise` element and the
+# voice-processing stage shared by the call and the microphone test. One list,
+# so the app and every test that builds the factory link the same backends:
+# the RNNoise and DeepFilterNet backends APPEND their sources here, and their
+# link libraries to LIGHTNING_NOISE_LIBRARIES (linked wherever these sources
+# are compiled).
+set(LIGHTNING_NOISE_LIBRARIES)
+# The backends' own targets (cmake/ThirdPartyRnnoise.cmake and the
+# DeepFilterNet equivalent must be included ABOVE this block). Each carries
+# its suppressor .cpp and the PUBLIC HAVE_* definition; the factory only calls
+# their create/available functions.
+if(TARGET lightning_noise_rnnoise)
+    list(APPEND LIGHTNING_NOISE_LIBRARIES lightning_noise_rnnoise)
+endif()
+if(TARGET lightning_noise_deepfilternet)
+    list(APPEND LIGHTNING_NOISE_LIBRARIES lightning_noise_deepfilternet)
+endif()
+set(LIGHTNING_NOISE_SOURCES
+    src/calls/noise/NoiseSuppressor.h
+    src/calls/noise/NoiseSuppressorFactory.cpp
+    src/calls/noise/DenoiseElement.h
+    src/calls/noise/DenoiseElement.cpp
+    src/calls/noise/MicProcessing.h
+    src/calls/noise/MicProcessing.cpp)
+
 if(HAVE_LIGHTNING_WEBRTC)
     list(APPEND APP_SOURCES
         # The single GStreamer init, which applies the bundled plugin path
@@ -779,7 +837,9 @@ if(HAVE_LIGHTNING_WEBRTC)
         # Selects the application audio a screen share carries, excluding our
         # own so the call is not echoed back.
         src/calls/ShareAudioSources.h
-        src/calls/ShareAudioSources.cpp)
+        src/calls/ShareAudioSources.cpp
+        # Microphone noise suppression; see LIGHTNING_NOISE_SOURCES above.
+        ${LIGHTNING_NOISE_SOURCES})
 endif()
 
 set(APP_LIB_SOURCES ${APP_SOURCES})
@@ -861,6 +921,8 @@ set(APP_QML_FILES
     qml/VideoPlayerCard.qml
     qml/AudioPlayerCard.qml
     qml/VoiceMiniPlayer.qml
+    qml/DownloadsCard.qml
+    qml/NativeFileDialog.qml
     qml/MediaVolumeControl.qml
     qml/VideoControlBar.qml
     qml/VideoViewerOverlay.qml
@@ -899,6 +961,12 @@ set(APP_QML_FILES
     qml/MemberProfilePopover.qml
     qml/Avatar.qml
     qml/BannerMotion.qml
+    # Chat backgrounds and gradient surfaces (2026-10-06).
+    qml/ChatBackdrop.qml
+    qml/ChatBackgroundEditor.qml
+    qml/ChatBackgroundSettings.qml
+    qml/ThemedSurface.qml
+    qml/GradientEditor.qml
     qml/AnimationFileHold.qml
     qml/Skeleton.qml
     qml/AppMenu.qml
@@ -922,6 +990,10 @@ set(APP_QML_FILES
     qml/CallShareOptionsMenu.qml
     qml/RoomListSortMenu.qml
     qml/CallDeviceSettings.qml
+    # The microphone level bar shared by the call's device menu and the
+    # Settings microphone test.
+    qml/AudioLevelBar.qml
+    qml/NoiseSuppressionSelector.qml
     qml/CallPipWindow.qml
     qml/CallHeaderBar.qml
     qml/CallTileBadge.qml
@@ -939,6 +1011,8 @@ set(APP_QML_FILES
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
     qml/TrustCard.qml
+    qml/RecoveryKeyEntry.qml
+    qml/CrossSigningSetupCard.qml
     qml/StormBand.qml
     qml/StormNode.qml
     qml/TrustMeter.qml
@@ -1131,7 +1205,8 @@ function(_lightning_configure_qml_module target _scope)
     endif()
 
     if(HAVE_LIGHTNING_WEBRTC)
-        target_link_libraries(${target} ${_scope} PkgConfig::GSTWEBRTC)
+        target_link_libraries(${target} ${_scope} PkgConfig::GSTWEBRTC
+            ${LIGHTNING_NOISE_LIBRARIES})
         target_compile_definitions(${target} ${_scope} HAVE_LIGHTNING_WEBRTC=1)
     endif()
 
@@ -1144,6 +1219,14 @@ function(_lightning_configure_qml_module target _scope)
         # GetProcAddress to avoid a new import.
         target_link_libraries(${target} ${_scope} advapi32 gdi32 user32)
         target_compile_definitions(${target} ${_scope} HAVE_WINCRED=1)
+    endif()
+
+    # macOS Keychain backend for SecretStore (SecItem* in Security.framework).
+    # Without it a macOS build silently stores tokens in plaintext QSettings.
+    if(APPLE)
+        target_link_libraries(${target} ${_scope}
+            "-framework Security" "-framework CoreFoundation")
+        target_compile_definitions(${target} ${_scope} HAVE_MAC_KEYCHAIN=1)
     endif()
 
     if(ENABLE_RUST_SDK_BACKEND)
@@ -1236,11 +1319,13 @@ if(ENABLE_RUST_SDK_BACKEND)
             CARGO_TARGET_DIR=${_rust_out_dir}
             ${CARGO_EXECUTABLE} build ${_cargo_profile_flag}
                 --offline --locked
+                ${LIGHTNING_CARGO_FEATURE_ARGS}
                 --manifest-path ${_rust_dir}/Cargo.toml
         DEPENDS ${_rust_sources}
                 ${_rust_dir}/include/matrix_rust.h
                 ${_rust_dir}/Cargo.toml
                 ${_rust_dir}/Cargo.lock
+                ${LIGHTNING_DEEPFILTERNET_CARGO_INPUTS}
         COMMENT "Building Rust SDK backend (cargo ${_cargo_profile})"
         VERBATIM
     )
@@ -1291,7 +1376,8 @@ qt_add_resources(lightning-matrix "lightning_call_sounds"
         data/sounds/undeafen.wav data/sounds/share-start.wav
         data/sounds/share-stop.wav data/sounds/hand-raised.wav
         data/sounds/ring.wav data/sounds/call-waiting.wav
-        data/sounds/ringback.wav)
+        data/sounds/ringback.wav
+        data/sounds/message.wav data/sounds/mention.wav)
 # Per-target (never on the shared mock-based test targets): drive the C++
 # #ifdef guards in AppController and the --build-info self-report.
 if(LIGHTNING_RUST_ONLY)
@@ -1315,6 +1401,8 @@ endif()
 
 if(BUILD_TESTING)
     find_package(Qt6 6.5 REQUIRED COMPONENTS Test)
+    lightning_add_rnnoise_tests()
+    lightning_add_deepfilternet_tests()
 
     # ------------------------------------------------------------------
     # One prebuilt copy of the application for the Qt-executable tests, so
@@ -1353,6 +1441,16 @@ if(BUILD_TESTING)
     target_include_directories(desktop-entry-quoting-test PRIVATE src)
     target_link_libraries(desktop-entry-quoting-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME desktop-entry-quoting COMMAND desktop-entry-quoting-test)
+
+    # Software-rasteriser detection for the "no GPU acceleration" notice.
+    # Header-only, so no app sources are linked.
+    qt_add_executable(renderer-notice-test
+        tests/RendererNoticeTest.cpp
+        src/app/RendererNotice.h
+    )
+    target_include_directories(renderer-notice-test PRIVATE src)
+    target_link_libraries(renderer-notice-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME renderer-notice COMMAND renderer-notice-test)
 
     # Messages for a refused room action. Pure string mapping; links Core only.
     qt_add_executable(room-action-error-test
@@ -2674,7 +2772,9 @@ if(BUILD_TESTING)
         src/matrix/MatrixClient.cpp
     )
     target_include_directories(sticker-packs-test PRIVATE src)
-    target_link_libraries(sticker-packs-test PRIVATE Qt6::Core Qt6::Qml Qt6::Test)
+    # Qt6::Gui: StickerPackManager converts a picked SVG (media/SvgRaster.h).
+    target_link_libraries(sticker-packs-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME sticker-packs COMMAND sticker-packs-test)
 
     # Animated sticker tiles: a `required property` the model does not serve
@@ -2850,6 +2950,8 @@ if(BUILD_TESTING)
         src/app/ForwardController.cpp
         src/media/MediaBridge.h
         src/media/MediaBridge.cpp
+        src/app/SaveNaming.h
+        src/app/SaveNaming.cpp
         src/storage/PortableMode.cpp
         src/media/PlayableFileWriter.h
         src/media/PlayableFileWriter.cpp
@@ -3230,6 +3332,8 @@ if(BUILD_TESTING)
         src/app/AsyncLogSink.cpp
     )
     target_include_directories(call-sound-player-test PRIVATE src)
+    target_compile_definitions(call-sound-player-test PRIVATE
+        SOUNDS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/sounds")
     target_link_libraries(call-sound-player-test PRIVATE
         Qt6::Core Qt6::Multimedia Qt6::Qml Qt6::Test)
     add_test(NAME call-sound-player COMMAND call-sound-player-test)
@@ -3346,6 +3450,17 @@ if(BUILD_TESTING)
     set_tests_properties(call-caller-name PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Cross-signing setup/reset state machine behind the recovery card.
+    qt_add_executable(backup-controller-test
+        tests/BackupControllerTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(backup-controller-test)
+    target_link_libraries(backup-controller-test PRIVATE Qt6::Test)
+    add_test(NAME backup-controller COMMAND backup-controller-test)
+    set_tests_properties(backup-controller PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # m.location (MSC3488) and live beacons (MSC3672).
     qt_add_executable(location-message-test
         tests/LocationMessageTest.cpp
@@ -3451,6 +3566,23 @@ if(BUILD_TESTING)
             Qt6::Core Qt6::Test PkgConfig::GSTWEBRTC)
         add_test(NAME gst-bootstrap COMMAND gst-bootstrap-test)
 
+        # Microphone noise suppression (GitHub #20): the processing layer
+        # through the real `lightningdenoise` element with fake backends
+        # (bit-exact pass-through, framing, swaps, failure, leaks), the
+        # webrtcdsp live swap, and the real backends when they are built in.
+        # Backends append their sources to LIGHTNING_NOISE_SOURCES.
+        qt_add_executable(noise-suppression-test
+            tests/NoiseSuppressionTest.cpp
+            src/calls/GstBootstrap.h
+            src/calls/GstBootstrap.cpp
+            ${LIGHTNING_NOISE_SOURCES}
+        )
+        target_include_directories(noise-suppression-test PRIVATE src)
+        target_link_libraries(noise-suppression-test PRIVATE
+            Qt6::Core Qt6::Test PkgConfig::GSTWEBRTC
+            ${LIGHTNING_NOISE_LIBRARIES})
+        add_test(NAME noise-suppression COMMAND noise-suppression-test)
+
         # SfuMediaEngine in test-source mode: pipeline construction, the crypto
         # pad probes and teardown, not the network.
         qt_add_executable(sfu-media-engine-test
@@ -3474,6 +3606,7 @@ if(BUILD_TESTING)
             src/calls/SfuVideoRouter.cpp
             src/calls/ShareAudioSources.h
             src/calls/ShareAudioSources.cpp
+            ${LIGHTNING_NOISE_SOURCES}
         )
         target_include_directories(sfu-media-engine-test PRIVATE src)
         target_compile_definitions(sfu-media-engine-test PRIVATE
@@ -3484,7 +3617,8 @@ if(BUILD_TESTING)
             "SOURCE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\"")
         target_link_libraries(sfu-media-engine-test PRIVATE
             Qt6::Core Qt6::Multimedia Qt6::Test
-            PkgConfig::GSTWEBRTC OpenSSL::Crypto)
+            PkgConfig::GSTWEBRTC OpenSSL::Crypto
+            ${LIGHTNING_NOISE_LIBRARIES})
         # A real call against a real homeserver, headless. Needs the Rust
         # backend and skips unless LIGHTNING_LIVE_* names a server, account and
         # room; registered so it keeps compiling.
@@ -3502,7 +3636,7 @@ if(BUILD_TESTING)
         endif()
 
         add_test(NAME sfu-media-engine COMMAND sfu-media-engine-test)
-        set_tests_properties(sfu-media-engine PROPERTIES TIMEOUT 120)
+        set_tests_properties(sfu-media-engine PROPERTIES TIMEOUT 300)
         # A real ICE+DTLS handshake needs a little longer than unit suites.
         set_tests_properties(call-media-loopback PROPERTIES TIMEOUT 120)
     endif()
@@ -3904,6 +4038,8 @@ if(BUILD_TESTING)
         src/storage/PortableMode.cpp
         src/media/MediaBridge.h
         src/media/MediaBridge.cpp
+        src/app/SaveNaming.h
+        src/app/SaveNaming.cpp
         src/media/PlayableFileWriter.h
         src/media/PlayableFileWriter.cpp
         src/app/GuiStallTracer.cpp
@@ -3925,6 +4061,8 @@ if(BUILD_TESTING)
         tests/MediaBridgeTest.cpp
         src/media/MediaBridge.h
         src/media/MediaBridge.cpp
+        src/app/SaveNaming.h
+        src/app/SaveNaming.cpp
         src/storage/PortableMode.cpp
         src/media/PlayableFileWriter.h
         src/media/PlayableFileWriter.cpp
@@ -4168,6 +4306,22 @@ if(BUILD_TESTING)
     target_link_libraries(presence-manager-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME presence-manager COMMAND presence-manager-test)
+
+    # Chat backgrounds: precedence and opt-outs, stale answers, the scrim's
+    # readability floor on all eleven presets, and gradient/depth grading.
+    qt_add_executable(chat-backdrop-test
+        tests/ChatBackdropTest.cpp
+    )
+    target_include_directories(chat-backdrop-test PRIVATE src)
+    target_compile_definitions(chat-backdrop-test PRIVATE
+        APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml")
+    # The controller, CustomThemeStore, MockMatrixClient and SettingsManager
+    # come from the one prebuilt copy of the application.
+    target_link_libraries(chat-backdrop-test
+        PRIVATE lightning-app-testlib Qt6::Test)
+    add_test(NAME chat-backdrop COMMAND chat-backdrop-test)
+    set_tests_properties(chat-backdrop PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Profile banners (MSC4427 over MSC4133), policy half: "no banner", "not
     # asked yet" and "server has no extended profiles" are distinct states.
@@ -4468,6 +4622,21 @@ if(BUILD_TESTING)
     add_dependencies(diagnostic-output-test lightning-matrix)
     add_test(NAME diagnostic-output COMMAND diagnostic-output-test)
 
+    # Rasterize on send (media/SvgRaster.h, SvgRasterJob.h): the conversion's
+    # size and aspect rules, the screen over hostile files, and the helper
+    # process (killed on a timeout, refusals, crashes), including the real
+    # `--rasterize-svg` flag of the built binary.
+    qt_add_executable(svg-raster-test
+        tests/SvgRasterTest.cpp
+    )
+    target_include_directories(svg-raster-test PRIVATE src)
+    target_link_libraries(svg-raster-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    target_compile_definitions(svg-raster-test PRIVATE
+        "LIGHTNING_BINARY=\"$<TARGET_FILE:lightning-matrix>\"")
+    add_dependencies(svg-raster-test lightning-matrix)
+    add_test(NAME svg-raster COMMAND svg-raster-test)
+
     # One process per data root. The in-process cases drive the guard; the
     # process cases run the real binary against a guard the test holds, which
     # is the only way to see where main.cpp claims relative to the preflight
@@ -4700,6 +4869,56 @@ if(BUILD_TESTING)
         QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     add_test(NAME server-address-input COMMAND server-address-input-test)
 
+    # Saving an attachment: the name it is saved under (sanitized, extension
+    # from the MIME type), Element's "name (1).ext" numbering, the save
+    # dialog's type filter, and which files are never opened (2026-10-06).
+    qt_add_executable(save-naming-test
+        tests/SaveNamingTest.cpp
+    )
+    target_include_directories(save-naming-test PRIVATE src)
+    target_link_libraries(save-naming-test
+        PRIVATE lightning-app-testlib Qt6::Test)
+    add_test(NAME save-naming COMMAND save-naming-test)
+
+    # Element's download workflow (DownloadsController) over a fake client:
+    # straight to the folder, never over a file, Always ask / Save as with a
+    # prefilled dialog, Open refused for risky types, the sandbox rule; and
+    # FileLauncher's platform paths through injected hooks (nothing real is
+    # opened).
+    qt_add_executable(downloads-controller-test
+        tests/DownloadsControllerTest.cpp
+    )
+    target_include_directories(downloads-controller-test PRIVATE src)
+    target_link_libraries(downloads-controller-test
+        PRIVATE lightning-app-testlib Qt6::Test)
+    add_test(NAME downloads-controller COMMAND downloads-controller-test)
+
+    # No QtQuick.Dialogs chooser in the QML tree; every chooser goes through
+    # app.files; the downloads card offers Open only where allowed.
+    qt_add_executable(native-file-dialog-contract-test
+        tests/NativeFileDialogContractTest.cpp
+    )
+    target_compile_definitions(native-file-dialog-contract-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    target_link_libraries(native-file-dialog-contract-test
+        PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME native-file-dialog-contract
+        COMMAND native-file-dialog-contract-test)
+
+    # FileChooser: route selection, and what it sends a fake XDG FileChooser
+    # portal on a private dbus-daemon with no service directories (so no real
+    # portal or dialog can be reached). Skips the portal cases without
+    # dbus-daemon.
+    if(TARGET Qt6::DBus AND NOT WIN32 AND NOT APPLE)
+        qt_add_executable(file-chooser-test
+            tests/FileChooserTest.cpp
+        )
+        target_include_directories(file-chooser-test PRIVATE src)
+        target_link_libraries(file-chooser-test
+            PRIVATE lightning-app-testlib Qt6::DBus Qt6::Test)
+        add_test(NAME file-chooser COMMAND file-chooser-test)
+    endif()
+
     # Slash commands, composer half: which backend verb runs with which
     # arguments, and a refusal never destroys the draft.
     qt_add_executable(slash-command-composer-test
@@ -4888,6 +5107,21 @@ if(BUILD_TESTING)
     set_tests_properties(trust-card PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Recovery-key route to verifying a session (#22), the crypto-backend text
+    # and the platform-aware secret-store advice.
+    qt_add_executable(recovery-key-entry-test
+        tests/RecoveryKeyEntryTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(recovery-key-entry-test)
+    target_compile_definitions(recovery-key-entry-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml"
+        SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_link_libraries(recovery-key-entry-test PRIVATE Qt6::Test)
+    add_test(NAME recovery-key-entry COMMAND recovery-key-entry-test)
+    set_tests_properties(recovery-key-entry PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Invite dialog: chips, already-member pre-check, room header, per-user
     # result states.
     qt_add_executable(invite-people-dialog-qml-test
@@ -5020,6 +5254,14 @@ if(BUILD_TESTING)
     target_link_libraries(capture-device-selection-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME capture-device-selection COMMAND capture-device-selection-test)
 
+    # The microphone meter's scale and update rate, shared by the in-call
+    # meter and the Settings microphone test. Header-only.
+    qt_add_executable(audio-level-meter-test
+        tests/AudioLevelMeterTest.cpp src/calls/AudioLevelMeter.h)
+    target_include_directories(audio-level-meter-test PRIVATE src)
+    target_link_libraries(audio-level-meter-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME audio-level-meter COMMAND audio-level-meter-test)
+
     # Which refused MatrixRTC joins may fall back to a legacy call, and when a
     # call failure leaves the shared status strip. Header-only rules.
     qt_add_executable(call-lane-policy-test
@@ -5042,6 +5284,19 @@ if(BUILD_TESTING)
     add_test(NAME call-device-controller COMMAND call-device-controller-test)
     set_tests_properties(call-device-controller PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # The Settings microphone/speaker test: refusals, limits, a call taking
+    # over, teardown, and (with the media engine) the real descriptions
+    # parsed and run against test sources. Without the engine only the
+    # refusals run.
+    qt_add_executable(audio-device-tester-test
+        tests/AudioDeviceTesterTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(audio-device-tester-test)
+    target_link_libraries(audio-device-tester-test PRIVATE Qt6::Test)
+    add_test(NAME audio-device-tester COMMAND audio-device-tester-test)
+    set_tests_properties(audio-device-tester PROPERTIES TIMEOUT 120)
 
     qt_add_executable(updater-relaunch-environment-test
         tests/RelaunchEnvironmentTest.cpp src/updater/RelaunchEnvironment.cpp)

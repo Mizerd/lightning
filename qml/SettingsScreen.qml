@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -85,6 +84,15 @@ Item {
           section: "appearance", breadcrumb: qsTr("Appearance"),
           control: "messageLayout",
           anchor: "messageLayoutControl" },
+        { title: qsTr("Chat background"),
+          keywords: qsTr("chat background wallpaper picture image backdrop "
+                         + "others shared hide"),
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "chatBackgroundSettingsSection" },
+        { title: qsTr("Depth"),
+          keywords: qsTr("depth gradient shading shadow flat surfaces"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Chat background"),
+          anchor: "surfaceDepthControl" },
         // Indexed under words people use for the rail, including "space bar".
         { title: qsTr("Spaces rail depth"),
           keywords: qsTr("spaces rail depth space bar sidebar nesting regions "
@@ -297,6 +305,11 @@ Item {
           keywords: qsTr("notification sound mute"), section: "notifications",
           breadcrumb: qsTr("Notifications"),
           anchor: "notificationSoundCombo" },
+        { title: qsTr("Notification sound style and volume"),
+          keywords: qsTr("notification sound chime lightning system default "
+                         + "volume mention test"),
+          section: "notifications", breadcrumb: qsTr("Notifications"),
+          anchor: "notificationSoundSourceCombo" },
 
         { title: qsTr("Only exchange messages with verified devices"),
           keywords: qsTr("invisible crypto msc4153 cross-signed verified "
@@ -311,6 +324,13 @@ Item {
           section: "privacy",
           breadcrumb: qsTr("Privacy & security · Media kept on this device"),
           anchor: "keepMediaOnDeviceCheck" },
+
+        { title: qsTr("Always ask where to save files"),
+          keywords: qsTr("download downloads save folder location directory "
+                         + "ask where file"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Downloads"),
+          anchor: "alwaysAskWhereToSaveCheck" },
 
         { title: qsTr("Read receipts"),
           keywords: qsTr("read receipt receipts private seen ticks blue "
@@ -366,6 +386,10 @@ Item {
           keywords: qsTr("gif autoplay prefetch video audio media"),
           section: "privacy", breadcrumb: qsTr("Privacy & security · Media"),
           anchor: "gifAutoplayCombo" },
+        { title: qsTr("Preload short videos"),
+          keywords: qsTr("video preload prefetch download size megabytes data disk instant play"),
+          section: "privacy", breadcrumb: qsTr("Privacy & security · Media"),
+          anchor: "videoPrefetchCheck" },
         { title: qsTr("GIF safe search"),
           keywords: qsTr("gif safe search rating"), section: "privacy",
           breadcrumb: qsTr("Privacy & security · GIFs"),
@@ -413,6 +437,11 @@ Item {
           section: "sessions", breadcrumb: qsTr("Sessions"),
           anchor: "verificationStatusCard" },
 
+        { title: qsTr("Microphone noise suppression"),
+          keywords: qsTr("noise suppression cancellation microphone background "
+                         + "webrtc rnnoise deepfilternet denoise"),
+          section: "labs", breadcrumb: qsTr("Labs"),
+          anchor: "noiseSuppressionCard" },
         { title: qsTr("Backend"), keywords: qsTr("backend rust http mock"),
           section: "labs", breadcrumb: qsTr("Labs"),
           anchor: "labsBackendLine" },
@@ -1046,7 +1075,7 @@ Item {
     Rectangle {
         objectName: "settingsPageGround"
         anchors.fill: parent
-        color: AppTheme.stormDeep
+        color: AppTheme.settingsPage
     }
 
     ColumnLayout {
@@ -1060,7 +1089,7 @@ Item {
             objectName: "settingsHeaderBar"
             Layout.fillWidth: true
             implicitHeight: AppTheme.headerBandHeight
-            color: AppTheme.stormDeep
+            color: AppTheme.settingsPage
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: AppTheme.spacing24
@@ -1107,7 +1136,7 @@ Item {
                 Layout.fillHeight: true
                 Layout.preferredWidth: 260
                 Layout.minimumWidth: 200
-                color: AppTheme.stormCanvas
+                color: AppTheme.settingsNav
                 // Nothing in this column may paint across the divider into the
                 // content pane.
                 clip: true
@@ -2284,6 +2313,13 @@ Item {
                                        + "the Modern rows. Compact tightens every timeline.")
                         }
 
+                        // Chat background (your own, others' on/off) and
+                        // surface Depth.
+                        ChatBackgroundSettings {
+                            objectName: "chatBackgroundSettingsSection"
+                            Layout.fillWidth: true
+                        }
+
                         SettingsGroupLabel { text: qsTr("Text size") }
                         RowLayout {
                             Layout.fillWidth: true
@@ -2786,11 +2822,12 @@ Item {
                                     text: qsTr("Load a font file…")
                                     onClicked: fontFileDialog.open()
                                 }
-                                FileDialog {
+                                NativeFileDialog {
                                     id: fontFileDialog
+                                    purpose: "font"
                                     currentFolder: app.defaultFileDialogFolder()
                                     title: qsTr("Choose a font file")
-                                    fileMode: FileDialog.OpenFile
+                                    fileMode: "open"
                                     nameFilters: [
                                         qsTr("Fonts (*.ttf *.otf)")
                                     ]
@@ -3144,11 +3181,12 @@ Item {
                                         }
                                     }
                                 }
-                                FileDialog {
+                                NativeFileDialog {
                                     id: appIconDialog
+                                    purpose: "image"
                                     currentFolder: app.defaultFileDialogFolder()
                                     title: qsTr("Choose an application icon image")
-                                    fileMode: FileDialog.OpenFile
+                                    fileMode: "open"
                                     nameFilters: [
                                         qsTr("Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)"),
                                         qsTr("All files (*)")
@@ -4483,6 +4521,91 @@ Item {
                                     Layout.fillWidth: true
                                 }
 
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "videoPrefetchCheck"
+                                    text: qsTr("Preload short videos")
+                                    checked: app.settings.videoPrefetchEnabled
+                                    onToggled: app.settings.videoPrefetchEnabled = checked
+                                    Accessible.name: qsTr("Preload short videos")
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: AppTheme.spacing4
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Downloads videos up to the size below when a room opens, "
+                                               + "so Play starts at once. This uses data and disk "
+                                               + "space even for videos you never watch. When off, "
+                                               + "a video is downloaded only when you press Play.")
+                                }
+                                ColumnLayout {
+                                    objectName: "videoPrefetchLimitRow"
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing4
+                                    visible: app.settings.videoPrefetchEnabled
+                                    Label {
+                                        objectName: "videoPrefetchLimitLabel"
+                                        text: qsTr("Up to %1 MB").arg(app.settings.videoPrefetchMaxMb)
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.textBody
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: AppTheme.spacing8
+                                        SettingsSlider {
+                                            objectName: "videoPrefetchSlider"
+                                            Layout.fillWidth: true
+                                            from: app.settings.videoPrefetchMinMb
+                                            to: app.settings.videoPrefetchLimitMb
+                                            stepSize: 1
+                                            value: app.settings.videoPrefetchMaxMb
+                                            onMoved: app.settings.videoPrefetchMaxMb = Math.round(value)
+                                            Accessible.name: qsTr("Largest video to preload, in megabytes")
+                                        }
+                                        AppTextField {
+                                            id: videoPrefetchField
+                                            storm: true
+                                            objectName: "videoPrefetchField"
+                                            implicitWidth: 72
+                                            horizontalAlignment: TextInput.AlignRight
+                                            inputMethodHints: Qt.ImhDigitsOnly
+                                            validator: RegularExpressionValidator { regularExpression: /[0-9]{0,4}/ }
+                                            text: String(app.settings.videoPrefetchMaxMb)
+                                            Accessible.name: qsTr("Largest video to preload, in megabytes")
+                                            // Whole megabytes; an out-of-range
+                                            // number is brought into range by
+                                            // the setting, and an empty field
+                                            // reverts. The text is re-synced
+                                            // from a signal, never assigned
+                                            // over the binding.
+                                            onEditingFinished: {
+                                                var n = parseInt(text, 10)
+                                                if (!isNaN(n))
+                                                    app.settings.videoPrefetchMaxMb = n
+                                                videoPrefetchField.syncFromSettings()
+                                            }
+                                            function syncFromSettings() {
+                                                text = String(app.settings.videoPrefetchMaxMb)
+                                            }
+                                            Connections {
+                                                target: app.settings
+                                                function onVideoPrefetchMaxMbChanged() {
+                                                    videoPrefetchField.syncFromSettings()
+                                                }
+                                            }
+                                        }
+                                        Label {
+                                            text: qsTr("MB")
+                                            color: AppTheme.stormTextSecondary
+                                            font.pixelSize: AppTheme.textBody
+                                        }
+                                    }
+                                }
+
                                 Label { text: qsTr("GIF safe search"); color: AppTheme.stormTextSecondary }
                                 AppComboBox {
                                     storm: true
@@ -4835,6 +4958,85 @@ Item {
                                                 + "again when you open it.")
                                     }
                                 }
+
+                                // Element's download workflow
+                                // (DownloadsController): Download saves here
+                                // without a dialog unless this asks.
+                                Label {
+                                    text: qsTr("Downloads")
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                    Layout.topMargin: AppTheme.spacing8
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    Label {
+                                        objectName: "downloadFolderLabel"
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        textFormat: Text.PlainText
+                                        elide: Text.ElideMiddle
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.textMeta
+                                        text: app.downloads
+                                            ? qsTr("Save files to %1")
+                                              .arg(app.downloads.folderDisplay)
+                                            : ""
+                                    }
+                                    AppButton {
+                                        objectName: "downloadFolderChangeButton"
+                                        storm: true
+                                        size: "sm"
+                                        text: qsTr("Change…")
+                                        enabled: !!app.downloads
+                                                 && !app.downloads.sandboxRequiresAsking
+                                        onClicked: app.downloads.chooseFolder()
+                                    }
+                                    AppButton {
+                                        objectName: "downloadFolderResetButton"
+                                        storm: true
+                                        size: "sm"
+                                        kind: "ghost"
+                                        visible: !!app.downloads && app.downloads.customFolder
+                                        text: qsTr("Use the Downloads folder")
+                                        onClicked: app.downloads.resetFolder()
+                                    }
+                                }
+                                CheckBox {
+                                    objectName: "alwaysAskWhereToSaveCheck"
+                                    palette.windowText: AppTheme.stormText
+                                    text: qsTr("Always ask where to save files")
+                                    checked: !!app.downloads && app.downloads.asksWhereToSave
+                                    enabled: !!app.downloads
+                                             && !app.downloads.sandboxRequiresAsking
+                                    onToggled:
+                                        app.settings.alwaysAskWhereToSave = checked
+                                }
+                                Label {
+                                    objectName: "alwaysAskWhereToSaveNote"
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    textFormat: Text.PlainText
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: !!app.downloads && app.downloads.sandboxRequiresAsking
+                                        ? qsTr("This copy of Lightning runs in "
+                                               + "a sandbox that cannot write to "
+                                               + "your Downloads folder, so it "
+                                               + "asks where to save each file.")
+                                        : qsTr("Download saves a file here "
+                                               + "without asking and never "
+                                               + "replaces one that is already "
+                                               + "there: a second copy is saved "
+                                               + "as \"name (1)\". Save as… "
+                                               + "always asks. Lightning never "
+                                               + "opens a downloaded file by "
+                                               + "itself.")
+                                }
                             }
                         }
                     }
@@ -4967,6 +5169,98 @@ Item {
                                                + "notification is shown, so muted and "
                                                + "active rooms stay silent. Bursts are "
                                                + "coalesced into a single alert.")
+                                }
+                                // Whose sound: Lightning's own chime (the
+                                // desktop's is suppressed) or the desktop's.
+                                Label {
+                                    text: qsTr("Notification sound style")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                AppComboBox {
+                                    storm: true
+                                    objectName: "notificationSoundSourceCombo"
+                                    Layout.fillWidth: true
+                                    enabled: app.settings.notificationsEnabled
+                                        && app.settings.notificationSound !== 0
+                                    model: [
+                                        qsTr("Lightning"),
+                                        qsTr("System default")
+                                    ]
+                                    currentIndex:
+                                        app.settings.notificationSoundSource
+                                    onActivated: (index) =>
+                                        app.settings.notificationSoundSource = index
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: AppTheme.spacing8
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Notification volume")
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightMedium
+                                    }
+                                    Label {
+                                        text: Math.round(
+                                            notificationSoundVolumeSlider.value) + "%"
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightMedium
+                                    }
+                                    AppButton {
+                                        objectName: "notificationSoundPreviewButton"
+                                        storm: true
+                                        kind: "ghost"
+                                        size: "sm"
+                                        text: qsTr("Test")
+                                        Accessible.name:
+                                            qsTr("Play the message sound")
+                                        onClicked:
+                                            app.callSounds.previewNotification(false)
+                                    }
+                                    AppButton {
+                                        objectName: "notificationMentionPreviewButton"
+                                        storm: true
+                                        kind: "ghost"
+                                        size: "sm"
+                                        text: qsTr("Test mention")
+                                        Accessible.name:
+                                            qsTr("Play the mention sound")
+                                        onClicked:
+                                            app.callSounds.previewNotification(true)
+                                    }
+                                }
+                                SettingsSlider {
+                                    id: notificationSoundVolumeSlider
+                                    objectName: "notificationSoundVolumeSlider"
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: 100
+                                    stepSize: 5
+                                    enabled: app.settings.notificationsEnabled
+                                        && app.settings.notificationSound !== 0
+                                        && app.settings.notificationSoundSource === 0
+                                    value: app.settings.notificationSoundVolume
+                                    Accessible.name: qsTr("Notification volume")
+                                    onMoved: app.settings.notificationSoundVolume =
+                                             Math.round(value)
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Lightning plays its own chime, and "
+                                               + "mentions get a slightly more urgent "
+                                               + "one; the desktop's notification sound "
+                                               + "is turned off. It stays quiet during "
+                                               + "calls. Choose System default to let the "
+                                               + "desktop play its own.")
                                 }
                                 // Call devices live under "Sound & video"; the
                                 // ring toggle stays here, gated on desktop
@@ -5871,11 +6165,12 @@ Item {
                                         color: AppTheme.stormDanger
                                         font.pixelSize: AppTheme.textMeta
                                     }
-                                    FileDialog {
+                                    NativeFileDialog {
                                         id: ownAvatarFileDialog
+                                        purpose: "image"
                                         currentFolder: app.defaultFileDialogFolder()
                                         title: qsTr("Choose a profile picture")
-                                        nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)")]
+                                        nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)")]
                                         onAccepted: ownAvatarCrop.openFor(selectedFile)
                                     }
                                     ImageCropDialog {
@@ -5931,7 +6226,7 @@ Item {
                                                      && !app.bio.busy)
                                             wrapMode: TextArea.Wrap
                                             placeholderText: qsTr("Say something about yourself")
-                                            placeholderTextColor: AppTheme.stormTextMuted
+                                            placeholderTextColor: AppTheme.placeholderInk
                                             color: AppTheme.stormText
                                             font.pixelSize: AppTheme.scaled(13)
                                             background: Rectangle {
@@ -6199,11 +6494,12 @@ Item {
                                                + "field names, so clients that already show "
                                                + "banners will show yours.")
                                 }
-                                FileDialog {
+                                NativeFileDialog {
                                     id: bannerFileDialog
+                                    purpose: "image"
                                     currentFolder: app.defaultFileDialogFolder()
                                     title: qsTr("Choose a banner image")
-                                    nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)")]
+                                    nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)")]
                                     // The crop dialog decides what is published
                                     // and refuses anything but the five raster
                                     // formats before rendering.
@@ -6312,7 +6608,8 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     visible: app.settings.secretsAreSecure
                                     color: AppTheme.stormSuccess
-                                    text: qsTr("Access tokens are stored via the system Secret Service. Logout clears them.")
+                                    text: qsTr("Access tokens are stored in the system credential store: %1. Logout clears them.")
+                                              .arg(app.settings.secretBackendName)
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -6321,7 +6618,13 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     visible: !app.settings.secretsAreSecure
                                     color: AppTheme.stormDanger
-                                    text: qsTr("Insecure fallback active: access tokens are stored in QSettings (plaintext). Install a Secret Service provider (e.g. gnome-keyring, KWallet with libsecret support) and restart to enable secure storage.")
+                                    // The remedy differs by platform: only Linux
+                                    // and BSD depend on an installable Secret
+                                    // Service provider.
+                                    text: (Qt.platform.os === "osx"
+                                           || Qt.platform.os === "windows")
+                                          ? qsTr("Insecure fallback active: access tokens are stored in the application's settings file (plaintext) because the system credential store could not be used. Restart to try again.")
+                                          : qsTr("Insecure fallback active: access tokens are stored in QSettings (plaintext). Install a Secret Service provider (e.g. gnome-keyring, KWallet with libsecret support) and restart to enable secure storage.")
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -6438,13 +6741,15 @@ Item {
                                 // accepted; only verification or the recovery
                                 // key completes the chain. Uses the existing
                                 // startOwnVerification path.
+                                readonly property bool verifyAgainOffered:
+                                    app.cryptoBootstrap.phase
+                                        === CryptoBootstrapModel.IdentityIncomplete
+                                    || app.cryptoBootstrap.phase
+                                        === CryptoBootstrapModel.ManualRecoveryRequired
                                 AppButton {
                                     storm: true
                                     objectName: "verifyAgainForKeys"
-                                    visible: app.cryptoBootstrap.phase
-                                                 === CryptoBootstrapModel.IdentityIncomplete
-                                             || app.cryptoBootstrap.phase
-                                                 === CryptoBootstrapModel.ManualRecoveryRequired
+                                    visible: parent.verifyAgainOffered
                                     enabled: app.loggedIn
                                              && (!app.verificationActive
                                                  || app.verificationState === "done"
@@ -6461,6 +6766,28 @@ Item {
                                         root.section = "sessions"
                                         app.startOwnVerification()
                                     }
+                                }
+                                // The other way to verify this session: the
+                                // recovery key signs it with the account's
+                                // cross-signing key, with no second device.
+                                AppButton {
+                                    storm: true
+                                    objectName: "verifyAgainWithRecoveryKey"
+                                    visible: parent.verifyAgainOffered
+                                             && app.sessionTrustState !== "Verified"
+                                    enabled: app.loggedIn
+                                    text: qsTr("Use recovery key instead")
+                                    Accessible.name: text
+                                    onClicked: healthRecoveryEntry.visible
+                                               = !healthRecoveryEntry.visible
+                                }
+                                RecoveryKeyEntry {
+                                    id: healthRecoveryEntry
+                                    objectName: "healthRecoveryEntry"
+                                    Layout.fillWidth: true
+                                    visible: false
+                                    fieldObjectName: "healthRecoveryField"
+                                    buttonText: qsTr("Use recovery key")
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -6952,9 +7279,28 @@ Item {
                                         kind: "primary"
                                         size: "sm"
                                         enabled: !app.backup.busy
+                                        // Recovery created while the account has no
+                                        // cross-signing identity would leave no
+                                        // identity keys in it, so a recovery key
+                                        // could never verify a new session. That
+                                        // case goes through the cross-signing
+                                        // setup first (it also creates the
+                                        // recovery key); its password prompt
+                                        // lives on that page.
+                                        readonly property bool needsCrossSigning:
+                                            app.cryptoHealth.crossSigningSetup === "not_set_up"
+                                            || app.cryptoHealth.crossSigningSetup === "unconfirmed"
                                         text: app.backup.busy && app.backup.lastAction === "enable"
-                                              ? qsTr("Setting up…") : qsTr("Set up recovery and backup")
-                                        onClicked: app.backup.runAction("enable")
+                                              ? qsTr("Setting up…")
+                                              : needsCrossSigning
+                                                ? qsTr("Set up cross-signing and recovery…")
+                                                : qsTr("Set up recovery and backup")
+                                        onClicked: {
+                                            if (needsCrossSigning)
+                                                root.section = "privacy"
+                                            else
+                                                app.backup.runAction("enable")
+                                        }
                                     }
                                     AppButton {
                                         objectName: "backupCreateButton"
@@ -7103,7 +7449,43 @@ Item {
                             }
                             showVerify: !app.verificationActive
                                         && app.verificationState === ""
+                            showRecoveryOption: app.backendName === "rust"
+                                                && app.sessionTrustState !== "Verified"
                             onVerifyRequested: app.startOwnVerification()
+                            onRecoveryRequested: sessionsRecoveryCard.open
+                                                 = !sessionsRecoveryCard.open
+                        }
+                        // Inline, under the card that offers it: the recovery
+                        // key verifies this session without a second device.
+                        SettingsCard {
+                            id: sessionsRecoveryCard
+                            objectName: "sessionsRecoveryCard"
+                            property bool open: false
+                            visible: open
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    text: qsTr("Enter your recovery key or passphrase. It "
+                                               + "restores your message keys, and if "
+                                               + "your account's cross-signing keys are "
+                                               + "stored with it, this session becomes "
+                                               + "verified without another device.")
+                                }
+                                RecoveryKeyEntry {
+                                    id: sessionsRecoveryEntry
+                                    objectName: "sessionsRecoveryEntry"
+                                    Layout.fillWidth: true
+                                    fieldObjectName: "sessionsRecoveryField"
+                                    buttonText: qsTr("Use recovery key")
+                                }
+                            }
                         }
 
                         // The account's devices: server metadata merged with
@@ -7536,8 +7918,10 @@ Item {
                                     visible: app.sessionTrustState !== "Verified"
                                     text: qsTr(
                                         "Verify this session using another session already " +
-                                        "signed in to this Matrix account. This does not import " +
-                                        "room keys — key import is a separate action below.")
+                                        "signed in to this Matrix account, or with your " +
+                                        "recovery key. Verifying with another session does " +
+                                        "not import room keys — key import is a separate " +
+                                        "action below.")
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
@@ -7559,6 +7943,18 @@ Item {
                                         enabled: app.loggedIn
                                         onClicked: app.startOwnVerification()
                                     }
+                                    AppButton {
+                                        storm: true
+                                        objectName: "plainVerifyRecoveryButton"
+                                        kind: "ghost"
+                                        visible: app.backendName === "rust"
+                                                 && app.sessionTrustState !== "Verified"
+                                        enabled: app.loggedIn
+                                        text: qsTr("Use recovery key instead")
+                                        Accessible.name: text
+                                        onClicked: plainVerifyRecoveryEntry.visible
+                                                   = !plainVerifyRecoveryEntry.visible
+                                    }
                                     Label {
                                         visible: app.sessionTrustState === "Verified"
                                         Layout.fillWidth: true
@@ -7572,6 +7968,15 @@ Item {
                                         visible: app.sessionTrustState !== "Verified"
                                         Layout.fillWidth: true
                                     }
+                                }
+
+                                RecoveryKeyEntry {
+                                    id: plainVerifyRecoveryEntry
+                                    objectName: "plainVerifyRecoveryEntry"
+                                    Layout.fillWidth: true
+                                    visible: false
+                                    fieldObjectName: "plainVerifyRecoveryField"
+                                    buttonText: qsTr("Use recovery key")
                                 }
 
                                 // The SAS/QR flow runs in the centred
@@ -7659,6 +8064,13 @@ Item {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
+                        // Cross-signing: create the identity when the account
+                        // has none, or explain (and offer an explicit last
+                        // resort) when it has one this session cannot sign with.
+                        CrossSigningSetupCard {
+                            Layout.fillWidth: true
+                        }
+
                         // Rust-only: recovery key/passphrase and room-key
                         // import. Restoring recovery also restores
                         // cross-signing secrets stored in 4S. Setting up new
@@ -7680,9 +8092,12 @@ Item {
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
                                     text: qsTr(
-                                        "Some old messages may show \"[unable to decrypt yet]\" until " +
-                                        "you restore your recovery key here, or until another " +
-                                        "verified device shares the room keys.")
+                                        "Entering your recovery key or passphrase restores your " +
+                                        "message keys and verifies this session, with no second " +
+                                        "device needed, when your account's cross-signing keys " +
+                                        "are stored with them. Without it, some old messages may show " +
+                                        "\"[unable to decrypt yet]\" until another verified device " +
+                                        "shares the room keys.")
                                 }
 
                                 Label {
@@ -7690,84 +8105,13 @@ Item {
                                     font.weight: AppTheme.weightStrong
                                     color: AppTheme.stormText
                                 }
-                                GridLayout {
-                                    id: recoveryRow
+                                RecoveryKeyEntry {
+                                    id: recoveryEntry
+                                    objectName: "recoveryEntry"
                                     Layout.fillWidth: true
-                                    columnSpacing: AppTheme.spacing8
-                                    rowSpacing: AppTheme.spacing8
-                                    columns: width < 360 ? 1 : 2
-                                    AppTextField {
-                                        storm: true
-                                        id: recoveryField
-                                        Layout.fillWidth: true
-                                        Layout.minimumWidth: 160
-                                        objectName: "recoveryInputField"
-                                        echoMode: TextInput.Password
-                                        // recover() accepts a recovery key or a
-                                        // passphrase.
-                                        placeholderText: qsTr("Recovery key or passphrase")
-                                        enabled: !recoveryPanel.running
-                                    }
-                                    AppButton {
-                                        storm: true
-                                        text: recoveryPanel.running
-                                            ? qsTr("Restoring…")
-                                            : qsTr("Restore keys")
-                                        enabled: !recoveryPanel.running
-                                            && recoveryField.text.length > 0
-                                        onClicked: {
-                                            recoveryPanel.running = true
-                                            recoveryPanel.statusText = qsTr("Recovery started")
-                                            recoveryPanel.statusColor = AppTheme.stormTextMuted
-                                            app.requestRecoverFromBackup(recoveryField.text)
-                                            // Wipe the field immediately; the key
-                                            // never stays in a QML property.
-                                            recoveryField.text = ""
-                                        }
-                                    }
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    wrapMode: Text.WordWrap
-                                    lineHeight: AppTheme.lineHeightBody
-                                    lineHeightMode: Text.ProportionalHeight
-                                    visible: recoveryPanel.statusText !== ""
-                                    color: recoveryPanel.statusColor
-                                    text: recoveryPanel.statusText
-                                    textFormat: Text.PlainText
-                                }
-                                QtObject {
-                                    id: recoveryPanel
-                                    property bool running: false
-                                    property string statusText: ""
-                                    property color statusColor: AppTheme.stormTextMuted
-                                }
-                                Connections {
-                                    target: app
-                                    function onRecoveryStateChanged(state, message) {
-                                        if (state === "attempted") {
-                                            recoveryPanel.running = true
-                                            recoveryPanel.statusText = qsTr("Recovery started")
-                                            recoveryPanel.statusColor = AppTheme.stormTextMuted
-                                        } else if (state === "ok") {
-                                            recoveryPanel.running = false
-                                            recoveryPanel.statusText = qsTr(
-                                                "Recovery complete. New messages should " +
-                                                "decrypt as keys arrive. Some old messages may " +
-                                                "still require another verified device to share " +
-                                                "keys.")
-                                            // Recovered secrets change trust/backup
-                                            // state; re-read it.
-                                            app.refreshCryptoHealth()
-                                            app.refreshSessionTrustState()
-                                            recoveryPanel.statusColor = AppTheme.stormSuccess
-                                        } else if (state === "failed") {
-                                            recoveryPanel.running = false
-                                            recoveryPanel.statusText = qsTr(
-                                                "Recovery failed: %1").arg(message)
-                                            recoveryPanel.statusColor = AppTheme.stormDanger
-                                        }
-                                    }
+                                    // The name Settings search anchors on.
+                                    fieldObjectName: "recoveryInputField"
+                                    buttonText: qsTr("Restore keys")
                                 }
 
                                 Label {
@@ -7913,11 +8257,12 @@ Item {
                                     property string statusText: ""
                                     property color statusColor: AppTheme.stormTextMuted
                                 }
-                                FileDialog {
+                                NativeFileDialog {
                                     id: importFileDialog
+                                    purpose: "keys"
                                     currentFolder: app.defaultFileDialogFolder()
                                     title: qsTr("Select encrypted Matrix room-key export")
-                                    fileMode: FileDialog.OpenFile
+                                    fileMode: "open"
                                     // No nameFilters: Element writes .txt
                                     // exports and users may rename them.
                                     onAccepted: {
@@ -8099,13 +8444,69 @@ Item {
                         }
                         Label {
                             Layout.fillWidth: true
-                            text: qsTr("No experimental features are available in "
-                                       + "this build. Diagnostics live here.")
+                            text: qsTr("Experimental features, and diagnostics.")
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.textBody
                             wrapMode: Text.WordWrap
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
+                        }
+                        // Microphone noise suppression (GitHub #20): one mode,
+                        // persisted in app.settings, applied live to a call.
+                        SettingsGroupLabel {
+                            objectName: "noiseSuppressionHeading"
+                            text: qsTr("Microphone noise suppression")
+                        }
+                        SettingsCard {
+                            objectName: "noiseSuppressionCard"
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Filters background noise out of "
+                                               + "your microphone in calls. One "
+                                               + "method runs at a time, and a "
+                                               + "change applies to a call in "
+                                               + "progress.")
+                                    color: AppTheme.stormTextMuted
+                                    font.pixelSize: AppTheme.textMeta
+                                    wrapMode: Text.WordWrap
+                                    lineHeight: AppTheme.lineHeightBody
+                                    lineHeightMode: Text.ProportionalHeight
+                                }
+                                NoiseSuppressionSelector {
+                                    id: noiseSelector
+                                    Layout.fillWidth: true
+                                    selected: app.settings.noiseSuppressionMode
+                                    failedMode: app.groupCall
+                                        ? app.groupCall.noiseSuppressionFailedMode
+                                        : ""
+                                    fellBackToWebrtc: app.groupCall
+                                        ? app.groupCall.noiseSuppressionFallbackToWebrtc
+                                        : false
+                                    // A Q_INVOKABLE read is not a binding
+                                    // dependency, so it is refreshed whenever
+                                    // the section is shown.
+                                    function refresh() {
+                                        choices = app.groupCall
+                                            ? app.groupCall.noiseSuppressionChoices()
+                                            : []
+                                    }
+                                    Component.onCompleted: refresh()
+                                    onVisibleChanged: if (visible) refresh()
+                                    onChosen: (key) => {
+                                        // The mode that failed in this call,
+                                        // chosen again: retry it.
+                                        if (app.groupCall
+                                                && key === app.groupCall.noiseSuppressionFailedMode
+                                                && key === app.settings.noiseSuppressionMode)
+                                            app.groupCall.retryNoiseSuppression()
+                                        else
+                                            app.settings.noiseSuppressionMode = key
+                                    }
+                                }
+                            }
                         }
                         SettingsCard {
                             ColumnLayout {

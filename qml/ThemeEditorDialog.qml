@@ -28,13 +28,56 @@ Popup {
     height: parent ? parent.height : 0
     padding: 0
     modal: true
-    closePolicy: Popup.CloseOnEscape
+    // Escape peels one layer at a time (see dismissTransient): while anything
+    // transient is open it is handled by the Escape shortcut below, and only
+    // a clean editor closes on it. Otherwise Escape in the hex field threw
+    // away the whole editor.
+    closePolicy: root.hasTransientState ? Popup.NoAutoClose
+                                        : Popup.CloseOnEscape
 
     // Create the theme on open so there is something to edit; a theme with no
     // overrides simply follows its base.
     onOpened: if (!root.store.exists) root.store.createTheme("")
 
     readonly property var store: app.customTheme
+
+    // Something Escape should close before the editor itself.
+    readonly property bool hasTransientState:
+        root.confirmingReset || root.confirmingDelete
+        || root.editingRole.length > 0
+        || (root.compact && root.reportOpen) || root.importing
+
+    function dismissTransient() {
+        if (root.confirmingReset)
+            root.confirmingReset = false
+        else if (root.confirmingDelete)
+            root.confirmingDelete = false
+        else if (root.editingRole.length > 0)
+            root.editingRole = ""
+        else if (root.reportOpen)
+            root.reportOpen = false
+        else if (root.importing) {
+            root.importing = false
+            root.importError = ""
+        }
+    }
+
+    // ---- undo ----
+    // The history lives in the store (one step per drag, reset or base
+    // change); these keep the open picker in step with it.
+    function undoEdit() {
+        if (root.store.undo())
+            root.afterHistoryMove()
+    }
+    function redoEdit() {
+        if (root.store.redo())
+            root.afterHistoryMove()
+    }
+    function afterHistoryMove() {
+        root.confirmingReset = false
+        if (root.editingRole.length > 0)
+            picker.show(root.effectiveColor(root.editingRole))
+    }
 
     // Geometry. Side columns are ranges rather than fixed widths, so the
     // preview stays usable on ordinary windows. Below `compact` the picker
@@ -87,7 +130,10 @@ Popup {
         onTriggered: root.auditPalette = root.previewPalette
     }
 
-    readonly property var readabilityReport: root.store.audit(root.auditPalette)
+    // Graded at the WORST stop of every gradient the preview paints (the
+    // theme's own and Depth's); with none it is exactly audit().
+    readonly property var readabilityReport:
+        root.store.auditWithGradients(root.auditPalette, root.previewGradients)
     readonly property int readabilityProblems: root.readabilityReport.length
 
     // What could not be checked is not what passed. The store refuses to grade
@@ -115,7 +161,15 @@ Popup {
     // destroyed while the picker is open.
     property string editingRole: ""
     property string editingLabel: ""
+    // The role under the pointer (or the keyboard) in the list, outlined in the
+    // preview so it can be traced to where it paints.
+    property string hoverRole: ""
     property bool confirmingReset: false
+    property bool confirmingDelete: false
+    // The collection's actions (New, Duplicate, Share, Import, Delete).
+    property bool manageThemes: false
+    onManageThemesChanged: if (!manageThemes) confirmingDelete = false
+    onEditingRoleChanged: if (editingRole.length === 0) spotRoles = []
     // The base-theme grid, collapsed by default (see below).
     property bool basesExpanded: false
     // Filter for the role list.
@@ -178,10 +232,38 @@ Popup {
     // store).
     readonly property var previewPalette: AppTheme.paletteForTheme(12)
 
+    // The surface gradients the preview paints: the theme's own, and, while
+    // Settings -> Appearance -> Depth is on, Depth's for the grounds the theme
+    // leaves flat (the same C++ stops the app draws).
+    readonly property var previewGradients: {
+        var out = {}
+        var own = root.store.gradients
+        if (own) {
+            for (var k in own)
+                out[k] = own[k]
+        }
+        if (AppTheme.surfaceDepth === 1 && typeof app !== "undefined" && app
+                && app.backdrops) {
+            var pal = root.previewPalette
+            var dark = AppTheme.relativeLuminance(
+                           AppTheme._asColor(pal.background)) < 0.18
+            var grounds = ["background", "sidebar", "rail"]
+            for (var i = 0; i < grounds.length; ++i) {
+                var r = grounds[i]
+                if (out[r] || pal[r] === undefined)
+                    continue
+                var stops = app.backdrops.depthStops(AppTheme._asColor(pal[r]), dark)
+                if (stops && stops.length >= 2)
+                    out[r] = { type: "linear", angle: 180, stops: stops }
+            }
+        }
+        return out
+    }
+
     // The two hot inputs, read once per change instead of per row: store.colors
     // returns a QVariantMap by value (a fresh conversion per read), and
     // paletteForTheme() builds a fresh object per call. The role list
-    // instantiates all 26 rows and repaints on every drag sample.
+    // instantiates every role row and repaints on every drag sample.
     readonly property var overrideColors: root.store.colors
     readonly property var basePalette:
         AppTheme.paletteForTheme(root.store.baseTheme)
@@ -190,15 +272,110 @@ Popup {
         var overrides = root.overrideColors
         if (overrides && overrides[rolekey] !== undefined)
             return overrides[rolekey]
-        var pal = root.basePalette
         // paletteForTheme uses semantic names; a few store keys differ (inputBg
         // -> inputBackground, mention -> mentionBadge, reaction ->
         // reactionBackground).
         var alias = root.storeKeyAliases[rolekey]
         var lookup = alias !== undefined ? alias : rolekey
+        // The resolved custom palette first: an unset role that follows an
+        // edited one (Open room row after Selection) paints the EDITED colour,
+        // and reading the base alone showed the stale inherited one.
+        var resolved = root.previewPalette
+        if (resolved && resolved[lookup] !== undefined)
+            return resolved[lookup]
+        var pal = root.basePalette
         if (pal[lookup] !== undefined)
             return pal[lookup]
         return AppTheme.editorTextMuted
+    }
+
+    // ---- links between roles ----
+    // The base preset as stored, before paletteForTheme() fills fallbacks: a
+    // role it does not set is one that follows its parent.
+    readonly property var rawBasePalette:
+        AppTheme.rawPaletteForTheme(root.store.baseTheme)
+
+    // role -> parent, for every role that is unset AND takes its parent's
+    // colour right now, so editing the parent recolours it. The declared
+    // shape comes from the store (`follows`); a preset that sets the child
+    // itself, or a user who did, breaks the link, and the colour check keeps
+    // the claim honest for anything the declaration cannot see.
+    readonly property var liveLinks: {
+        var out = {}
+        var list = root.store.roles
+        var overrides = root.overrideColors
+        var raw = root.rawBasePalette
+        for (var i = 0; i < list.length; ++i) {
+            var key = list[i].key
+            var parentKey = list[i].follows
+            if (!parentKey || parentKey.length === 0)
+                continue
+            if (overrides && overrides[key] !== undefined)
+                continue
+            if (raw && raw[key] !== undefined)
+                continue
+            if (!Qt.colorEqual(root.effectiveColor(key),
+                               root.effectiveColor(parentKey)))
+                continue
+            out[key] = parentKey
+        }
+        return out
+    }
+
+    // Every role that would change with `key`, directly or through a chain
+    // (Selection -> Soft accent -> Your reaction pill), in list order.
+    function dependentsOf(key) {
+        var out = []
+        if (!key || key.length === 0)
+            return out
+        var links = root.liveLinks
+        var list = root.store.roles
+        for (var i = 0; i < list.length; ++i) {
+            var p = links[list[i].key]
+            for (var hops = 0; p !== undefined && hops < 8; ++hops) {
+                if (p === key) {
+                    out.push(list[i].key)
+                    break
+                }
+                p = links[p]
+            }
+        }
+        return out
+    }
+
+    // The role the preview is tracing: the one pointed at in the list, else
+    // the one open in the picker.
+    readonly property string focusRole:
+        root.hoverRole.length > 0 ? root.hoverRole : root.editingRole
+    readonly property var focusDependents: root.dependentsOf(root.focusRole)
+    readonly property var linkedRoleSet: {
+        var out = {}
+        var deps = root.focusDependents
+        for (var i = 0; i < deps.length; ++i)
+            out[deps[i]] = true
+        return out
+    }
+    readonly property var editingDependents: root.dependentsOf(root.editingRole)
+    // The open role's declared parent when the base leaves it unset, so a
+    // reset makes it follow that parent again ("" otherwise).
+    readonly property string editingFollowsDeclared: {
+        var key = root.editingRole
+        if (key.length === 0)
+            return ""
+        var raw = root.rawBasePalette
+        if (raw && raw[key] !== undefined)
+            return ""
+        var list = root.store.roles
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i].key === key)
+                return list[i].follows ? list[i].follows : ""
+        }
+        return ""
+    }
+    // What the open role is currently following, or "".
+    readonly property string editingParent: {
+        var p = root.liveLinks[root.editingRole]
+        return p !== undefined ? p : ""
     }
 
     // The store's own alias map, read once.
@@ -218,12 +395,31 @@ Popup {
     }
 
     function beginEdit(key, label) {
+        // A new role is a new undo step, even if the last drag never ended.
+        root.store.sealUndoStep()
+        // The "under the pointer" chips stay while hopping between them.
+        if (root.spotRoles.indexOf(key) < 0)
+            root.spotRoles = []
+        root.ownColoursAtOpen = root.overrideColors
         root.editingRole = key
         root.editingLabel = label
         // The panel holds one thing at a time; opening a colour takes it.
         root.reportOpen = false
         picker.load(root.effectiveColor(key))
     }
+
+    // A click in the preview: open the role, and keep every role painted
+    // under the pointer so the surface behind a label can be reached too.
+    function openFromPreview(role, stack) {
+        root.spotRoles = stack && stack.length > 1 ? stack : []
+        root.beginEdit(role, root.labelForRole(role))
+    }
+
+    // Roles under the last preview click, the clicked one first.
+    property var spotRoles: []
+    // This theme's own colours when the open role was opened (see
+    // paletteSwatches).
+    property var ownColoursAtOpen: ({})
 
     function labelForRole(key) {
         var list = root.store.roles
@@ -266,12 +462,25 @@ Popup {
         var out = []
         var seen = {}
         var needle = root.roleFilter.trim().toLowerCase()
+        // "#283097" (or "283097") finds every role painted that colour: the
+        // reverse lookup. Only a hex-looking needle reads the colours, so
+        // typing a word does not rebuild the list on every drag sample.
+        var hexNeedle = /^#?[0-9a-f]{3,6}$/.test(needle)
+                        ? (needle.charAt(0) === "#" ? needle : "#" + needle)
+                        : ""
         var list = root.store.roles
         for (var i = 0; i < list.length; ++i) {
-            if (needle.length > 0
-                && list[i].label.toLowerCase().indexOf(needle) < 0
-                && list[i].group.toLowerCase().indexOf(needle) < 0
-                && list[i].hint.toLowerCase().indexOf(needle) < 0)
+            var hit = needle.length === 0
+                || list[i].label.toLowerCase().indexOf(needle) >= 0
+                || list[i].group.toLowerCase().indexOf(needle) >= 0
+                || list[i].hint.toLowerCase().indexOf(needle) >= 0
+                || list[i].key.toLowerCase().indexOf(needle) >= 0
+            if (!hit && hexNeedle.length > 0) {
+                var hex = root.toHex(Qt.color(String(
+                              root.effectiveColor(list[i].key))))
+                hit = hex.toLowerCase().indexOf(hexNeedle) === 0
+            }
+            if (!hit)
                 continue
             var g = list[i].group
             if (seen[g] === undefined) {
@@ -330,6 +539,85 @@ Popup {
         }
     }
 
+    // A role as a small clickable chip (its colour and name) that opens it:
+    // the "under the pointer" list and the follows/followed-by links.
+    component RoleChip: Rectangle {
+        id: chip
+        required property string roleKey
+        readonly property bool current: root.editingRole === chip.roleKey
+        objectName: "themeRoleChip_" + chip.roleKey
+        implicitWidth: chipRow.implicitWidth + AppTheme.spacing8 * 2
+        implicitHeight: 24
+        radius: AppTheme.radiusPill
+        color: chip.current ? AppTheme.editorSelection
+             : chipHover.containsMouse ? AppTheme.editorInset : "transparent"
+        border.width: 1
+        border.color: chip.current ? AppTheme.editorAccent
+                                   : AppTheme.editorBorderStrong
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Button
+        Accessible.name: root.labelForRole(chip.roleKey)
+        Keys.onPressed: (e) => {
+            if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter
+                    || e.key === Qt.Key_Space) {
+                root.beginEdit(chip.roleKey, root.labelForRole(chip.roleKey))
+                e.accepted = true
+            }
+        }
+        // Pointing at a chip traces the role in the preview, as a list row
+        // does.
+        readonly property bool pointed: chipHover.containsMouse || activeFocus
+        onPointedChanged: {
+            if (pointed)
+                root.hoverRole = chip.roleKey
+            else if (root.hoverRole === chip.roleKey)
+                root.hoverRole = ""
+        }
+        Component.onDestruction: {
+            if (root.hoverRole === chip.roleKey)
+                root.hoverRole = ""
+        }
+        Rectangle {
+            anchors.fill: parent
+            anchors.margins: 2
+            visible: chip.activeFocus
+            radius: AppTheme.radiusPill
+            color: "transparent"
+            border.width: 2
+            border.color: AppTheme.editorAccent
+        }
+        Row {
+            id: chipRow
+            anchors.centerIn: parent
+            spacing: AppTheme.spacing6
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 10
+                height: 10
+                radius: 5
+                color: root.effectiveColor(chip.roleKey)
+                border.width: 1
+                border.color: AppTheme.editorBorderStrong
+            }
+            Label {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: root.labelForRole(chip.roleKey)
+                color: AppTheme.editorText
+                font.family: AppTheme.uiFont
+                font.pixelSize: AppTheme.textMeta
+            }
+        }
+        MouseArea {
+            id: chipHover
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.beginEdit(chip.roleKey,
+                                      root.labelForRole(chip.roleKey))
+        }
+    }
+
     background: Rectangle {
         color: AppTheme.editorCanvas
     }
@@ -338,6 +626,25 @@ Popup {
     // moves column in compact mode), and a child of a ColumnLayout would become
     // a layout item.
     contentItem: Item {
+
+    // Inside the popup, so the modal editor's own shortcuts are the live
+    // ones (Qt blocks shortcuts outside a modal popup, including Settings'
+    // Escape). A focused text field keeps Ctrl+Z for its own text.
+    Shortcut {
+        sequences: [StandardKey.Undo]
+        enabled: root.opened && root.store.canUndo
+        onActivated: root.undoEdit()
+    }
+    Shortcut {
+        sequences: [StandardKey.Redo]
+        enabled: root.opened && root.store.canRedo
+        onActivated: root.redoEdit()
+    }
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.opened && root.hasTransientState
+        onActivated: root.dismissTransient()
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -475,6 +782,33 @@ Popup {
                     Layout.alignment: Qt.AlignVCenter | Qt.AlignRight
                     spacing: AppTheme.spacing8
 
+                    // Undo/redo of colour edits (also Ctrl+Z and
+                    // Ctrl+Shift+Z). Hidden while the reset question is up,
+                    // which they would answer behind its back.
+                    EditorButton {
+                        objectName: "themeUndoButton"
+                        visible: !root.confirmingReset
+                        enabled: root.store.canUndo
+                        text: qsTr("Undo")
+                        Accessible.description: qsTr("Undo the last colour change")
+                        onClicked: root.undoEdit()
+                    }
+                    EditorButton {
+                        objectName: "themeRedoButton"
+                        visible: !root.confirmingReset
+                        enabled: root.store.canRedo
+                        text: qsTr("Redo")
+                        Accessible.description: qsTr("Redo the colour change you undid")
+                        onClicked: root.redoEdit()
+                    }
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: !root.confirmingReset
+                        width: 1
+                        height: 20
+                        color: AppTheme.editorBorder
+                    }
+
                     // Reset with an inline confirmation; a second dialog would
                     // use the shared dialog shell, which this surface cannot
                     // depend on.
@@ -571,17 +905,39 @@ Popup {
                     anchors.margins: AppTheme.spacing16
                     spacing: AppTheme.spacing8
 
-                    // Your themes
-                    Label {
-                        text: qsTr("Your themes")
-                        color: AppTheme.editorTextSecondary
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: AppTheme.textMeta
-                        font.weight: AppTheme.weightStrong
+                    // Your themes. The collection's actions sit behind Manage:
+                    // open, they took about 120px from the role list on every
+                    // visit for buttons used once per theme (at 1366x768 the
+                    // list showed eight roles).
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing8
+                        Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Your themes")
+                            color: AppTheme.editorTextSecondary
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                            font.weight: AppTheme.weightStrong
+                            elide: Label.ElideRight
+                        }
+                        EditorButton {
+                            objectName: "themeManageToggleButton"
+                            implicitHeight: 24
+                            text: root.manageThemes ? qsTr("Done")
+                                                    : qsTr("Manage")
+                            Accessible.description:
+                                qsTr("New, duplicate, share, import or delete themes")
+                            onClicked: root.manageThemes = !root.manageThemes
+                        }
                     }
 
+                    // Shown whenever there is a choice to make; one theme
+                    // needs no switcher.
                     Flow {
                         Layout.fillWidth: true
+                        visible: root.manageThemes
+                                 || root.store.themes.length > 1
                         spacing: AppTheme.spacing6
 
                         Repeater {
@@ -690,6 +1046,7 @@ Popup {
 
                     Flow {
                         Layout.fillWidth: true
+                        visible: root.manageThemes && !root.confirmingDelete
                         spacing: AppTheme.spacing6
 
                         EditorButton {
@@ -736,9 +1093,43 @@ Popup {
                             text: qsTr("Delete")
                             danger: true
                             enabled: root.store.exists
-                            onClicked: {
-                                root.store.deleteTheme(root.store.activeThemeId)
-                                root.editingRole = ""
+                            // Asks first: a deleted theme cannot be undone,
+                            // and its history goes with it.
+                            onClicked: root.confirmingDelete = true
+                        }
+                    }
+
+                    // Delete, confirmed inline (the reset question's pattern).
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        visible: root.confirmingDelete
+                        spacing: AppTheme.spacing6
+                        Label {
+                            Layout.fillWidth: true
+                            textFormat: Text.PlainText
+                            wrapMode: Text.WordWrap
+                            text: qsTr("Delete “%1”? This cannot be undone.")
+                                  .arg(root.store.name.length > 0
+                                       ? root.store.name : qsTr("Untitled"))
+                            color: AppTheme.editorText
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                        }
+                        Row {
+                            spacing: AppTheme.spacing6
+                            EditorButton {
+                                objectName: "customThemeDeleteConfirmButton"
+                                danger: true
+                                text: qsTr("Delete")
+                                onClicked: {
+                                    root.confirmingDelete = false
+                                    root.store.deleteTheme(root.store.activeThemeId)
+                                    root.editingRole = ""
+                                }
+                            }
+                            EditorButton {
+                                text: qsTr("Keep")
+                                onClicked: root.confirmingDelete = false
                             }
                         }
                     }
@@ -813,8 +1204,9 @@ Popup {
 
                     // Collapsed by default: the full grid takes about 235px
                     // permanently for a control used once per theme, starving
-                    // the role list. Collapsed, the current base is still shown
-                    // as its own chip.
+                    // the role list. One row: the label and the current base,
+                    // which is itself the toggle (two rows cost a role's worth
+                    // of height on a small window).
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing8
@@ -825,51 +1217,81 @@ Popup {
                             font.pixelSize: AppTheme.textMeta
                             font.weight: AppTheme.weightStrong
                         }
-                        Item { Layout.fillWidth: true }
-                        EditorButton {
+                        Rectangle {
+                            id: baseToggle
                             objectName: "themeBasesToggleButton"
-                            implicitHeight: 24
-                            text: root.basesExpanded ? qsTr("Done")
-                                                     : qsTr("Change")
-                            onClicked: root.basesExpanded = !root.basesExpanded
-                        }
-                    }
-
-                    // The current base, shown while collapsed.
-                    Rectangle {
-                        Layout.fillWidth: true
-                        visible: !root.basesExpanded
-                        implicitHeight: 34
-                        radius: AppTheme.radiusMd
-                        color: AppTheme.editorInset
-                        border.width: 1
-                        border.color: AppTheme.editorBorder
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: AppTheme.spacing8
-                            anchors.rightMargin: AppTheme.spacing8
-                            spacing: AppTheme.spacing8
-                            Row {
-                                spacing: 1
-                                Repeater {
-                                    model: ["sidebar", "background", "accent"]
-                                    delegate: Rectangle {
-                                        required property string modelData
-                                        width: 8
-                                        height: 20
-                                        radius: 2
-                                        color: root.basePalette[modelData]
-                                    }
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            implicitHeight: 32
+                            radius: AppTheme.radiusMd
+                            color: baseToggleHover.containsMouse
+                                   ? AppTheme.editorSelection
+                                   : AppTheme.editorInset
+                            border.width: 1
+                            border.color: root.basesExpanded
+                                          ? AppTheme.editorAccent
+                                          : AppTheme.editorBorder
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: qsTr("Base theme: %1. Change")
+                                             .arg(root.baseThemeName)
+                            Keys.onPressed: (e) => {
+                                if (e.key === Qt.Key_Return
+                                    || e.key === Qt.Key_Enter
+                                    || e.key === Qt.Key_Space) {
+                                    root.basesExpanded = !root.basesExpanded
+                                    e.accepted = true
                                 }
                             }
-                            Label {
-                                Layout.fillWidth: true
-                                textFormat: Text.PlainText
-                                text: root.baseThemeName
-                                color: AppTheme.editorText
-                                font.family: AppTheme.uiFont
-                                font.pixelSize: AppTheme.textMeta
-                                elide: Label.ElideRight
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: 2
+                                visible: baseToggle.activeFocus
+                                radius: AppTheme.radiusSm
+                                color: "transparent"
+                                border.width: 2
+                                border.color: AppTheme.editorAccent
+                            }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: AppTheme.spacing8
+                                anchors.rightMargin: AppTheme.spacing6
+                                spacing: AppTheme.spacing8
+                                Row {
+                                    spacing: 1
+                                    Repeater {
+                                        model: ["sidebar", "background", "accent"]
+                                        delegate: Rectangle {
+                                            required property string modelData
+                                            width: 8
+                                            height: 18
+                                            radius: 2
+                                            color: root.basePalette[modelData]
+                                        }
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    textFormat: Text.PlainText
+                                    text: root.baseThemeName
+                                    color: AppTheme.editorText
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.textMeta
+                                    elide: Label.ElideRight
+                                }
+                                Icon {
+                                    name: root.basesExpanded ? "expand_less"
+                                                             : "expand_more"
+                                    size: 16
+                                    color: AppTheme.editorTextSecondary
+                                }
+                            }
+                            MouseArea {
+                                id: baseToggleHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.basesExpanded = !root.basesExpanded
                             }
                         }
                     }
@@ -1050,8 +1472,12 @@ Popup {
                         contentHeight: roleColumn.implicitHeight
                         boundsBehavior: Flickable.StopAtBounds
 
+                        // The custom handle has no fade of its own, so
+                        // AsNeeded drew a full-height bar over a filtered
+                        // list that fits; show it only when it scrolls.
                         ScrollBar.vertical: ScrollBar {
-                            policy: ScrollBar.AsNeeded
+                            policy: roleScroll.contentHeight > roleScroll.height + 1
+                                    ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
                             contentItem: Rectangle {
                                 implicitWidth: 5
                                 radius: 2.5
@@ -1107,6 +1533,13 @@ Popup {
                                             // flag lets the row explain that.
                                             readonly property bool seeThrough:
                                                 resolved.a < 0.999
+                                            // The role this one is riding on
+                                            // right now ("" if it has its own
+                                            // colour), named on the row.
+                                            readonly property string followsKey: {
+                                                var p = root.liveLinks[modelData.key]
+                                                return p !== undefined ? p : ""
+                                            }
                                             Layout.fillWidth: true
                                             implicitHeight: 38
                                             radius: AppTheme.radiusSm
@@ -1114,6 +1547,22 @@ Popup {
                                                  : roleHover.containsMouse
                                                    ? AppTheme.editorInset
                                                    : "transparent"
+
+                                            // Where this role paints, shown in the
+                                            // preview while the row is pointed at or
+                                            // focused.
+                                            readonly property bool pointed:
+                                                roleHover.containsMouse || activeFocus
+                                            onPointedChanged: {
+                                                if (pointed)
+                                                    root.hoverRole = modelData.key
+                                                else if (root.hoverRole === modelData.key)
+                                                    root.hoverRole = ""
+                                            }
+                                            Component.onDestruction: {
+                                                if (root.hoverRole === modelData.key)
+                                                    root.hoverRole = ""
+                                            }
 
                                             // Keyboard reachable.
                                             activeFocusOnTab: true
@@ -1145,9 +1594,7 @@ Popup {
                                             // mapToItem because the row's parent is
                                             // its group's ColumnLayout. Clamped, since
                                             // assigning contentY does not clamp.
-                                            onActiveFocusChanged: {
-                                                if (!activeFocus)
-                                                    return
+                                            function revealInList() {
                                                 var top = mapToItem(roleColumn,
                                                                     0, 0).y
                                                 var want = roleScroll.contentY
@@ -1163,6 +1610,13 @@ Popup {
                                                         roleScroll.contentHeight
                                                         - roleScroll.height))
                                             }
+                                            onActiveFocusChanged:
+                                                if (activeFocus) revealInList()
+                                            // A role opened from the preview is
+                                            // shown in the list too, so a click
+                                            // there says which row it was.
+                                            onEditingChanged:
+                                                if (editing) revealInList()
 
                                             MouseArea {
                                                 id: roleHover
@@ -1234,19 +1688,52 @@ Popup {
                                                     // The value, shown on every row so a tone
                                                     // can be read and copied between roles
                                                     // without opening the picker.
-                                                    Label {
-                                                        objectName: "themeRoleHex_"
-                                                            + roleRow.modelData.key
-                                                        textFormat: Text.PlainText
+                                                    // The hex in mono, then what
+                                                    // the role follows in the UI
+                                                    // face: one mono run read as
+                                                    // code and elided the parent's
+                                                    // name ("follows Conversation
+                                                    // ba…").
+                                                    RowLayout {
                                                         Layout.fillWidth: true
-                                                        text: roleRow.seeThrough
-                                                              ? qsTr("%1 · see-through")
-                                                                .arg(roleRow.hex)
-                                                              : roleRow.hex
-                                                        color: AppTheme.editorTextMuted
-                                                        font.family: AppTheme.monoFont
-                                                        font.pixelSize: AppTheme.menuSectionSize
-                                                        elide: Label.ElideRight
+                                                        spacing: AppTheme.spacing6
+                                                        Label {
+                                                            objectName: "themeRoleHex_"
+                                                                + roleRow.modelData.key
+                                                            textFormat: Text.PlainText
+                                                            // A follower's parent row
+                                                            // already says when it is
+                                                            // see-through.
+                                                            text: roleRow.seeThrough
+                                                                  && roleRow.followsKey.length === 0
+                                                                  ? qsTr("%1 · see-through")
+                                                                    .arg(roleRow.hex)
+                                                                  : roleRow.hex
+                                                            color: AppTheme.editorTextMuted
+                                                            font.family: AppTheme.monoFont
+                                                            font.pixelSize: AppTheme.menuSectionSize
+                                                        }
+                                                        // Editing the parent
+                                                        // recolours this one.
+                                                        Label {
+                                                            objectName: "themeRoleFollows_"
+                                                                + roleRow.modelData.key
+                                                            visible: roleRow.followsKey.length > 0
+                                                            Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            textFormat: Text.PlainText
+                                                            text: qsTr("follows %1")
+                                                                  .arg(root.labelForRole(
+                                                                      roleRow.followsKey))
+                                                            color: AppTheme.editorTextMuted
+                                                            font.family: AppTheme.uiFont
+                                                            font.pixelSize: AppTheme.menuSectionSize
+                                                            elide: Label.ElideRight
+                                                        }
+                                                        Item {
+                                                            visible: roleRow.followsKey.length === 0
+                                                            Layout.fillWidth: true
+                                                        }
                                                     }
                                                 }
 
@@ -1311,10 +1798,14 @@ Popup {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
-                        // Rendered at natural size and scaled down to fit,
-                        // never up: stretching reflows the mock into
-                        // proportions the real window never has, and scaling up
-                        // blurs it.
+                        // Rendered at natural size and scaled uniformly to fit:
+                        // stretching would reflow the mock into proportions the
+                        // real window never has. Scaling UP is allowed (to
+                        // 1.6x): at 1920x1080 the natural 880x560 used about
+                        // 40% of the stage and left hairlines and presence dots
+                        // too small to click. The preview's text is distance-
+                        // field rendered (only Icon uses NativeRendering, and
+                        // the preview draws no Icon), so it stays sharp.
                         ThemePreviewDemo {
                             id: preview
                             objectName: "themePreviewDemo"
@@ -1324,16 +1815,24 @@ Popup {
                             channels: app.settings
                                       && app.settings.roomNavigationLayout === 1
                             highlightRole: root.editingRole
+                            hoverRole: root.hoverRole
+                            // Surface gradients (the theme's own and Depth's).
+                            gradients: root.previewGradients
+                            // Everything that changes with the role being
+                            // traced, outlined lightly.
+                            linkedRoles: root.linkedRoleSet
+                            // 2px on screen at any scale.
+                            outlineWidth: 2 / Math.max(0.25, scale)
                             width: implicitWidth
                             height: implicitHeight
                             transformOrigin: Item.TopLeft
-                            scale: Math.min(1.0,
+                            scale: Math.min(1.6,
                                             previewStage.width / implicitWidth,
                                             previewStage.height / implicitHeight)
                             x: (previewStage.width - implicitWidth * scale) / 2
                             y: (previewStage.height - implicitHeight * scale) / 2
-                            onRegionActivated: (role) =>
-                                root.beginEdit(role, root.labelForRole(role))
+                            onRegionActivated: (role, stack) =>
+                                root.openFromPreview(role, stack)
                         }
                     }
 
@@ -1404,145 +1903,296 @@ Popup {
             anchors.margins: AppTheme.spacing16
             spacing: AppTheme.spacing12
 
-            ColorPickerPanel {
-                id: picker
-                objectName: "themeColorPicker"
+            // Everything about the open role, scrollable: on a 768px window
+            // the picker, its links and the readability rows are taller than
+            // the panel. The picker's own drags never scroll it (they set
+            // preventStealing).
+            Flickable {
+                id: editScroll
+                objectName: "themeEditScroll"
                 Layout.fillWidth: true
+                Layout.fillHeight: true
                 visible: root.editingRole.length > 0
-                title: root.editingLabel
-                subtitle: root.hintForRole(root.editingRole)
-                canReset: root.editingRole.length > 0
-                          && root.isOverridden(root.editingRole)
-                suggestions: root.paletteSwatches
-                onPicked: (value) => {
-                    if (root.editingRole.length > 0)
-                        root.store.setColor(root.editingRole,
-                                            root.toHex(value))
-                }
-                onResetRequested: {
-                    if (root.editingRole.length > 0) {
-                        root.store.resetColor(root.editingRole)
-                        picker.load(root.effectiveColor(root.editingRole))
+                clip: true
+                contentWidth: width
+                contentHeight: editColumn.implicitHeight
+                boundsBehavior: Flickable.StopAtBounds
+                // Content taller than the panel. Only then is there a bar,
+                // and only then does the column give up a gutter for it: a
+                // bar drawn over the content covered the hex field's edge
+                // and the last digit of every readability target.
+                readonly property bool overflows: contentHeight > height + 1
+                interactive: overflows
+
+                ScrollBar.vertical: ScrollBar {
+                    policy: editScroll.overflows ? ScrollBar.AlwaysOn
+                                                 : ScrollBar.AlwaysOff
+                    contentItem: Rectangle {
+                        implicitWidth: 5
+                        radius: 2.5
+                        color: AppTheme.editorBorderStrong
                     }
                 }
-                onClosed: root.editingRole = ""
-            }
 
-            // Live readout: every pair the open role takes part in, graded as
-            // you drag, passes included, so a number climbing past its bar
-            // shows the relationship.
-            ColumnLayout {
-                id: roleReadability
-                objectName: "themeRoleReadability"
-                Layout.fillWidth: true
-                visible: root.editingRole.length > 0 && roleChecks.count > 0
-                spacing: 2
+                ColumnLayout {
+                    id: editColumn
+                    width: editScroll.width
+                           - (editScroll.overflows ? AppTheme.spacing12 : 0)
+                    spacing: AppTheme.spacing12
 
-                // Two lines per row at a constant height from FontMetrics: one
-                // line truncated the pair description at this column width. A
-                // wrapping Label feeding its own row height is a layout loop
-                // waiting to happen; FontMetrics depends only on the font, so
-                // it adapts to the UI font without folding back.
-                FontMetrics {
-                    id: checkMetrics
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.textMeta
-                }
-                // Ceiling per line: Qt lays out each line at an integral
-                // height, so two 16.5px lines need 34px, and 33 shows one line
-                // elided.
-                readonly property int checkRowHeight:
-                    2 * Math.ceil(checkMetrics.lineSpacing)
-
-                Label {
-                    Layout.fillWidth: true
-                    Layout.topMargin: AppTheme.spacing4
-                    text: qsTr("Readability")
-                    color: AppTheme.editorTextMuted
-                    font.family: AppTheme.menuSectionFont
-                    font.pixelSize: AppTheme.menuSectionSize
-                    font.weight: AppTheme.menuSectionWeight
-                }
-                Repeater {
-                    id: roleChecks
-                    // The throttled palette (see auditPalette). Ungradable
-                    // pairs are included as "not checked" rows so the count is
-                    // honest.
-                    model: root.editingRole.length > 0
-                           ? root.store.auditForRole(root.auditPalette,
-                                                     root.editingRole)
-                             .concat(root.store.auditSkipped(root.auditPalette,
-                                                             root.editingRole))
-                           : []
-                    delegate: RowLayout {
-                        id: checkRow
-                        required property var modelData
-                        // `passes` is absent on a skipped row, never false.
-                        readonly property bool graded:
-                            modelData.passes !== undefined
+                    // Every role painted where the preview was clicked, so the
+                    // fill behind a label is one click away (clicking the Send
+                    // button lands on its label).
+                    ColumnLayout {
+                        objectName: "themeSpotRoles"
                         Layout.fillWidth: true
-                        Layout.preferredHeight: roleReadability.checkRowHeight
-                        spacing: AppTheme.spacing6
-                        Rectangle {
-                            implicitWidth: 6
-                            implicitHeight: 6
-                            radius: 3
-                            color: !checkRow.graded ? AppTheme.editorTextMuted
-                                 : checkRow.modelData.passes
-                                   ? AppTheme.editorAccent
-                                   : AppTheme.editorDanger
-                        }
+                        visible: root.spotRoles.length > 1
+                        spacing: AppTheme.spacing4
                         Label {
-                            objectName: "themeRoleCheckLabel"
                             Layout.fillWidth: true
-                            // Pinned to the row's constant height and centred,
-                            // so rows are uniform.
-                            Layout.preferredHeight:
-                                roleReadability.checkRowHeight
-                            verticalAlignment: Text.AlignVCenter
+                            text: qsTr("Under the pointer")
+                            color: AppTheme.editorTextMuted
+                            font.family: AppTheme.menuSectionFont
+                            font.pixelSize: AppTheme.menuSectionSize
+                            font.weight: AppTheme.menuSectionWeight
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: AppTheme.spacing4
+                            Repeater {
+                                model: root.spotRoles
+                                delegate: RoleChip {
+                                    required property string modelData
+                                    roleKey: modelData
+                                }
+                            }
+                        }
+                    }
+
+                    ColorPickerPanel {
+                        id: picker
+                        objectName: "themeColorPicker"
+                        Layout.fillWidth: true
+                        visible: root.editingRole.length > 0
+                        title: root.editingLabel
+                        subtitle: root.hintForRole(root.editingRole)
+                        canReset: root.editingRole.length > 0
+                                  && root.isOverridden(root.editingRole)
+                        // A role with a parent goes back to following it.
+                        resetLabel: root.editingFollowsDeclared.length > 0
+                                    ? qsTr("Reset: follow %1 again")
+                                      .arg(root.labelForRole(
+                                          root.editingFollowsDeclared))
+                                    : qsTr("Reset to the base theme")
+                        suggestions: root.paletteSwatches
+                        onPicked: (value) => {
+                            if (root.editingRole.length > 0)
+                                root.store.setColor(root.editingRole,
+                                                    root.toHex(value))
+                        }
+                        // One drag, swatch or typed value is one undo step.
+                        onGestureFinished: root.store.sealUndoStep()
+                        onResetRequested: {
+                            if (root.editingRole.length > 0) {
+                                root.store.resetColor(root.editingRole)
+                                // show(), not load(): the "before" half keeps
+                                // the colour the role had when it was opened.
+                                picker.show(root.effectiveColor(root.editingRole))
+                            }
+                        }
+                        onClosed: root.editingRole = ""
+                    }
+
+                    // Surface roles may also carry a gradient (graded at its
+                    // worst stop; see GradientEditor).
+                    GradientEditor {
+                        objectName: "themeGradientEditor"
+                        Layout.fillWidth: true
+                        visible: root.editingRole.length > 0
+                                 && root.store.isGradientRole(root.editingRole)
+                        role: root.editingRole.length > 0
+                              && root.store.isGradientRole(root.editingRole)
+                              ? root.editingRole : "background"
+                        baseColor: root.editingRole.length > 0
+                                   ? root.effectiveColor(root.editingRole)
+                                   : AppTheme.editorCanvas
+                        gradedPalette: root.auditPalette
+                    }
+
+                    // How the open role is tied to others: what it follows,
+                    // and what follows it. Editing a parent silently
+                    // recoloured up to six other places before this said so.
+                    ColumnLayout {
+                        objectName: "themeRoleLinks"
+                        Layout.fillWidth: true
+                        visible: root.editingParent.length > 0
+                                 || root.editingDependents.length > 0
+                        spacing: AppTheme.spacing4
+
+                        Label {
+                            objectName: "themeRoleFollowsNote"
+                            Layout.fillWidth: true
+                            visible: root.editingParent.length > 0
                             wrapMode: Text.WordWrap
-                            maximumLineCount: 2
                             textFormat: Text.PlainText
-                            // The check's own sentence (see the phrase field in
-                            // CustomThemeStore.cpp).
-                            text: checkRow.modelData.label
+                            text: qsTr("Follows %1 until you change it here.")
+                                  .arg(root.labelForRole(root.editingParent))
                             color: AppTheme.editorTextSecondary
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
-                            elide: Label.ElideRight
                         }
+                        Flow {
+                            Layout.fillWidth: true
+                            visible: root.editingParent.length > 0
+                            spacing: AppTheme.spacing4
+                            RoleChip { roleKey: root.editingParent }
+                        }
+
                         Label {
-                            objectName: "themeRoleCheckValue"
-                            textFormat: Text.PlainText
-                            // A WCAG ratio reads "4.6:1"; a lightness
-                            // separation is not a ratio.
-                            text: !checkRow.graded
-                                  ? qsTr("see-through")
-                                  : checkRow.modelData.kind === "ink"
-                                    ? qsTr("%1:1").arg(
-                                          checkRow.modelData.value.toFixed(1))
-                                    : qsTr("ΔL* %1").arg(
-                                          checkRow.modelData.value.toFixed(1))
-                            color: !checkRow.graded
-                                   ? AppTheme.editorTextMuted
-                                   : checkRow.modelData.passes
-                                     ? AppTheme.editorTextSecondary
-                                     : AppTheme.editorDanger
-                            font.family: AppTheme.monoFont
+                            Layout.fillWidth: true
+                            Layout.topMargin: root.editingParent.length > 0
+                                              ? AppTheme.spacing6 : 0
+                            visible: root.editingDependents.length > 0
+                            wrapMode: Text.WordWrap
+                            // No count: the English catalog has no numerus
+                            // forms, so "%n place(s)" showed literally.
+                            text: qsTr("Changing this also recolours what follows it:")
+                            color: AppTheme.editorTextSecondary
+                            font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
-                            font.weight: AppTheme.weightStrong
                         }
-                        // The target the number is climbing towards, as in the
-                        // report rows.
+                        Flow {
+                            objectName: "themeRoleDependents"
+                            Layout.fillWidth: true
+                            visible: root.editingDependents.length > 0
+                            spacing: AppTheme.spacing4
+                            Repeater {
+                                model: root.editingDependents
+                                delegate: RoleChip {
+                                    required property string modelData
+                                    roleKey: modelData
+                                }
+                            }
+                        }
+                    }
+
+                    // Live readout: every pair the open role takes part in, graded as
+                    // you drag, passes included, so a number climbing past its bar
+                    // shows the relationship.
+                    ColumnLayout {
+                        id: roleReadability
+                        objectName: "themeRoleReadability"
+                        Layout.fillWidth: true
+                        visible: root.editingRole.length > 0 && roleChecks.count > 0
+                        spacing: 2
+
+                        // Two lines per row at a constant height from FontMetrics: one
+                        // line truncated the pair description at this column width. A
+                        // wrapping Label feeding its own row height is a layout loop
+                        // waiting to happen; FontMetrics depends only on the font, so
+                        // it adapts to the UI font without folding back.
+                        FontMetrics {
+                            id: checkMetrics
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                        }
+                        // Ceiling per line: Qt lays out each line at an integral
+                        // height, so two 16.5px lines need 34px, and 33 shows one line
+                        // elided.
+                        readonly property int checkRowHeight:
+                            2 * Math.ceil(checkMetrics.lineSpacing)
+
                         Label {
-                            objectName: "themeRoleCheckTarget"
-                            visible: checkRow.graded
-                            textFormat: Text.PlainText
-                            text: qsTr("/ %1").arg(
-                                      checkRow.modelData.minimum.toFixed(1))
+                            Layout.fillWidth: true
+                            Layout.topMargin: AppTheme.spacing4
+                            text: qsTr("Readability")
                             color: AppTheme.editorTextMuted
-                            font.family: AppTheme.monoFont
-                            font.pixelSize: AppTheme.textMeta
+                            font.family: AppTheme.menuSectionFont
+                            font.pixelSize: AppTheme.menuSectionSize
+                            font.weight: AppTheme.menuSectionWeight
+                        }
+                        Repeater {
+                            id: roleChecks
+                            // The throttled palette (see auditPalette). Ungradable
+                            // pairs are included as "not checked" rows so the count is
+                            // honest.
+                            model: root.editingRole.length > 0
+                                   ? root.store.auditForRole(root.auditPalette,
+                                                             root.editingRole)
+                                     .concat(root.store.auditSkipped(root.auditPalette,
+                                                                     root.editingRole))
+                                   : []
+                            delegate: RowLayout {
+                                id: checkRow
+                                required property var modelData
+                                // `passes` is absent on a skipped row, never false.
+                                readonly property bool graded:
+                                    modelData.passes !== undefined
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: roleReadability.checkRowHeight
+                                spacing: AppTheme.spacing6
+                                Rectangle {
+                                    implicitWidth: 6
+                                    implicitHeight: 6
+                                    radius: 3
+                                    color: !checkRow.graded ? AppTheme.editorTextMuted
+                                         : checkRow.modelData.passes
+                                           ? AppTheme.editorAccent
+                                           : AppTheme.editorDanger
+                                }
+                                Label {
+                                    objectName: "themeRoleCheckLabel"
+                                    Layout.fillWidth: true
+                                    // Pinned to the row's constant height and centred,
+                                    // so rows are uniform.
+                                    Layout.preferredHeight:
+                                        roleReadability.checkRowHeight
+                                    verticalAlignment: Text.AlignVCenter
+                                    wrapMode: Text.WordWrap
+                                    maximumLineCount: 2
+                                    textFormat: Text.PlainText
+                                    // The check's own sentence (see the phrase field in
+                                    // CustomThemeStore.cpp).
+                                    text: checkRow.modelData.label
+                                    color: AppTheme.editorTextSecondary
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.textMeta
+                                    elide: Label.ElideRight
+                                }
+                                Label {
+                                    objectName: "themeRoleCheckValue"
+                                    textFormat: Text.PlainText
+                                    // A WCAG ratio reads "4.6:1"; a lightness
+                                    // separation is not a ratio.
+                                    text: !checkRow.graded
+                                          ? qsTr("see-through")
+                                          : checkRow.modelData.kind === "ink"
+                                            ? qsTr("%1:1").arg(
+                                                  checkRow.modelData.value.toFixed(1))
+                                            : qsTr("ΔL* %1").arg(
+                                                  checkRow.modelData.value.toFixed(1))
+                                    color: !checkRow.graded
+                                           ? AppTheme.editorTextMuted
+                                           : checkRow.modelData.passes
+                                             ? AppTheme.editorTextSecondary
+                                             : AppTheme.editorDanger
+                                    font.family: AppTheme.monoFont
+                                    font.pixelSize: AppTheme.textMeta
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                // The target the number is climbing towards, as in the
+                                // report rows.
+                                Label {
+                                    objectName: "themeRoleCheckTarget"
+                                    visible: checkRow.graded
+                                    textFormat: Text.PlainText
+                                    text: qsTr("/ %1").arg(
+                                              checkRow.modelData.minimum.toFixed(1))
+                                    color: AppTheme.editorTextMuted
+                                    font.family: AppTheme.monoFont
+                                    font.pixelSize: AppTheme.textMeta
+                                }
+                            }
                         }
                     }
                 }
@@ -1679,8 +2329,10 @@ Popup {
                     contentHeight: problemColumn.implicitHeight
                     boundsBehavior: Flickable.StopAtBounds
 
+                    // As the role list: a bar only when the list scrolls.
                     ScrollBar.vertical: ScrollBar {
-                        policy: ScrollBar.AsNeeded
+                        policy: problemScroll.contentHeight > problemScroll.height + 1
+                                ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
                         contentItem: Rectangle {
                             implicitWidth: 5
                             radius: 2.5
@@ -1857,15 +2509,16 @@ Popup {
                 Item { Layout.fillHeight: true; visible: root.readabilityProblems === 0 }
             }
 
-            Item { Layout.fillHeight: true; visible: root.editingRole.length > 0 }
         }
     }
 
     }
 
-    // The base theme's own colours, offered in the picker for reuse. Sorted by
-    // CIE L* rather than key order, so the strip reads as a ladder instead of a
-    // run of indistinguishable near-blacks.
+    // The base theme's own colours, and every colour this theme has set, offered
+    // in the picker for reuse (the user's own choices are the ones most worth
+    // repeating across roles). Sorted by CIE L* rather than key order, so the
+    // strip reads as a ladder instead of a run of indistinguishable
+    // near-blacks.
     readonly property var paletteSwatches: {
         var pal = root.basePalette
         var keys = ["background", "sidebar", "rail", "surface", "cardElevated",
@@ -1874,6 +2527,21 @@ Popup {
                     "textSecondary", "textMuted", "ownBubble", "otherBubble"]
         var out = []
         var seen = {}
+        // A snapshot taken when a role opens: read live, the strip would be
+        // rebuilt, and the dragged colour would wander along the ladder, on
+        // every sample of a drag.
+        var overrides = root.ownColoursAtOpen
+        if (overrides) {
+            for (var role in overrides) {
+                if (role === root.editingRole)
+                    continue
+                var own = String(overrides[role]).toUpperCase()
+                if (!/^#[0-9A-F]{6}$/.test(own) || seen[own] !== undefined)
+                    continue
+                seen[own] = true
+                out.push(own)
+            }
+        }
         for (var i = 0; i < keys.length; ++i) {
             var v = pal[keys[i]]
             if (v === undefined)

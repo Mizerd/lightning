@@ -177,6 +177,7 @@ void ThreadController::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     close();
+    m_pendingThreadReads.clear();
     m_client = client;
     m_model.setClient(client);
     m_attachments->setClient(client);
@@ -271,7 +272,35 @@ void ThreadController::setClient(MatrixClient *client)
                     Q_EMIT listStateChanged();
                 });
         connect(m_client, &MatrixClient::loggedOut, this,
-                [this] { close(); closeList(); });
+                [this] { m_pendingThreadReads.clear(); close(); closeList(); });
+        // A thread's receipt clears its Activity rows only once the server
+        // accepted it, as the main room's mark-as-read does.
+        connect(m_client, &MatrixClient::threadReadMarkerAdvanced, this,
+                [this](const QString &, const QString &, quint64 opId) {
+                    // Matched on the request id, never on arrival order: the
+                    // bell hears that request's own room, thread and time.
+                    const auto it = m_pendingThreadReads.find(opId);
+                    if (it == m_pendingThreadReads.end())
+                        return;
+                    const PendingThreadRead done = it.value();
+                    m_pendingThreadReads.erase(it);
+                    Q_EMIT threadReadSent(done.roomId, done.rootId,
+                                          done.timestampMs);
+                });
+        connect(m_client, &MatrixClient::threadMarkReadFailed, this,
+                [this](const QString &, const QString &, quint64 opId) {
+                    // Only the failed request's own entry goes.
+                    const auto it = m_pendingThreadReads.find(opId);
+                    if (it == m_pendingThreadReads.end())
+                        return;
+                    const PendingThreadRead failed = it.value();
+                    m_pendingThreadReads.erase(it);
+                    // The reply it covered must be retried by the next
+                    // markRead(), not deduplicated away for good.
+                    if (failed.roomId == m_roomId && failed.rootId == m_rootEventId
+                        && m_lastMarkedReadEventId == failed.eventId)
+                        m_lastMarkedReadEventId.clear();
+                });
     }
     Q_EMIT supportedChanged();
 }
@@ -697,10 +726,9 @@ void ThreadController::dispatchAttachment(int row)
             entry.width, entry.height, entry.durationMs, entry.poster,
             entry.posterWidth, entry.posterHeight, entry.replyToEventId);
     } else if (entry.isSvg) {
-        opId = m_client->sendThreadImageWithThumbnail(
-            m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
-            entry.width, entry.height, entry.poster, entry.posterWidth,
-            entry.posterHeight, entry.replyToEventId);
+        // An SVG is converted to a PNG file before it can dispatch (see
+        // AttachmentQueueModel); an unconverted one is never uploaded.
+        opId = 0;
     } else {
         opId = m_client->sendThreadAttachment(
             m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
@@ -1009,8 +1037,13 @@ void ThreadController::markRead()
     if (latest.isEmpty() || latest == m_lastMarkedReadEventId)
         return;   // deduplicated: one receipt per new latest reply
     m_lastMarkedReadEventId = latest;
-    m_client->markThreadRead(m_roomId, m_rootEventId);
-    Q_EMIT threadReadSent(m_roomId, m_rootEventId, latestMs);
+    // Announced to the bell only when the server accepts it (a failed receipt
+    // must leave the rows). Queued BEFORE the call: a backend may answer
+    // synchronously (failure on a null handle, or an immediate acceptance).
+    const quint64 opId = m_nextThreadReadId++;
+    m_pendingThreadReads.insert(
+        opId, {m_roomId, m_rootEventId, latest, latestMs});
+    m_client->markThreadRead(m_roomId, m_rootEventId, opId);
 }
 
 bool ThreadController::threadUnreadHint(const QString &rootEventId) const

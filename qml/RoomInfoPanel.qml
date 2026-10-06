@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -236,24 +235,26 @@ Rectangle {
         }
     }
 
-    FileDialog {
+    NativeFileDialog {
         id: avatarDialog
+        purpose: "image"
         title: qsTr("Choose room avatar")
         currentFolder: app.defaultFileDialogFolder()
-        fileMode: FileDialog.OpenFile
-        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
-        // The picker only chooses; the crop dialog is the gate that refuses SVG
-        // before anything renders it (CLAUDE.md §6).
+        fileMode: "open"
+        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)") ]
+        // The picker only chooses; the crop dialog is the gate: an SVG is converted
+        // to a PNG locally first, never previewed or uploaded as SVG (CLAUDE.md §6).
         onAccepted: avatarCrop.openFor(selectedFile)
     }
 
-    FileDialog {
+    NativeFileDialog {
         id: myAvatarDialog
+        purpose: "image"
         title: qsTr("Choose your avatar for this room")
         currentFolder: app.defaultFileDialogFolder()
-        fileMode: FileDialog.OpenFile
-        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)") ]
-        // The crop dialog is the gate that refuses SVG (CLAUDE.md §6).
+        fileMode: "open"
+        nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)") ]
+        // The crop dialog is the gate; SVG becomes a PNG before it (CLAUDE.md §6).
         onAccepted: myAvatarCrop.openFor(selectedFile)
     }
     ImageCropDialog {
@@ -797,33 +798,11 @@ Rectangle {
                     visible: roomAdminBlock.visible
                 }
 
-                // Room administration: join rule and published address. Both
-                // are room state, gated on the SDK's power-level check for that
-                // event.
-                ColumnLayout {
-                    id: roomAdminBlock
-                    objectName: "roomAdminBlock"
-                    Layout.fillWidth: true
-                    Layout.margins: AppTheme.spacing12
-                    spacing: AppTheme.spacing8
-                    visible: app.roomInfo.canChangeJoinRule
-                             || app.roomInfo.canChangeAlias
-                             || app.roomInfo.canChangeHistoryVisibility
-                             || app.roomInfo.canChangeGuestAccess
-                    // Directory visibility is not room state: ask the server
-                    // while shown.
-                    onVisibleChanged: if (visible) app.roomInfo.requestDirectoryVisibility()
-                    Connections {
-                        target: app.roomInfo
-                        function onRoomIdChanged() {
-                            if (roomAdminBlock.visible)
-                                app.roomInfo.requestDirectoryVisibility()
-                        }
-                    }
-
                 // Your profile in this room: the per-room member name and
                 // avatar overriding the global ones. Empty restores the global
-                // profile. Built like the "Edit room" group (ColumnLayout with
+                // profile. OUTSIDE roomAdminBlock: every member may set their
+                // own room profile, and inside it the section was shown only to
+                // people who can change the join rule. Built like the "Edit room" group (ColumnLayout with
                 // margins), which stays inside its background at narrow widths.
                 Rectangle {
                     Layout.fillWidth: true
@@ -832,6 +811,7 @@ Rectangle {
                     visible: app.roomInfo.roomProfilesSupported
                 }
                 ColumnLayout {
+                    objectName: "roomProfileSection"
                     Layout.fillWidth: true
                     Layout.margins: AppTheme.spacing12
                     spacing: AppTheme.spacing8
@@ -913,6 +893,51 @@ Rectangle {
                         font.pixelSize: AppTheme.textMeta
                     }
                 }
+
+                // Chat background: the room's shared picture (if this account
+                // may set it), this account's own picture for the room, and
+                // the per-room opt-out. OUTSIDE roomAdminBlock: every member
+                // needs "Only me" and the hide toggle, and inside it they were
+                // shown only to people who can change the join rule.
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 1
+                    color: AppTheme.border
+                    visible: !!app.backdrops
+                }
+                ChatBackgroundEditor {
+                    objectName: "roomChatBackgroundEditor"
+                    Layout.fillWidth: true
+                    Layout.margins: AppTheme.spacing12
+                    visible: !!app.backdrops && app.currentRoomId !== ""
+                    scopeKind: "room"
+                    scopeId: app.currentRoomId
+                }
+
+                // Room administration: join rule and published address. Both
+                // are room state, gated on the SDK's power-level check for that
+                // event.
+                ColumnLayout {
+                    id: roomAdminBlock
+                    objectName: "roomAdminBlock"
+                    Layout.fillWidth: true
+                    Layout.margins: AppTheme.spacing12
+                    spacing: AppTheme.spacing8
+                    visible: app.roomInfo.canChangeJoinRule
+                             || app.roomInfo.canChangeAlias
+                             || app.roomInfo.canChangeHistoryVisibility
+                             || app.roomInfo.canChangeGuestAccess
+                    // Directory visibility is not room state: ask the server
+                    // while shown.
+                    onVisibleChanged: if (visible) app.roomInfo.requestDirectoryVisibility()
+                    Connections {
+                        target: app.roomInfo
+                        function onRoomIdChanged() {
+                            if (roomAdminBlock.visible)
+                                app.roomInfo.requestDirectoryVisibility()
+                        }
+                    }
+
 
                     Label {
                         text: qsTr("Access")

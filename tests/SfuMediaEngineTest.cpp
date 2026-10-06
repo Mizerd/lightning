@@ -9,8 +9,11 @@
 #include "calls/ShareAudioSources.h"
 #include "calls/SfuVideoRouter.h"
 #include "calls/WindowCaptureSrc.h"
+#include "calls/noise/DenoiseElement.h"
 
+#include <QElapsedTimer>
 #include <QMutex>
+#include <QThread>
 #include <QSet>
 #include <QSignalSpy>
 #include <QRegularExpression>
@@ -715,15 +718,48 @@ private slots:
         QCOMPARE(spy.count(), 1);
     }
 
+    // 2026-10-04 call log: peaks of -60..-78 dBFS between sentences raised
+    // "THE MICROPHONE IS CAPTURING NOTHING" four times. Fails on the old
+    // -60 dBFS / 10 s rule (fires after 10 s), passes with the dead ceiling.
+    void aQuietRoomIsNotADeadMicrophone()
+    {
+        SfuMediaEngine engine;
+        QSignalSpy spy(&engine, &SfuMediaEngine::localAudioSilent);
+        const double peaks[] = {-62.0, -78.0, -70.0, -66.0, -75.0};
+        int i = 0;
+        for (qint64 t = 0; t < SfuMediaEngine::kMicQuietWindowMs - 200;
+             t += 200)
+            engine.handleMicLevelAt(peaks[i++ % 5], t);
+        QCOMPARE(spy.count(), 0);
+        QVERIFY(!engine.microphoneSilentForTest());
+    }
+
+    // A device that stays that quiet for a full minute is still worth saying
+    // so; one louder report restarts the long window.
+    void aMinuteOfVeryQuietCaptureIsLoggedButNeverRaisesTheBadge()
+    {
+        SfuMediaEngine engine;
+        QSignalSpy spy(&engine, &SfuMediaEngine::localAudioSilent);
+        for (qint64 t = 0; t <= SfuMediaEngine::kMicQuietWindowMs; t += 200)
+            engine.handleMicLevelAt(-70.0, t);
+        // The badge says nobody can hear you; a live quiet mic is not that.
+        QCOMPARE(spy.count(), 0);
+        QVERIFY(!engine.microphoneSilentForTest());
+        QVERIFY(engine.microphoneQuietForTest());
+        engine.handleMicLevelAt(-20.0, SfuMediaEngine::kMicQuietWindowMs + 200);
+        QCOMPARE(spy.count(), 0);
+        QVERIFY(!engine.microphoneQuietForTest());
+    }
+
     // The silence threshold, pinned as a boundary.
     void theSilenceCeilingIsAPeakNoSpeechStaysUnder()
     {
-        // -60 dBFS is below any speech peak and above a room's noise floor.
+        // -85 dBFS is the dead-device ceiling: a live room peaks -60..-78.
         // `level` reports digital silence as -350 (its floor), not a sentinel.
-        QCOMPARE(SfuMediaEngine::micSilenceSince(-59.0, -1, 1000), qint64(-1));
-        QCOMPARE(SfuMediaEngine::micSilenceSince(-61.0, -1, 1000), qint64(1000));
+        QCOMPARE(SfuMediaEngine::micSilenceSince(-84.0, -1, 1000), qint64(-1));
+        QCOMPARE(SfuMediaEngine::micSilenceSince(-86.0, -1, 1000), qint64(1000));
         // The mark is carried, not restamped, or the window could never close.
-        QCOMPARE(SfuMediaEngine::micSilenceSince(-61.0, 1000, 5000),
+        QCOMPARE(SfuMediaEngine::micSilenceSince(-86.0, 1000, 5000),
                  qint64(1000));
         // One audible report clears it.
         QCOMPARE(SfuMediaEngine::micSilenceSince(-20.0, 1000, 5000),
@@ -763,6 +799,100 @@ private slots:
         engine.stop();
     }
 
+    // The in-call meter redraws from the call's own `level`, so the element
+    // must report at the meter's rate: at the old 200 ms the bar moved five
+    // times a second. Fails on the old interval.
+    void theCaptureMeterReportsAtTheMetersRate()
+    {
+        GstElementFactory *factory = gst_element_factory_find("level");
+        if (!factory)
+            QSKIP("gst-plugins-good's `level` is absent from this build");
+        gst_object_unref(factory);
+        QCOMPARE(SfuMediaEngine::kMicLevelIntervalNs, quint64(50000000));
+
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        engine.publishAudio(QStringLiteral("cid-audio"));
+        const QString built = engine.lastAudioDescriptionForTest();
+        QVERIFY2(built.contains(QStringLiteral("level name=miclevel post-messages="
+                                               "true interval=50000000")),
+                 qPrintable(built));
+        // The front the Settings microphone test reuses is the one the call
+        // publishes, verbatim.
+        SfuMediaEngine::MicrophoneCapture capture;
+        capture.source = QStringLiteral(
+            "audiotestsrc is-live=true wave=sine freq=440 volume=0.05 "
+            "name=micsrc");
+        QVERIFY2(built.startsWith(SfuMediaEngine::microphoneFrontDescription(capture)),
+                 qPrintable(built));
+        engine.stop();
+    }
+
+    // Every unmuted reading reaches the in-call meter; one in flight when
+    // the user muted does not.
+    void everyUnmutedLevelReachesTheMeter()
+    {
+        SfuMediaEngine engine;
+        QSignalSpy levels(&engine, &SfuMediaEngine::localAudioLevel);
+        QVERIFY(levels.isValid());
+        // The meter reads what is SENT (`miclevel`, after suppression).
+        engine.handleMeterLevel(-20.0);
+        engine.handleMeterLevel(-350.0);
+        QCOMPARE(levels.count(), 2);
+        QCOMPARE(levels.at(0).at(0).toDouble(), -20.0);
+        // Digital silence is a reading like any other.
+        QCOMPARE(levels.at(1).at(0).toDouble(), -350.0);
+        engine.setMicrophoneMuted(true);
+        engine.handleMeterLevel(-20.0);
+        QCOMPARE(levels.count(), 2);
+        // The captured level never moves the meter.
+        engine.setMicrophoneMuted(false);
+        engine.handleMicLevelAt(-20.0, 100);
+        QCOMPARE(levels.count(), 2);
+    }
+
+    // The peak reader both the call and the Settings test use: the loudest
+    // channel, and -350 (digital silence) as a reading rather than a failure.
+    void theLevelReaderTakesTheLoudestChannelAndKeepsSilence()
+    {
+        const auto levelWith = [](std::initializer_list<double> peaks) {
+            GstStructure *fields = gst_structure_new_empty("level");
+            G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+            GValueArray *array = g_value_array_new(peaks.size());
+            GValue one = G_VALUE_INIT;
+            g_value_init(&one, G_TYPE_DOUBLE);
+            for (const double peak : peaks) {
+                g_value_set_double(&one, peak);
+                g_value_array_append(array, &one);
+            }
+            g_value_unset(&one);
+            GValue holder = G_VALUE_INIT;
+            g_value_init(&holder, G_TYPE_VALUE_ARRAY);
+            g_value_take_boxed(&holder, array);
+            G_GNUC_END_IGNORE_DEPRECATIONS
+            gst_structure_take_value(fields, "peak", &holder);
+            return fields;
+        };
+        double peak = 0.0;
+        GstStructure *stereo = levelWith({-30.0, -12.0});
+        QVERIFY(SfuMediaEngine::readLevelPeak(stereo, &peak));
+        QCOMPARE(peak, -12.0);
+        gst_structure_free(stereo);
+
+        GstStructure *silent = levelWith({-350.0});
+        QVERIFY(SfuMediaEngine::readLevelPeak(silent, &peak));
+        QCOMPARE(peak, -350.0);
+        gst_structure_free(silent);
+
+        // No peak at all is unreadable, not silence.
+        GstStructure *empty = gst_structure_new_empty("level");
+        peak = 1.0;
+        QVERIFY(!SfuMediaEngine::readLevelPeak(empty, &peak));
+        QCOMPARE(peak, 1.0);
+        gst_structure_free(empty);
+    }
+
     // The multi-input stages reach the description publishAudio() actually
     // hands GStreamer, and GStreamer accepts it.
     void theCaptureChainKeepsItsOrdinaryShapeForAnOrdinaryMicrophone()
@@ -786,6 +916,356 @@ private slots:
                  qPrintable(built.left(300)));
         QVERIFY2(built.contains(QStringLiteral("max-size-time=100000000")),
                  qPrintable(built.left(300)));
+        engine.stop();
+    }
+
+    // GitHub #20: the microphone the engine publishes runs exactly the
+    // selected noise suppressor — read from the description it handed
+    // GStreamer AND from the elements inside the bin it built. Before the
+    // selector, webrtcdsp suppressed in every chain and nothing else existed.
+    // GitHub #20, live finding 2026-10-06: with DeepFilterNet, a microphone
+    // carrying -29 dBFS of fan noise and no speech read as "CAPTURING
+    // NOTHING" after 10 s, because the dead-microphone judgement read the
+    // level AFTER the suppressor. It reads `miccapturelevel` now, which sits
+    // after the valve and BEFORE the suppressor; `miclevel` (the meter, and
+    // the RFC 6464 speaking level) stays after it, measuring what is sent.
+    void theDeadMicrophoneJudgementMeasuresBeforeTheSuppressor()
+    {
+        GstElementFactory *factory = gst_element_factory_find("level");
+        if (!factory)
+            QSKIP("gst-plugins-good's `level` is absent from this build");
+        gst_object_unref(factory);
+        const QString cid = QStringLiteral("cid-audio");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setNoiseSuppressionMode(calls::noise::Mode::DeepFilterNet);
+        engine.start();
+        engine.publishAudio(cid);
+        const QString built = engine.lastAudioDescriptionForTest();
+        QVERIFY2(engine.publishedBinHasElementForTest(
+                     cid, QStringLiteral("miccapturelevel")),
+                 qPrintable(built));
+        const qsizetype valve = built.indexOf(QStringLiteral("name=micvalve"));
+        const qsizetype captured =
+            built.indexOf(QStringLiteral("name=miccapturelevel"));
+        const qsizetype denoise = built.indexOf(QStringLiteral("name=micdenoise"));
+        const qsizetype sent = built.indexOf(QStringLiteral("name=miclevel "));
+        QVERIFY2(valve >= 0 && captured >= 0 && denoise >= 0 && sent >= 0,
+                 qPrintable(built));
+        // Muted posts nothing; then before the suppressor; the meter after.
+        QVERIFY(valve < captured);
+        QVERIFY(captured < denoise);
+        QVERIFY(denoise < sent);
+        engine.stop();
+    }
+
+    // The two readings feed different things: the captured level alone
+    // decides "dead microphone", the sent level alone moves the meter.
+    void aMicrophoneTheSuppressorCleansIsNotADeadOne()
+    {
+        SfuMediaEngine engine;
+        QSignalSpy silent(&engine, &SfuMediaEngine::localAudioSilent);
+        QSignalSpy meter(&engine, &SfuMediaEngine::localAudioLevel);
+        // A fan at -29 dBFS, cleaned to digital silence: well past the window.
+        for (qint64 t = 0; t <= SfuMediaEngine::kMicSilenceWindowMs * 2;
+             t += 200) {
+            engine.handleMicLevelAt(-29.0, t);
+            engine.handleMeterLevel(-350.0);
+        }
+        QVERIFY(!engine.microphoneSilentForTest());
+        QCOMPARE(silent.count(), 0);
+        // Only the sent readings reached the meter, -350 included.
+        QCOMPARE(meter.count(),
+                 int(SfuMediaEngine::kMicSilenceWindowMs * 2 / 200 + 1));
+        QCOMPARE(meter.last().at(0).toDouble(), -350.0);
+
+        // A really dead device is still reported, whatever the meter says;
+        // -350 is `level`'s floor for digital silence and counts as silence.
+        const qint64 start = SfuMediaEngine::kMicSilenceWindowMs * 3;
+        for (qint64 t = start;
+             t <= start + SfuMediaEngine::kMicSilenceWindowMs; t += 200) {
+            engine.handleMicLevelAt(-350.0, t);
+            engine.handleMeterLevel(-20.0);
+        }
+        QVERIFY(engine.microphoneSilentForTest());
+        QCOMPARE(silent.count(), 1);
+        QVERIFY(silent.last().at(0).toBool());
+    }
+
+    // Live finding 2026-10-06: RSS grew 11-19 MB per leave/rejoin with
+    // DeepFilterNet. Whatever the allocator does, the objects must go: after
+    // N calls of the REAL publish chain in a neural mode, no backend and no
+    // `lightningdenoise` element may be alive. A counting wrapper around the
+    // real factory (or a fake where the backend is not built in) counts every
+    // backend the element ever made.
+    void repeatedCallsWithANeuralSuppressorLeaveNothingAlive()
+    {
+        struct Counting final : calls::noise::NoiseSuppressor {
+            explicit Counting(std::unique_ptr<calls::noise::NoiseSuppressor> real,
+                              calls::noise::Mode mode)
+                : m_real(std::move(real)), m_mode(mode)
+            {
+                ++alive();
+            }
+            ~Counting() override { --alive(); }
+            static std::atomic<int> &alive()
+            {
+                static std::atomic<int> count{0};
+                return count;
+            }
+            calls::noise::Mode mode() const override { return m_mode; }
+            int frameSize() const override { return calls::noise::kFrameSamples; }
+            bool ok() const override { return true; }
+            void process(float *frame) noexcept override
+            {
+                if (m_real)
+                    m_real->process(frame);
+            }
+            int latencySamples() const override
+            {
+                return m_real ? m_real->latencySamples() : 0;
+            }
+            void reset() noexcept override
+            {
+                if (m_real)
+                    m_real->reset();
+            }
+            std::unique_ptr<calls::noise::NoiseSuppressor> m_real;
+            calls::noise::Mode m_mode;
+        };
+        const calls::noise::Mode mode = calls::noise::Mode::DeepFilterNet;
+        calls::noise::setSuppressorFactoryForTest(
+            [](calls::noise::Mode m)
+                -> std::unique_ptr<calls::noise::NoiseSuppressor> {
+                // The real backend when built in, so its handle is created
+                // and destroyed for real; otherwise the wrapper alone.
+                return std::make_unique<Counting>(
+                    calls::noise::createSuppressor(m), m);
+            });
+        // Earlier cases' pipelines may still be on their way out (the
+        // webrtcbin retirer, then finalization on a pool thread); under a
+        // loaded parallel run that is seconds. Start from none at all rather
+        // than from a snapshot that is still shrinking.
+        QTRY_COMPARE_WITH_TIMEOUT(calls::noise::liveDenoiseElements(), 0, 30000);
+        const QString cid = QStringLiteral("cid-audio");
+        {
+            SfuMediaEngine engine;
+            engine.setTestSourceMode(true);
+            engine.setNoiseSuppressionMode(mode);
+            for (int call = 0; call < 5; ++call) {
+                engine.start();
+                engine.publishAudio(cid);
+                QVERIFY(engine.publishedBinHasElementForTest(
+                    cid, QStringLiteral("micdenoise")));
+                // The backend is built on a pool thread: let it exist (a
+                // real DeepFilterNet unpacks its model, slowly under load).
+                QTRY_VERIFY_WITH_TIMEOUT(Counting::alive().load() >= 1, 30000);
+                // A live switch mid-call retires one backend and builds another.
+                if (call % 2 == 1) {
+                    engine.setNoiseSuppressionMode(calls::noise::Mode::RNNoise);
+                    engine.setNoiseSuppressionMode(mode);
+                }
+                engine.stop();
+            }
+            // Teardown's own end: the retirer has let every pipeline go
+            // (bounded at kGatheringBoundMs), then elements are finalized and
+            // their backends destroyed, possibly on pool threads.
+            QTRY_COMPARE_WITH_TIMEOUT(engine.retiringWebrtcForTest(), 0, 30000);
+            QTRY_COMPARE_WITH_TIMEOUT(calls::noise::liveDenoiseElements(), 0,
+                                      30000);
+            QTRY_COMPARE_WITH_TIMEOUT(Counting::alive().load(), 0, 30000);
+        }
+        calls::noise::setSuppressorFactoryForTest({});
+        // Nothing is created after the engine is gone.
+        QCOMPARE(calls::noise::liveDenoiseElements(), 0);
+        QCOMPARE(Counting::alive().load(), 0);
+    }
+
+    // Live finding 2026-10-06: WebRTC -> DeepFilterNet in a call left about a
+    // second unsuppressed (webrtcdsp off at once, the model still building).
+    // The engine keeps webrtcdsp suppressing until the denoiser reports.
+    void aSwitchFromWebrtcKeepsSuppressingUntilTheNewBackendRuns()
+    {
+        GstElementFactory *factory = gst_element_factory_find("webrtcdsp");
+        if (!factory)
+            QSKIP("webrtcdsp is not in this GStreamer");
+        gst_object_unref(factory);
+        static std::atomic<bool> release{false};
+        release.store(false);
+        // A build that does not finish until the test says so.
+        calls::noise::setSuppressorFactoryForTest(
+            [](calls::noise::Mode) -> std::unique_ptr<calls::noise::NoiseSuppressor> {
+                QElapsedTimer waited;
+                waited.start();
+                while (!release.load() && waited.elapsed() < 10000)
+                    QThread::msleep(5);
+                return nullptr;
+            });
+        const QString cid = QStringLiteral("cid-audio");
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setNoiseSuppressionMode(calls::noise::Mode::WebRtc);
+        engine.start();
+        engine.publishAudio(cid);
+        const auto dspSuppresses = [&] {
+            return engine.publishedBinPropertyForTest(
+                cid, QStringLiteral("micdsp"),
+                QStringLiteral("noise-suppression"));
+        };
+        QCOMPARE(dspSuppresses(), QStringLiteral("true"));
+
+        engine.setNoiseSuppressionMode(calls::noise::Mode::DeepFilterNet);
+        QTest::qWait(400);
+        QCOMPARE(dspSuppresses(), QStringLiteral("true"));
+        QCOMPARE(engine.lastDspFollowUpForTest(), QString());
+        // A report for a mode already left changes nothing.
+        engine.handleDenoiseStatus(QStringLiteral("rnnoise"),
+                                   QStringLiteral("rnnoise"), true, 960);
+        QCOMPARE(engine.lastDspFollowUpForTest(), QString());
+        QCOMPARE(dspSuppresses(), QStringLiteral("true"));
+
+        // The backend failed: WebRTC suppression carries on in its place
+        // rather than raw noise going out, and the failure says so.
+        // (webrtcdsp's PROPERTY cannot show a decision here: in test-source
+        // mode webrtcbin parks the stream, so the idle probe that would
+        // replace webrtcdsp never fires. The decision is read instead.)
+        QSignalSpy status(&engine, &SfuMediaEngine::noiseSuppressionStatus);
+        release.store(true);
+        engine.handleDenoiseStatus(QStringLiteral("deepfilternet"),
+                                   QStringLiteral("off"), false, 0);
+        QCOMPARE(engine.lastDspFollowUpForTest(), QStringLiteral("webrtc"));
+        QCOMPARE(dspSuppresses(), QStringLiteral("true"));
+        QVERIFY(engine.noiseSuppressionFellBackToWebrtc());
+        QCOMPARE(status.count(), 1);
+        QCOMPARE(status.last().at(0).toString(), QStringLiteral("deepfilternet"));
+        QVERIFY(!status.last().at(1).toBool());
+
+        // A backend that runs takes over from webrtcdsp.
+        engine.handleDenoiseStatus(QStringLiteral("deepfilternet"),
+                                   QStringLiteral("deepfilternet"), true, 1920);
+        QCOMPARE(engine.lastDspFollowUpForTest(),
+                 QStringLiteral("deepfilternet"));
+        QVERIFY(!engine.noiseSuppressionFellBackToWebrtc());
+        engine.stop();
+        calls::noise::setSuppressorFactoryForTest({});
+    }
+
+    void thePublishedMicrophoneRunsTheSelectedSuppressor_data()
+    {
+        QTest::addColumn<QString>("key");
+        QTest::newRow("off") << QStringLiteral("off");
+        QTest::newRow("webrtc") << QStringLiteral("webrtc");
+        QTest::newRow("rnnoise") << QStringLiteral("rnnoise");
+        QTest::newRow("deepfilternet") << QStringLiteral("deepfilternet");
+    }
+    void thePublishedMicrophoneRunsTheSelectedSuppressor()
+    {
+        QFETCH(QString, key);
+        const calls::noise::Mode mode = calls::noise::modeFromKey(
+            key.toStdString(), calls::noise::Mode::Off);
+        GstElementFactory *factory = gst_element_factory_find("webrtcdsp");
+        const bool dsp = factory != nullptr;
+        if (factory)
+            gst_object_unref(factory);
+        const QString cid = QStringLiteral("cid-audio");
+
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setNoiseSuppressionMode(mode);
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+        engine.start();
+        engine.publishAudio(cid);
+        QCOMPARE(failed.count(), 0);
+        const QString built = engine.lastAudioDescriptionForTest();
+
+        // webrtcdsp suppresses in WebRTC mode only; its gain control stays.
+        QCOMPARE(built.contains(QStringLiteral("noise-suppression=true")),
+                 dsp && mode == calls::noise::Mode::WebRtc);
+        QCOMPARE(built.contains(QStringLiteral("noise-suppression=false")),
+                 dsp && mode != calls::noise::Mode::WebRtc);
+        QVERIFY2(built.contains(
+                     QStringLiteral("lightningdenoise name=micdenoise mode=%1")
+                         .arg(key)),
+                 qPrintable(built));
+        QCOMPARE(engine.publishedBinPropertyForTest(
+                     cid, QStringLiteral("micdenoise"), QStringLiteral("mode")),
+                 key);
+        if (dsp) {
+            QCOMPARE(engine.publishedBinPropertyForTest(
+                         cid, QStringLiteral("micdsp"),
+                         QStringLiteral("noise-suppression")),
+                     mode == calls::noise::Mode::WebRtc
+                         ? QStringLiteral("true")
+                         : QStringLiteral("false"));
+            QCOMPARE(engine.publishedBinPropertyForTest(
+                         cid, QStringLiteral("micdsp"),
+                         QStringLiteral("gain-control")),
+                     QStringLiteral("true"));
+            // Suppression before gain control, as WebRTC's own module orders
+            // them: the AGC adapts to speech, not to the noise.
+            QVERIFY(built.indexOf(QStringLiteral("micdenoise"))
+                    < built.indexOf(QStringLiteral("micdsp")));
+        }
+        // After the mute valve (a muted microphone costs no inference) and
+        // before the encoder.
+        QVERIFY(built.indexOf(QStringLiteral("micvalve"))
+                < built.indexOf(QStringLiteral("micdenoise")));
+        QVERIFY(built.indexOf(QStringLiteral("micdenoise"))
+                < built.indexOf(QStringLiteral("audioenc")));
+        engine.stop();
+    }
+
+    // A change of mode reaches the microphone already publishing, and the
+    // next chain is built with it.
+    void aModeChangeReachesTheRunningMicrophone()
+    {
+        GstElementFactory *factory = gst_element_factory_find("webrtcdsp");
+        const bool dsp = factory != nullptr;
+        if (factory)
+            gst_object_unref(factory);
+        const QString cid = QStringLiteral("cid-audio");
+
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setNoiseSuppressionMode(calls::noise::Mode::WebRtc);
+        engine.start();
+        engine.publishAudio(cid);
+        QSignalSpy status(&engine, &SfuMediaEngine::noiseSuppressionStatus);
+
+        engine.setNoiseSuppressionMode(calls::noise::Mode::Off);
+        QCOMPARE(engine.publishedBinPropertyForTest(
+                     cid, QStringLiteral("micdenoise"), QStringLiteral("mode")),
+                 QStringLiteral("off"));
+        if (dsp) {
+            QTRY_COMPARE_WITH_TIMEOUT(
+                engine.publishedBinPropertyForTest(
+                    cid, QStringLiteral("micdsp"),
+                    QStringLiteral("noise-suppression")),
+                QStringLiteral("false"), 5000);
+        }
+        QVERIFY(!status.isEmpty());
+        QCOMPARE(status.last().at(0).toString(), QStringLiteral("off"));
+        QVERIFY(status.last().at(1).toBool());
+
+        engine.setNoiseSuppressionMode(calls::noise::Mode::RNNoise);
+        QCOMPARE(engine.publishedBinPropertyForTest(
+                     cid, QStringLiteral("micdenoise"), QStringLiteral("mode")),
+                 QStringLiteral("rnnoise"));
+        if (dsp) {
+            // Still no WebRTC suppression: exactly one suppressor.
+            QCOMPARE(engine.publishedBinPropertyForTest(
+                         cid, QStringLiteral("micdsp"),
+                         QStringLiteral("noise-suppression")),
+                     QStringLiteral("false"));
+        }
+        engine.stop();
+
+        // The setting outlives the call, like the gain.
+        QVERIFY(engine.noiseSuppressionMode() == calls::noise::Mode::RNNoise);
+        engine.start();
+        engine.publishAudio(cid);
+        QVERIFY(engine.lastAudioDescriptionForTest().contains(
+            QStringLiteral("mode=rnnoise")));
         engine.stop();
     }
 
@@ -3319,6 +3799,8 @@ private slots:
             { SOURCE_DIR "/src/calls/SfuMediaEngine.cpp", 7 },
             { SOURCE_DIR "/src/calls/ShareAudioSources.cpp", 2 },
             { SOURCE_DIR "/src/calls/GstCallMediaBackend.cpp", 2 },
+            // The Settings microphone test's voice playback.
+            { SOURCE_DIR "/src/calls/AudioDeviceTester.cpp", 1 },
         };
 
         // A pipeline queue is followed by a pad separator or by any
@@ -3368,6 +3850,65 @@ private slots:
             }
             QCOMPARE(found, lane.expected);
         }
+    }
+
+    // 2026-10-04 "call audio pops" TODO: the receive chain's own drops must be
+    // countable. Fails on the old tree (no named queue/decoder, no counters).
+    void theAudioReceiveChainIsInstrumentedForLossAndConcealment()
+    {
+        QFile file(QStringLiteral(SOURCE_DIR "/src/calls/SfuMediaEngine.cpp"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString code = QString::fromUtf8(file.readAll());
+        // Both audio descriptions name the elements the counters attach to.
+        QCOMPARE(code.count(QStringLiteral("queue name=recvqueue")), 2);
+        QCOMPARE(code.count(QStringLiteral("opusdec name=recvdec")), 2);
+        QVERIFY(code.contains(QStringLiteral("\"overrun\"")));
+        QVERIFY(code.contains(QStringLiteral("GstRTPPacketLost")));
+        QVERIFY(code.contains(QStringLiteral("audio receive health stream=")));
+        QVERIFY(code.contains(QStringLiteral("jitterbuffer ")));
+    }
+
+    // Group calls ignored the chosen output device: the engine stored
+    // speakerChoice() and nothing read it. The receive sink must take the
+    // resolved speaker; fails on the old tree (function absent, sink was always
+    // autoaudiosink / recvsink).
+    void aChosenOutputReplacesTheDefaultReceiveSink()
+    {
+        SfuMediaEngine::OutputSink chosen;
+        chosen.sink = QStringLiteral("pulsesink name=outsink");
+        chosen.binding.property = QStringLiteral("device");
+        chosen.binding.value = QStringLiteral("alsa_output.test");
+        QCOMPARE(SfuMediaEngine::receiveSinkDescription(QString(), &chosen),
+                 QStringLiteral("pulsesink name=outsink"));
+        QCOMPARE(SfuMediaEngine::receiveSinkDescription(
+                     QStringLiteral("client"), &chosen),
+                 QStringLiteral("pulsesink name=outsink"));
+        // System default (no binding) and no choice at all keep today's sinks.
+        SfuMediaEngine::OutputSink fallback;
+        fallback.sink = QStringLiteral("autoaudiosink name=outsink");
+        QCOMPARE(SfuMediaEngine::receiveSinkDescription(QString(), &fallback),
+                 QStringLiteral("autoaudiosink"));
+        QCOMPARE(SfuMediaEngine::receiveSinkDescription(QString(), nullptr),
+                 QStringLiteral("autoaudiosink"));
+        QCOMPARE(SfuMediaEngine::receiveSinkDescription(
+                     QStringLiteral("client"), nullptr),
+                 QStringLiteral("pulsesink name=recvsink"));
+        // And production actually asks for it.
+        QFile file(QStringLiteral(SOURCE_DIR "/src/calls/SfuMediaEngine.cpp"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QString code = QString::fromUtf8(file.readAll());
+        // The receive path reads the cache; the device monitor must never run
+        // on the streaming thread that builds a new participant's bin.
+        const int begin = code.indexOf(
+            QStringLiteral("bool SfuMediaEngine::prepareReceiveChain("));
+        const int end = code.indexOf(
+            QStringLiteral("bool SfuMediaEngine::startReceiveChain("), begin);
+        QVERIFY(begin > 0 && end > begin);
+        const QString body = code.mid(begin, end - begin);
+        QVERIFY(body.contains(QStringLiteral("cachedSpeakerSink()")));
+        QVERIFY2(!body.contains(QStringLiteral("resolveSpeakerSink")),
+                 "prepareReceiveChain resolves devices on a streaming thread");
+        QVERIFY(code.contains(QStringLiteral("QThreadPool::globalInstance()")));
     }
 
     // The live shape: about ten undecryptable frames within ~160 ms of a new

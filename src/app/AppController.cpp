@@ -6,6 +6,9 @@
 #include "app/GuiStallTracer.h"
 
 #include "app/RichComposerBridge.h"
+#include "app/RendererNotice.h"
+#include <QSettings>
+#include <QCoreApplication>
 #include "crypto/BackupController.h"
 #include "crypto/E2eeDiagnostics.h"
 #include "models/ScheduledSendController.h"
@@ -194,6 +197,9 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Persistence is account-scoped; this loads the active account's list.
     m_mediaVisibility->setSettings(m_settings.get());
     m_banners = std::make_unique<ProfileBannerManager>(this);
+    m_backdrops = std::make_unique<ChatBackdropController>(this);
+    // Personal backgrounds and the depth preference are account-scoped.
+    m_backdrops->setSettings(m_settings.get());
     m_nameColors = std::make_unique<NameColorManager>(this);
     m_bio = std::make_unique<ProfileBioManager>(this);
     m_userProfiles = std::make_unique<UserProfileResolver>(this);
@@ -307,6 +313,11 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_presence     = std::make_unique<PresenceManager>(this);
     m_presence->setSettings(m_settings.get());
     m_scheduledSends->setSettings(m_settings.get());
+    // A muted room's rows are hidden from the bell and its badge (unmuting
+    // brings them back), the same rule as the room list.
+    m_activity->setNotificationModeSource([this](const QString &id) {
+        return m_settings ? m_settings->roomNotificationMode(id) : 0;
+    });
     // Only the seen marker and the keywords persist, account-scoped.
     m_activity->setStore({ [this] { return m_settings->activityState(); },
                            [this](const QVariantMap &state) {
@@ -320,6 +331,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_groupCall    = std::make_unique<SfuCallController>(this);
     m_callDevices  = std::make_unique<CallDeviceController>(this);
     m_callSounds   = std::make_unique<CallSoundController>(this);
+    m_audioTester  = std::make_unique<AudioDeviceTester>(this);
     // Application updates: not account-scoped, so sign-in, sign-out and
     // account switches never disturb a check or download.
     m_updateManager = std::make_unique<lightning::update::UpdateManager>(this);
@@ -394,6 +406,20 @@ AppController::AppController(Backend backend, bool screenshotDemo,
         return QVariantMap{};
     });
     m_mediaBridge  = std::make_unique<MediaBridge>(this);
+    m_fileChooser = std::make_unique<FileChooser>(this);
+    m_fileChooser->setFolderMemory(
+        [this](const QString &purpose) {
+            return m_settings ? m_settings->lastFileFolder(purpose) : QUrl();
+        },
+        [this](const QString &purpose, const QUrl &folder) {
+            if (m_settings)
+                m_settings->rememberFileFolder(purpose, folder);
+        });
+    m_fileChooser->setDefaultFolder([this] { return defaultFileDialogFolder(); });
+    m_fileLauncher = std::make_unique<FileLauncher>(this);
+    m_downloads = std::make_unique<DownloadsController>(
+        m_mediaBridge.get(), m_fileChooser.get(), m_fileLauncher.get(), this);
+    m_downloads->setSettings(m_settings.get());
     m_accountAvatars = std::make_unique<AccountAvatarStore>(this);
     // Persist the active account's own avatar when its bytes pass through
     // MediaBridge: that is the only time they exist, since media is fetched
@@ -419,6 +445,17 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // The tray balloon is the delivery where there is no freedesktop daemon
     // (Windows, macOS); see refreshTrayState.
     m_notifications->setFallbackTray(&m_tray);
+    // Lightning's own notification chime, through the call sound player so
+    // the call state (in a call, ringing, share capturing the mix) gates it.
+    // Whose sound plays follows the setting live.
+    m_notifications->setSoundSource(m_settings->notificationSoundSource());
+    connect(m_settings.get(), &SettingsManager::notificationSoundSourceChanged,
+            this, [this] {
+        m_notifications->setSoundSource(m_settings->notificationSoundSource());
+    });
+    m_notifications->setOwnSoundPlayer([this](bool mention) {
+        return m_callSounds->playNotificationSound(mention);
+    });
     m_notifications->setAvatarProvider(
         [this](const QString &mxc, bool request) {
             if (request)
@@ -1038,6 +1075,28 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 }
             });
     m_callDevices->setSettings(m_settings.get());
+    // The device test opens the chosen devices with the chosen gain, and
+    // never while a call (either lane) is ringing, starting or live: the call
+    // owns the microphone.
+    m_audioTester->setDeviceController(m_callDevices.get());
+    m_audioTester->setSettings(m_settings.get());
+    {
+        const auto updateTesterCallState = [this] {
+            const CallController::State legacy = m_calls->state();
+            const bool legacyBusy = legacy != CallController::State::Idle
+                && legacy != CallController::State::Ended;
+            m_audioTester->setCallActive(m_groupCall->active() || legacyBusy);
+        };
+        // The tester is the CONTEXT object, not `this`: it is declared after
+        // the call controllers, so it is destroyed BEFORE them, and the group
+        // call's destructor emits stateChanged (teardown -> Ended) into a
+        // handler that would call setCallActive on a freed tester. A context
+        // object disconnects the handler when it dies.
+        connect(m_groupCall.get(), &SfuCallController::stateChanged,
+                m_audioTester.get(), updateTesterCallState);
+        connect(m_calls.get(), &CallController::stateChanged,
+                m_audioTester.get(), updateTesterCallState);
+    }
     // Call sounds watch both lanes; the player is installed separately
     // (enableCallSounds) so tests never open audio.
     m_callSounds->setSettings(m_settings.get());
@@ -1504,6 +1563,17 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomList->setNotificationModeSource([this](const QString &id) {
         return m_settings->roomNotificationMode(id);
     });
+    // Every rollup follows the same rule: the Space badges, Home and People
+    // totals and the lobby's counts.
+    m_spaces->setNotificationModeSource([this](const QString &id) {
+        return m_settings->roomNotificationMode(id);
+    });
+    connect(m_settings.get(), &SettingsManager::roomNotificationModeChanged,
+            m_spaces.get(),
+            [this](const QString &) { m_spaces->notificationModesChanged(); });
+    connect(m_settings.get(), &SettingsManager::roomNotificationModeChanged,
+            m_activity.get(),
+            [this](const QString &) { m_activity->notificationModesChanged(); });
     connect(m_settings.get(), &SettingsManager::roomNotificationModeChanged,
             m_roomList.get(),
             [this](const QString &) { m_roomList->notificationModeChanged(); });
@@ -1557,6 +1627,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_composer->setClient(m_client.get());
     m_mentionSuggestions->setClient(m_client.get());
     m_banners->setClient(m_client.get());
+    m_backdrops->setClient(m_client.get());
+    // Shared pictures are fetched and measured through the media bridge only;
+    // personal ones are served from memory via the staged-image store.
+    m_backdrops->setMediaBridge(m_mediaBridge.get());
+    m_backdrops->setSpaces(m_spaces.get());
+    m_backdrops->setStagedImages(&m_stagedImages);
     m_nameColors->setClient(m_client.get());
     m_bio->setClient(m_client.get());
     m_userProfiles->setClient(m_client.get());
@@ -1990,6 +2066,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                     retryFailedNotificationModes();
                 m_lastConnectionState = static_cast<int>(state);
             });
+    // A rule written elsewhere (a room muted in Element) updates the local
+    // modes without a restart. Read-only; own writes in flight are skipped.
+    connect(m_client.get(), &MatrixClient::pushRulesChanged, this,
+            [this] { refreshStoredNotificationModes(); });
     connect(m_client.get(), &MatrixClient::initialSyncDoneChanged, this, [this, refreshConnectionStatus] {
         refreshConnectionStatus();
         Q_EMIT initialSyncDoneChanged();
@@ -2779,6 +2859,9 @@ void AppController::refreshStoredNotificationModes()
     // this account's own keys; the legacy device-global ones are device-only
     // choices and never asked about or sent.
     int asked = 0;
+    // Rooms muted (or set) from another client are not in the local record at
+    // all, so ask the account's rules for every room that has one.
+    m_client->requestAllRoomNotificationModes();
     const QStringList rooms = m_settings->accountRoomNotificationModeRooms();
     for (const QString &roomId : rooms) {
         // The retry owns an unsynced room.
@@ -3134,6 +3217,11 @@ CallSoundController *AppController::callSounds() const
     return m_callSounds.get();
 }
 
+AudioDeviceTester *AppController::audioTester() const
+{
+    return m_audioTester.get();
+}
+
 void AppController::enableCallSounds()
 {
     if (m_callSounds->sink())
@@ -3187,6 +3275,8 @@ void AppController::enableCallMediaEngine()
     if (SfuMediaEngine::runtimeAvailable(&sfuWhyNot)) {
         auto *sfu = new SfuMediaEngine(this);
         m_groupCall->setMediaEngine(sfu);
+        // The Settings device test builds on the same chain and elements.
+        m_audioTester->setRuntimeAvailable(true);
         // Chosen camera, microphone and speaker for the MatrixRTC lane,
         // applied per publish so a change lands on the next capture.
         const auto applySfuDevices = [this, sfu] {
@@ -5798,4 +5888,35 @@ void AppController::setSoftwareRenderer(bool software)
         return;
     m_softwareRenderer = software;
     Q_EMIT softwareRendererChanged();
+}
+
+namespace {
+const QString kSoftwareNoticeDismissedKey =
+    QStringLiteral("ui/softwareRendererNoticeDismissedVersion");
+} // namespace
+
+void AppController::setGlRenderer(const QString &glRenderer)
+{
+    QSettings store;
+    const bool show = lightning::shouldShowSoftwareRendererNotice(
+        glRenderer, qEnvironmentVariable("QT_QUICK_BACKEND"),
+        qEnvironmentVariable("QSG_RHI_BACKEND"),
+        store.value(kSoftwareNoticeDismissedKey).toString(),
+        QCoreApplication::applicationVersion());
+    if (m_softwareRendererNoticeVisible == show)
+        return;
+    m_softwareRendererNoticeVisible = show;
+    Q_EMIT softwareRendererNoticeVisibleChanged();
+}
+
+void AppController::dismissSoftwareRendererNotice()
+{
+    QSettings store;
+    store.setValue(kSoftwareNoticeDismissedKey,
+                   QCoreApplication::applicationVersion());
+    store.sync();
+    if (!m_softwareRendererNoticeVisible)
+        return;
+    m_softwareRendererNoticeVisible = false;
+    Q_EMIT softwareRendererNoticeVisibleChanged();
 }

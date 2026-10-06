@@ -39,11 +39,15 @@
 #include <vector>
 #include "profile/NameColorManager.h"
 #include "profile/ProfileBannerManager.h"
+#include "backdrop/ChatBackdropController.h"
 #include "profile/ProfileBadges.h"
 #include "profile/ProfileBioManager.h"
 #include "profile/UserProfileResolver.h"
 #include "app/AccountAvatarStore.h"
 #include "media/MediaBridge.h"
+#include "app/DownloadsController.h"
+#include "app/FileChooser.h"
+#include "app/FileLauncher.h"
 #include "media/StagedImageStore.h"
 #include "media/ImageCropper.h"
 #include "media/MediaPlaybackController.h"
@@ -75,6 +79,7 @@
 #include "calls/CallController.h"
 #include "calls/CallLanePolicy.h"
 #include "calls/RtcController.h"
+#include "calls/AudioDeviceTester.h"
 #include "calls/CallDeviceController.h"
 #include "calls/SfuCallController.h"
 #include "calls/CallSoundController.h"
@@ -130,6 +135,12 @@ class AppController : public QObject
     // interface; false until then.
     Q_PROPERTY(bool softwareRenderer READ softwareRenderer
                NOTIFY softwareRendererChanged)
+    // True when the GL driver is a CPU rasteriser (llvmpipe and friends), the
+    // user did not ask for software rendering, and the notice has not been
+    // dismissed for this version. Drives the one-line notice in Main.qml.
+    Q_PROPERTY(bool softwareRendererNoticeVisible
+               READ softwareRendererNoticeVisible
+               NOTIFY softwareRendererNoticeVisibleChanged)
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
     Q_PROPERTY(bool localRustResetRequired READ localRustResetRequired
                NOTIFY localRustResetRequiredChanged)
@@ -255,6 +266,8 @@ class AppController : public QObject
     Q_PROPERTY(RailEntryModel* railEntries READ railEntries CONSTANT)
     // Profile banners (MSC4427 / MSC4133), stable and Commet field names.
     Q_PROPERTY(ProfileBannerManager* banners READ banners CONSTANT)
+    // Chat backgrounds (shared per room/Space, personal) and surface depth.
+    Q_PROPERTY(ChatBackdropController* backdrops READ backdrops CONSTANT)
     Q_PROPERTY(NameColorManager* nameColors READ nameColors CONSTANT)
     // Profile bios (MSC4440 / MSC4133), stable and unstable field names.
     // Plain text only.
@@ -350,6 +363,9 @@ class AppController : public QObject
     Q_PROPERTY(CallDeviceController* callDevices READ callDevices CONSTANT)
     // Call sounds. QML only uses it for Settings previews.
     Q_PROPERTY(CallSoundController* callSounds READ callSounds CONSTANT)
+    // Settings -> Sound & video: microphone level check, "hear yourself" and
+    // the output test tone. Refuses while a call is live.
+    Q_PROPERTY(AudioDeviceTester* audioTester READ audioTester CONSTANT)
     // Pinned messages for the active room (not the Room Information panel's).
     Q_PROPERTY(PinnedMessagesController* pinned READ pinned CONSTANT)
     // Room upgrade links for the active room. Never follows an upgrade by
@@ -377,6 +393,12 @@ class AppController : public QObject
     // Close a room or Space; delete one from the server as its administrator.
     Q_PROPERTY(RoomClosureController* roomClosure READ roomClosure CONSTANT)
     Q_PROPERTY(MediaBridge* mediaBridge READ mediaBridge CONSTANT)
+    // Every file and folder chooser (NativeFileDialog.qml): the desktop's
+    // own dialog through the XDG portal, or QFileDialog. Never QtQuick.Dialogs.
+    Q_PROPERTY(FileChooser* files READ files CONSTANT)
+    // Element's download workflow: straight to Downloads, then Open / Show in
+    // folder. See DownloadsController.
+    Q_PROPERTY(DownloadsController* downloads READ downloads CONSTANT)
     /// Every signed-in account's last known avatar, on disk: the media cache
     /// is memory-only and an inactive account's avatar cannot be fetched.
     Q_PROPERTY(AccountAvatarStore* accountAvatars READ accountAvatars CONSTANT)
@@ -506,6 +528,13 @@ public:
     bool softwareRenderer() const { return m_softwareRenderer; }
     /// Called once from main.cpp when the scene graph reports what it got.
     void setSoftwareRenderer(bool software);
+    bool softwareRendererNoticeVisible() const
+    {
+        return m_softwareRendererNoticeVisible;
+    }
+    /// Called from main.cpp with the GL_RENDERER string (GUI thread).
+    void setGlRenderer(const QString &glRenderer);
+    Q_INVOKABLE void dismissSoftwareRendererNotice();
     bool initialSyncDone() const;
     QString rustDeviceIdRedacted() const;
     bool localRustResetRequired() const { return m_localRustResetRequired; }
@@ -536,6 +565,7 @@ public:
     RailLayoutStore *railLayout() const;
     RailEntryModel *railEntries() const;
     ProfileBannerManager *banners() const;
+    ChatBackdropController *backdrops() const { return m_backdrops.get(); }
     NameColorManager *nameColors() const;
     ProfileBioManager *bio() const;
     UserProfileResolver *userProfiles() const { return m_userProfiles.get(); }
@@ -608,6 +638,7 @@ public:
     SfuCallController *groupCall() const;
     CallDeviceController *callDevices() const;
     CallSoundController *callSounds() const;
+    AudioDeviceTester *audioTester() const;
     // Installs the call-sound audio player. main.cpp only; tests never open
     // an audio device.
     void enableCallSounds();
@@ -666,6 +697,8 @@ public:
     }
     RoomClosureController *roomClosure() const { return m_roomClosure.get(); }
     MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
+    FileChooser *files() const { return m_fileChooser.get(); }
+    DownloadsController *downloads() const { return m_downloads.get(); }
     AccountAvatarStore *accountAvatars() const
     {
         return m_accountAvatars.get();
@@ -985,10 +1018,10 @@ public:
             : QStringLiteral("image://lightning-qr/") + m_verificationQrToken;
     }
     bool trayAvailable() const { return m_trayAvailable; }
-    // The folder a Save/Open FileDialog should start in when it has nothing
+    // The folder a file chooser should start in when it has nothing
     // remembered yet: Pictures, then Documents, then home, the first that
-    // actually exists. Never `/` — QtQuick.Dialogs' own default on a fresh
-    // profile with nothing else to go on.
+    // actually exists. Never `/`, a chooser's own default on a fresh profile
+    // with nothing else to go on.
     Q_INVOKABLE QUrl defaultFileDialogFolder() const;
     QObject *spellChecker() { return &m_spell; }
     QRect restorableWindowGeometry() const { return m_restorableWindowGeometry; }
@@ -1066,6 +1099,7 @@ Q_SIGNALS:
     void syncModeChanged();
     void systemDarkModeChanged();
     void softwareRendererChanged();
+    void softwareRendererNoticeVisibleChanged();
     void errorReported(const QString &message);
     /// A call could not be started, with wording already fit to show.
     void callStartRefused(const QString &message);
@@ -1280,6 +1314,7 @@ private:
     std::unique_ptr<RailLayoutStore> m_railLayout;
     std::unique_ptr<RailEntryModel> m_railEntries;
     std::unique_ptr<ProfileBannerManager> m_banners;
+    std::unique_ptr<ChatBackdropController> m_backdrops;
     std::unique_ptr<NameColorManager> m_nameColors;
     std::unique_ptr<ProfileBioManager> m_bio;
     std::unique_ptr<UserProfileResolver> m_userProfiles;
@@ -1288,6 +1323,7 @@ private:
     // Never true in a release build.
     bool m_screenshotDemoActive = false;
     bool m_softwareRenderer = false;
+    bool m_softwareRendererNoticeVisible = false;
     // QObject* keeps ScreenshotDemoController out of this header. Parented to
     // this; null in non-demo builds.
     QObject *m_demoController = nullptr;
@@ -1366,6 +1402,7 @@ private:
     std::unique_ptr<SfuCallController> m_groupCall;
     std::unique_ptr<CallDeviceController> m_callDevices;
     std::unique_ptr<CallSoundController> m_callSounds;
+    std::unique_ptr<AudioDeviceTester> m_audioTester;
     // The call whose ring was actually announced; only that one can become
     // a missed-call notice. Plus a per-sender ring cooldown.
     QString m_announcedCallId;
@@ -1389,6 +1426,11 @@ private:
     std::unique_ptr<SpaceModerationController> m_spaceModeration;
     std::unique_ptr<RoomClosureController> m_roomClosure;
     std::unique_ptr<MediaBridge> m_mediaBridge;
+    std::unique_ptr<FileChooser> m_fileChooser;
+    std::unique_ptr<FileLauncher> m_fileLauncher;
+    // Declared after the bridge, chooser and launcher it points at, so it is
+    // destroyed first.
+    std::unique_ptr<DownloadsController> m_downloads;
     std::unique_ptr<AccountAvatarStore> m_accountAvatars;
     std::unique_ptr<MediaVisibilityStore> m_mediaVisibility;
     std::unique_ptr<VoiceRecorder> m_voiceRecorder; // lazy — see getter

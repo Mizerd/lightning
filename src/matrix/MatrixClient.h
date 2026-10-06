@@ -275,11 +275,15 @@ public:
     virtual void openThreadList(const QString &roomId) { Q_UNUSED(roomId); }
     virtual void closeThreadList() {}
     virtual void paginateThreadList(const QString &roomId) { Q_UNUSED(roomId); }
+    // `opId` is the caller's request id; the answer echoes it, because
+    // receipts for one thread can complete out of order.
     virtual void markThreadRead(const QString &roomId,
-                                const QString &rootEventId)
+                                const QString &rootEventId, quint64 opId)
     {
-        Q_UNUSED(roomId);
-        Q_UNUSED(rootEventId);
+        // A backend with no threaded receipt has nothing to wait for; say it
+        // was accepted so the Activity bell is not left holding thread rows
+        // (the Rust backend answers asynchronously instead).
+        Q_EMIT threadReadMarkerAdvanced(roomId, rootEventId, opId);
     }
     virtual void queryThreadSubscription(const QString &roomId,
                                          const QString &rootEventId)
@@ -533,6 +537,24 @@ public:
     {
         Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(opId);
     }
+    // Shared chat backgrounds: Lightning's own state event
+    // (org.lightning_matrix.room.background), one per room or Space; see
+    // rust/src/backdrop.rs. Answers on roomBackgroundReceived.
+    virtual bool supportsRoomBackgrounds() const { return false; }
+    virtual void fetchRoomBackground(const QString &roomId, quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(opId);
+    }
+    // A non-empty path is uploaded; otherwise a `url` inside `contentJson` is
+    // re-sent (presentation change); neither clears. Reports on
+    // roomBackgroundSet.
+    virtual void setRoomBackground(const QString &roomId,
+                                   const QString &localPath,
+                                   const QString &contentJson, quint64 opId)
+    {
+        Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(contentJson);
+        Q_UNUSED(opId);
+    }
 
     // ---- Stickers and custom emoji: MSC2545 image packs ----------------
     //
@@ -692,6 +714,10 @@ public:
     {
         Q_UNUSED(roomId);
     }
+    // Reports (roomNotificationModeChanged) every joined room that has a
+    // user-defined push rule, including rooms muted from another client that
+    // this device has never recorded.
+    virtual void requestAllRoomNotificationModes() {}
     virtual void acceptInvite(const QString &roomId) { Q_UNUSED(roomId); }
     virtual void rejectInvite(const QString &roomId) { Q_UNUSED(roomId); }
     virtual void sendImage(const QString &roomId, const QString &localPath) = 0;
@@ -923,14 +949,35 @@ public:
     { Q_UNUSED(roomId); Q_UNUSED(newVersion); return 0; }
     // Device and backup management. renameDevice answers on deviceRenamed;
     // backupAction ("enable" | "create_backup" | "reset_key" |
-    // "disable_and_delete" | "disable_recovery") on backupActionFinished, whose
-    // recoveryKey is set once for enable/reset_key and must be shown and then
-    // dropped, never logged or persisted. requestBackupProgress answers on
-    // backupProgress. 0 = unsupported.
+    // "disable_and_delete" | "disable_recovery") and crossSigningAction
+    // ("setup_cross_signing" | "reset_cross_signing") on backupActionFinished,
+    // whose recoveryKey is set once when a new recovery key was minted and
+    // must be shown and then dropped, never logged or persisted.
+    // crossSigningAction carries the user's explicit decision about an
+    // existing recovery key: `recoveryKey` is the CURRENT one (the new keys are
+    // stored under it and it keeps working; scrubbed after use), and
+    // `replaceRecoveryKeyConfirmed` is true only after the user confirmed that
+    // a new recovery key replaces one they do not have. With neither, an
+    // account that has secret storage fails with "recovery_key_required"
+    // before anything changes. It may first raise uiaRequired (answered with
+    // uiaSubmitPassword / uiaCancel, keyed by the same op id) or
+    // crossSigningApprovalRequired (an OAuth account approves in a browser);
+    // uiaCancel never ends it silently: a backupActionFinished reports what
+    // the cancel left behind (category "cancelled", "cancelled_reset", ...),
+    // or the real result if the approval had already gone through.
+    // requestBackupProgress answers on backupProgress. 0 = unsupported.
     virtual quint64 renameDevice(const QString &deviceId, const QString &name)
     { Q_UNUSED(deviceId); Q_UNUSED(name); return 0; }
     virtual quint64 backupAction(const QString &action)
     { Q_UNUSED(action); return 0; }
+    virtual quint64 crossSigningAction(const QString &action,
+                                       const QString &recoveryKey,
+                                       bool replaceRecoveryKeyConfirmed)
+    {
+        Q_UNUSED(action); Q_UNUSED(recoveryKey);
+        Q_UNUSED(replaceRecoveryKeyConfirmed);
+        return 0;
+    }
     virtual void requestBackupProgress() {}
     // Edit history and event source, answered on editHistoryReceived /
     // eventSourceReceived. Display data held only while a dialog is open; never
@@ -1716,6 +1763,16 @@ Q_SIGNALS:
     // FFI call can be rejected, so nothing downstream may assume it landed.
     void readMarkerAdvanced(const QString &roomId);
     void markRoomReadFailed(const QString &roomId);
+    // The same pair for a THREAD's own receipt (markThreadRead): accepted by
+    // the homeserver, or failed. Room id and thread root id only.
+    // Both carry the `opId` markThreadRead() was given.
+    void threadReadMarkerAdvanced(const QString &roomId,
+                                  const QString &rootEventId, quint64 opId);
+    void threadMarkReadFailed(const QString &roomId, const QString &rootEventId,
+                              quint64 opId);
+    // The account's push rules changed (this device or another), debounced:
+    // room notification modes may have moved.
+    void pushRulesChanged();
     // The room's user-defined push rules were removed; it follows the account
     // default. Separate from roomNotificationModeChanged because this is the
     // absence of a rule; it acknowledges a "follow account default" write.
@@ -1825,6 +1882,15 @@ Q_SIGNALS:
                             const QString &mxc, bool canSet);
     void roomBannerSet(quint64 opId, const QString &roomId, bool ok,
                        const QString &mxc, const QString &category);
+    // A room's shared background as canonical content (empty map = none),
+    // whether this account may change it, and whether the event uses a schema
+    // newer than this build reads (then `content` is empty).
+    void roomBackgroundReceived(quint64 opId, const QString &roomId,
+                                const QVariantMap &content, bool canSet,
+                                bool unsupportedVersion);
+    void roomBackgroundSet(quint64 opId, const QString &roomId, bool ok,
+                           const QVariantMap &content,
+                           const QString &category);
     // One MSC2545 snapshot of every usable pack, validated and bounded in Rust;
     // see StickerPackModel for the row shape. An empty list means "no packs".
     // `roomCanManage` is whether this account may write `im.ponies.room_emotes`
@@ -1894,6 +1960,9 @@ Q_SIGNALS:
     void backupActionFinished(quint64 opId, const QString &action, bool ok,
                               const QString &recoveryKey,
                               const QString &category);
+    // An OAuth (MAS) account must approve new cross-signing keys at `url`, a
+    // plain web page (not authenticated media); the operation keeps polling.
+    void crossSigningApprovalRequired(quint64 opId, const QString &url);
     void backupProgress(const QString &backupState, const QString &uploadState,
                         qint64 backedUp, qint64 total);
     // `revisions` is [{eventId, sender, timestamp(QDateTime), body,

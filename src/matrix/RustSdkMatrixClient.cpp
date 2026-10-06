@@ -3386,6 +3386,68 @@ void RustSdkMatrixClient::setRoomBanner(const QString &roomId,
     }
 }
 
+void RustSdkMatrixClient::fetchRoomBackground(const QString &roomId,
+                                              quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    const QByteArray target = roomId.toUtf8();
+    const QString result = takeRustString(
+        mx_rust_fetch_room_background(m_rustHandle, target.constData(), opId));
+    // The Rust side's sync errors are fixed texts (no id, path or content).
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "room background read rejected op=" << opId
+                          << "reason=" << result.left(120);
+}
+
+namespace {
+// A synchronous refusal of a background write, as a category the UI words.
+// rust/src/backdrop.rs returns stable tokens for its own checks; the session
+// and room checks are shared fixed texts.
+QString backgroundRefusalCategory(const QString &result)
+{
+    QString reason = result;
+    if (reason.startsWith(QLatin1String("error: ")))
+        reason = reason.mid(7);
+    static const QStringList tokens = {
+        QStringLiteral("read_failed"), QStringLiteral("not_a_file"),
+        QStringLiteral("file_too_large"), QStringLiteral("invalid_content"),
+    };
+    if (tokens.contains(reason))
+        return reason;
+    if (reason.contains(QLatin1String("not-joined")))
+        return QStringLiteral("not_joined");
+    if (reason.contains(QLatin1String("no active Matrix session")))
+        return QStringLiteral("signed_out");
+    return QStringLiteral("rejected");
+}
+} // namespace
+
+void RustSdkMatrixClient::setRoomBackground(const QString &roomId,
+                                            const QString &localPath,
+                                            const QString &contentJson,
+                                            quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle || roomId.isEmpty())
+        return;
+    // Neither the path nor the content is logged: a user-picked path, and an
+    // mxc URI that names the picture.
+    const QByteArray target = roomId.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QByteArray content = contentJson.toUtf8();
+    const QString result = takeRustString(mx_rust_set_room_background(
+        m_rustHandle, target.constData(), path.constData(),
+        content.constData(), opId));
+    if (!result.isEmpty()) {
+        // Refused before anything was sent. Logged: this used to vanish.
+        const QString category = backgroundRefusalCategory(result);
+        qCWarning(lcRust) << "room background write rejected op=" << opId
+                          << "stage=ffi category=" << category
+                          << "reason=" << result.left(120);
+        Q_EMIT roomBackgroundSet(opId, roomId, false, QVariantMap(), category);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Stickers and custom emoji (MSC2545 image packs)
 // ---------------------------------------------------------------------------
@@ -3706,6 +3768,15 @@ void RustSdkMatrixClient::requestRoomNotificationMode(const QString &roomId)
         m_rustHandle, room.constData()));
     if (!result.isEmpty())
         qCWarning(lcRust) << "notification-mode query rejected";
+}
+
+void RustSdkMatrixClient::requestAllRoomNotificationModes()
+{
+    if (!m_rustHandle) return;
+    const QString result = takeRustString(
+        mx_rust_refresh_room_notification_modes(m_rustHandle));
+    if (!result.isEmpty())
+        qCWarning(lcRust) << "notification-mode bulk query rejected";
 }
 
 void RustSdkMatrixClient::acceptInvite(const QString &roomId)
@@ -4126,14 +4197,23 @@ void RustSdkMatrixClient::paginateThreadList(const QString &roomId)
 }
 
 void RustSdkMatrixClient::markThreadRead(const QString &roomId,
-                                         const QString &rootEventId)
+                                         const QString &rootEventId,
+                                         quint64 opId)
 {
-    if (!m_rustHandle || roomId.isEmpty() || rootEventId.isEmpty())
+    if (!m_rustHandle || roomId.isEmpty() || rootEventId.isEmpty()) {
+        // The caller queued this request; a silent return would leave it
+        // pending for good.
+        Q_EMIT threadMarkReadFailed(roomId, rootEventId, opId);
         return;
+    }
     const QByteArray roomBytes = roomId.toUtf8();
     const QByteArray rootBytes = rootEventId.toUtf8();
-    takeRustString(mx_rust_thread_mark_read(
-        m_rustHandle, roomBytes.constData(), rootBytes.constData()));
+    // A rejected call (no live thread timeline) is a failed read, not a
+    // silent one: the Activity bell must not clear on it.
+    const QString error = takeRustString(mx_rust_thread_mark_read(
+        m_rustHandle, roomBytes.constData(), rootBytes.constData(), opId));
+    if (!error.isEmpty())
+        Q_EMIT threadMarkReadFailed(roomId, rootEventId, opId);
 }
 
 void RustSdkMatrixClient::queryThreadSubscription(const QString &roomId,
@@ -4795,6 +4875,23 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
 
     releaseRustHandle();
     clearLocalState();
+    // releaseRustHandle() only hands the handle to a retirement worker; its
+    // SQLite stores close when that worker's mx_rust_destroy() has run. On
+    // Windows an open SQLite file cannot be deleted, so deleting now made every
+    // sign-out race that close and report "cleanup_incomplete". Every other
+    // deleter waits here too (resetLocalSession, rollBackFailedAttempt,
+    // AppController::removeAccountLocalState, the sign-in quarantine).
+    {
+        QElapsedTimer closeWait;
+        closeWait.start();
+        const bool retired = waitForRustRetirement(kStoreCloseBudgetMs);
+        qCInfo(lcRust) << "rust sign-out store close"
+                       << "retired=" << retired
+                       << "waited_ms=" << closeWait.elapsed();
+        if (!retired)
+            qCWarning(lcRust) << "sign-out: the store was still open after the "
+                                 "close budget; deleting anyway";
+    }
     // Use matchedRecord rather than the discarding overload: "target absent"
     // and "reset completed" are different outcomes and must not both report
     // success.
@@ -5391,6 +5488,25 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    if (type == QLatin1String("push_rules_changed")) {
+        Q_EMIT pushRulesChanged();
+        return;
+    }
+    if (type == QLatin1String("thread_read_marker_advanced")) {
+        Q_EMIT threadReadMarkerAdvanced(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("thread_root_id")).toString(),
+            static_cast<quint64>(event.value(QStringLiteral("op_id")).toDouble()));
+        return;
+    }
+    if (type == QLatin1String("thread_mark_read_failed")) {
+        Q_EMIT threadMarkReadFailed(
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("thread_root_id")).toString(),
+            static_cast<quint64>(event.value(QStringLiteral("op_id")).toDouble()));
+        return;
+    }
+
     if (type == QLatin1String("room_action_error")) {
         const QString action = event.value(QStringLiteral("action")).toString();
         if (action == QLatin1String("mark_read"))
@@ -5929,14 +6045,23 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
 
     if (type == QLatin1String("sync_stalled")) {
-        // Deliberately not an error state: a first full-state request on a
-        // large account can be slow. This leaves a log line for a wedged sync
-        // instead of an unexplained spinner.
-        qCWarning(lcRust) << "sync has not received a first response"
-                          << "phase="
-                          << event.value(QStringLiteral("phase")).toString()
-                          << "waited_secs="
-                          << event.value(QStringLiteral("waited_secs")).toInt();
+        // Deliberately not an error state by itself: a first full-state request
+        // on a large account can be slow. This leaves a log line for a wedged
+        // sync instead of an unexplained spinner. The classic lane follows a
+        // `no_progress` stall with `room_list_sync_state: offline` and, if it
+        // has to restart the loop, `sync_error` (issue #2); those set the state.
+        const QString phase = event.value(QStringLiteral("phase")).toString();
+        if (phase == QLatin1String("no_progress")) {
+            qCWarning(lcRust) << "sync loop has delivered nothing, not even an error"
+                              << "phase=" << phase
+                              << "waited_secs="
+                              << event.value(QStringLiteral("waited_secs")).toInt();
+        } else {
+            qCWarning(lcRust) << "sync has not received a first response"
+                              << "phase=" << phase
+                              << "waited_secs="
+                              << event.value(QStringLiteral("waited_secs")).toInt();
+        }
         return;
     }
 
@@ -6593,6 +6718,10 @@ void RustSdkMatrixClient::handleTimelinePagination(const QJsonObject &event)
         }
         qCInfo(lcRust) << "timeline pagination complete reached_start="
                        << state.reachedStart
+                       // SDK pages the bridge walked for this one request;
+                       // more than one means it crossed filtered history.
+                       << "walkedPages="
+                       << event.value(QStringLiteral("walked_pages")).toInt(1)
                        << "nextBatch="
                        << (state.batchSize > 0 ? state.batchSize
                                                : kPaginationBatch)
@@ -7913,6 +8042,26 @@ quint64 RustSdkMatrixClient::backupAction(const QString &action)
     const QByteArray value = action.toUtf8();
     const QString result = takeRustString(
         mx_rust_backup_action(m_rustHandle, value.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::crossSigningAction(const QString &action,
+                                                const QString &recoveryKey,
+                                                bool replaceRecoveryKeyConfirmed)
+{
+    if (!m_rustHandle || action.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray value = action.toUtf8();
+    // SENSITIVE: the current recovery key. Converted once, zeroed after the
+    // call; Rust scrubs its own copy once the secret store is opened.
+    QByteArray keyBytes = recoveryKey.toUtf8();
+    const QString result = takeRustString(mx_rust_cross_signing_action(
+        m_rustHandle, value.constData(), keyBytes.constData(),
+        replaceRecoveryKeyConfirmed ? 1 : 0, opId));
+    volatile char *raw = keyBytes.data();
+    for (int i = 0; i < keyBytes.size(); ++i)
+        raw[i] = 0;
     return result.isEmpty() ? opId : 0;
 }
 
@@ -9862,6 +10011,38 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("category")).toString());
         return true;
     }
+    if (type == QLatin1String("room_background")) {
+        // Canonical content from rust/src/backdrop.rs (mxc-only url, clamped
+        // presentation); null becomes an empty map, meaning "none".
+        Q_EMIT roomBackgroundReceived(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("content")).toObject().toVariantMap(),
+            event.value(QStringLiteral("can_set")).toBool(false),
+            event.value(QStringLiteral("unsupported_version")).toBool(false));
+        return true;
+    }
+    if (type == QLatin1String("room_background_set")) {
+        // stage/detail come from rust/src/backdrop.rs: the failing step and
+        // the HTTP status / Matrix errcode only (no server text, no URL).
+        if (!event.value(QStringLiteral("ok")).toBool(false)) {
+            qCWarning(lcRust)
+                << "room background write failed op="
+                << static_cast<quint64>(event.value(QStringLiteral("op_id")).toDouble(0))
+                << "stage=" << event.value(QStringLiteral("stage")).toString()
+                << "category=" << event.value(QStringLiteral("category")).toString()
+                << "detail=" << event.value(QStringLiteral("detail")).toString().left(80);
+        }
+        Q_EMIT roomBackgroundSet(
+            static_cast<quint64>(
+                event.value(QStringLiteral("op_id")).toDouble(0)),
+            event.value(QStringLiteral("room_id")).toString(),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("content")).toObject().toVariantMap(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
     if (type == QLatin1String("sticker_packs")) {
         // Validated and bounded in rust/src/stickers.rs (mxc-only urls,
         // allowlisted mimetype, control characters stripped, caps). A plain
@@ -10686,6 +10867,12 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("ok")).toBool(),
             event.value(QStringLiteral("recovery_key")).toString(),
             event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("cross_signing_approval")) {
+        Q_EMIT crossSigningApprovalRequired(
+            opId(), event.value(QStringLiteral("url")).toString());
         return true;
     }
 

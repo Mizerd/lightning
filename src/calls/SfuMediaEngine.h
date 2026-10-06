@@ -38,10 +38,13 @@
 #include <QTimer>
 #include <QVariantList>
 
+#include "calls/CaptureDeviceSelection.h"
 #include "calls/ShareAudioSources.h"
+#include "calls/noise/NoiseSuppressor.h"
 #include "calls/WebrtcRetirer.h"
 
 typedef struct _GstElement GstElement;
+typedef struct _GstStructure GstStructure;
 typedef struct _GstPromise GstPromise;
 typedef struct _GstPad GstPad;
 typedef struct _GstBuffer GstBuffer;
@@ -163,6 +166,58 @@ public:
     /// One-time probe: GStreamer initialises and every element the SFU
     /// pipelines need resolves. `whyNot` receives a short, safe reason.
     static bool runtimeAvailable(QString *whyNot = nullptr);
+
+    // ── The microphone chain, shared with AudioDeviceTester ──
+    // The Settings microphone test must open the device exactly as a call
+    // does (same element choice, same multi-input handling, same processing),
+    // or it tests something else. These are the one implementation both use.
+
+    /// The capture a call opens for `mic`.
+    struct MicrophoneCapture {
+        /// The source element, named `micsrc`, e.g. "pulsesrc name=micsrc".
+        QString source;
+        /// Set on `micsrc` after the parse (never interpolated: a quote in a
+        /// device name would be parsed as syntax). Empty for the default.
+        lightning::calls::DeviceBinding binding;
+        /// Channels to pin for the multi-input matrix; 0 mixes normally.
+        int channels = 0;
+    };
+    /// Resolved as publishAudio() resolves it: `autoaudiosrc` for "system
+    /// default", otherwise the first concrete element that can bind the
+    /// device. A chosen device asks GStreamer's device monitor, which may
+    /// block for up to the enumeration budget (2.5 s); call it off the GUI
+    /// thread where possible.
+    static MicrophoneCapture resolveMicrophoneCapture(const DeviceChoice &mic);
+    /// "<source> [channel caps] ! queue (bounded, leaky) ! audioconvert
+    /// [mix-matrix] ! audioresample ! audio/x-raw,channels=1": mono at the
+    /// device's rate, ready for processing. No trailing separator.
+    static QString microphoneFrontDescription(const MicrophoneCapture &capture);
+    /// Whether gst-plugins-good's `level` exists in this build.
+    static bool levelElementAvailable();
+    /// Sets `binding` on the element called `elementName` inside `bin`.
+    /// Returns false when nothing was set.
+    static bool applyCaptureBinding(GstElement *bin, const char *elementName,
+                                    const lightning::calls::DeviceBinding &binding);
+    /// The output a chosen speaker resolves to: a sink description named
+    /// `outsink` and the binding to set on it. `autoaudiosink` for "system
+    /// default" or when nothing can bind the device. May block like
+    /// resolveMicrophoneCapture().
+    struct OutputSink {
+        QString sink;
+        lightning::calls::DeviceBinding binding;
+    };
+    static OutputSink resolveSpeakerSink(const DeviceChoice &speaker);
+    /// The loudest channel's peak from a `level` element message. False when
+    /// the message carries no readable peak; -350 (digital silence) is a real
+    /// reading and returns true.
+    static bool readLevelPeak(const GstStructure *fields, double *peakDb);
+    /// `level`'s reporting period on the microphone, in nanoseconds: the
+    /// in-call meter's refresh rate.
+    static constexpr quint64 kMicLevelIntervalNs = 50000000;
+    /// The second `level` on the microphone, `miccapturelevel`: what the
+    /// device captures, BEFORE noise suppression, for the dead-microphone
+    /// judgement. Its windows are seconds long, so 200 ms is plenty.
+    static constexpr quint64 kMicCaptureLevelIntervalNs = 200000000;
 
     explicit SfuMediaEngine(QObject *parent = nullptr);
     ~SfuMediaEngine() override;
@@ -308,10 +363,24 @@ public:
     /// A non-empty `pulseClientName` makes the audio output a pulsesink on a
     /// Pulse connection of that name (outside test mode); see
     /// rebuildReceiveBin().
+    /// `speaker`, when non-null and carrying a device binding (the user chose
+    /// an output), replaces the default sink: its `outsink` element gets the
+    /// binding after the parse, exactly as the 1:1 lane and the device test do.
     static GstElement *buildReceiveBin(bool video,
                                        const QString &volumeElementName,
                                        bool testSink, QString *error,
-                                       const QString &pulseClientName = QString());
+                                       const QString &pulseClientName = QString(),
+                                       const OutputSink *speaker = nullptr);
+    /// The sink part of an audio receive bin's description, for tests.
+    /// Resolves the chosen speaker on a worker thread and caches it. Called
+    /// when the choice changes and when a call starts; never from a
+    /// streaming thread.
+    void refreshSpeakerSink();
+    /// The cached resolution (empty binding when none yet). Cheap; safe from
+    /// any thread.
+    OutputSink cachedSpeakerSink() const;
+    static QString receiveSinkDescription(const QString &pulseClientName,
+                                          const OutputSink *speaker);
     /// The identity a receive volume element is named for: per track, since a
     /// participant can publish microphone and share audio.
     static QString volumeKeyFor(const QString &streamId,
@@ -460,6 +529,11 @@ public:
     /// Test-only: every receive-bin rebuild fails, as with no sound server.
     void failReceiveRebuildsForTest(bool fail) { m_failReceiveRebuilds = fail; }
 
+    /// Test-only: a property of a named element inside a published bin,
+    /// serialized by GStreamer; empty when absent.
+    QString publishedBinPropertyForTest(const QString &cid,
+                                        const QString &elementName,
+                                        const QString &property) const;
     /// Test-only: does the bin published under `cid` contain `elementName`?
     /// Out of line so includers do not link against GStreamer.
     bool publishedBinHasElementForTest(const QString &cid,
@@ -531,6 +605,37 @@ public:
     /// `volume` element in the send chain before the encoder. Not a mute:
     /// zero gain still publishes RTP.
     void setMicrophoneGain(int percent);
+    /// Microphone noise suppression (GitHub #20): which ONE suppressor runs on
+    /// the published microphone. Applied live to a running chain (see
+    /// calls/noise/MicProcessing.h) and to every chain built afterwards. Not
+    /// reset by stop(): it is a user setting, like the gain.
+    void setNoiseSuppressionMode(calls::noise::Mode mode);
+    /// The selected neural mode failed (it could not start, or stopped
+    /// mid-call): build it again in the running microphone. webrtcdsp keeps
+    /// suppressing until the new attempt reports. A no-op for Off and WebRTC.
+    /// Explicit, never part of applying the setting: a backend that fails
+    /// every time must not be rebuilt on every mute toggle.
+    void retryNoiseSuppression();
+    calls::noise::Mode noiseSuppressionMode() const
+    {
+        return calls::noise::Mode(m_noiseMode.load());
+    }
+    /// The selected neural backend could not start and webrtcdsp's own
+    /// suppressor runs in its place. Valid when noiseSuppressionStatus()
+    /// reports ok == false; cleared by a mode change.
+    bool noiseSuppressionFellBackToWebrtc() const
+    {
+        return m_noiseFellBackToWebrtc;
+    }
+    /// Test-only: the mode the last denoiser report made webrtcdsp follow
+    /// ("" when none yet). In test-source mode webrtcbin parks the stream
+    /// (no answer to its offer), so the idle probe that replaces webrtcdsp
+    /// never fires and its property cannot show the decision.
+    QString lastDspFollowUpForTest() const { return m_lastDspFollowUp; }
+    /// The voice-processing stage of the microphone chain for `mode`, for this
+    /// runtime: the call's publish chain and the Settings microphone test
+    /// both build from it, so the test runs the selected suppressor too.
+    static QString voiceProcessingDescription(calls::noise::Mode mode);
     /// Local playback mute for every remote track.
     void setOutputMuted(bool muted);
     /// Local volume for one participant, 0..200, keyed by their LiveKit
@@ -640,6 +745,15 @@ Q_SIGNALS:
     /// counter treats silence like speech. `peakDb` is the capture peak in
     /// dBFS, never audio.
     void localAudioSilent(bool silent, double peakDb);
+    /// Every level reading of what is SENT (peak dBFS, loudest channel, after
+    /// noise suppression and gain), for the in-call meter: every
+    /// kMicLevelIntervalNs while audio flows, nothing while muted (`level`
+    /// sits after the mute valve). A level, never audio.
+    void localAudioLevel(double peakDb);
+    /// The selected noise suppressor took effect on the microphone, or failed
+    /// and the microphone passes through unsuppressed (`ok` false). `mode` is
+    /// the setting's key ("off", "webrtc", "rnnoise", "deepfilternet").
+    void noiseSuppressionStatus(const QString &mode, bool ok);
 
 private:
     struct Peer {
@@ -706,14 +820,25 @@ public Q_SLOTS:
     /// been reported yet.
     void handlePublishError(const QString &cid);
 
-    /// A `level` peak from the capture chain, on the GUI thread.
+    /// A peak from `miccapturelevel`, what the device captures BEFORE noise
+    /// suppression, on the GUI thread: the dead-microphone judgement and the
+    /// periodic level log. Never the in-call meter. Pre-suppression on
+    /// purpose: a suppressor that cleans a fan to digital silence has a LIVE
+    /// microphone in front of it, and "nobody can hear you" would be false.
     void handleMicLevel(double peakDb);
+    /// A peak from `miclevel`, what is SENT (after suppression and gain), on
+    /// the GUI thread: the in-call meter (localAudioLevel) only.
+    void handleMeterLevel(double peakDb);
+    /// lightningdenoise reported a mode taking effect, on the GUI thread.
+    void handleDenoiseStatus(const QString &requested, const QString &active,
+                             bool ok, int latencySamples);
     /// As handleMicLevel(), with the clock supplied for tests.
     void handleMicLevelAt(double peakDb, qint64 nowMs);
     /// Forgets any previous silence judgement; called when the audio bin is
     /// built.
     void resetMicLevelState();
     bool microphoneSilentForTest() const { return m_micSilentAnnounced; }
+    bool microphoneQuietForTest() const { return m_micQuietAnnounced; }
     double micPeakDbForTest() const { return m_micPeakDb; }
     /// Test-only: pretend the capture device has this many channels, so the
     /// real multi-input description is parsed.
@@ -723,12 +848,20 @@ public Q_SLOTS:
     QString lastAudioDescriptionForTest() const { return m_lastAudioDescription; }
 
 public:
-    /// Peak dBFS at or below which a capture carries nothing audible. Speech
-    /// peaks around -20; `level` reports digital silence as -350.
-    static constexpr double kMicSilenceCeilingDb = -60.0;
-    /// How long the ceiling must hold before it is reported; a conversational
-    /// pause is not a diagnosis.
+    /// Peak dBFS at or below which a capture is DEAD: digital silence or the
+    /// converter's own floor. `level` reports exact zero as -350 and 16-bit
+    /// audio floors near -96; a live microphone in a quiet room still peaks
+    /// at -60..-78 (measured, 2026-10-04 call log), so a ceiling of -60 fired
+    /// four times on a user who was merely pausing between sentences.
+    static constexpr double kMicSilenceCeilingDb = -85.0;
+    /// How long the dead ceiling must hold before it is reported; a
+    /// conversational pause is not a diagnosis.
     static constexpr qint64 kMicSilenceWindowMs = 10000;
+    /// A live but very quiet capture (gain far too low, wrong input): peaks
+    /// at or below this for the much longer window below. Never reported on
+    /// the short window, because speech pauses sit here.
+    static constexpr double kMicQuietCeilingDb = -60.0;
+    static constexpr qint64 kMicQuietWindowMs = 60000;
 
     /// Pure: carries the "silent since" mark across one report. -1 (not 0,
     /// which is a legal instant) means audible. Returns the new mark.
@@ -736,6 +869,10 @@ public:
                                   qint64 nowMs);
     /// Pure: has a mark aged past the window?
     static bool micSilenceReached(qint64 silentSinceMs, qint64 nowMs);
+    /// As micSilenceSince()/micSilenceReached() for the quiet tier.
+    static qint64 micQuietSince(double peakDb, qint64 quietSinceMs,
+                                qint64 nowMs);
+    static bool micQuietReached(qint64 quietSinceMs, qint64 nowMs);
 
 private:
     /// stop() with `endOfCall`; start() without, keeping the media keys and
@@ -764,6 +901,12 @@ private:
     DeviceChoice m_cameraChoice;
     DeviceChoice m_microphoneChoice;
     DeviceChoice m_speakerChoice;
+    /// The output the chosen speaker resolved to, cached so the streaming
+    /// thread never enumerates devices. Guarded by m_deviceMutex. Empty (no
+    /// binding) until the worker resolve lands: a track arriving in that
+    /// window plays on the default sink.
+    OutputSink m_resolvedSpeaker;
+    quint64 m_speakerSeq = 0;
     int m_shareMaxHeight = kScreenHeight;
     int m_shareFps = 30;
     /// Bumped on every start/stop so a late callback is discarded.
@@ -775,9 +918,17 @@ private:
     /// When the capture first fell to or below kMicSilenceCeilingDb, or -1
     /// while audible. Not judged while muted.
     qint64 m_micSilentSinceMs = -1;
+    /// Same for kMicQuietCeilingDb (the long window).
+    qint64 m_micQuietSinceMs = -1;
     bool m_micSilentAnnounced = false;
-    /// Last peak, and when the level was last logged.
+    /// The log-only very-quiet tier; never raises the badge.
+    bool m_micQuietAnnounced = false;
+    /// Last captured (pre-suppression) peak, and when the level was last
+    /// logged.
     double m_micPeakDb = 0;
+    /// Last SENT (post-suppression) peak, for the same log line; -350 until
+    /// a reading arrives.
+    double m_micSentPeakDb = -350.0;
     qint64 m_micLastLogMs = 0;
     QString m_lastAudioDescription;
     int m_testDeviceChannels = 0;
@@ -785,6 +936,10 @@ private:
     /// may be rebuilt on a streaming thread and must start at the user's
     /// level.
     std::atomic<int> m_microphoneGain{100};
+    /// calls::noise::Mode; read when a chain is (re)built.
+    std::atomic<int> m_noiseMode{int(calls::noise::kDefaultMode)};
+    bool m_noiseFellBackToWebrtc = false;
+    QString m_lastDspFollowUp;
     /// Published tracks by client-chosen id, so unpublish can find them.
     QHash<QString, GstElement *> m_publishedBins;
     /// PipeWire remote descriptors owned by publishing bins, closed on
@@ -1049,6 +1204,8 @@ public:
         quint32 fir = 0;
         double rtt = 0;        // seconds, remote-inbound only
         double fractionLost = 0;
+        /// " name=value" for each loss-shaped counter this GStreamer reports.
+        QString extra;
     };
 private:
     void armStatsTrace();
@@ -1058,6 +1215,44 @@ private:
     QTimer m_statsTimer;
     int m_statsIntervalMs = -1;   // -1: environment not read yet
     QHash<quint32, QPair<qint64, quint64>> m_lastRtpBytes; // ssrc -> (ms, bytes)
+    QHash<quint32, qint64> m_lastRtpLost;                   // ssrc|dir -> lost
+
+    // Always-on audio health (2026-10-04 "call audio pops" TODO): every 5 s,
+    // one compact line per inbound audio track plus the receive-side
+    // jitterbuffer counters, so a pop can be told apart as network loss
+    // (packetsLost / jitterbuffer lost), a late packet (jitterbuffer late),
+    // our own receive queue leaking, or the decoder concealing. Numbers only.
+    // LIGHTNING_CALL_STATS_TRACE=off silences it; any other value keeps the
+    // full per-SSRC trace on top of it.
+public:
+    struct RecvHealth {
+        QString streamId;
+        /// Opus decoder input: GAP events and RTP "packet lost" events, each
+        /// of which makes opusdec conceal a frame.
+        std::atomic<quint64> gapEvents{0};
+        std::atomic<quint64> lostEvents{0};
+        /// The leaky receive queue was full: a packet was dropped.
+        std::atomic<quint64> queueOverruns{0};
+        // GUI-thread only: totals at the previous report.
+        quint64 lastGap = 0;
+        quint64 lastLost = 0;
+        quint64 lastOverruns = 0;
+    };
+private:
+    /// Wires the counters of one audio receive bin; no-op for video.
+    void instrumentReceiveBin(GstElement *bin, const QString &trackKey,
+                              const QString &streamId);
+    void logReceiveHealth();
+    mutable QMutex m_recvHealthMutex;
+    QHash<QString, std::weak_ptr<RecvHealth>> m_recvHealth;
+    /// Jitterbuffer element name -> pushed, lost, late, duplicates at the
+    /// previous report.
+    QHash<QString, std::array<quint64, 4>> m_lastJitterbuffer;
+    /// True when LIGHTNING_CALL_STATS_TRACE asked for the full trace.
+    bool m_statsFull = false;
+    /// Report counters for the once-a-minute heartbeat of the compact lines.
+    int m_healthReports = 0;
+    int m_statsReports = 0;
 
     // Per-application share audio; see ShareAudioSources.h. A plain poll, not
     // a bus watch (which would need a GLib main loop). Only additions are

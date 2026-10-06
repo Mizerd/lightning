@@ -381,9 +381,14 @@ public:
     void fetchRoomBanner(const QString &roomId, quint64 opId) override;
     void setRoomBanner(const QString &roomId, const QString &localPath,
                        quint64 opId) override;
+    bool supportsRoomBackgrounds() const override { return true; }
+    void fetchRoomBackground(const QString &roomId, quint64 opId) override;
+    void setRoomBackground(const QString &roomId, const QString &localPath,
+                           const QString &contentJson, quint64 opId) override;
     void publishPresence(int state) override;
     void publishPresence(int state, const QString &statusMsg) override;
     void requestRoomNotificationMode(const QString &roomId) override;
+    void requestAllRoomNotificationModes() override;
     void acceptInvite(const QString &roomId) override;
     void rejectInvite(const QString &roomId) override;
     void sendImage(const QString &roomId, const QString &localPath) override;
@@ -423,8 +428,8 @@ public:
     void openThreadList(const QString &roomId) override;
     void closeThreadList() override;
     void paginateThreadList(const QString &roomId) override;
-    void markThreadRead(const QString &roomId,
-                        const QString &rootEventId) override;
+    void markThreadRead(const QString &roomId, const QString &rootEventId,
+                        quint64 opId) override;
     void queryThreadSubscription(const QString &roomId,
                                  const QString &rootEventId) override;
     void setThreadSubscribed(const QString &roomId, const QString &rootEventId,
@@ -546,6 +551,8 @@ public:
     // Device and backup management.
     quint64 renameDevice(const QString &deviceId, const QString &name) override;
     quint64 backupAction(const QString &action) override;
+    quint64 crossSigningAction(const QString &action, const QString &recoveryKey,
+                               bool replaceRecoveryKeyConfirmed) override;
     void requestBackupProgress() override;
     // Room upgrade.
     void requestRoomVersions() override;

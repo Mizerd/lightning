@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Effects
 import QtQuick.Layouts
 import QtMultimedia
@@ -178,10 +177,12 @@ Item {
             app.richComposer.loadMarkdown(richInput.textDocument,
                                           app.composer.text)
             root.richSyncing = false
+            mentionPopup.tokenActive = false
             mentionPopup.close()
             commandPopup.close()
             Qt.callLater(function () { richInput.forceActiveFocus() })
         } else {
+            mentionPopup.tokenActive = false
             mentionPopup.close()
             commandPopup.close()
             Qt.callLater(function () { root.focusEditor() })
@@ -264,6 +265,7 @@ Item {
         if (!root.richMode)
             return
         if (app.currentRoomId === "") {
+            mentionPopup.tokenActive = false
             mentionPopup.close()
             return
         }
@@ -284,10 +286,12 @@ Item {
             mentionPopup.anchorInputTop =
                 root.composerPopupAnchor(richFlick)
             mentionPopup.anchorWidth = richFlick.width
-            if (!mentionPopup.visible)
+            mentionPopup.tokenActive = true
+            if (mentionPopup.shouldShow && !mentionPopup.visible)
                 mentionPopup.open()
         } else {
             root.mentionTokenStart = -1
+            mentionPopup.tokenActive = false
             mentionPopup.close()
         }
     }
@@ -624,6 +628,7 @@ Item {
         root.lastMentionScanText = input.text
         root.lastMentionScanCursor = input.cursorPosition
         if (app.currentRoomId === "") {
+            mentionPopup.tokenActive = false
             mentionPopup.close()
             root.refreshMentionHighlight()
             return
@@ -642,17 +647,20 @@ Item {
             mentionPopup.anchorInputTop =
                 root.composerPopupAnchor(inputFlick)
             mentionPopup.anchorWidth = inputFlick.width
-            if (!mentionPopup.visible)
+            mentionPopup.tokenActive = true
+            if (mentionPopup.shouldShow && !mentionPopup.visible)
                 mentionPopup.open()
         } else {
             root.mentionTokenStart = -1
+            mentionPopup.tokenActive = false
             mentionPopup.close()
         }
         root.refreshMentionHighlight()
     }
-    // The authoritative mentionRanges plus one presentation-only range for the
-    // token being typed while the popup is open. Never written back to
-    // app.composer, so send-time logic is untouched. Assigned explicitly rather
+    // The authoritative mentionRanges ONLY: text becomes a mention (and is
+    // inked as one) once a member was picked from the popup. A typed "@word" is
+    // plain text until then, whether or not the popup is open, as in Element.
+    // Assigned explicitly rather
     // than bound: rehighlighting nudges cursor signals, and a binding on
     // cursorPosition would loop. The ranges are copied: on Qt 6.8 a
     // QVariantList read from a property stays a live reference, so a stored
@@ -664,12 +672,6 @@ Item {
         var live = app.composer.mentionRanges
         for (var k = 0; k < live.length; ++k)
             ranges.push({ start: live[k].start, length: live[k].length })
-        if (mentionPopup.visible && root.mentionTokenStart >= 0) {
-            var len = input.cursorPosition - root.mentionTokenStart
-            if (len > 0)
-                ranges = ranges.concat([{ start: root.mentionTokenStart,
-                                          length: len }])
-        }
         // Assign only on a real change; a fresh array would notify and
         // rehighlight.
         var current = root.mentionHighlightRanges
@@ -868,6 +870,7 @@ Item {
     Connections {
         target: app
         function onCurrentRoomIdChanged() {
+            mentionPopup.tokenActive = false
             mentionPopup.close()
             // A recording belongs to its room; switching away discards it.
             if (root.voiceActive)
@@ -1048,30 +1051,22 @@ Item {
         }
     }
 
-    // Open a picker in the folder last uploaded from, with nothing selected: a
-    // native dialog (Windows) pre-fills its name field from a stale
-    // selectedFile and would offer the previous upload again. currentFolder is
-    // assigned here, never bound, because the dialog moves it itself.
+    // Open a picker. Every attach picker has purpose "attach", so app.files
+    // starts it in the folder last uploaded from (SettingsManager's
+    // lastAttachFolder) and records the new one itself; nothing is
+    // preselected, so a previous upload is never offered again.
     function openPicker(dialog) {
-        var last = app.settings.lastAttachFolder()
-        dialog.currentFolder = (last && last.toString() !== "")
-            ? last : app.defaultFileDialogFolder()
-        dialog.selectedFile = ""
         dialog.open()
-    }
-    function rememberPicked(file) {
-        app.settings.rememberAttachFolder(file)
     }
 
     // Modern picker (Rust): multiple files, queued in the tray.
-    FileDialog {
+    NativeFileDialog {
         id: pickAttachmentsDialog
+        purpose: "attach"
         title: qsTr("Attach files")
         currentFolder: app.defaultFileDialogFolder()
-        fileMode: FileDialog.OpenFiles
+        fileMode: "openMany"
         onAccepted: {
-            if (selectedFiles.length > 0)
-                root.rememberPicked(selectedFiles[0])
             for (var i = 0; i < selectedFiles.length; ++i)
                 app.composer.addAttachment(selectedFiles[i])
             root.focusStagedAttachmentSend()
@@ -1079,19 +1074,21 @@ Item {
     }
 
     // Legacy pickers (HTTP backend: immediate upload).
-    FileDialog {
+    NativeFileDialog {
         id: pickImageDialog
+        purpose: "attach"
         title: qsTr("Send image")
         currentFolder: app.defaultFileDialogFolder()
         nameFilters: [ qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"),
                        qsTr("All files (*)") ]
-        onAccepted: { root.rememberPicked(selectedFile); app.media.sendPickedImage(app.currentRoomId, selectedFile) }
+        onAccepted: app.media.sendPickedImage(app.currentRoomId, selectedFile)
     }
-    FileDialog {
+    NativeFileDialog {
         id: pickFileDialog
+        purpose: "attach"
         title: qsTr("Send file")
         currentFolder: app.defaultFileDialogFolder()
-        onAccepted: { root.rememberPicked(selectedFile); app.media.sendPickedFile(app.currentRoomId, selectedFile) }
+        onAccepted: app.media.sendPickedFile(app.currentRoomId, selectedFile)
     }
     AppMenu {
         id: legacyAttachMenu
@@ -2069,7 +2066,7 @@ Item {
                             // included.
                             placeholderText: root.richBlank
                                              ? input.placeholderText : ""
-                            placeholderTextColor: AppTheme.textMuted
+                            placeholderTextColor: AppTheme.placeholderInk
                             font: app.textFontWithEmoji(AppTheme.uiFont,
                                                         AppTheme.scaled(14))
                             topPadding: AppTheme.spacing6
@@ -2193,6 +2190,7 @@ Item {
                                     commandPopup.close()
                                     event.accepted = true
                                 } else if (mentionPopup.visible) {
+                                    mentionPopup.tokenActive = false
                                     mentionPopup.close()
                                     event.accepted = true
                                 } else if (app.composer.isReplying
@@ -2270,7 +2268,7 @@ Item {
                                 return qsTr("Edit message…")
                             return qsTr("Message %1").arg(root.roomDisplayName())
                         }
-                        placeholderTextColor: AppTheme.textMuted
+                        placeholderTextColor: AppTheme.placeholderInk
                         // A whole font with the colour emoji face behind the UI
                         // face: QML cannot express a families list, and Qt
                         // 6.8's automatic fallback picks a monochrome face.
@@ -2411,6 +2409,7 @@ Item {
                                 commandPopup.close()
                                 event.accepted = true
                             } else if (mentionPopup.visible) {
+                                mentionPopup.tokenActive = false
                                 mentionPopup.close()
                                 event.accepted = true
                             } else if (app.composer.isReplying

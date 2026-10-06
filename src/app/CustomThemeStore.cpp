@@ -3,9 +3,11 @@
 #include "app/SettingsManager.h"
 
 #include <QColor>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QPair>
 #include <QRegularExpression>
 #include <QUuid>
 
@@ -40,20 +42,29 @@ constexpr Role kRoles[] = {
     { "surface",       QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Panels and cards"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Side panels, dialogs, the composer") },
+    { "popoverSurface", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Menus and dialogs"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Context menus, pop-up menus and dialog boxes") },
+    { "settingsPage", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Settings page"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The ground behind Settings") },
+    { "settingsNav", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Settings navigation"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The column of sections down the left of Settings") },
     { "inputBg",       QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Text fields"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The inside of the message box and every input") },
 
     // ---- row states ----
     { "hover",         QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "Hovered row"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "A room row, menu item or message under the pointer") },
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Hover"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The general hover colour. Rows, menu items and quiet buttons follow it until they have their own") },
     { "selected",      QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "Selected room"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "The open room, menu highlights and selected text") },
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Selection"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The general selected colour: the open Space, and every selected row that has no colour of its own") },
     { "selectedHover", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "Selected and hovered"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "The open room with the pointer on it") },
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Selection, hovered"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Something selected with the pointer on it, such as the open room") },
     { "cardElevated",  QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Raised chips"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Keycaps, link previews, neutral buttons") },
@@ -61,10 +72,50 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Reaction pill"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The background of an emoji reaction under a message") },
 
+    { "reactionSelectedBackground", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Your reaction pill"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "An emoji reaction you added yourself") },
+    { "unreadBadge", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Unread badge"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Unread counts and dots on rooms, Spaces and threads") },
+    { "scrollbarHandle", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Scrollbar handle"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The draggable part of every scrollbar") },
+
+    { "roomSelected", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Open room row"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The room you are in, in the room list") },
+    { "roomHover", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Room row, hovered"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "A room in the room list under the pointer") },
+    { "channelSelected", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Open channel row"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The open row in the Channels layout") },
+    { "channelHover", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Channel row, hovered"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "A Channels row under the pointer") },
+    { "menuHighlight", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Menu highlight"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The highlighted item of a menu or pop-up list") },
+    { "buttonGhostHover", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Quiet button, hovered"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "A button with no fill under the pointer") },
+    { "messageHighlight", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Selected message"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "A message picked for forwarding, or jumped to") },
+    { "textSelection", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Selected text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Text you have highlighted in a field or label") },
+    { "paletteHighlight", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Selection in system controls"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The highlight Qt draws in standard controls") },
     // ---- messages ----
     { "ownBubble",     QT_TRANSLATE_NOOP("CustomThemeStore", "Messages"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Your messages"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The bubble behind messages you sent") },
+    { "ownBubbleText", QT_TRANSLATE_NOOP("CustomThemeStore", "Messages"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Text on your messages"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The words inside the bubble behind messages you sent") },
     { "otherBubble",   QT_TRANSLATE_NOOP("CustomThemeStore", "Messages"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Their messages"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The bubble behind messages from everyone else") },
@@ -92,6 +143,16 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Links"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Web links inside messages") },
 
+    { "focusRing", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Focus ring"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The outline that shows which control the keyboard is on") },
+    { "accentSoft", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Soft accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Tinted chips: your own reactions, active icon chips and your own mentions") },
+    { "accentBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Soft accent outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of those tinted chips") },
+
     // ---- text ----
     { "textPrimary",   QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Main text"),
@@ -109,6 +170,12 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "Text on a selection"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The room name in the open room's row") },
 
+    { "timestampInk", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Timestamps"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The time beside a message") },
+    { "placeholderInk", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Placeholder text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The hint inside an empty field") },
     // ---- lines ----
     { "border",        QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Hairlines"),
@@ -116,6 +183,23 @@ constexpr Role kRoles[] = {
     { "borderStrong",  QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Strong lines"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Field outlines and the scrollbar handle") },
+
+    // ---- status ----
+    { "success", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Success"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Verified marks, success messages and chips") },
+    { "warning", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Warning"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Caution text, icons and chips") },
+    { "danger", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Errors"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Error text, destructive actions and failed states") },
+    { "presenceOnline", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Online dot"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The dot beside someone who is online") },
+    { "dangerTint", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Error tint"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Behind destructive menu rows and the danger chip") },
 };
 
 // ---- the readability table -------------------------------------------------
@@ -235,9 +319,9 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Links on panels and cards"),
       4.5, false }, //  5.02 Storm
-    // nullptr: the ink is a white literal with no editable role, so the
-    // report sends the click to the bubble.
-    { "ownBubbleText", nullptr, "ownBubble", "ownBubble",
+    // The ink has its own editable role since 2026-10-06 (it used to be a
+    // white literal and the report sent the click to the bubble).
+    { "ownBubbleText", "ownBubbleText", "ownBubble", "ownBubble",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Text on your own messages"),
       4.5, false }, //  6.22 Moss Light
@@ -296,6 +380,55 @@ constexpr RoleAlias kRoleAliases[] = {
     { "reaction", "reactionBackground" },
     { "mention",  "mentionBadge" },
 };
+
+// Roles that may carry a gradient: the large surfaces. Ink, states and bubbles
+// stay flat (a bubble gradient would put every message's text over two
+// colours; see the 2026-10-06 backdrop note for why that waits).
+constexpr const char *kGradientRoles[] = {
+    "background", "sidebar", "rail", "surface", "settingsPage", "settingsNav",
+};
+
+// Role -> the editable role it falls back to while it is unset: the same
+// fallback AppTheme's live property and paletteForTheme() take for theme 12
+// (`everyFollowingRoleFallsBackToTheRoleItNames` checks the live side). The
+// editor uses it to show that editing the parent also recolours the child,
+// and outlines both. A base preset that sets the child itself breaks the
+// link; the editor checks that against the raw base palette, so this table is
+// the declared shape, not a claim about every preset.
+struct RoleFollows {
+    const char *role;
+    const char *parent;
+};
+
+constexpr RoleFollows kRoleFollows[] = {
+    { "rail",                       "sidebar" },
+    { "popoverSurface",             "surface" },
+    { "settingsPage",               "background" },
+    { "settingsNav",                "background" },
+    { "roomSelected",               "selected" },
+    { "channelSelected",            "selected" },
+    { "messageHighlight",           "selected" },
+    { "paletteHighlight",           "selected" },
+    { "accentSoft",                 "selected" },
+    { "roomHover",                  "hover" },
+    { "channelHover",               "hover" },
+    { "menuHighlight",              "hover" },
+    { "buttonGhostHover",           "hover" },
+    { "textSelection",              "selectedHover" },
+    { "reactionSelectedBackground", "accentSoft" },
+    { "unreadBadge",                "accent" },
+    { "focusRing",                  "accent" },
+    { "link",                       "accent" },
+    { "scrollbarHandle",            "borderStrong" },
+    { "accentBorder",               "borderStrong" },
+    { "timestampInk",               "textMuted" },
+    { "placeholderInk",             "textMuted" },
+    { "presenceOnline",             "success" },
+    { "dangerTint",                 "mention" },
+};
+
+// Bound on the editor's undo history: one step is two small colour maps.
+constexpr int kMaxUndoSteps = 200;
 
 // The collection, and which of its entries theme id 12 renders.
 constexpr auto kListKey   = "appearance/customThemeList";
@@ -406,6 +539,8 @@ void CustomThemeStore::invalidate()
     m_loaded = false;
     m_cache.clear();
     m_activeId.clear();
+    // The history belongs to the outgoing account's theme.
+    clearHistory();
     // Re-entry is bounded: load() can only write the one-time legacy
     // migration, whose save() sets m_loaded.
     Q_EMIT customThemeChanged();
@@ -445,6 +580,72 @@ QVariantMap CustomThemeStore::sanitize(const QVariantMap &raw)
             continue;
         // Normalised so comparisons with palette values ignore case.
         out.insert(it.key(), value.toUpper());
+    }
+    return out;
+}
+
+QStringList CustomThemeStore::gradientRoles()
+{
+    QStringList out;
+    for (const char *role : kGradientRoles)
+        out << QLatin1String(role);
+    return out;
+}
+
+bool CustomThemeStore::roleTakesGradient(const QString &role)
+{
+    for (const char *r : kGradientRoles) {
+        if (role == QLatin1String(r))
+            return true;
+    }
+    return false;
+}
+
+QVariantMap CustomThemeStore::sanitizeGradient(const QVariant &raw)
+{
+    const QVariantMap spec = raw.toMap();
+    if (spec.isEmpty())
+        return {};
+    const QVariantList rawStops = spec.value(QStringLiteral("stops")).toList();
+    if (rawStops.size() < kMinGradientStops || rawStops.size() > kMaxGradientStops)
+        return {};
+    QStringList stops;
+    for (const QVariant &stop : rawStops) {
+        const QString hex = stop.toString();
+        // Opaque only, as for flat colours: a translucent stop composites
+        // over whatever is behind it and cannot be graded.
+        if (!colorIsValid(hex))
+            return {};
+        stops << hex.toUpper();
+    }
+    const QString type = spec.value(QStringLiteral("type")).toString();
+    int angle = 180;
+    const QVariant rawAngle = spec.value(QStringLiteral("angle"));
+    bool ok = false;
+    const double a = rawAngle.toDouble(&ok);
+    if (ok && std::isfinite(a) && rawAngle.typeId() != QMetaType::QString) {
+        angle = int(std::lround(a)) % 360;
+        if (angle < 0)
+            angle += 360;
+    }
+    QVariantMap out;
+    out.insert(QStringLiteral("type"), type == QLatin1String("radial")
+                                           ? QStringLiteral("radial")
+                                           : QStringLiteral("linear"));
+    out.insert(QStringLiteral("angle"), angle);
+    out.insert(QStringLiteral("stops"), stops);
+    return out;
+}
+
+QVariantMap CustomThemeStore::sanitizeGradients(const QVariantMap &raw)
+{
+    QVariantMap out;
+    for (auto it = raw.constBegin(); it != raw.constEnd(); ++it) {
+        if (!roleTakesGradient(it.key()))
+            continue;
+        const QVariantMap spec = sanitizeGradient(it.value());
+        if (!spec.isEmpty())
+            out.insert(it.key(), spec);
     }
     return out;
 }
@@ -642,6 +843,81 @@ QVariantList CustomThemeStore::auditSkipped(const QVariantMap &palette,
     return gradePalette(palette, role, GradeMode::SkippedOnly);
 }
 
+QVariantList CustomThemeStore::auditWithGradients(
+    const QVariantMap &palette, const QVariantMap &gradients) const
+{
+    // Palette key -> stops. Gradients are keyed by store role; three roles
+    // spell their palette key differently.
+    QHash<QString, QStringList> stopsByKey;
+    const QVariantMap clean = sanitizeGradients(gradients);
+    for (auto it = clean.constBegin(); it != clean.constEnd(); ++it) {
+        stopsByKey.insert(paletteKeyForRole(it.key()),
+                          it.value().toMap().value(QStringLiteral("stops"))
+                              .toStringList());
+    }
+    if (stopsByKey.isEmpty())
+        return audit(palette);
+
+    QVariantList out;
+    for (const ReadabilityCheck &check : kReadability) {
+        const QString fgKey = QLatin1String(check.fg);
+        const QString bgKey = QLatin1String(check.bg);
+        const QStringList fgStops = stopsByKey.value(fgKey);
+        const QStringList bgStops = stopsByKey.value(bgKey);
+        const QVariant fgFlat = palette.value(fgKey);
+        const QVariant bgFlat = palette.value(bgKey);
+
+        // The (fg, bg) pairs actually drawn.
+        QList<QPair<QVariant, QVariant>> pairs;
+        if (!fgStops.isEmpty() && !bgStops.isEmpty()) {
+            const qsizetype n = std::max(fgStops.size(), bgStops.size());
+            for (qsizetype i = 0; i < n; ++i) {
+                pairs.append(qMakePair(
+                    QVariant(fgStops.at(std::min(i, fgStops.size() - 1))),
+                    QVariant(bgStops.at(std::min(i, bgStops.size() - 1)))));
+            }
+        } else if (!fgStops.isEmpty()) {
+            for (const QString &stop : fgStops)
+                pairs.append(qMakePair(QVariant(stop), bgFlat));
+        } else if (!bgStops.isEmpty()) {
+            for (const QString &stop : bgStops)
+                pairs.append(qMakePair(fgFlat, QVariant(stop)));
+        } else {
+            pairs.append(qMakePair(fgFlat, bgFlat));
+        }
+
+        QVariantMap worst;
+        double worstValue = 0.0;
+        int worstStop = -1;
+        for (int i = 0; i < int(pairs.size()); ++i) {
+            QVariantMap variant = palette;
+            variant.insert(fgKey, pairs.at(i).first);
+            variant.insert(bgKey, pairs.at(i).second);
+            const QVariantList rows = gradePalette(variant, QString(), GradeMode::All);
+            for (const QVariant &row : rows) {
+                const QVariantMap m = row.toMap();
+                if (m.value(QStringLiteral("fg")).toString() != fgKey
+                    || m.value(QStringLiteral("bg")).toString() != bgKey)
+                    continue;
+                const double value = m.value(QStringLiteral("value")).toDouble();
+                if (worstStop < 0 || value < worstValue) {
+                    worst = m;
+                    worstValue = value;
+                    worstStop = i;
+                }
+                break;
+            }
+        }
+        if (worstStop < 0)
+            continue;   // ungradable (missing/translucent): auditSkipped's job
+        if (worst.value(QStringLiteral("passes")).toBool())
+            continue;
+        worst.insert(QStringLiteral("stop"), worstStop);
+        out.append(worst);
+    }
+    return out;
+}
+
 QString CustomThemeStore::roleLabel(const QString &role)
 {
     for (const Role &r : kRoles) {
@@ -660,9 +936,20 @@ QVariantList CustomThemeStore::roles() const
         entry.insert(QStringLiteral("group"), tr(r.group));
         entry.insert(QStringLiteral("label"), tr(r.label));
         entry.insert(QStringLiteral("hint"), tr(r.hint));
+        // Empty when the role follows nothing; see kRoleFollows.
+        entry.insert(QStringLiteral("follows"), roleFollows(QLatin1String(r.key)));
         out.append(entry);
     }
     return out;
+}
+
+QString CustomThemeStore::roleFollows(const QString &role)
+{
+    for (const RoleFollows &f : kRoleFollows) {
+        if (role == QLatin1String(f.role))
+            return QString::fromLatin1(f.parent);
+    }
+    return {};
 }
 
 const QList<CustomThemeStore::Theme> &CustomThemeStore::load() const
@@ -749,6 +1036,9 @@ CustomThemeStore::Theme CustomThemeStore::fromJson(const QJsonObject &object)
         theme.baseTheme = SettingsManager::StormTheme;
     theme.colors =
         sanitize(object.value(QStringLiteral("colors")).toObject().toVariantMap());
+    // Optional and additive: a file from before gradients has no key.
+    theme.gradients = sanitizeGradients(
+        object.value(QStringLiteral("gradients")).toObject().toVariantMap());
     return theme;
 }
 
@@ -760,6 +1050,9 @@ QJsonObject CustomThemeStore::toJson(const Theme &theme)
     object.insert(QStringLiteral("base"), theme.baseTheme);
     object.insert(QStringLiteral("colors"),
                   QJsonObject::fromVariantMap(theme.colors));
+    if (!theme.gradients.isEmpty())
+        object.insert(QStringLiteral("gradients"),
+                      QJsonObject::fromVariantMap(theme.gradients));
     return object;
 }
 
@@ -836,6 +1129,7 @@ void CustomThemeStore::setActiveThemeId(const QString &id)
         return;
     for (const Theme &theme : themes) {
         if (theme.id == id) {
+            clearHistory();
             save(themes, id);
             return;
         }
@@ -855,6 +1149,7 @@ QString CustomThemeStore::createTheme(const QString &name)
     theme.baseTheme = themes.isEmpty() ? int(SettingsManager::StormTheme)
                                        : themes.at(qMax(0, activeIndex())).baseTheme;
     themes.append(theme);
+    clearHistory();
     save(themes, theme.id);
     return theme.id;
 }
@@ -871,6 +1166,7 @@ QString CustomThemeStore::duplicateActiveTheme(const QString &name)
     if (theme.name.isEmpty())
         theme.name = tr("%1 copy").arg(themes.at(index).name);
     themes.append(theme);
+    clearHistory();
     save(themes, theme.id);
     return theme.id;
 }
@@ -886,6 +1182,7 @@ void CustomThemeStore::deleteTheme(const QString &id)
         if (nextActive == id)
             nextActive = themes.isEmpty() ? QString()
                                           : themes.at(qMin(i, themes.size() - 1)).id;
+        clearHistory();
         save(themes, nextActive);
         return;
     }
@@ -902,6 +1199,10 @@ QString CustomThemeStore::exportTheme(const QString &id) const
         object.insert(QStringLiteral("base"), theme.baseTheme);
         object.insert(QStringLiteral("colors"),
                       QJsonObject::fromVariantMap(theme.colors));
+        // Additive: an older build ignores the key and shows flat colours.
+        if (!theme.gradients.isEmpty())
+            object.insert(QStringLiteral("gradients"),
+                          QJsonObject::fromVariantMap(theme.gradients));
         return QString::fromUtf8(
             QJsonDocument(object).toJson(QJsonDocument::Compact));
     }
@@ -936,9 +1237,13 @@ QString CustomThemeStore::importTheme(const QString &payload)
     // dropped here.
     theme.colors =
         sanitize(object.value(QStringLiteral("colors")).toObject().toVariantMap());
-    if (theme.colors.isEmpty())
+    // Same gate as a loaded file: unknown roles and bad stops are dropped.
+    theme.gradients = sanitizeGradients(
+        object.value(QStringLiteral("gradients")).toObject().toVariantMap());
+    if (theme.colors.isEmpty() && theme.gradients.isEmpty())
         return tr("That theme has no colours in it.");
     themes.append(theme);
+    clearHistory();
     save(themes, theme.id);
     return {};
 }
@@ -992,8 +1297,12 @@ void CustomThemeStore::setBaseTheme(int themeId)
     } else if (themes.at(index).baseTheme == themeId) {
         return;
     }
+    const QString idBefore = m_activeId;
+    const int baseBefore = themes.at(index).baseTheme;
+    const QVariantMap colorsBefore = themes.at(index).colors;
     themes[index].baseTheme = themeId;
     save(themes, themes.at(index).id);
+    recordStep(idBefore, baseBefore, colorsBefore, QString());
 }
 
 QString CustomThemeStore::name() const
@@ -1030,30 +1339,220 @@ bool CustomThemeStore::setColor(const QString &role, const QString &hex)
 {
     if (!roleIsEditable(role) || !colorIsValid(hex))
         return false;
-    QVariantMap next = colors();
+    const QString idBefore = activeThemeId();
+    const int baseBefore = baseTheme();
+    const QVariantMap before = colors();
+    QVariantMap next = before;
     next.insert(role, hex.toUpper());
     store(next);
+    // Successive samples of one role (a drag) are one step until the editor
+    // seals it; see sealUndoStep().
+    recordStep(idBefore, baseBefore, before, role);
     return true;
 }
 
 void CustomThemeStore::resetColor(const QString &role)
 {
-    QVariantMap next = colors();
-    if (next.remove(role) > 0)
+    const QString idBefore = activeThemeId();
+    const int baseBefore = baseTheme();
+    const QVariantMap before = colors();
+    QVariantMap next = before;
+    if (next.remove(role) > 0) {
         store(next);
+        recordStep(idBefore, baseBefore, before, QString());
+    }
 }
 
 void CustomThemeStore::resetAll()
 {
-    if (colors().isEmpty())
+    const QVariantMap before = colors();
+    const bool hadGradients = !gradients().isEmpty();
+    if (before.isEmpty() && !hadGradients)
         return;
-    store({});
+    const QString idBefore = activeThemeId();
+    const int baseBefore = baseTheme();
+    // Gradients go with "Reset all" too. They are not in the undo history
+    // (it records colours and base), so only the colour half can be undone.
+    if (hadGradients) {
+        QList<Theme> themes = load();
+        const int index = activeIndex();
+        if (index >= 0) {
+            themes[index].gradients.clear();
+            save(themes, themes.at(index).id);
+        }
+    }
+    if (!before.isEmpty())
+        store({});
+    recordStep(idBefore, baseBefore, before, QString());
+}
+
+QVariantMap CustomThemeStore::gradients() const
+{
+    const int index = activeIndex();
+    return index < 0 ? QVariantMap() : m_cache.at(index).gradients;
+}
+
+bool CustomThemeStore::setGradient(const QString &role, const QVariantMap &spec)
+{
+    if (!roleTakesGradient(role))
+        return false;
+    const QVariantMap clean = sanitizeGradient(spec);
+    if (clean.isEmpty())
+        return false;
+    QList<Theme> themes = load();
+    int index = activeIndex();
+    if (index < 0) {
+        // As store(): editing before anything exists creates the first theme.
+        Theme theme;
+        theme.id = makeId(themes);
+        theme.name = tr("My theme");
+        theme.baseTheme = SettingsManager::StormTheme;
+        themes.append(theme);
+        index = int(themes.size()) - 1;
+    }
+    if (themes.at(index).gradients.value(role).toMap() == clean)
+        return true;
+    themes[index].gradients.insert(role, clean);
+    save(themes, themes.at(index).id);
+    return true;
+}
+
+void CustomThemeStore::resetGradient(const QString &role)
+{
+    QList<Theme> themes = load();
+    const int index = activeIndex();
+    if (index < 0 || themes[index].gradients.remove(role) == 0)
+        return;
+    save(themes, themes.at(index).id);
+}
+
+bool CustomThemeStore::isGradientRole(const QString &role) const
+{
+    return roleTakesGradient(role);
+}
+
+// ---- undo ------------------------------------------------------------------
+
+bool CustomThemeStore::canUndo() const
+{
+    return !m_undo.isEmpty();
+}
+
+bool CustomThemeStore::canRedo() const
+{
+    return !m_redo.isEmpty();
+}
+
+void CustomThemeStore::sealUndoStep()
+{
+    m_undoSealed = true;
+}
+
+void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
+                                  const QVariantMap &colorsBefore,
+                                  const QString &coalesce)
+{
+    const QString id = activeThemeId();
+    // An edit that had to create the theme first, or that landed on another
+    // theme, has no "before" on this theme to return to.
+    if (themeIdBefore.isEmpty() || id != themeIdBefore) {
+        clearHistory();
+        return;
+    }
+    const int baseAfter = baseTheme();
+    const QVariantMap colorsAfter = colors();
+    if (baseAfter == baseBefore && colorsAfter == colorsBefore)
+        return;
+
+    const bool merge = !m_undoSealed && !coalesce.isEmpty()
+                       && !m_undo.isEmpty()
+                       && m_undo.last().coalesce == coalesce
+                       && m_undo.last().themeId == id;
+    if (merge) {
+        UndoStep &last = m_undo.last();
+        last.baseAfter = baseAfter;
+        last.colorsAfter = colorsAfter;
+        // A drag that came back to where it started is no step at all.
+        if (last.baseAfter == last.baseBefore
+            && last.colorsAfter == last.colorsBefore)
+            m_undo.removeLast();
+    } else {
+        UndoStep step;
+        step.themeId = id;
+        step.baseBefore = baseBefore;
+        step.baseAfter = baseAfter;
+        step.colorsBefore = colorsBefore;
+        step.colorsAfter = colorsAfter;
+        step.coalesce = coalesce;
+        m_undo.append(step);
+        while (m_undo.size() > kMaxUndoSteps)
+            m_undo.removeFirst();
+    }
+    // Only a colour edit stays open for the next sample of the same role.
+    m_undoSealed = coalesce.isEmpty();
+    m_redo.clear();
+    Q_EMIT historyChanged();
+}
+
+void CustomThemeStore::clearHistory()
+{
+    m_undoSealed = true;
+    if (m_undo.isEmpty() && m_redo.isEmpty())
+        return;
+    m_undo.clear();
+    m_redo.clear();
+    Q_EMIT historyChanged();
+}
+
+void CustomThemeStore::applyHistoryState(int base, const QVariantMap &colors)
+{
+    QList<Theme> themes = load();
+    const int index = activeIndex();
+    if (index < 0)
+        return;
+    themes[index].baseTheme = base;
+    themes[index].colors = sanitize(colors);
+    save(themes, themes.at(index).id);
+}
+
+bool CustomThemeStore::undo()
+{
+    if (m_undo.isEmpty())
+        return false;
+    // The history is per theme; switching clears it, so this is a guard.
+    if (m_undo.last().themeId != activeThemeId()) {
+        clearHistory();
+        return false;
+    }
+    const UndoStep step = m_undo.takeLast();
+    applyHistoryState(step.baseBefore, step.colorsBefore);
+    m_redo.append(step);
+    m_undoSealed = true;
+    Q_EMIT historyChanged();
+    return true;
+}
+
+bool CustomThemeStore::redo()
+{
+    if (m_redo.isEmpty())
+        return false;
+    if (m_redo.last().themeId != activeThemeId()) {
+        clearHistory();
+        return false;
+    }
+    const UndoStep step = m_redo.takeLast();
+    applyHistoryState(step.baseAfter, step.colorsAfter);
+    m_undo.append(step);
+    m_undoSealed = true;
+    Q_EMIT historyChanged();
+    return true;
 }
 
 void CustomThemeStore::discard()
 {
     if (!m_settings)
         return;
+    clearHistory();
     save({}, QString());
     m_settings->setAppearanceValue(kColorsKey, QString());
     m_settings->setAppearanceValue(kNameKey, QString());

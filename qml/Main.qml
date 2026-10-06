@@ -93,7 +93,7 @@ ApplicationWindow {
             "text": AppTheme.textPrimary,
             "button": AppTheme.cardElevated,
             "buttonText": AppTheme.textPrimary,
-            "highlight": AppTheme.selected,
+            "highlight": AppTheme.paletteHighlight,
             "highlightedText": AppTheme.selectedText,
             "placeholderText": AppTheme.textMuted,
             "toolTipBase": AppTheme.cardElevated,
@@ -112,6 +112,7 @@ ApplicationWindow {
     Connections {
         target: AppTheme
         function onEffectiveThemeChanged() { window.syncControlPalette() }
+        function onCustomOverridesChanged() { window.syncControlPalette() }
     }
 
     palette {
@@ -122,7 +123,7 @@ ApplicationWindow {
         text: AppTheme.textPrimary
         button: AppTheme.cardElevated
         buttonText: AppTheme.textPrimary
-        highlight: AppTheme.selected
+        highlight: AppTheme.paletteHighlight
         highlightedText: AppTheme.selectedText
         placeholderText: AppTheme.textMuted
         toolTipBase: AppTheme.cardElevated
@@ -415,6 +416,18 @@ ApplicationWindow {
         property: "customBase"
         value: app.customTheme ? app.customTheme.baseTheme : 11
     }
+    // The custom theme's surface gradients, sanitised by CustomThemeStore.
+    Binding {
+        target: AppTheme
+        property: "customGradients"
+        value: app.customTheme ? app.customTheme.gradients : ({})
+    }
+    // Settings → Appearance → Depth.
+    Binding {
+        target: AppTheme
+        property: "surfaceDepth"
+        value: app.backdrops ? app.backdrops.surfaceDepth : 0
+    }
     // Content text scale (Settings → Appearance → Text size).
     Binding {
         target: AppTheme
@@ -643,6 +656,59 @@ ApplicationWindow {
             onTriggered: zoomNotice.visible = false
         }
     }
+    // One-time notice (per version) when the GL driver is a CPU rasteriser
+    // such as llvmpipe, e.g. the AppImage under appimage-run on NixOS. Not
+    // shown when the user asked for software rendering. See
+    // AppController::setGlRenderer.
+    Rectangle {
+        id: softwareRendererNotice
+        objectName: "softwareRendererNotice"
+        visible: !!app && app.softwareRendererNoticeVisible === true
+        parent: Overlay.overlay
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: AppTheme.spacing16
+        z: 1000
+        radius: AppTheme.radiusLg
+        color: AppTheme.stormPanel
+        border.color: AppTheme.stormBorder
+        border.width: 1
+        width: Math.min(parent.width - AppTheme.spacing16 * 2, 560)
+        height: noticeColumn.implicitHeight + AppTheme.spacing16 * 2
+        ColumnLayout {
+            id: noticeColumn
+            anchors.fill: parent
+            anchors.margins: AppTheme.spacing16
+            spacing: AppTheme.spacing8
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: AppTheme.stormText
+                font.pixelSize: AppTheme.textBody
+                text: qsTr("Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.")
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing8
+                Item { Layout.fillWidth: true }
+                AppButton {
+                    storm: true
+                    objectName: "softwareRendererNoticeHelpButton"
+                    text: qsTr("How to fix")
+                    onClicked: {
+                        app.media.openWebUrl("https://github.com/Mizerd/lightning/blob/main/docs/install.md#nixos-appimage-and-gpu-acceleration")
+                    }
+                }
+                AppButton {
+                    storm: true
+                    kind: "primary"
+                    objectName: "softwareRendererNoticeDismissButton"
+                    text: qsTr("Dismiss")
+                    onClicked: app.dismissSoftwareRendererNotice()
+                }
+            }
+        }
+    }
     // Transient notice for failures of actions taken from menus that have
     // already closed (pin/unpin and others below). Success is usually silent.
     // Overlay-parented like zoomNotice.
@@ -772,6 +838,11 @@ ApplicationWindow {
                     pinNotice.show(
                         qsTr("You do not have permission to change this "
                              + "room's stickers."), true)
+                } else if (category.indexOf("svg_") === 0) {
+                    // An SVG that could not be converted: the reason is the
+                    // news, not "could not be saved".
+                    pinNotice.show(
+                        app.stickers.svgMessage(category.substring(4)), true)
                 } else {
                     pinNotice.show(
                         qsTr("The sticker could not be saved."), true)

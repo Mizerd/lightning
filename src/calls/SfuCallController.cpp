@@ -41,6 +41,7 @@
 // without a media engine. Only a constexpr accessor is used, so this adds no
 // GStreamer or link dependency.
 #include "calls/SfuMediaEngine.h"
+#include "calls/noise/MicProcessing.h"
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
 // Unconditional for one constexpr: the media-key index bound in
@@ -441,6 +442,24 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
                 m_microphoneSilent = silent;
                 Q_EMIT microphoneSilentChanged();
             });
+    // The in-call meter, from the same `level` element. Monotonic: the
+    // throttle measures intervals.
+    connect(m_engine, &SfuMediaEngine::localAudioLevel, this,
+            [this](double peakDb) {
+                static QElapsedTimer monotonic;
+                if (!monotonic.isValid())
+                    monotonic.start();
+                noteMicrophoneLevelAt(peakDb, monotonic.elapsed());
+            });
+    // The selected noise suppressor started, or failed and WebRTC's (or, with
+    // no webrtcdsp, nothing) runs instead: say so where the choice is made.
+    connect(m_engine, &SfuMediaEngine::noiseSuppressionStatus, this,
+            [this](const QString &mode, bool ok) {
+                setNoiseSuppressionFailedMode(
+                    ok ? QString() : mode,
+                    !ok && m_engine
+                        && m_engine->noiseSuppressionFellBackToWebrtc());
+            });
 #else
     Q_UNUSED(engine);
 #endif
@@ -463,6 +482,9 @@ void SfuCallController::setSettings(SettingsManager *settings)
     connect(m_settings, &SettingsManager::callShareVolumeChanged, this,
             [this](const QString &, int) { applyStoredShareVolumes(); });
     connect(m_settings, &SettingsManager::microphoneGainChanged, this,
+            [this] { applyAudioState(); });
+    // Noise suppression switches live, through the same path.
+    connect(m_settings, &SettingsManager::noiseSuppressionModeChanged, this,
             [this] { applyAudioState(); });
 }
 
@@ -498,6 +520,26 @@ void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
             [this](const QString &category) {
                 qCWarning(lcSfuCall) << "screen share portal failed category="
                                      << category;
+#if defined(HAVE_LIGHTNING_WEBRTC) && !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
+                // KDE's portal refuses on X11 ("not available in X11
+                // sessions"); Lightning's own picker works there.
+                if (active()
+                    && portalFailureFallsBackToDisplays(
+                        category, QGuiApplication::platformName(),
+                        qEnvironmentVariable("XDG_SESSION_TYPE"),
+                        qEnvironmentVariable("WAYLAND_DISPLAY"),
+                        qEnvironmentVariable("DISPLAY"),
+                        SfuMediaEngine::elementAvailable(
+                            SfuMediaEngine::x11ScreenCaptureElementName()))) {
+                    qCInfo(lcSfuCall)
+                        << "screen share route=fallback-displays after portal "
+                           "refusal category=" << category
+                        << "(X11 session; Lightning's own display picker, no "
+                           "auto-select)";
+                    offerLinuxDisplayPicker(/*autoSelectSingle=*/false);
+                    return;
+                }
+#endif
                 Q_EMIT callFailed(category == QLatin1String("no_portal")
                                       ? tr("Screen sharing isn't available on "
                                            "this desktop.")
@@ -558,18 +600,29 @@ void SfuCallController::setCameraPortal(CameraPortal *portal)
 SfuCallController::LinuxCameraRoute SfuCallController::linuxCameraRoute(
     bool sandboxed, bool portalUsable, bool directDeviceVisible)
 {
-    // 1. A sandbox has no device node, so the portal is the only possible
+    // 1. A sandbox with a visible device node AND no usable portal camera:
+    //    the user granted device access themselves (Flatseal's "Webcam",
+    //    `flatpak override --device=all`, a connected snap camera interface)
+    //    and the host has no PipeWire camera for the portal to hand out
+    //    (Debian 12 by default), so the portal would answer with a remote
+    //    holding no camera node: the camera "registers" with no picture
+    //    (reported 2026-10-06). A usable portal still wins: MIPI/IPU6/libcamera
+    //    laptops list /dev/video* nodes that raw v4l2src cannot use, and the
+    //    portal camera already works there.
+    if (sandboxed && directDeviceVisible && !portalUsable)
+        return LinuxCameraRoute::Direct;
+    // 2. A sandbox with no device node: the portal is the only possible
     //    camera, even when probes say it is unusable (its refusal is at least
     //    actionable).
     if (sandboxed)
         return LinuxCameraRoute::Portal;
-    // 2. A visible device node: the direct path, as on any normal desktop.
+    // 3. A visible device node: the direct path, as on any normal desktop.
     if (directDeviceVisible)
         return LinuxCameraRoute::Direct;
-    // 3. Nothing to open directly, but the portal has a camera.
+    // 4. Nothing to open directly, but the portal has a camera.
     if (portalUsable)
         return LinuxCameraRoute::Portal;
-    // 4. Direct, including its honest failure.
+    // 5. Direct, including its honest failure.
     return LinuxCameraRoute::Direct;
 }
 
@@ -601,6 +654,23 @@ SfuCallController::LinuxShareRoute SfuCallController::linuxShareRoute(
     if (!captureElementPresent)
         return LinuxShareRoute::RefuseNoCaptureElement;
     return LinuxShareRoute::FallbackDisplays;
+}
+
+bool SfuCallController::portalFailureFallsBackToDisplays(
+    const QString &category, const QString &platformName,
+    const QString &sessionType, const QString &waylandDisplay,
+    const QString &x11Display, bool captureElementPresent)
+{
+    if (category != QLatin1String("x11_unsupported"))
+        return false;
+    if (platformName.startsWith(QLatin1String("wayland"), Qt::CaseInsensitive)
+        || sessionType.compare(QLatin1String("wayland"), Qt::CaseInsensitive)
+            == 0
+        || !waylandDisplay.isEmpty())
+        return false;
+    if (!platformName.startsWith(QLatin1String("xcb"), Qt::CaseInsensitive))
+        return false;
+    return !x11Display.isEmpty() && captureElementPresent;
 }
 
 QString SfuCallController::linuxShareRefusal(LinuxShareRoute route,
@@ -692,6 +762,26 @@ QRect SfuCallController::physicalRectForScreenNamed(const QString &name)
             return nativeScreenRect(screen);
     }
     return {};
+}
+
+void SfuCallController::offerLinuxDisplayPicker(bool autoSelectSingle)
+{
+#if defined(HAVE_LIGHTNING_WEBRTC) && !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
+    if (!populateLinuxDisplaySources()) {
+        Q_EMIT callFailed(tr("No display is available to share."));
+        return;
+    }
+    Q_EMIT screenShareSourcesChanged();
+    // A single display is not a choice, except after a portal refusal: the
+    // user never consented to capture, so they always pick.
+    if (autoSelectSingle && m_screenShareSources.size() == 1) {
+        chooseScreenShareSource(0);
+        return;
+    }
+    Q_EMIT screenShareSourcesAvailable();
+#else
+    Q_UNUSED(autoSelectSingle);
+#endif
 }
 
 bool SfuCallController::populateLinuxDisplaySources()
@@ -848,17 +938,7 @@ void SfuCallController::requestScreenShare()
     case LinuxShareRoute::FallbackDisplays:
         // No portal on an X11 session: Lightning draws the same picker as on
         // Windows and macOS.
-        if (!populateLinuxDisplaySources()) {
-            Q_EMIT callFailed(tr("No display is available to share."));
-            return;
-        }
-        Q_EMIT screenShareSourcesChanged();
-        // A single display is not a choice.
-        if (m_screenShareSources.size() == 1) {
-            chooseScreenShareSource(0);
-            return;
-        }
-        Q_EMIT screenShareSourcesAvailable();
+        offerLinuxDisplayPicker(/*autoSelectSingle=*/true);
         return;
     case LinuxShareRoute::RefuseWaylandNeedsPortal:
     case LinuxShareRoute::RefuseNoCaptureElement:
@@ -1365,6 +1445,8 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
         m_microphoneSilent = false;
         Q_EMIT microphoneSilentChanged();
     }
+    resetMicrophoneLevel();
+    setNoiseSuppressionFailedMode(QString());
     // Parked keys are not cleared here: a peer sends its key when it sees our
     // membership, which can precede join(). Only aged entries go; teardown()
     // clears the rest.
@@ -3123,6 +3205,8 @@ void SfuCallController::teardown(State finalState, const QString &error)
         m_microphoneSilent = false;
         Q_EMIT microphoneSilentChanged();
     }
+    resetMicrophoneLevel();
+    setNoiseSuppressionFailedMode(QString());
     // Key material never outlives the call.
     m_parkedKeys.clear();
     m_speaking.clear();
@@ -3169,8 +3253,81 @@ void SfuCallController::teardown(State finalState, const QString &error)
     Q_EMIT participantsChanged();
 }
 
+void SfuCallController::noteMicrophoneLevelAt(double peakDb, qint64 nowMs)
+{
+    // A muted capture posts nothing (`level` is after the valve), but a
+    // reading already queued when the user muted must not light the meter.
+    if (m_micMuted || !active())
+        return;
+    double shown = 0.0;
+    if (!m_microphoneMeter.offer(peakDb, nowMs, &shown))
+        return;
+    const double fraction = lightning::calls::meterFraction(shown);
+    if (qFuzzyCompare(1.0 + fraction, 1.0 + m_microphoneLevel))
+        return;
+    m_microphoneLevel = fraction;
+    Q_EMIT microphoneLevelChanged();
+}
+
+void SfuCallController::resetMicrophoneLevel()
+{
+    m_microphoneMeter.reset();
+    if (m_microphoneLevel == 0.0)
+        return;
+    m_microphoneLevel = 0.0;
+    Q_EMIT microphoneLevelChanged();
+}
+
+void SfuCallController::setNoiseSuppressionFailedMode(const QString &mode,
+                                                     bool fallbackToWebrtc)
+{
+    const bool fallback = !mode.isEmpty() && fallbackToWebrtc;
+    if (m_noiseSuppressionFailedMode == mode
+        && m_noiseSuppressionFallbackToWebrtc == fallback)
+        return;
+    m_noiseSuppressionFailedMode = mode;
+    m_noiseSuppressionFallbackToWebrtc = fallback;
+    Q_EMIT noiseSuppressionFailedModeChanged();
+}
+
+void SfuCallController::retryNoiseSuppression()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_engine.isNull() && !m_noiseSuppressionFailedMode.isEmpty())
+        m_engine->retryNoiseSuppression();
+#endif
+}
+
+QVariantList SfuCallController::noiseSuppressionChoices() const
+{
+    QVariantList out;
+    for (const calls::noise::Mode mode :
+         {calls::noise::Mode::Off, calls::noise::Mode::WebRtc,
+          calls::noise::Mode::RNNoise, calls::noise::Mode::DeepFilterNet}) {
+        QString reason;
+#ifdef HAVE_LIGHTNING_WEBRTC
+        reason = QLatin1String(calls::noise::unavailableKey(
+            calls::noise::availability(mode, !m_engine.isNull())));
+#else
+        if (mode != calls::noise::Mode::Off)
+            reason = QStringLiteral("no-call-engine");
+#endif
+        out.append(QVariantMap{
+            {QStringLiteral("key"),
+             QLatin1String(calls::noise::modeKey(mode))},
+            {QStringLiteral("available"), reason.isEmpty()},
+            {QStringLiteral("reason"), reason},
+        });
+    }
+    return out;
+}
+
 void SfuCallController::applyAudioState()
 {
+    // Muted (or deafened, which mutes) shows an empty meter at once rather
+    // than the last word spoken.
+    if (m_micMuted)
+        resetMicrophoneLevel();
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (m_engine.isNull())
         return;
@@ -3181,6 +3338,12 @@ void SfuCallController::applyAudioState()
     // flowing.
     m_engine->setMicrophoneGain(m_settings ? m_settings->microphoneGain()
                                            : 100);
+    // Before publishAudio() builds the chain, and live afterwards.
+    m_engine->setNoiseSuppressionMode(
+        m_settings ? calls::noise::modeFromKey(
+                         m_settings->noiseSuppressionMode().toStdString(),
+                         calls::noise::kDefaultMode)
+                   : calls::noise::kDefaultMode);
 #endif
     // Outside the guards: telling the SFU our mute state is signalling and
     // needs no pipeline (and so is testable in call-controller-test). Other

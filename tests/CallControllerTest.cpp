@@ -718,6 +718,60 @@ private Q_SLOTS:
         QCOMPARE(call.parkedKeyCountForTest(), 3);
     }
 
+    // The in-call meter: the call's own level readings, on the meter's
+    // scale, at most every kMeterMinIntervalMs, and empty while muted or
+    // outside a call. Fails on a tree without SfuCallController::
+    // microphoneLevel (the menu then had nothing to draw).
+    void theInCallMeterFollowsTheCaptureAtABoundedRate()
+    {
+        SfuCallController call;
+        QSignalSpy changed(&call, &SfuCallController::microphoneLevelChanged);
+
+        // No call: readings are ignored.
+        call.noteMicrophoneLevelAt(-6.0, 0);
+        QCOMPARE(call.microphoneLevel(), 0.0);
+        QCOMPARE(changed.count(), 0);
+
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.noteMicrophoneLevelAt(-30.0, 1000);
+        QCOMPARE(call.microphoneLevel(),
+                 lightning::calls::meterFraction(-30.0));
+        // Digital silence (`level`'s -350 floor) is an empty bar, not an
+        // error.
+        call.noteMicrophoneLevelAt(-350.0, 2000);
+        QCOMPARE(call.microphoneLevel(), 0.0);
+
+        // A burst of readings 5 ms apart for a second (a GUI-thread backlog
+        // delivered at once) changes the property at most once per interval.
+        // Rising, so every published reading differs from the last and an
+        // unthrottled meter would change 200 times.
+        changed.clear();
+        for (int i = 0; i < 200; ++i)
+            call.noteMicrophoneLevelAt(-59.0 + i * 0.25, 3000 + i * 5);
+        const int perSecond = 1000 / int(lightning::calls::kMeterMinIntervalMs);
+        QVERIFY2(changed.count() <= perSecond + 1,
+                 qPrintable(QString::number(changed.count())));
+        QVERIFY2(changed.count() >= perSecond - 2,
+                 qPrintable(QString::number(changed.count())));
+        // The last readings fell inside a window and were held: a quieter
+        // reading after it publishes the loudest of them, not itself.
+        call.noteMicrophoneLevelAt(-50.0, 4100);
+        QCOMPARE(call.microphoneLevel(),
+                 lightning::calls::meterFraction(-59.0 + 199 * 0.25));
+
+        // Muting empties the bar at once, and a reading already in flight
+        // does not light it again.
+        call.noteMicrophoneLevelAt(-10.0, 10000);
+        QVERIFY(call.microphoneLevel() > 0.0);
+        call.setMicrophoneMuted(true);
+        QCOMPARE(call.microphoneLevel(), 0.0);
+        call.noteMicrophoneLevelAt(-10.0, 11000);
+        QCOMPARE(call.microphoneLevel(), 0.0);
+        call.setMicrophoneMuted(false);
+        call.noteMicrophoneLevelAt(-10.0, 12000);
+        QVERIFY(call.microphoneLevel() > 0.0);
+    }
+
     // A refused join must not touch a call already running. It used to set
     // Failed first, which reads as inactive while that call's engine and
     // membership live on, and the next join then skipped tearing them down.
@@ -4414,16 +4468,40 @@ private Q_SLOTS:
     // A sandboxed build always takes the camera portal: Flatpak has no
     // camera-only device permission and Flathub rejects `--device=all`. A
     // portal refusal is something the user can act on; a failed open is not.
-    void aSandboxedBuildAlwaysTakesTheCameraPortal()
+    void aSandboxedBuildWithNoDeviceNodeTakesTheCameraPortal()
     {
         using Route = SfuCallController::LinuxCameraRoute;
         for (bool portalUsable : { true, false }) {
-            for (bool deviceNode : { true, false }) {
-                QCOMPARE(SfuCallController::linuxCameraRoute(
-                             /*sandboxed=*/true, portalUsable, deviceNode),
-                         Route::Portal);
-            }
+            QCOMPARE(SfuCallController::linuxCameraRoute(
+                         /*sandboxed=*/true, portalUsable,
+                         /*deviceNode=*/false),
+                     Route::Portal);
         }
+    }
+
+    // 2026-10-06 report: Debian 12, Flatpak, Flatseal "Webcam" on (device
+    // nodes visible), camera registers and no picture. The portal there has
+    // no camera node; the user's own grant must win. Fails on the old rule
+    // (sandboxed -> Portal unconditionally).
+    void aSandboxWithAGrantedDeviceNodeAndNoPortalCameraUsesTheDirectCamera()
+    {
+        using Route = SfuCallController::LinuxCameraRoute;
+        QCOMPARE(SfuCallController::linuxCameraRoute(
+                     /*sandboxed=*/true, /*portalUsable=*/false,
+                     /*deviceNode=*/true),
+                 Route::Direct);
+    }
+
+    // A usable portal camera keeps winning inside a sandbox even when device
+    // nodes are visible (MIPI/IPU6/libcamera laptops, "all devices" users
+    // whose portal camera works today).
+    void aSandboxWithAUsablePortalCameraKeepsThePortalWhateverNodesExist()
+    {
+        using Route = SfuCallController::LinuxCameraRoute;
+        QCOMPARE(SfuCallController::linuxCameraRoute(
+                     /*sandboxed=*/true, /*portalUsable=*/true,
+                     /*deviceNode=*/true),
+                 Route::Portal);
     }
 
     // A visible device node keeps `v4l2src`, the live-validated path; the
@@ -4552,6 +4630,83 @@ private Q_SLOTS:
         QVERIFY2(message != QStringLiteral(
                      "Screen sharing isn't available on this desktop."),
                  "the Wayland refusal is still the old unactionable sentence");
+    }
+
+    // xdg-desktop-portal-kde on X11 refuses with "not available in X11
+    // sessions" (category x11_unsupported); the app falls back to its own
+    // picker there and only there. Fails on the old tree (function absent).
+    void aRecognisedX11PortalRefusalFallsBackToLightningsOwnPicker()
+    {
+        const auto falls = [](const QString &category, const QString &platform,
+                              const QString &session, const QString &wayland,
+                              const QString &x11, bool element) {
+            return SfuCallController::portalFailureFallsBackToDisplays(
+                category, platform, session, wayland, x11, element);
+        };
+        const QString refusal = QStringLiteral("x11_unsupported");
+        QVERIFY(falls(refusal, QStringLiteral("xcb"), QStringLiteral("x11"),
+                      QString(), QStringLiteral(":0"), true));
+        // An unset session type must not decide.
+        QVERIFY(falls(refusal, QStringLiteral("xcb"), QString(), QString(),
+                      QStringLiteral(":0"), true));
+        // Only the recognised refusal falls back: a dismissal, a busy portal,
+        // a timeout or any other failure is not consent to capture the X11
+        // root window.
+        for (const QString &other :
+             { QStringLiteral("refused"), QStringLiteral("no_portal"),
+               QStringLiteral("start_failed"), QStringLiteral("select_failed"),
+               QStringLiteral("no_session"), QStringLiteral("busy"),
+               QStringLiteral("timeout") }) {
+            QVERIFY2(!falls(other, QStringLiteral("xcb"),
+                            QStringLiteral("x11"), QString(),
+                            QStringLiteral(":0"), true),
+                     qPrintable(other));
+        }
+        // Wayland never falls back, whatever signal says so.
+        QVERIFY(!falls(refusal, QStringLiteral("wayland"),
+                       QStringLiteral("wayland"), QStringLiteral("wayland-0"),
+                       QString(), true));
+        QVERIFY(!falls(refusal, QStringLiteral("xcb"),
+                       QStringLiteral("wayland"), QString(),
+                       QStringLiteral(":0"), true));
+        QVERIFY(!falls(refusal, QStringLiteral("xcb"), QStringLiteral("x11"),
+                       QStringLiteral("wayland-0"), QStringLiteral(":0"),
+                       true));
+        // No capture element or no display: nothing to fall back to.
+        QVERIFY(!falls(refusal, QStringLiteral("xcb"), QStringLiteral("x11"),
+                       QString(), QStringLiteral(":0"), false));
+        QVERIFY(!falls(refusal, QStringLiteral("xcb"), QStringLiteral("x11"),
+                       QString(), QString(), true));
+        // The portal route itself is unchanged: still preferred when present.
+        QCOMPARE(SfuCallController::linuxShareRoute(
+                     true, QStringLiteral("xcb"), QStringLiteral("x11"),
+                     QString(), QStringLiteral(":0"), true),
+                 SfuCallController::LinuxShareRoute::Portal);
+    }
+
+    // The handler must consult it, and the fallback must never auto-select
+    // the lone display (no consent); the portal names the refusal only from
+    // its own error text.
+    void theFallbackAlwaysShowsThePickerAndOnlyRecognisesTheRefusal()
+    {
+        QFile ctl(QStringLiteral(SOURCE_DIR "/src/calls/SfuCallController.cpp"));
+        QVERIFY(ctl.open(QIODevice::ReadOnly));
+        const QByteArray c = ctl.readAll();
+        const int at = c.indexOf("portal failed category=");
+        QVERIFY(at > 0);
+        const QByteArray handler = c.mid(at, 1800);
+        QVERIFY2(handler.contains("portalFailureFallsBackToDisplays(")
+                     && handler.contains(
+                         "offerLinuxDisplayPicker(/*autoSelectSingle=*/false)"),
+                 "the portal failure handler does not fall back to an "
+                 "always-asking picker");
+        QVERIFY2(c.contains("offerLinuxDisplayPicker(/*autoSelectSingle=*/true)"),
+                 "the no-portal route lost its single-display shortcut");
+        QFile portal(QStringLiteral(SOURCE_DIR "/src/calls/ScreenCastPortal.cpp"));
+        QVERIFY(portal.open(QIODevice::ReadOnly));
+        const QByteArray p = portal.readAll();
+        QVERIFY2(p.contains("x11_unsupported") && p.contains("errorCategory("),
+                 "the portal never names the X11 refusal");
     }
 
     // An X11 session with no portal falls back to Lightning's own picker.

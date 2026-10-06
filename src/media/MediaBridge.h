@@ -11,6 +11,9 @@
 #include <QString>
 #include <QTimer>
 #include <QUrl>
+#include <QList>
+#include <QStringList>
+#include <QVariantList>
 #include <QVariantMap>
 #include <QTemporaryDir>
 #include <functional>
@@ -44,6 +47,13 @@ class MediaBridge : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
+    // Downloads started with saveAs() and not yet finished. Owned here, not by
+    // any room's view, so a save keeps its progress state across room switches
+    // and a Downloads card can list and cancel it.
+    Q_PROPERTY(QVariantList activeSaves READ activeSaves
+               NOTIFY activeSavesChanged)
+    Q_PROPERTY(QStringList savingKeys READ savingKeys
+               NOTIFY activeSavesChanged)
 
 public:
     explicit MediaBridge(QObject *parent = nullptr);
@@ -190,14 +200,19 @@ public:
     // not wait for the download. Dispatches only when the declared size is at
     // or below the speculative cap (unknown sizes are never prefetched), at the
     // lowest priority. Dropped on room switch like GIF prefetches.
+    //
+    // capBytes > 0 replaces the default cap for this call (the user's "preload
+    // short videos" limit); 0 keeps the default, which audio uses.
     Q_INVOKABLE void prefetchPlayable(const QString &mediaKey,
-                                      double sizeBytes);
+                                      double sizeBytes,
+                                      double capBytes = 0);
     // Poster for a video without a Matrix thumbnail. Returns the URL when a
     // poster is cached under "thumb:<mediaKey>"; otherwise extracts the first
     // frame (prefetching within the speculative cap) and returns "". The JPEG
     // lives in the in-RAM cache only; decrypted-media pixels never touch disk.
     Q_INVOKABLE QString videoPosterSource(const QString &mediaKey,
-                                          double sizeBytes);
+                                          double sizeBytes,
+                                          double capBytes = 0);
     // Embedded audio artwork from QMediaPlayer metadata, kept only in the
     // bounded in-memory cache. Returns a provider URL, or "" for an
     // absent/invalid/ oversized image.
@@ -274,6 +289,21 @@ public:
     // Fetches the full payload and writes it atomically to the chosen
     // destination. Never opens the file. Result via saveFinished().
     Q_INVOKABLE void saveAs(const QString &mediaKey, const QUrl &destination);
+    /// Element's "Download": like saveAs(), into `folder` under `leaf`, never
+    /// replacing a file that exists there: the file is created exclusively,
+    /// as "leaf (1).ext", "leaf (2).ext", ... when the name is taken. The
+    /// name actually written arrives on saveCompleted().
+    void saveInto(const QString &mediaKey, const QString &folder,
+                  const QString &leaf);
+    /// Saves in flight, oldest first: maps of {mediaKey, fileName}. fileName is
+    /// the sanitized leaf of the destination, never a path.
+    QVariantList activeSaves() const;
+    /// The media keys of activeSaves(), for per-card "Saving…" bindings.
+    QStringList savingKeys() const;
+    /// Abandons a save that has not finished (queued or in flight). Reports
+    /// saveFinished(false, ...) so every listener clears its state. Nothing is
+    /// written to the destination.
+    Q_INVOKABLE void cancelSave(const QString &mediaKey);
     /// A safe default save-dialog file name from a sender-chosen attachment
     /// name, or empty to let the dialog decide.
     Q_INVOKABLE QString suggestedSaveName(const QString &rawName) const;
@@ -297,6 +327,10 @@ public:
 
     // Shared with MediaImageProvider (QML render thread).
     QByteArray cachedBytes(const QString &cacheKey) const;
+    // The cache key wideImageSource() keeps a full mxc payload under, so a
+    // consumer that measures the picture (ChatBackdropController) reads the
+    // same entry without knowing the key format. Never dispatches.
+    static QString wideImageCacheKey(const QString &mxcUri);
     // MediaImageProvider's image-thread read for embedded artwork.
     QImage cachedArtwork(const QString &cacheKey) const;
 
@@ -318,6 +352,14 @@ Q_SIGNALS:
     // mediaKey identifies which save finished.
     void saveFinished(bool ok, const QString &message,
                       const QString &mediaKey);
+    // A save was written; emitted just before saveFinished(true, ...) with
+    // the absolute path of the file it created. For the download notice's
+    // Open / Show in folder, never shown as text.
+    void saveCompleted(const QString &mediaKey, const QString &path);
+    // The user cancelled a save; emitted just before the matching
+    // saveFinished(false, ...), so views can say "Cancelled", not "failed".
+    void saveCancelled(const QString &mediaKey);
+    void activeSavesChanged();
     // Result of fetchFullForStar(). On failure `bytes` is empty and `category`
     // is set.
     void mediaBytesForStar(const QString &mediaKey, bool ok,
@@ -347,6 +389,9 @@ private:
         int size = 0;     // mxc thumbnail edge
         bool saveRequest = false;
         QUrl saveDestination;
+        // saveInto(): the destination's leaf is a suggestion; the file is
+        // created exclusively, as "name (1).ext" when the name is taken.
+        bool saveUniquify = false;
         // Full payload with the save timeout class, relayed via
         // mediaBytesForStar().
         bool starRequest = false;
@@ -404,7 +449,9 @@ public:
 private:
     static QString sanitizedFileName(const QString &name);
     void writeSaveFile(const QUrl &destination, const QByteArray &bytes,
-                       const QString &mediaKey);
+                       const QString &mediaKey, bool uniquify = false);
+    void startSave(const QString &mediaKey, const QUrl &destination,
+                   bool uniquify);
     QString writeAnimatedFile(const QString &cacheKey, const QByteArray &bytes);
     // Records the "motion:" verdict for `bytes` and writes the file when it is
     // an animation within `maxPixels` and kMotionMaxBytes. Returns the path or
@@ -569,6 +616,13 @@ private:
     QHash<QString, int> m_pinnedPlayables;
     QString m_playableNameSalt;
     PlayableFileWriter *m_playableWriter = nullptr;
+    struct ActiveSave {
+        QString mediaKey;
+        QString fileName;
+    };
+    QList<ActiveSave> m_activeSaves;
+    void removeActiveSave(const QString &mediaKey);
+
     struct PendingPlayableWrite {
         quint64 serial = 0;
         QString mediaKey;

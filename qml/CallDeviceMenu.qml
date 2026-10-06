@@ -118,7 +118,69 @@ AppMenu {
         }
     }
 
-    // ── Input level ──
+    // ── Live level ──
+    // Teams' bar under the microphone: what the call's own capture hears,
+    // from its `level` element (no second capture of the device). Group calls
+    // only: the 1:1 lane has no meter. Read only while the menu is open, so a
+    // closed menu keeps no binding on a value that changes 20 times a second.
+    readonly property bool showsLevel: root.isMicrophone
+                                       && app.groupCall.active
+    AppMenuSeparator { visible: root.showsLevel }
+
+    Item {
+        objectName: "callMenuMicLevelRow"
+        visible: root.showsLevel
+        implicitWidth: 200
+        implicitHeight: visible
+                        ? levelColumn.implicitHeight + AppTheme.spacing6 * 2 : 0
+
+        ColumnLayout {
+            id: levelColumn
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.topMargin: AppTheme.spacing6
+            anchors.leftMargin: AppTheme.menuItemPadding + 6
+            anchors.rightMargin: AppTheme.menuItemPadding + 6
+            spacing: 4
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing6
+
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("Input level")
+                    elide: Label.ElideRight
+                    color: AppTheme.stormTextSecondary
+                    font.pixelSize: AppTheme.textMeta
+                    font.weight: AppTheme.weightMedium
+                }
+                Label {
+                    objectName: "callMenuMicLevelState"
+                    // Says why the bar is still, so a muted microphone is not
+                    // mistaken for a dead one.
+                    visible: app.groupCall.microphoneMuted
+                             || app.groupCall.microphoneSilent
+                    text: app.groupCall.microphoneMuted
+                          ? qsTr("Muted") : qsTr("Nothing heard")
+                    color: app.groupCall.microphoneMuted
+                           ? AppTheme.stormTextMuted : AppTheme.warning
+                    font.pixelSize: AppTheme.textMeta
+                }
+            }
+
+            AudioLevelBar {
+                objectName: "callMenuMicLevelBar"
+                Layout.fillWidth: true
+                Layout.preferredHeight: 8
+                active: root.opened && !app.groupCall.microphoneMuted
+                level: root.opened ? app.groupCall.microphoneLevel : 0
+            }
+        }
+    }
+
+    // ── Input volume ──
     AppMenuSeparator { visible: root.isMicrophone }
 
     // A plain Item, not a Layout: QQuickMenu sizes rows it didn't size
@@ -261,6 +323,88 @@ AppMenu {
         // Written explicitly: moving the slider's value programmatically
         // doesn't fire onMoved.
         onTriggered: app.settings.microphoneGain = 100
+    }
+
+    // ── Noise suppression (GitHub #20) ──
+    // The same setting as Settings → Labs. A change applies to the running
+    // call at once (SfuCallController::applyAudioState); nobody has to leave
+    // and rejoin. Engines this build cannot run are listed but disabled.
+    AppMenuSeparator { visible: root.isMicrophone }
+
+    MenuSectionLabel {
+        objectName: "callMenuNoiseHeading"
+        visible: root.isMicrophone
+        text: qsTr("Noise suppression")
+    }
+
+    // A Q_INVOKABLE read is not a binding dependency: refreshed on open.
+    property var _noiseChoices: []
+    onAboutToShow: if (root.isMicrophone && app.groupCall)
+                       root._noiseChoices = app.groupCall.noiseSuppressionChoices()
+
+    function noiseTitle(key) {
+        if (key === "off") return qsTr("Off")
+        if (key === "webrtc") return qsTr("WebRTC")
+        if (key === "rnnoise") return qsTr("RNNoise")
+        if (key === "deepfilternet") return qsTr("DeepFilterNet")
+        return key
+    }
+
+    // Four fixed rows, not a Repeater: a Repeater inside a Menu places its
+    // items where the Menu happens to insert them (they landed under the
+    // device list), not here.
+    function noiseChoice(key) {
+        for (var i = 0; i < root._noiseChoices.length; ++i)
+            if (root._noiseChoices[i].key === key)
+                return root._noiseChoices[i]
+        return null
+    }
+    component NoiseModeItem: AppMenuItem {
+        required property string modeKey
+        readonly property var choice: root.noiseChoice(modeKey)
+        objectName: "callMenuNoise_" + modeKey
+        visible: root.isMicrophone && choice !== null
+        text: root.noiseTitle(modeKey)
+        radio: true
+        radioSelected: app.settings.noiseSuppressionMode === modeKey
+        enabled: choice !== null && choice.available
+        ToolTip.visible: hovered && choice !== null && !choice.available
+                         && (choice.reason || "").length > 0
+        ToolTip.text: choice !== null ? (choice.reason || "") : ""
+        onTriggered: {
+            // The mode that failed in this call, chosen again: retry it.
+            if (app.groupCall
+                    && modeKey === app.groupCall.noiseSuppressionFailedMode
+                    && modeKey === app.settings.noiseSuppressionMode)
+                app.groupCall.retryNoiseSuppression()
+            else
+                app.settings.noiseSuppressionMode = modeKey
+        }
+    }
+    NoiseModeItem { modeKey: "off" }
+    NoiseModeItem { modeKey: "webrtc" }
+    NoiseModeItem { modeKey: "rnnoise" }
+    NoiseModeItem { modeKey: "deepfilternet" }
+
+    AppMenuItem {
+        objectName: "callMenuNoiseFailed"
+        visible: root.isMicrophone && app.groupCall
+                 && app.groupCall.noiseSuppressionFailedMode !== ""
+        enabled: false
+        text: (app.groupCall && app.groupCall.noiseSuppressionFallbackToWebrtc
+               ? qsTr("%1 couldn't start; using WebRTC instead.")
+               : qsTr("%1 couldn't start; your microphone is sent without it."))
+              .arg(root.noiseTitle(app.groupCall
+                                   ? app.groupCall.noiseSuppressionFailedMode
+                                   : ""))
+    }
+
+    AppMenuItem {
+        objectName: "callMenuNoiseSettings"
+        visible: root.isMicrophone
+        iconName: "settings"
+        text: qsTr("More about these in Settings → Labs…")
+        onTriggered: app.showSettingsSection("labs")
     }
 
     // ── Everything else ──

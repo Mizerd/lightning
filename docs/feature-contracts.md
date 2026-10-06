@@ -792,6 +792,20 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   balloon at a time; a click opens the room it was raised for. A balloon
   cannot be withdrawn through Qt: read-dismissal on those platforms needs
   the native toast APIs and is a recorded follow-up.
+- **Notification sound (2026-10-06).** A delivered notification makes
+  LIGHTNING's chime (`data/sounds/message.wav`, `mention.wav`, rendered by
+  `scripts/generate-call-sounds.py` in the call set's voice) through
+  `CallSoundPlayer`, not the desktop's. `NotificationManager::planSound` is the
+  one decision: Lightning source plays ours and sends `suppress-sound: true`
+  with no `sound-name`; System default sends `sound-name` and plays nothing;
+  a silent notification (sound off, mode, a burst already sounded within
+  1.5 s) also sends `suppress-sound` so no daemon adds its default. Muted,
+  active-room, DND-by-mode and ignored senders never reach delivery, so they
+  never sound. `Policy::allowsNotificationSound` keeps the chime quiet in a
+  call, while a call rings and while a share captures the output mix.
+  Windows and macOS deliver through `QSystemTrayIcon::showMessage`, which
+  has no sound parameter: the platform may still add its own sound there,
+  and the tree has no native toast path. NOT LIVE-TESTED on any platform.
 - **Reading a room withdraws its notifications.** `closeRoomNotifications`
   runs on Mark as read and on a reply, and it reaches the desktop's HISTORY:
   an expired popup (freedesktop reason 1) keeps its payload, since KDE and
@@ -2083,28 +2097,55 @@ server name before deleting a server. Lightning offers the two honest pieces.
   behaviour of a large close (the SDK retries 429s within the 60 s per-request
   bound), and the admin delete against a real Synapse.
 
-### SVG images (thumbnails for SVGs the user sends)
+### SVG images (rasterised on send)
 
 - §6 still holds: nothing RECEIVED is ever decoded as SVG. A received SVG
   image shows only the SENDER's raster thumbnail, with an "SVG" badge; without
   one it is a file card. Clicking saves; the viewer never opens it, and the row
   never falls back to an HTTP URL (which would bypass the media bridge's
   markup refusal). `rooms::media_fetch` refuses a declared SVG with no sender
-  thumbnail before making any request.
-- SENDING an SVG screens it first (`src/media/SvgThumbnail.h`): `<image>` and
-  `<feImage>`, any non-local `href` (QtSvg reads local files for these),
-  external `url()`/`@import`, entities, processing instructions, gzip, a
-  non-svg root, and size, element and depth caps are refused. A screened file
-  is rasterised by Qt SVG (the static Tiny 1.2 subset, no animation, on Qt
-  6.7+) to a PNG of at most 800x600 on a worker with an 8 s limit, and sent as
-  the image's thumbnail through the SDK (`imagesend.rs`, thread-focused for
-  threads). A refused or failed render sends the SVG with no thumbnail, as
-  before. Element sends and shows SVGs the same way.
+  thumbnail before making any request. None of that changed.
+- **RASTERIZE ON SEND (Rokas, 2026-10-06).** A user may PICK an SVG anywhere
+  Lightning uploads a picture: message attachments (composer and thread),
+  room, Space and own avatars, banners, chat backgrounds and sticker uploads.
+  Lightning converts it LOCALLY to a PNG first and uploads only that PNG
+  (`image/png`, with the PNG's own size and dimensions); a recipient never
+  receives SVG from Lightning. The converter is `src/media/SvgRaster.h`; the
+  job runner is `src/media/SvgRasterJob.h`.
+- The file is hostile (it may have come from the web). `screen()` refuses,
+  before QtSvg sees it: gzip/SVGZ (never inflated), over 2 MB, over 20000
+  elements, over 1000 `<use>`, over 64 deep, external entities or an entity
+  budget over 2 M characters, processing instructions, every `<image>` and
+  `<feImage>` (QtSvg loads rasters from the local disk), any non-document
+  `href`, external `url()` and `@import`. The render uses the SVG 1.2 Tiny
+  subset with no animation (Qt 6.7+) and paints straight into a transparent
+  QImage.
+- It runs in a HELPER PROCESS: the app binary with the hidden
+  `--rasterize-svg IN OUT MIN MAX` flag (preflight, exits, never reaches the
+  Qt parser). The parent kills it after 10 s; the helper also has a CPU rlimit
+  on Unix. Files, not pipes (a Windows GUI binary has no stdout). Up to three
+  run at once. It runs under a QGuiApplication on every platform (the offscreen
+  plugin on Linux, the native one on Windows and macOS; it never shows a
+  window), so SVG text has fonts. Only if that app cannot start (the helper
+  crashes) is the conversion retried once with `--no-text`, a core-only app
+  where an SVG containing text is refused with a message saying to convert
+  text to outlines.
+- Size: the declared size (width/height with px, pt, pc, mm, cm, in, em, ex at
+  96 dpi, else the viewBox, viewBox-only files included) sets the aspect ratio,
+  which is kept to within a pixel. The longest side becomes the declared one
+  raised to a floor and lowered to a ceiling, and never above 4096: attachments
+  1024..4096, avatar and banner crop sources 1024..2048, chat backgrounds 2560,
+  stickers 512..1024. A vector is drawn AT the target size, so a 24x24 icon is
+  crisp, not an upscaled raster, and `width="100000"` is clamped.
 - Needs the Qt SVG LIBRARY (`LIGHTNING_HAVE_QT_SVG`; packaging passes
-  `LIGHTNING_REQUIRE_QT_SVG=ON`). Linking it makes linuxdeploy and macdeployqt
-  add the qsvg image-format PLUGIN, which the AppImage, macOS and Windows
-  builds leave out and then assert absent. The screen also refuses a document whose entity
-  references could expand past 2M characters, checked before any expansion.
+  `LIGHTNING_REQUIRE_QT_SVG=ON`). It never needs the qsvg image-format PLUGIN,
+  which the AppImage, macOS and Windows builds leave out and then assert
+  absent: QSvgRenderer is the library. A build without it reports "This build
+  of Lightning can't convert SVG pictures".
+- UI: the pickers list `*.svg`. An attachment shows as the converted PNG
+  (name, size and type are the PNG's) once ready; a refused one fails with the
+  reason and Retry converts again. The crop dialog and the background editor
+  say "Converting the SVG to a picture..." while the helper runs.
 
 ### Animated avatars and banners (GIF, animated WebP)
 
@@ -2145,3 +2186,46 @@ two or more frames or an animated WebP.
   centre-crop), with metadata stripped first by a bounded parser that refuses
   anything malformed: GIF comments and every application extension except the
   looping ones (XMP), WebP EXIF and XMP chunks.
+
+### Chat backgrounds and surface depth
+
+A picture behind a room's timeline, from one of four places, resolved per room
+(`backdrop::resolve`): this account's own picture for the room, the room's
+SHARED picture, its Space's shared picture (nearest Space first; a room in two
+Spaces inherits from the one being browsed), this account's own default, none.
+Settings "Show backgrounds set by others" (default on) and the per-room "Hide
+backgrounds others set for this room" remove the two shared levels only.
+
+- **Shared = state.** `org.lightning_matrix.room.background`, state key "",
+  schema version 1 (`rust/src/backdrop.rs`): an `mxc://` url only, advisory
+  `info`, a dominant `color`, and `presentation` {dim, blur, tint, fit,
+  align}, every field clamped on read AND write; `{}` clears. Unknown keys are
+  ignored; a version above 1 is reported, never rendered. Set only when the
+  SDK's `can_send_state` allows it; other clients ignore the type.
+- **Privacy.** State is cleartext to the homeserver even in an encrypted room,
+  so the picture is uploaded unencrypted and the editor says so first.
+  Personal pictures are Lightning-encoded JPEG/PNG files under
+  `<accountRoot>/backgrounds` (removed with the account), served to QML from
+  memory via the staged-image store. "Use as my background here" is offered
+  only in rooms known to be unencrypted: an encrypted room's picture kept as a
+  file would be decrypted media at rest.
+- **Pictures.** Shared ones only through `MediaBridge::wideImageSource`; picked
+  files are sniffed by magic bytes (SVG refused), first frame only, scaled to
+  2560 px and re-encoded with nothing of the original file kept (text chunks,
+  EXIF, comments). Never animated.
+- **Readability.** The scrim is the theme ground moved away from the ink
+  (+8 L* light, -6 L* dark) at an opacity never below the floor at which
+  textPrimary, textSecondary and textMuted all keep 4.5:1 over the picture's
+  own MEASURED pixels (a 48 px decode; the worst 1% of samples are specks and
+  are allowed to fail; the worst case, pure white and black, until measured).
+  `dim` only adds. A fixed 50% scrim fails on all eleven presets (1.2-1.6:1),
+  which ChatBackdropTest asserts. Blur is off on a software renderer.
+- **Depth.** Settings -> Appearance -> Depth gives background, room list and
+  rail a two-stop vertical gradient moved 4 L* AWAY from the ink, so text
+  contrast only rises; every readability check passes at the worst stop on all
+  eleven presets (ChatBackdropTest). Custom themes may also carry gradients
+  for surface roles (`gradients` in the theme JSON, additive, sanitised like
+  colours) and are graded at their worst stop
+  (`CustomThemeStore::auditWithGradients`).
+- **NOT TESTED live** (2026-10-06): two Lightning accounts seeing one shared
+  background, Element ignoring the state event, Windows/macOS rendering.

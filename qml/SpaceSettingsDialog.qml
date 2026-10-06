@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -80,6 +79,10 @@ AppDialog {
         // on one Space).
         if (app.banners)
             app.banners.refreshRoom(targetSpaceId)
+        // The same for the shared chat background: without this read the
+        // editor never learned that this account may set it.
+        if (app.backdrops)
+            app.backdrops.refreshScope(targetSpaceId)
         // Asked once per session, so the delete is offered only to a server
         // administrator.
         if (app.roomClosure)
@@ -324,12 +327,13 @@ AppDialog {
                         visible: root.section === 0
                         spacing: AppTheme.spacing16
 
-                        FileDialog {
+                        NativeFileDialog {
                             id: spaceAvatarFile
+                            purpose: "image"
                             title: qsTr("Choose space avatar")
                             currentFolder: app.defaultFileDialogFolder()
-                            fileMode: FileDialog.OpenFile
-                            nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)")]
+                            fileMode: "open"
+                            nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)")]
                             // The crop dialog decides what is uploaded and
                             // refuses non-raster files before rendering.
                             onAccepted: spaceAvatarCrop.openFor(selectedFile)
@@ -342,12 +346,13 @@ AppDialog {
                                 app.roomInfo.setRoomAvatar(file)
                             }
                         }
-                        FileDialog {
+                        NativeFileDialog {
                             id: spaceBannerFile
+                            purpose: "image"
                             title: qsTr("Choose a banner image")
                             currentFolder: app.defaultFileDialogFolder()
-                            fileMode: FileDialog.OpenFile
-                            nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp)")]
+                            fileMode: "open"
+                            nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)")]
                             onAccepted: spaceBannerCrop.openFor(selectedFile)
                         }
                         ImageCropDialog {
@@ -671,6 +676,34 @@ AppDialog {
                                                 .arg(app.banners.lastError)
                                           : ""
                                 }
+                            }
+                        }
+
+                        // The Space's shared chat background: shown behind
+                        // every room in the Space that has none of its own.
+                        MenuSectionLabel {
+                            text: qsTr("Chat background")
+                            visible: chatBackgroundCard.visible
+                        }
+                        Rectangle {
+                            id: chatBackgroundCard
+                            objectName: "spaceSettingsChatBackgroundCard"
+                            Layout.fillWidth: true
+                            visible: !!app.backdrops && app.backdrops.sharedAvailable
+                                     && root.spaceId !== ""
+                            radius: AppTheme.radiusMd
+                            color: AppTheme.stormInset
+                            border.color: AppTheme.stormBorder
+                            border.width: 1
+                            implicitHeight: spaceBackdropEditor.implicitHeight
+                                            + AppTheme.spacing16 * 2
+                            ChatBackgroundEditor {
+                                id: spaceBackdropEditor
+                                anchors.fill: parent
+                                anchors.margins: AppTheme.spacing16
+                                scopeKind: "space"
+                                scopeId: root.spaceId
+                                showTitle: false
                             }
                         }
 

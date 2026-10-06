@@ -804,6 +804,11 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(QStringLiteral("gifMode: app.settings.gifAutoplay")));
         QVERIFY(delegate.contains(QStringLiteral("gifMode === 0 || gifHovered")));
         QVERIFY(delegate.contains(QStringLiteral("app.settings.gifAutoplay !== 2")));
+        // The video preload switch and limit gate and bound the prefetch.
+        QVERIFY(delegate.contains(QStringLiteral("app.settings.videoPrefetchEnabled")));
+        QVERIFY(delegate.contains(QStringLiteral("app.settings.videoPrefetchMaxMb")));
+        QVERIFY(settings.contains(QStringLiteral("app.settings.videoPrefetchEnabled = checked")));
+        QVERIFY(settings.contains(QStringLiteral("app.settings.videoPrefetchMaxMb = Math.round(value)")));
         // Picker previews honor it too.
         QVERIFY(picker.contains(QStringLiteral("app.settings.gifAutoplay")));
         // Settings expose the controls, bound to the settings model.
@@ -1080,13 +1085,82 @@ private Q_SLOTS:
     // state. No backup or cross-signing setup button is faked.
     void recoveryInputIsMaskedClearedAndHonest()
     {
+        // The field itself lives in RecoveryKeyEntry, shared by every surface
+        // that offers the recovery key.
         const QString settings = read(QStringLiteral("SettingsScreen.qml"));
-        QVERIFY(settings.contains(QStringLiteral("echoMode: TextInput.Password")));
-        QVERIFY(settings.contains(QStringLiteral("Recovery key or passphrase")));
-        QVERIFY(settings.contains(QStringLiteral("recoveryField.text = \"\"")));
-        QVERIFY(settings.contains(QStringLiteral("app.refreshCryptoHealth()")));
+        const QString entry = read(QStringLiteral("RecoveryKeyEntry.qml"));
+        QVERIFY(entry.contains(QStringLiteral("echoMode: TextInput.Password")));
+        QVERIFY(settings.contains(QStringLiteral("Recovery key or passphrase"))
+                || entry.contains(QStringLiteral("Recovery key or passphrase")));
+        QVERIFY(entry.contains(QStringLiteral("field.text = \"\"")));
+        QVERIFY(settings.contains(QStringLiteral("app.refreshCryptoHealth()"))
+                || entry.contains(QStringLiteral("app.refreshCryptoHealth()")));
         QVERIFY(!settings.contains(QStringLiteral("Set up backup")));
-        QVERIFY(!settings.contains(QStringLiteral("Set up cross-signing")));
+
+        // This used to assert that no "Set up cross-signing" text existed at
+        // all: it guarded against a FAKED button that did nothing. The button
+        // is real now (it bootstraps cross-signing and stores the keys in
+        // secret storage), so what is asserted instead is that it is wired end
+        // to end: QML -> BackupController -> the Rust bridge's real SDK call.
+        const QString card = read(QStringLiteral("CrossSigningSetupCard.qml"));
+        QVERIFY(card.contains(QStringLiteral("objectName: \"setUpCrossSigningButton\"")));
+        QVERIFY(card.contains(
+            QStringLiteral("app.backup.runAction(\"setup_cross_signing\")")));
+        // Offered only when the account has no identity: with one it cannot
+        // sign with, creating keys would replace it.
+        QVERIFY(card.contains(
+            QStringLiteral("visible: root.setupState === \"not_set_up\"")));
+        // The destructive reset is a separate, doubly confirmed button.
+        QVERIFY(card.contains(
+            QStringLiteral("app.backup.runAction(\"reset_cross_signing\")")));
+        QVERIFY(card.contains(QStringLiteral("pendingConfirm !== \"reset\"")));
+        QVERIFY(settings.contains(QStringLiteral("CrossSigningSetupCard {")));
+        // Whether an existing recovery key is replaced is never inferred from
+        // the health snapshot (secretStorageAvailable reads a failure as
+        // "none"): the backend refuses with recovery_key_required and the
+        // consent to replace is an explicit argument, behind a confirmation.
+        QVERIFY(!card.contains(QStringLiteral("secretStorageAvailable")));
+        QVERIFY(card.contains(QStringLiteral("\"recovery_key_required\"")));
+        const QString replaceCall =
+            QStringLiteral("app.backup.runCrossSigning(app.backup.lastAction, \"\", true)");
+        QCOMPARE(card.count(replaceCall), 1);
+        const qsizetype confirmAt =
+            card.indexOf(QStringLiteral("if (root.pendingConfirm !== \"replace\")"));
+        QVERIFY(confirmAt >= 0);
+        QVERIFY(confirmAt < card.indexOf(replaceCall));
+        // The approval page opened is only the controller's validated URL.
+        QCOMPARE(card.count(QStringLiteral("Qt.openUrlExternally(")), 1);
+        QVERIFY(card.contains(QStringLiteral("Qt.openUrlExternally(app.backup.approvalUrl)")));
+
+        QFile controller(QStringLiteral(QML_DIR "/../src/crypto/BackupController.cpp"));
+        QVERIFY(controller.open(QIODevice::ReadOnly));
+        const QString controllerSrc = QString::fromUtf8(controller.readAll());
+        // card -> BackupController::runCrossSigning -> MatrixClient::
+        // crossSigningAction -> mx_rust_cross_signing_action -> the Rust job
+        // (runAction routes the two cross-signing actions there with no key
+        // and no consent).
+        QVERIFY(card.contains(QStringLiteral("app.backup.runCrossSigning(")));
+        QVERIFY(controllerSrc.contains(QStringLiteral("void BackupController::runCrossSigning(")));
+        QVERIFY(controllerSrc.contains(QStringLiteral("runCrossSigning(action, QString(), false)")));
+        QVERIFY(controllerSrc.contains(QStringLiteral("m_client->crossSigningAction(")));
+        QFile clientHeader(QStringLiteral(QML_DIR "/../src/matrix/MatrixClient.h"));
+        QVERIFY(clientHeader.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(clientHeader.readAll())
+                    .contains(QStringLiteral("virtual quint64 crossSigningAction(")));
+        QFile rustClient(QStringLiteral(QML_DIR "/../src/matrix/RustSdkMatrixClient.cpp"));
+        QVERIFY(rustClient.open(QIODevice::ReadOnly));
+        const QString rustClientSrc = QString::fromUtf8(rustClient.readAll());
+        QVERIFY(rustClientSrc.contains(QStringLiteral("RustSdkMatrixClient::crossSigningAction(")));
+        QVERIFY(rustClientSrc.contains(QStringLiteral("mx_rust_cross_signing_action(")));
+        QFile ffi(QStringLiteral(QML_DIR "/../rust/src/lib.rs"));
+        QVERIFY(ffi.open(QIODevice::ReadOnly));
+        QVERIFY(QString::fromUtf8(ffi.readAll()).contains(QStringLiteral(
+            "uia::start_cross_signing(bridge, &action, recovery_key, replace_recovery_key != 0, op_id)")));
+        QFile bridge(QStringLiteral(QML_DIR "/../rust/src/uia.rs"));
+        QVERIFY(bridge.open(QIODevice::ReadOnly));
+        const QString bridgeSrc = QString::fromUtf8(bridge.readAll());
+        QVERIFY(bridgeSrc.contains(QStringLiteral("bootstrap_cross_signing(")));
+        QVERIFY(bridgeSrc.contains(QStringLiteral("recovery.enable()")));
     }
 
     void unreadNavigationUsesSdkMarkerAndBottomThreshold()

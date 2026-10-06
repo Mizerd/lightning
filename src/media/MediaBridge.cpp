@@ -1,4 +1,5 @@
 #include "media/MediaBridge.h"
+#include "app/SaveNaming.h"
 
 #include "media/AnimatedImageSniff.h"
 #include "media/ImageFormatSupport.h"
@@ -98,6 +99,12 @@ MediaBridge::MediaBridge(QObject *parent)
     , m_playableMaxBytes(kPlayableCacheBytes)
 {
     m_failureClock.start();
+    // Connected first, so the active-save list is already current when any
+    // other listener of saveFinished (the QML banner, the cards) runs.
+    connect(this, &MediaBridge::saveFinished, this,
+            [this](bool, const QString &, const QString &mediaKey) {
+                removeActiveSave(mediaKey);
+            });
     m_animatedDir = std::make_unique<QTemporaryDir>(
         lightning::portable::mediaScratchRoot()
         + QStringLiteral("/lightning-animated-XXXXXX"));
@@ -810,7 +817,8 @@ QString MediaBridge::playableSource(const QString &mediaKey)
     return {};
 }
 
-void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes)
+void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes,
+                                   double capBytes)
 {
     if (mediaKey.isEmpty()
         || mediaKey.contains(QLatin1String("send-queue.localhost"))
@@ -818,7 +826,9 @@ void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes)
         return;
     // Only a declared, in-cap size is worth speculative bandwidth.
     const qint64 declared = static_cast<qint64>(sizeBytes);
-    if (declared <= 0 || declared > kSpeculativePlayableMaxBytes)
+    const qint64 cap = capBytes > 0 ? static_cast<qint64>(capBytes)
+                                    : kSpeculativePlayableMaxBytes;
+    if (declared <= 0 || declared > cap)
         return;
     const QString cacheKey = mediaCacheKey(mediaKey, 0);
     const QString path = m_playableFiles.value(cacheKey);
@@ -855,7 +865,7 @@ void MediaBridge::prefetchPlayable(const QString &mediaKey, double sizeBytes)
 }
 
 QString MediaBridge::videoPosterSource(const QString &mediaKey,
-                                       double sizeBytes)
+                                       double sizeBytes, double capBytes)
 {
     if (mediaKey.isEmpty()
         || mediaKey.contains(QLatin1String("send-queue.localhost"))
@@ -877,7 +887,7 @@ QString MediaBridge::videoPosterSource(const QString &mediaKey,
     // file exists. Over-cap or unknown-size videos keep the placeholder until
     // played.
     m_posterWanted.insert(playableKey);
-    prefetchPlayable(mediaKey, sizeBytes);
+    prefetchPlayable(mediaKey, sizeBytes, capBytes);
     // If the prefetch declined, drop the hook: a hook with no delivery path
     // leaks and vetoes later cancels. A write already on the worker thread
     // counts as a delivery path.
@@ -1169,6 +1179,11 @@ QString MediaBridge::wideImageSource(const QString &mxcUri)
         promoteQueuedRequest(cacheKey, 1, 0);
     }
     return {};
+}
+
+QString MediaBridge::wideImageCacheKey(const QString &mxcUri)
+{
+    return mxcCacheKey(mxcUri, 0);
 }
 
 QImage MediaBridge::cachedAvatarImage(const QString &mxcUri) const
@@ -1482,7 +1497,8 @@ void MediaBridge::onMediaReady(quint64 opId, const QString &mediaKey, int kind,
         ? m_failureClock.elapsed() - request.dispatchedAtMs : -1;
 
     if (request.saveRequest) {
-        writeSaveFile(request.saveDestination, bytes, request.mediaKey);
+        writeSaveFile(request.saveDestination, bytes, request.mediaKey,
+                      request.saveUniquify);
         return;
     }
     if (request.starRequest) {
@@ -2042,13 +2058,29 @@ QString MediaBridge::suggestedSaveName(const QString &rawName) const
 
 void MediaBridge::saveAs(const QString &mediaKey, const QUrl &destination)
 {
+    startSave(mediaKey, destination, false);
+}
+
+void MediaBridge::saveInto(const QString &mediaKey, const QString &folder,
+                           const QString &leaf)
+{
+    if (folder.isEmpty() || leaf.isEmpty()) {
+        Q_EMIT saveFinished(false, tr("No destination selected."), mediaKey);
+        return;
+    }
+    startSave(mediaKey, QUrl::fromLocalFile(QDir(folder).filePath(leaf)), true);
+}
+
+void MediaBridge::startSave(const QString &mediaKey, const QUrl &destination,
+                            bool uniquify)
+{
     if (mediaKey.isEmpty() || !supported() || !destination.isLocalFile()) {
         Q_EMIT saveFinished(false, tr("No destination selected."), mediaKey);
         return;
     }
     const QByteArray cached = cachedBytes(mediaCacheKey(mediaKey, 0));
     if (!cached.isEmpty()) {
-        writeSaveFile(destination, cached, mediaKey);
+        writeSaveFile(destination, cached, mediaKey, uniquify);
         return;
     }
     Pending request;
@@ -2057,9 +2089,76 @@ void MediaBridge::saveAs(const QString &mediaKey, const QUrl &destination)
     request.kind = 0;
     request.saveRequest = true;
     request.saveDestination = destination;
+    request.saveUniquify = uniquify;
     request.timeoutClass = 2; // save class (270s Rust / 5min watchdog)
     request.priority = 0;     // explicit user intent
+    // Recorded before dispatch(): a dispatch that fails at once reports
+    // saveFinished synchronously, and that must find the entry to remove.
+    m_activeSaves.append({mediaKey,
+                          sanitizedFileName(destination.fileName())});
+    Q_EMIT activeSavesChanged();
     dispatch(request);
+}
+
+QVariantList MediaBridge::activeSaves() const
+{
+    QVariantList out;
+    for (const ActiveSave &s : m_activeSaves) {
+        out.append(QVariantMap{{QStringLiteral("mediaKey"), s.mediaKey},
+                               {QStringLiteral("fileName"), s.fileName}});
+    }
+    return out;
+}
+
+QStringList MediaBridge::savingKeys() const
+{
+    QStringList out;
+    for (const ActiveSave &s : m_activeSaves)
+        out.append(s.mediaKey);
+    return out;
+}
+
+void MediaBridge::removeActiveSave(const QString &mediaKey)
+{
+    for (int i = 0; i < m_activeSaves.size(); ++i) {
+        if (m_activeSaves.at(i).mediaKey == mediaKey) {
+            m_activeSaves.removeAt(i);
+            Q_EMIT activeSavesChanged();
+            return;
+        }
+    }
+}
+
+void MediaBridge::cancelSave(const QString &mediaKey)
+{
+    bool tracked = false;
+    for (const ActiveSave &s : std::as_const(m_activeSaves))
+        tracked = tracked || s.mediaKey == mediaKey;
+    if (!tracked)
+        return;
+    for (int i = m_queue.size() - 1; i >= 0; --i) {
+        const Pending &p = m_queue.at(i);
+        if (p.saveRequest && p.mediaKey == mediaKey)
+            m_queue.removeAt(i);
+    }
+    for (auto it = m_inflight.begin(); it != m_inflight.end();) {
+        if (it->saveRequest && it->mediaKey == mediaKey) {
+            const quint64 opId = it.key();
+            it = m_inflight.erase(it);
+            ++m_statCancelled;
+            if (m_client)
+                m_client->cancelMediaFetch(opId);
+        } else {
+            ++it;
+        }
+    }
+    // Every request for this key is gone, so drop every entry for it.
+    m_activeSaves.removeIf(
+        [&](const ActiveSave &s) { return s.mediaKey == mediaKey; });
+    Q_EMIT activeSavesChanged();
+    Q_EMIT saveCancelled(mediaKey);
+    Q_EMIT saveFinished(false, tr("Download cancelled."), mediaKey);
+    pump();
 }
 
 void MediaBridge::fetchFullForStar(const QString &mediaKey)
@@ -2136,7 +2235,7 @@ QString MediaBridge::cachedFullContentHash(const QString &mediaKey) const
 }
 
 void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes,
-                                const QString &mediaKey)
+                                const QString &mediaKey, bool uniquify)
 {
     const QFileInfo chosen(destination.toLocalFile());
     // Canonicalize the parent directory on its own, then join the sanitized
@@ -2148,8 +2247,46 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
                             mediaKey);
         return;
     }
-    const QString target = parent.filePath(sanitizedFileName(chosen.fileName()));
+    const QString leaf = sanitizedFileName(chosen.fileName());
+    if (uniquify) {
+        // Created exclusively (NewOnly), so a name another process takes
+        // between the check and the write is skipped, never replaced.
+        for (int n = 0; n < 1000; ++n) {
+            const QString candidate =
+                parent.filePath(savenaming::numberedName(leaf, n));
+            QFile file(candidate);
+            if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+                if (QFileInfo::exists(candidate))
+                    continue;
+                Q_EMIT saveFinished(false,
+                                    tr("The destination is not writable."),
+                                    mediaKey);
+                return;
+            }
+            if (file.write(bytes) != bytes.size() || !file.flush()) {
+                file.close();
+                file.remove();
+                Q_EMIT saveFinished(false, tr("Writing the file failed."),
+                                    mediaKey);
+                return;
+            }
+            file.close();
+            // Windows mark-of-the-web; best effort, never fails the save.
+            savenaming::markAsDownloaded(candidate);
+            Q_EMIT saveCompleted(mediaKey,
+                                 QFileInfo(candidate).absoluteFilePath());
+            Q_EMIT saveFinished(true, tr("Saved."), mediaKey);
+            return;
+        }
+        Q_EMIT saveFinished(false, tr("The destination is not writable."),
+                            mediaKey);
+        return;
+    }
+    const QString target = parent.filePath(leaf);
     QSaveFile file(target);
+    // A Flatpak's save portal grants the chosen file through the document
+    // portal, where a temporary file beside it may not be creatable.
+    file.setDirectWriteFallback(true);
     if (!file.open(QIODevice::WriteOnly)) {
         Q_EMIT saveFinished(false, tr("The destination is not writable."),
                             mediaKey);
@@ -2159,6 +2296,9 @@ void MediaBridge::writeSaveFile(const QUrl &destination, const QByteArray &bytes
         Q_EMIT saveFinished(false, tr("Writing the file failed."), mediaKey);
         return;
     }
+    // Windows mark-of-the-web; best effort, never fails the save.
+    savenaming::markAsDownloaded(target);
+    Q_EMIT saveCompleted(mediaKey, QFileInfo(target).absoluteFilePath());
     Q_EMIT saveFinished(true, tr("Saved."), mediaKey);
 }
 
@@ -2188,6 +2328,12 @@ void MediaBridge::clear()
     }
     m_inflight.clear();
     m_queue.clear();
+    // Their requests are gone with the session; a stale "Saving…" would never
+    // be cleared. No saveFinished: nothing is owed to the next account.
+    if (!m_activeSaves.isEmpty()) {
+        m_activeSaves.clear();
+        Q_EMIT activeSavesChanged();
+    }
     m_failed.clear();
     m_animatedFiles.clear();
     m_animatedSizes.clear();

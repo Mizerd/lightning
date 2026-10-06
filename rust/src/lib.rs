@@ -72,10 +72,14 @@ use matrix_sdk_ui::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+mod backdrop;
 mod banner;
 mod bio;
 mod bridges;
 mod calls;
+// DeepFilterNet microphone noise suppression (#20); C ABI in
+// rust/include/matrix_denoise.h. Stubs when the `deepfilternet` feature is off.
+mod denoise;
 mod discover;
 mod gifs;
 mod ignore;
@@ -91,6 +95,7 @@ mod mediastore;
 mod namecolor;
 mod widgets;
 mod oauth;
+mod pagewalk;
 mod pinned;
 mod search;
 mod sso;
@@ -230,6 +235,13 @@ struct RustClient {
     // lose the rules the SDK applies locally after a write. Cleared on
     // sign-out / detach.
     notification_settings: Arc<Mutex<Option<NotificationSettings>>>,
+    // The lifecycle generation a push-rules change watcher was started for
+    // (0 = none), so one watcher runs per session and a stale one ends.
+    notification_watch_lifecycle: Arc<std::sync::atomic::AtomicU64>,
+    // The push-rules watcher's own task. It never finishes by itself, so
+    // shutdown aborts it BEFORE joining the room-action pool (like the media
+    // fetches), or every sign-out would wait out the join budget.
+    notification_watch_abort: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
     // SAS verification state: one active flow at a time. A second request while
     // one is live is cancelled on the wire. Both slots are released by
     // `FlowSlotGuard`, only for the flow that owns them.
@@ -317,6 +329,8 @@ impl RustClient {
             notification_mode_targets: Arc::new(Mutex::new(HashMap::new())),
             notification_mode_serial: Arc::new(tokio::sync::Mutex::new(())),
             notification_settings: Arc::new(Mutex::new(None)),
+            notification_watch_lifecycle: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            notification_watch_abort: Arc::new(Mutex::new(None)),
             active_request: Arc::new(Mutex::new(None)),
             active_sas: Arc::new(Mutex::new(None)),
             oauth_state: Arc::new(Mutex::new(None)),
@@ -339,16 +353,27 @@ impl RustClient {
         enqueue(&self.events, value);
     }
 
+    /// A UIA challenge belongs to the session that raised it: at a session
+    /// end, drop it and stop a cross-signing job still waiting for an OAuth
+    /// approval. The flag is set at once; the SDK reset handle's own cancel is
+    /// queued on the room-action pool, which teardown then joins.
+    fn abandon_uia(&self) {
+        if let Some(handle) = uia::abandon_on_teardown(&self.uia_pending) {
+            self.spawn_room_action(async move {
+                handle.cancel().await;
+            });
+        }
+    }
+
     fn stop_sync_and_wait(&self) -> bool {
         // The active-room subscription is scoped to this session; clear it so a
         // later account's sync cannot subscribe another account's room.
         if let Ok(mut guard) = self.active_room_subscription.lock() {
             guard.take();
         }
-        // A UIA challenge belongs to the session that raised it.
-        if let Ok(mut guard) = self.uia_pending.lock() {
-            guard.take();
-        }
+        // The UIA slot is NOT cleared here: this also runs when a finished
+        // sync thread is reaped and on a plain sync stop, while the session
+        // goes on. Session ends call `abandon_uia()` themselves.
         // Stop the bootstrap observer first so no status event is emitted for a
         // dying session; drop the nudge sender before it.
         if let Ok(mut nudges) = self.recovery_nudges.lock() {
@@ -488,6 +513,12 @@ impl RustClient {
 
         self.timelines.shutdown(&self.runtime);
 
+        // The push-rules watcher waits for changes for ever: abort it first.
+        if let Ok(mut guard) = self.notification_watch_abort.lock() {
+            if let Some(handle) = guard.take() {
+                handle.abort();
+            }
+        }
         // Abort media downloads before joining the room-action pool; a large
         // transfer would otherwise burn the whole join budget.
         if let Ok(mut guard) = self.media_fetch_aborts.lock() {
@@ -496,6 +527,9 @@ impl RustClient {
             }
         }
 
+        // Before the join: a cross-signing job polling an OAuth approval
+        // would otherwise run out the whole budget.
+        self.abandon_uia();
         let actions = self.room_action_tasks.lock().ok()
             .map(|mut guard| std::mem::take(&mut *guard))
             .unwrap_or_default();
@@ -1149,6 +1183,7 @@ pub unsafe extern "C" fn mx_rust_login(
         let password = unsafe { cstr_arg(password) }?;
         let device_id = unsafe { cstr_arg(device_id) }?;
 
+        bridge.abandon_uia();
         bridge.stop_sync_and_wait();
         bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
 
@@ -1281,6 +1316,7 @@ pub unsafe extern "C" fn mx_rust_restore_from_file(
             return Ok("error: Rust SDK smoke session file is not configured.".to_owned());
         };
 
+        bridge.abandon_uia();
         bridge.stop_sync_and_wait();
         bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
 
@@ -1409,6 +1445,7 @@ pub unsafe extern "C" fn mx_rust_restore(
         let refresh_token =
             if refresh_token.is_empty() { None } else { Some(refresh_token) };
 
+        bridge.abandon_uia();
         bridge.stop_sync_and_wait();
         bridge.enqueue(json!({ "type": "status", "state": "connecting" }));
 
@@ -1485,6 +1522,7 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
         let Ok(bridge) = (unsafe { bridge(ptr) }) else {
             return;
         };
+        bridge.abandon_uia();
         bridge.stop_sync_and_wait();
         let client = bridge.client.lock().ok().and_then(|guard| guard.clone());
         let events = Arc::clone(&bridge.events);
@@ -1493,9 +1531,16 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
         if let Some(client) = client {
             std::thread::spawn(move || {
                 let runtime_events = Arc::clone(&events);
-                let logout_events = Arc::clone(&events);
-                let completed = Arc::new(AtomicBool::new(false));
-                let completion_flag = Arc::clone(&completed);
+                // The outcome is held here and announced only after `run_async` has
+                // returned, i.e. after this thread's Client clone AND its runtime are
+                // gone. matrix-sdk's SQLite pools drop each connection through
+                // `spawn_blocking` on the runtime that drops the last reference, so
+                // announcing from inside the future let C++ start deleting the store
+                // while this thread could still be closing it (Windows: the delete
+                // fails on the open file and sign-out reports cleanup_incomplete).
+                let outcome: Arc<Mutex<Option<serde_json::Value>>> =
+                    Arc::new(Mutex::new(None));
+                let outcome_slot = Arc::clone(&outcome);
                 run_async(runtime_events, "logout", async move {
                     let event = match client.matrix_auth().logout().await {
                         Ok(_) => json!({ "type": "logged_out", "result": "ok" }),
@@ -1513,19 +1558,23 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
                                 "Matrix Rust SDK logout failed", err),
                         }),
                     };
-                    completion_flag.store(true, Ordering::SeqCst);
-                    enqueue(&logout_events, event);
+                    drop(client);
+                    if let Ok(mut slot) = outcome_slot.lock() {
+                        *slot = Some(event);
+                    }
                 });
-                if !completed.load(Ordering::SeqCst) {
-                    enqueue(
-                        &events,
-                        json!({
-                            "type": "logged_out",
-                            "result": "failed",
-                            "message": "Matrix Rust SDK logout task could not complete.",
-                        }),
-                    );
-                }
+                // run_async has returned: its runtime has been dropped, which waits
+                // for every blocking close it was running.
+                let event = outcome
+                    .lock()
+                    .ok()
+                    .and_then(|mut slot| slot.take())
+                    .unwrap_or_else(|| json!({
+                        "type": "logged_out",
+                        "result": "failed",
+                        "message": "Matrix Rust SDK logout task could not complete.",
+                    }));
+                enqueue(&events, event);
             });
         } else {
             bridge.enqueue(json!({
@@ -2844,6 +2893,87 @@ pub unsafe extern "C" fn mx_rust_get_room_notification_mode(
                 "mode": notification_mode_to_int(mode),
                 "user_defined": false,
             }));
+        });
+        Ok(String::new())
+    })
+}
+
+/// Report the mode of EVERY joined room that has a user-defined rule, as
+/// `room_notification_mode` events (`user_defined: true`), so a room muted from
+/// another client (Element writes an override rule keyed by the room id with
+/// no actions) is known here without a picker ever being opened for it. The
+/// classification is the SDK's own; nothing is re-derived. A room with a
+/// write in flight is skipped, like the single-room read.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_refresh_room_notification_modes(
+    ptr: *mut c_void,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let client = bridge.client.lock().ok().and_then(|guard| guard.clone())
+            .ok_or_else(|| "no active Matrix session".to_owned())?;
+        let events = Arc::clone(&bridge.events);
+        let targets = Arc::clone(&bridge.notification_mode_targets);
+        let settings_slot = Arc::clone(&bridge.notification_settings);
+        let timelines = Arc::clone(&bridge.timelines);
+        let lifecycle = timelines.lifecycle();
+        let watch_slot = Arc::clone(&bridge.notification_watch_lifecycle);
+        let watch_abort = Arc::clone(&bridge.notification_watch_abort);
+        bridge.spawn_room_action(async move {
+            let settings =
+                notification_settings_handle(&settings_slot, &client).await;
+            // One watcher per session: a push-rules change made elsewhere (a
+            // room muted in Element mid-session) asks C++ to re-read. Debounced
+            // so a burst of rule writes is one refresh, and it ends with its
+            // lifecycle, so a later account never hears an earlier one.
+            let start_watcher = watch_slot
+                .swap(lifecycle, std::sync::atomic::Ordering::SeqCst) != lifecycle;
+            let mut changes = start_watcher.then(|| settings.subscribe_to_changes());
+            for room_id in settings.get_rooms_with_user_defined_rules(Some(true)).await {
+                if notification_write_pending(&targets, &room_id) {
+                    continue;
+                }
+                let Ok(parsed) = RoomId::parse(&room_id) else { continue };
+                if client.get_room(&parsed).is_none() {
+                    continue;
+                }
+                if let Some(mode) = settings
+                    .get_user_defined_room_notification_mode(&parsed)
+                    .await
+                {
+                    enqueue(&events, json!({
+                        "type": "room_notification_mode",
+                        "room_id": room_id,
+                        "mode": notification_mode_to_int(mode),
+                        "user_defined": true,
+                    }));
+                }
+            }
+            let Some(mut changes) = changes.take() else { return };
+            // The watcher is its own task holding ONLY the receiver: not the
+            // settings (the broadcast sender) and not the client, so it keeps
+            // neither alive, and shutdown aborts it through `watch_abort`.
+            drop(settings);
+            drop(client);
+            let watcher = tokio::spawn(async move {
+                loop {
+                    match changes.recv().await {
+                        Ok(()) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    while changes.try_recv().is_ok() {}
+                    if !timelines.lifecycle_current(lifecycle) {
+                        break;
+                    }
+                    enqueue(&events, json!({ "type": "push_rules_changed" }));
+                }
+            });
+            if let Ok(mut guard) = watch_abort.lock() {
+                if let Some(old) = guard.replace(watcher.abort_handle()) {
+                    old.abort();
+                }
+            }
         });
         Ok(String::new())
     })
@@ -4796,6 +4926,7 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
         };
         let events = Arc::clone(&bridge.events);
         let lifecycle = bridge.timelines.lifecycle();
+        let uia_slot = Arc::clone(&bridge.uia_pending);
         bridge.spawn_room_action(async move {
             use matrix_sdk::encryption::{backups::BackupState, recovery::RecoveryState};
 
@@ -4820,6 +4951,38 @@ pub unsafe extern "C" fn mx_rust_query_crypto_health(ptr: *mut c_void) -> *mut c
                 has_master = status.has_master;
                 has_self_signing = status.has_self_signing;
                 has_user_signing = status.has_user_signing;
+            }
+            // Every private key here but our device not cross-signed: an
+            // unconfirmed setup, or a reset the server never accepted (the SDK
+            // saves the new keys before uploading). One fresh own-keys query
+            // drops local keys the server does not hold, and the snapshot is
+            // read again from what it left.
+            // Never while a cross-signing job holds the UIA slot: a reset
+            // parked at its password or OAuth approval is in exactly this
+            // state, and the query would delete the keys it is about to upload.
+            if has_master && has_self_signing && has_user_signing && !device_cross_signed
+                && uia::health_may_realign(&uia_slot)
+            {
+                if let Some(uid) = &user_id {
+                    if client.encryption().request_user_identity(uid).await.is_ok() {
+                        own_identity_available = false;
+                        own_identity_verified = false;
+                        if let Ok(Some(identity)) =
+                            client.encryption().get_user_identity(uid).await
+                        {
+                            own_identity_available = true;
+                            own_identity_verified = identity.is_verified();
+                        }
+                        if let Ok(Some(device)) = client.encryption().get_own_device().await {
+                            device_cross_signed = device.is_cross_signed_by_owner();
+                        }
+                        if let Some(status) = client.encryption().cross_signing_status().await {
+                            has_master = status.has_master;
+                            has_self_signing = status.has_self_signing;
+                            has_user_signing = status.has_user_signing;
+                        }
+                    }
+                }
             }
 
             let backups = client.encryption().backups();
@@ -5401,6 +5564,13 @@ pub unsafe extern "C" fn mx_rust_backup_action(
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let action = unsafe { cstr_arg(action) }?;
+        // Cross-signing setup/reset take the user's explicit decision about an
+        // existing recovery key, so they have their own entry point
+        // (mx_rust_cross_signing_action) and are refused here.
+        if uia::cross_signing_kind_for_action(&action).is_some() {
+            return Err("cross-signing actions go through mx_rust_cross_signing_action"
+                .to_owned());
+        }
         match action.as_str() {
             "enable" | "create_backup" | "reset_key" | "disable_and_delete"
             | "disable_recovery" => {}
@@ -5478,6 +5648,36 @@ pub unsafe extern "C" fn mx_rust_backup_action(
             }
         });
         Ok(String::new())
+    })
+}
+
+/// Cross-signing setup ("setup_cross_signing") or last-resort reset
+/// ("reset_cross_signing"), through the UIA layer (uia.rs): the server may
+/// ask for the account password (`uia_required`) or, on an OAuth account, for
+/// a browser approval (`cross_signing_approval`). Ends in exactly one
+/// `backup_action_result`.
+///
+/// `recovery_key` (may be empty) is the user's CURRENT recovery key or
+/// passphrase: when secret storage exists the new keys are stored under it and
+/// it keeps working. `replace_recovery_key` is 1 only after the user
+/// explicitly confirmed that a new recovery key replaces one they do not
+/// have. With secret storage present and neither given, the job refuses with
+/// `recovery_key_required` before any key is created. The key is scrubbed
+/// after use and never logged.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_cross_signing_action(
+    ptr: *mut c_void,
+    action: *const c_char,
+    recovery_key: *const c_char,
+    replace_recovery_key: u8,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let action = unsafe { cstr_arg(action) }?;
+        let recovery_key = unsafe { cstr_arg(recovery_key) }?;
+        uia::start_cross_signing(bridge, &action, recovery_key, replace_recovery_key != 0, op_id)
+            .map(|_| String::new())
     })
 }
 
@@ -5671,6 +5871,7 @@ pub unsafe extern "C" fn mx_rust_thread_mark_read(
     ptr: *mut c_void,
     room_id: *const c_char,
     root_event_id: *const c_char,
+    op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
@@ -5679,7 +5880,7 @@ pub unsafe extern "C" fn mx_rust_thread_mark_read(
         bridge
             .timelines
             .mark_thread_read(&bridge.runtime, room_id, root,
-                              bridge.receipt_privacy.load(Ordering::SeqCst))
+                              bridge.receipt_privacy.load(Ordering::SeqCst), op_id)
             .map(|_| String::new())
     })
 }
@@ -6278,6 +6479,44 @@ pub unsafe extern "C" fn mx_rust_set_room_banner(
         let room_id = unsafe { cstr_arg(room_id) }?;
         let path = unsafe { cstr_arg(local_path) }?;
         banner::set_room_banner(bridge, op_id, room_id, path).map(|_| String::new())
+    })
+}
+
+/// Read a room's (or Space's) shared chat background and whether this account
+/// may change it. Result event: `room_background { op_id, lifecycle, room_id,
+/// content (canonical object or null), can_set, unsupported_version }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_fetch_room_background(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        backdrop::fetch_room_background(bridge, op_id, room_id).map(|_| String::new())
+    })
+}
+
+/// Set a room's shared chat background. A non-empty `local_path` is uploaded;
+/// otherwise a usable `url` inside `content_json` is re-sent (presentation
+/// change); with neither the background is cleared. Result event:
+/// `room_background_set { op_id, lifecycle, room_id, ok, content, category }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_set_room_background(
+    ptr: *mut c_void,
+    room_id: *const c_char,
+    local_path: *const c_char,
+    content_json: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let room_id = unsafe { cstr_arg(room_id) }?;
+        let path = unsafe { cstr_arg(local_path) }?;
+        let content = unsafe { cstr_arg(content_json) }?;
+        backdrop::set_room_background(bridge, op_id, room_id, path, content)
+            .map(|_| String::new())
     })
 }
 
@@ -10435,14 +10674,20 @@ async fn run_authoritative_sync(
     // Probe the capability matrix-sdk's Sliding Sync v5 uses. A failed
     // /versions request is connectivity, not incompatibility: stay `Probing`
     // and report offline while retrying.
+    //
+    // Bounded (issue #2): matrix-sdk retries a 5xx/429 answer inside the
+    // request itself, silently, for up to 15 minutes, so an unbounded probe
+    // against a failing gateway kept the UI on "Loading rooms…" with nothing
+    // reported. A timeout is treated like any other failed probe.
     let modern_supported = loop {
         let probe = tokio::select! {
             _ = &mut cancel => return,
-            result = client.supported_versions() => result,
+            result = tokio::time::timeout(
+                SYNC_PROBE_BUDGET, client.supported_versions()) => result,
         };
         match probe {
-            Ok(versions) => break versions.features.contains(&FeatureFlag::Msc4186),
-            Err(_) => {
+            Ok(Ok(versions)) => break versions.features.contains(&FeatureFlag::Msc4186),
+            Ok(Err(_)) | Err(_) => {
                 enqueue(&events, json!({
                     "type": "room_list_sync_state", "state": "offline"
                 }));
@@ -10837,14 +11082,147 @@ async fn watch_first_sync_response(
     }
 }
 
+/// How long the sync-lane `/versions` probe may take. One attempt is capped
+/// by the client's 30 s request timeout; past that the SDK is retrying a
+/// 5xx/429 internally, which it does silently for up to 15 minutes.
+const SYNC_PROBE_BUDGET: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// How long a classic sync loop may go without delivering a single callback
+/// (success or failure) before it is reported, and then restarted (issue #2).
+///
+/// One `/sync` attempt cannot legitimately be this quiet: the client's request
+/// timeout is 30 s and the long-poll adds 30 s, and a failed attempt reaches
+/// the callback. What is this quiet is matrix-sdk retrying a 5xx/429 answer
+/// INSIDE the request (backoff 0.5-60 s, up to 15 minutes in total, invisible
+/// to the callback, no socket open between tries), the same retry inside the
+/// E2EE requests `sync_once` sends first, or a lock wait. Processing a large
+/// first response is the one legitimate quiet phase, which is why the restart
+/// bound is generous.
+#[derive(Debug, Clone, Copy)]
+struct ClassicSilenceBudget {
+    /// Report the loop as offline and log `sync_stalled`.
+    report_after: std::time::Duration,
+    /// Drop the SDK loop (cancelling its retry sleep or lock wait), raise
+    /// `sync_error`, and start a new one.
+    restart_after: std::time::Duration,
+    /// A gap between two supervisor ticks longer than this is a suspend and
+    /// resume, not silence. The supervisor ticks at most a second apart, but on
+    /// Windows `Instant` keeps counting through sleep (QueryPerformanceCounter),
+    /// so a laptop that slept for an hour would otherwise wake to a loop that
+    /// looks an hour silent and get a false `sync_error`. On a resume the
+    /// silence clock restarts.
+    resume_gap: std::time::Duration,
+}
+
+const CLASSIC_SYNC_SILENCE: ClassicSilenceBudget = ClassicSilenceBudget {
+    report_after: std::time::Duration::from_secs(120),
+    restart_after: std::time::Duration::from_secs(300),
+    resume_gap: std::time::Duration::from_secs(15),
+};
+
+/// The `sync_error` text for a loop restarted for silence. Fixed text, never
+/// server detail.
+const CLASSIC_SYNC_WEDGED_MESSAGE: &str =
+    "Sync stopped hearing from the server and was restarted.";
+
+/// When the classic sync loop last showed any sign of life. Shared between
+/// the SDK callback (which touches it) and the silence supervisor.
+#[derive(Clone)]
+struct SyncProgress {
+    base: tokio::time::Instant,
+    last_ms: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl SyncProgress {
+    fn new() -> Self {
+        Self {
+            base: tokio::time::Instant::now(),
+            last_ms: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        }
+    }
+
+    fn touch(&self) {
+        let now = u64::try_from(self.base.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.last_ms.store(now, Ordering::SeqCst);
+    }
+
+    fn quiet_for(&self) -> std::time::Duration {
+        let last = std::time::Duration::from_millis(self.last_ms.load(Ordering::SeqCst));
+        self.base.elapsed().saturating_sub(last)
+    }
+}
+
+/// Resolves once the loop has been silent for `budget.restart_after`. On the
+/// way it reports the silence once per quiet spell: `offline`, so the UI
+/// leaves "Loading rooms…", and `sync_stalled` for the log. Never resolves
+/// while callbacks keep arriving.
+async fn supervise_classic_silence(
+    events: &Arc<Mutex<VecDeque<String>>>,
+    progress: &SyncProgress,
+    budget: ClassicSilenceBudget,
+) {
+    let mut reported = false;
+    let mut last_tick = tokio::time::Instant::now();
+    loop {
+        let now = tokio::time::Instant::now();
+        if now.saturating_duration_since(last_tick) > budget.resume_gap {
+            // Woken from a suspend (see `resume_gap`): the time asleep is not
+            // the SDK's silence.
+            progress.touch();
+            reported = false;
+        }
+        last_tick = now;
+        let quiet = progress.quiet_for();
+        if quiet >= budget.restart_after {
+            return;
+        }
+        if quiet >= budget.report_after {
+            if !reported {
+                reported = true;
+                enqueue(events, json!({
+                    "type": "room_list_sync_state", "state": "offline"
+                }));
+                enqueue(events, json!({
+                    "type": "sync_stalled",
+                    "phase": "no_progress",
+                    "waited_secs": quiet.as_secs(),
+                }));
+            }
+        } else {
+            // A callback arrived: the next quiet spell is reported again.
+            reported = false;
+        }
+        let next = if quiet < budget.report_after {
+            budget.report_after - quiet
+        } else {
+            budget.restart_after - quiet
+        };
+        // Re-read at least every second so a callback that lands meanwhile
+        // re-arms the report promptly.
+        tokio::time::sleep(next.min(std::time::Duration::from_secs(1))).await;
+    }
+}
+
 async fn run_classic_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
+    cancel: tokio::sync::oneshot::Receiver<()>,
+) {
+    run_classic_sync_with(client, events, cancel, CLASSIC_SYNC_SILENCE).await;
+}
+
+async fn run_classic_sync_with(
+    client: Client,
+    events: Arc<Mutex<VecDeque<String>>>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
+    silence: ClassicSilenceBudget,
 ) {
     enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
 
     let first_response = Arc::new(AtomicBool::new(true));
+    // Any callback, success or failure, is a sign of life; see
+    // ClassicSilenceBudget.
+    let progress = SyncProgress::new();
     // Consecutive failures, shared with the callback: drives the backoff and
     // the escalation. Reset by any success.
     let failure_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -10867,11 +11245,11 @@ async fn run_classic_sync(
     let shared_stamps: Arc<tokio::sync::Mutex<HashMap<OwnedRoomId, u64>>> =
         Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
-    // First-response watchdog: a wedged sync (issue #2: silent for 13+ minutes
-    // with no connections) looks like a slow one. It does not cancel or restart
-    // anything, since a first sync on a large account can legitimately take
-    // long; it makes the silence visible. It never resolves and is pinned
-    // outside the restart loop so it spans every attempt.
+    // First-response watchdog: logs how long the FIRST response has been
+    // outstanding, across every attempt. It never resolves and is pinned
+    // outside the restart loop so it spans every attempt. It cancels nothing;
+    // the per-attempt `supervise_classic_silence` is what bounds a wedged loop
+    // (issue #2: silent for 13+ minutes with no connections).
     let watchdog_events = Arc::clone(&events);
     let watchdog_first = Arc::clone(&first_response);
     let watchdog = async move {
@@ -10880,6 +11258,8 @@ async fn run_classic_sync(
         std::future::pending::<()>().await
     };
     tokio::pin!(watchdog);
+    // Whether a silence restart has already raised `sync_error`; see below.
+    let mut wedge_reported = false;
 
     loop {
         // No `full_state(true)`: the settings apply to every request of the loop,
@@ -10893,9 +11273,18 @@ async fn run_classic_sync(
         let callback_stamps = Arc::clone(&shared_stamps);
         let callback_failures = Arc::clone(&failure_count);
         let callback_gone = Arc::clone(&session_gone);
+        let callback_progress = progress.clone();
+        // A new attempt starts its silence clock now, not at the last callback
+        // of the attempt before it.
+        progress.touch();
         // `sync_with_result_callback` lets the callback see failed requests and
         // return `Ok(LoopCtrl::Continue)`, keeping the SDK loop and its token alive
         // across an outage.
+        //
+        // Scoped in this block so the SDK loop (and whatever request, retry sleep
+        // or lock it holds) is dropped when the block ends, BEFORE the backoff
+        // below, not at the end of the loop iteration.
+        let wedged = {
         let sync = client.sync_with_result_callback(settings, move |result| {
             let client = callback_client.clone();
             let events = Arc::clone(&callback_events);
@@ -10904,7 +11293,11 @@ async fn run_classic_sync(
             let stamps = Arc::clone(&callback_stamps);
             let failures = Arc::clone(&callback_failures);
             let session_gone = Arc::clone(&callback_gone);
+            let progress = callback_progress.clone();
             async move {
+                // Touched on entry and again on the way out, so neither a slow
+                // callback nor its own backoff sleep counts as SDK silence.
+                progress.touch();
                 let response = match result {
                     Ok(response) => response,
                     Err(error) => {
@@ -10932,6 +11325,7 @@ async fn run_classic_sync(
                             }));
                         }
                         tokio::time::sleep(classic_sync_backoff(seen - 1)).await;
+                        progress.touch();
                         return Ok(LoopCtrl::Continue);
                     }
                 };
@@ -11050,11 +11444,17 @@ async fn run_classic_sync(
                 if first_response.swap(false, Ordering::SeqCst) {
                     enqueue(&events, json!({ "type": "initial_sync_done" }));
                 }
+                progress.touch();
                 Ok(LoopCtrl::Continue)
             }
         });
         tokio::pin!(sync);
+        let mut wedged = false;
+        // Biased, SDK loop first: a loop that finished in the same poll as the
+        // supervisor's deadline (e.g. right after a resume from sleep) is a loop
+        // that finished, not a wedge.
         tokio::select! {
+            biased;
             result = &mut sync => if let Err(err) = result {
                 // The callback absorbs transient failures; reaching here means the SDK
                 // loop ended for another reason.
@@ -11063,10 +11463,26 @@ async fn run_classic_sync(
                     "message": format_matrix_error("Matrix Rust SDK sync failed", err),
                 }));
             },
+            _ = &mut cancel => return,
             // Never resolves; see its construction above.
             _ = &mut watchdog => {},
-            _ = &mut cancel => return,
+            // Resolves only after `restart_after` without a single callback. The
+            // SDK loop is dropped when this block ends, which cancels whatever it
+            // was waiting on.
+            //
+            // KNOWN RESIDUAL RISK: the callback runs only after matrix-sdk has
+            // PROCESSED a response, and 0.18 exposes no hook between the response
+            // arriving and its processing. A first response so large that
+            // processing it takes longer than `restart_after` would be cancelled
+            // and fetched again, every time. 300 s is far beyond any processing
+            // measured here, but it is a bound on processing too, not only on the
+            // network.
+            _ = supervise_classic_silence(&events, &progress, silence) => {
+                wedged = true;
+            },
         }
+        wedged
+        };
 
         // The SDK loop returned; restart it unless the session is gone (`startSync()`
         // runs only once, at login).
@@ -11079,12 +11495,26 @@ async fn run_classic_sync(
         enqueue(&events, json!({
             "type": "room_list_sync_state", "state": "offline"
         }));
+        // Surfaced, not just logged: C++ shows the sync error until a response
+        // arrives ("running"). No "retrying" below for the same reason, since it
+        // would put the UI back on "Loading rooms…" over a loop that has already
+        // failed once. Once per outage: a success resets the failure count, so
+        // `seen == 1` is the first failure since one.
+        if wedged && (!wedge_reported || seen == 1) {
+            wedge_reported = true;
+            enqueue(&events, json!({
+                "type": "sync_error",
+                "message": CLASSIC_SYNC_WEDGED_MESSAGE,
+            }));
+        }
         tokio::select! {
             _ = &mut cancel => return,
             _ = tokio::time::sleep(classic_sync_backoff(seen - 1)) => {
-                enqueue(&events, json!({
-                    "type": "room_list_sync_state", "state": "retrying"
-                }));
+                if !wedged {
+                    enqueue(&events, json!({
+                        "type": "room_list_sync_state", "state": "retrying"
+                    }));
+                }
             }
         }
     }
@@ -12690,6 +13120,61 @@ mod tests {
         ] {
             assert_eq!(super::notification_mode_from_int(int), Some(mode));
             assert_eq!(super::notification_mode_to_int(mode), int as u8);
+        }
+    }
+
+    // How each way of muting a room that other clients use reads through the
+    // SDK's own classification (the one Lightning reports). Element Web writes
+    // an enabled OVERRIDE rule keyed by the room id with an `event_match`
+    // `room_id` condition and NO actions; Element X goes through this same
+    // SDK. A ROOM rule without `notify` is "Mentions & keywords" in Element
+    // (not Mute), and a disabled rule counts for nothing.
+    #[tokio::test]
+    async fn every_standard_muted_room_push_rule_form_reads_as_the_right_mode() {
+        use matrix_sdk::notification_settings::RoomNotificationMode as M;
+        use matrix_sdk::test_utils::mocks::MatrixMockServer;
+        use serde_json::json;
+        let room = "!muted:matrix.example";
+        let override_rule = |rule_id: &str, enabled: bool, actions: serde_json::Value| json!({
+            "rule_id": rule_id, "default": false, "enabled": enabled, "actions": actions,
+            "conditions": [{"kind": "event_match", "key": "room_id", "pattern": room}],
+        });
+        let room_rule = |actions: serde_json::Value| json!({
+            "rule_id": room, "default": false, "enabled": true, "actions": actions,
+        });
+        let cases: Vec<(&str, serde_json::Value, serde_json::Value, Option<M>)> = vec![
+            ("override, empty actions (Element Web mute)",
+             json!({"override": [override_rule(room, true, json!([]))]}), json!({}), Some(M::Mute)),
+            ("override, dont_notify",
+             json!({"override": [override_rule(room, true, json!(["dont_notify"]))]}), json!({}), Some(M::Mute)),
+            ("override with another rule id, condition names the room",
+             json!({"override": [override_rule("custom-id", true, json!([]))]}), json!({}), Some(M::Mute)),
+            ("disabled override is not a mute",
+             json!({"override": [override_rule(room, false, json!([]))]}), json!({}), None),
+            ("room rule, empty actions: mentions and keywords",
+             json!({"room": [room_rule(json!([]))]}), json!({}), Some(M::MentionsAndKeywordsOnly)),
+            ("room rule, dont_notify: mentions and keywords",
+             json!({"room": [room_rule(json!(["dont_notify"]))]}), json!({}), Some(M::MentionsAndKeywordsOnly)),
+            ("room rule, notify: all messages",
+             json!({"room": [room_rule(json!(["notify"]))]}), json!({}), Some(M::AllMessages)),
+            ("no rule", json!({}), json!({}), None),
+        ];
+        for (label, global, _unused, expected) in cases {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            server
+                .mock_sync()
+                .ok_and_run(&client, |builder| {
+                    builder.add_custom_global_account_data(json!({
+                        "type": "m.push_rules",
+                        "content": {"global": global},
+                    }));
+                })
+                .await;
+            let settings = client.notification_settings().await;
+            let parsed = matrix_sdk::ruma::RoomId::parse(room).unwrap();
+            let got = settings.get_user_defined_room_notification_mode(&parsed).await;
+            assert_eq!(got, expected, "{label}");
         }
     }
 
@@ -15042,6 +15527,277 @@ mod first_sync_watchdog_tests {
         let seen = drain(&events.lock().unwrap());
         assert_eq!(seen.len(), 1,
                    "the watch kept reporting after the sync answered");
+    }
+}
+
+/// The classic loop's silence supervisor (issue #2). matrix-sdk retries a
+/// 5xx/429 answer inside the request for up to 15 minutes without reaching
+/// the sync callback, so "no callback at all" is what a wedge looks like.
+#[cfg(test)]
+mod classic_sync_silence_tests {
+    use super::{supervise_classic_silence, ClassicSilenceBudget, SyncProgress};
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    fn budget(report_ms: u64, restart_ms: u64) -> ClassicSilenceBudget {
+        ClassicSilenceBudget {
+            report_after: Duration::from_millis(report_ms),
+            restart_after: Duration::from_millis(restart_ms),
+            // Far above any tick gap these tests produce.
+            resume_gap: Duration::from_secs(3600),
+        }
+    }
+
+    #[tokio::test]
+    async fn time_spent_suspended_is_not_counted_as_silence() {
+        // A resume cannot be staged in a test, so the gap is shrunk instead:
+        // every tick (at least 60 ms apart) now looks like a wake from suspend.
+        // On Windows `Instant` counts through sleep, and without this every
+        // resume after a long sleep raised a false sync error.
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let progress = SyncProgress::new();
+        progress.touch();
+        let resumed = ClassicSilenceBudget {
+            resume_gap: Duration::from_millis(20),
+            ..budget(60, 200)
+        };
+        let outcome = tokio::time::timeout(
+            Duration::from_millis(800),
+            supervise_classic_silence(&events, &progress, resumed),
+        )
+        .await;
+        assert!(outcome.is_err(), "a resumed loop was restarted as wedged");
+        assert!(drain(&events).is_empty(), "a resumed loop was reported as stalled");
+    }
+
+    fn drain(events: &Arc<Mutex<VecDeque<String>>>) -> Vec<serde_json::Value> {
+        events.lock().unwrap().iter().map(|e| serde_json::from_str(e).unwrap()).collect()
+    }
+
+    #[tokio::test]
+    async fn a_silent_loop_is_reported_once_and_then_given_up_on() {
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let progress = SyncProgress::new();
+        progress.touch();
+        let started = tokio::time::Instant::now();
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            supervise_classic_silence(&events, &progress, budget(60, 200)),
+        )
+        .await
+        .expect("a loop that never calls back must be given up on");
+        // 190, not 200: the clock stores whole milliseconds, so the measured
+        // quiet can run up to one ahead of this instant.
+        assert!(started.elapsed() >= Duration::from_millis(190),
+                "given up on before the restart bound");
+
+        let seen = drain(&events);
+        // Exactly one report for one quiet spell: the UI leaves "Loading rooms…"
+        // (offline) and the log says why.
+        assert_eq!(seen.len(), 2, "{seen:?}");
+        assert_eq!(seen[0]["type"], "room_list_sync_state");
+        assert_eq!(seen[0]["state"], "offline");
+        assert_eq!(seen[1]["type"], "sync_stalled");
+        assert_eq!(seen[1]["phase"], "no_progress");
+    }
+
+    #[tokio::test]
+    async fn a_loop_that_keeps_calling_back_is_never_restarted() {
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        let progress = SyncProgress::new();
+        progress.touch();
+        let toucher = progress.clone();
+        let heartbeat = tokio::spawn(async move {
+            loop {
+                toucher.touch();
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        });
+        // Twice the restart bound, with a callback every 10 ms throughout.
+        let outcome = tokio::time::timeout(
+            Duration::from_millis(1200),
+            supervise_classic_silence(&events, &progress, budget(300, 600)),
+        )
+        .await;
+        heartbeat.abort();
+        assert!(outcome.is_err(), "a healthy loop was restarted");
+        assert!(drain(&events).is_empty(), "a healthy loop was reported as stalled");
+    }
+}
+
+/// Issue #2 end to end, against a loopback homeserver that answers every
+/// request but `/versions` with 503. matrix-sdk treats that as transient and
+/// retries it inside the request, so the sync callback never runs: before the
+/// supervisor this loop said "starting" and nothing else for 15 minutes.
+#[cfg(test)]
+mod classic_sync_wedge_tests {
+    use super::{run_classic_sync_with, ClassicSilenceBudget, CLASSIC_SYNC_WEDGED_MESSAGE};
+    use std::collections::VecDeque;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+
+    use matrix_sdk::{
+        authentication::matrix::MatrixSession,
+        ruma::{OwnedDeviceId, OwnedUserId},
+        store::RoomLoadSettings,
+        SessionMeta, SessionTokens,
+    };
+
+    /// Reads one request (head and body) and returns its request line.
+    fn read_request(stream: &mut TcpStream) -> String {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let head_end = loop {
+            let n = stream.read(&mut chunk).unwrap_or(0);
+            if n == 0 {
+                return String::new();
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+        };
+        let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
+        let length = head
+            .lines()
+            .find_map(|line| {
+                line.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+            })
+            .unwrap_or(0);
+        while buf.len() < head_end + length {
+            let n = stream.read(&mut chunk).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        head.lines().next().unwrap_or("").to_owned()
+    }
+
+    fn respond(stream: &mut TcpStream, status: &str, payload: &str) {
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
+             Connection: close\r\nContent-Length: {}\r\n\r\n{}",
+            payload.len(),
+            payload
+        );
+        let _ = stream.write_all(response.as_bytes());
+        let _ = stream.flush();
+    }
+
+    /// A homeserver behind a gateway that fails every API call with 503.
+    /// Counts the failed requests, so the test can prove the SDK really was
+    /// sending (and silently retrying) them.
+    fn serve_503(failed: Arc<AtomicUsize>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let (ready_tx, ready_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = ready_tx.send(());
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let failed = Arc::clone(&failed);
+                thread::spawn(move || {
+                    let line = read_request(&mut stream);
+                    let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+                    if path.starts_with("/_matrix/client/versions") {
+                        respond(&mut stream, "200 OK",
+                                r#"{"versions":["v1.1","v1.11"],"unstable_features":{}}"#);
+                    } else {
+                        failed.fetch_add(1, Ordering::SeqCst);
+                        respond(&mut stream, "503 Service Unavailable",
+                                r#"{"errcode":"M_UNKNOWN","error":"gateway"}"#);
+                    }
+                });
+            }
+        });
+        ready_rx.recv().expect("listener thread started");
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    fn drain(events: &Arc<Mutex<VecDeque<String>>>) -> Vec<serde_json::Value> {
+        events.lock().unwrap().iter().map(|e| serde_json::from_str(e).unwrap()).collect()
+    }
+
+    fn reported_wedge(events: &Arc<Mutex<VecDeque<String>>>) -> bool {
+        drain(events).iter().any(|value| {
+            value["type"] == "sync_error" && value["message"] == CLASSIC_SYNC_WEDGED_MESSAGE
+        })
+    }
+
+    #[test]
+    fn a_gateway_failing_every_sync_ends_in_a_reported_restart_not_silence() {
+        let failed = Arc::new(AtomicUsize::new(0));
+        let addr = serve_503(Arc::clone(&failed));
+        let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let client = matrix_sdk::Client::builder()
+                .homeserver_url(format!("http://{addr}"))
+                .build()
+                .await
+                .expect("client");
+            let session = MatrixSession {
+                meta: SessionMeta {
+                    user_id: OwnedUserId::try_from("@me:example.org").expect("user id"),
+                    device_id: OwnedDeviceId::from("TESTDEVICE"),
+                },
+                tokens: SessionTokens {
+                    access_token: "test-token".to_owned(),
+                    refresh_token: None,
+                },
+            };
+            client
+                .matrix_auth()
+                .restore_session(session, RoomLoadSettings::default())
+                .await
+                .expect("restore");
+
+            let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+            let watched = Arc::clone(&events);
+            // Stops the loop once the restart was reported, or after a bound far
+            // below the SDK's own 15-minute retry window.
+            let watcher = async move {
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+                while tokio::time::Instant::now() < deadline && !reported_wedge(&watched) {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                let _ = cancel_tx.send(());
+            };
+            let silence = ClassicSilenceBudget {
+                report_after: Duration::from_millis(300),
+                restart_after: Duration::from_millis(900),
+                resume_gap: Duration::from_secs(3600),
+            };
+            tokio::join!(
+                run_classic_sync_with(client, Arc::clone(&events), cancel_rx, silence),
+                watcher
+            );
+        });
+
+        let seen = drain(&events);
+        assert!(failed.load(Ordering::SeqCst) > 0,
+                "the server never saw a request; this test proved nothing: {seen:?}");
+        // The wedge itself: no callback ever ran, so no response ("running")
+        // reached the UI.
+        assert!(!seen.iter().any(|v| v["state"] == "running"), "{seen:?}");
+        // What issue #2 asked for: the silence is reported, then surfaced as an
+        // error the UI shows, instead of "starting" for ever.
+        assert!(seen.iter().any(|v| v["type"] == "sync_stalled"
+                                    && v["phase"] == "no_progress"), "{seen:?}");
+        assert!(seen.iter().any(|v| v["type"] == "room_list_sync_state"
+                                    && v["state"] == "offline"), "{seen:?}");
+        assert!(reported_wedge(&events), "no sync_error for a wedged loop: {seen:?}");
     }
 }
 

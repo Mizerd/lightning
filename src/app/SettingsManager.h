@@ -89,6 +89,14 @@ class SettingsManager : public QObject
     // SENDS are kept by matrix-sdk's send queue whatever this says.
     Q_PROPERTY(bool keepMediaOnDevice READ keepMediaOnDevice
                    WRITE setKeepMediaOnDevice NOTIFY keepMediaOnDeviceChanged)
+    // Downloads: Element's "Download" saves straight to the downloads folder
+    // unless this is on, in which case every download asks where to save.
+    Q_PROPERTY(bool alwaysAskWhereToSave READ alwaysAskWhereToSave
+                   WRITE setAlwaysAskWhereToSave
+                   NOTIFY alwaysAskWhereToSaveChanged)
+    // The folder downloads go to; empty means the system's Downloads folder.
+    Q_PROPERTY(QString downloadFolder READ downloadFolder
+                   WRITE setDownloadFolder NOTIFY downloadFolderChanged)
     // Who is told this account has read a message: 0 public (default), 1
     // private (MSC2285 `m.read.private`, still clears this account's other
     // devices), 2 off. The fully-read marker is sent in every mode; it is
@@ -103,6 +111,16 @@ class SettingsManager : public QObject
     // Suppressed along with the notification it belongs to.
     Q_PROPERTY(int notificationSound READ notificationSound
                    WRITE setNotificationSound NOTIFY notificationSoundChanged)
+    // Whose sound a notification makes: 0 = Lightning's own chime (the
+    // default; the platform's sound is suppressed), 1 = the platform's
+    // themed sound. Which notifications sound at all is notificationSound.
+    Q_PROPERTY(int notificationSoundSource READ notificationSoundSource
+                   WRITE setNotificationSoundSource
+                   NOTIFY notificationSoundSourceChanged)
+    // Volume of Lightning's notification chime, 0-100 (perceptual).
+    Q_PROPERTY(int notificationSoundVolume READ notificationSoundVolume
+                   WRITE setNotificationSoundVolume
+                   NOTIFY notificationSoundVolumeChanged)
     // Whether an incoming call rings. Device-wide; the call banner itself is
     // governed by notificationsEnabled.
     Q_PROPERTY(bool ringForCalls READ ringForCalls WRITE setRingForCalls
@@ -244,6 +262,17 @@ class SettingsManager : public QObject
     // not reset.
     Q_PROPERTY(int gifAutoplay READ gifAutoplay WRITE setGifAutoplay
                    NOTIFY gifAutoplayChanged)
+    // Speculative preload of short videos when a room opens. Off means no
+    // video is fetched ahead of Play (a poster still comes from a thumbnail
+    // when the sender provided one). The limit is whole megabytes; a stored
+    // value outside the range reads as the default.
+    Q_PROPERTY(bool videoPrefetchEnabled READ videoPrefetchEnabled
+                   WRITE setVideoPrefetchEnabled
+                   NOTIFY videoPrefetchEnabledChanged)
+    Q_PROPERTY(int videoPrefetchMaxMb READ videoPrefetchMaxMb
+                   WRITE setVideoPrefetchMaxMb NOTIFY videoPrefetchMaxMbChanged)
+    Q_PROPERTY(int videoPrefetchMinMb READ videoPrefetchMinMb CONSTANT)
+    Q_PROPERTY(int videoPrefetchLimitMb READ videoPrefetchLimitMb CONSTANT)
     Q_PROPERTY(int gifSafeSearch READ gifSafeSearch WRITE setGifSafeSearch
                    NOTIFY gifSafeSearchChanged)
     Q_PROPERTY(bool storeRecentGifs READ storeRecentGifs
@@ -437,16 +466,33 @@ public:
                                                  bool encryptionKnown) const;
     bool callPictureInPicture() const;
     void setCallPictureInPicture(bool v);
+    /// Microphone noise suppression for calls (GitHub #20): "off", "webrtc",
+    /// "rnnoise" or "deepfilternet". Machine-wide, not per account: it
+    /// describes this machine's microphone and room. An unreadable stored
+    /// value (a newer build's mode, a hand edit) reads as the default,
+    /// "webrtc", which is what every build before the selector ran.
+    QString noiseSuppressionMode() const;
+    /// Refuses anything but the four keys; the stored value is unchanged.
+    void setNoiseSuppressionMode(const QString &mode);
     bool strictDeviceTrust() const;
     void setStrictDeviceTrust(bool v);
     bool keepMediaOnDevice() const;
     void setKeepMediaOnDevice(bool v);
+    bool alwaysAskWhereToSave() const;
+    void setAlwaysAskWhereToSave(bool v);
+    QString downloadFolder() const;
+    void setDownloadFolder(const QString &path);
     int readReceiptMode() const;
     void setReadReceiptMode(int v);
     bool sendTypingNotifications() const;
     void setSendTypingNotifications(bool v);
     int notificationSound() const;
     void setNotificationSound(int mode);
+    static constexpr int kDefaultNotificationSoundVolume = 70;
+    int notificationSoundSource() const;
+    void setNotificationSoundSource(int source);
+    int notificationSoundVolume() const;
+    void setNotificationSoundVolume(int percent);
     bool ringForCalls() const;
     // Call sounds. Volumes clamp to 0..100.
     static constexpr int kDefaultCallSoundVolume = 70;
@@ -585,6 +631,12 @@ public:
     Q_INVOKABLE QUrl lastAttachFolder() const;
     /// Record the folder containing `file` (a file URL) as the last one used.
     Q_INVOKABLE void rememberAttachFolder(const QUrl &file);
+    /// The last folder a file chooser of this `purpose` ("attach", "image",
+    /// "save", ...) ended in. "attach" is lastAttachFolder(). Empty when unset
+    /// or gone from disk.
+    QUrl lastFileFolder(const QString &purpose) const;
+    /// Record `folder` (a folder URL) for `purpose`.
+    void rememberFileFolder(const QString &purpose, const QUrl &folder);
     int spacesRailWidth() const;
     void setSpacesRailWidth(int px);
     int spacesRailDepthStyle() const;
@@ -630,6 +682,13 @@ public:
     int gifSafeSearch() const;
     void setGifSafeSearch(int rating);
     bool storeRecentGifs() const;
+    bool videoPrefetchEnabled() const;
+    void setVideoPrefetchEnabled(bool v);
+    int videoPrefetchMaxMb() const;
+    void setVideoPrefetchMaxMb(int mb);
+    static constexpr int videoPrefetchMinMb() { return 1; }
+    static constexpr int videoPrefetchLimitMb() { return 100; }
+    static constexpr int videoPrefetchDefaultMb() { return 32; }
     void setStoreRecentGifs(bool v);
     QString gifPreferredProvider() const;
     void setGifPreferredProvider(const QString &id);
@@ -680,6 +739,9 @@ public:
     /// with the global fallback: it describes this machine's hardware.
     Q_PROPERTY(int microphoneGain READ microphoneGain WRITE setMicrophoneGain
                    NOTIFY microphoneGainChanged)
+    Q_PROPERTY(QString noiseSuppressionMode READ noiseSuppressionMode
+                   WRITE setNoiseSuppressionMode
+                   NOTIFY noiseSuppressionModeChanged)
     int microphoneGain() const;
     void setMicrophoneGain(int percent);
 
@@ -895,11 +957,16 @@ Q_SIGNALS:
     void notificationPreviewChanged();
     void notificationPreviewEncryptedChanged();
     void callPictureInPictureChanged();
+    void noiseSuppressionModeChanged();
     void strictDeviceTrustChanged();
     void keepMediaOnDeviceChanged();
+    void alwaysAskWhereToSaveChanged();
+    void downloadFolderChanged();
     void readReceiptModeChanged();
     void sendTypingNotificationsChanged();
     void notificationSoundChanged();
+    void notificationSoundSourceChanged();
+    void notificationSoundVolumeChanged();
     void ringForCallsChanged();
     void callSoundSettingsChanged();
     void callDevicePreferenceChanged();
@@ -927,6 +994,8 @@ Q_SIGNALS:
     void gifAutoplayChanged();
     void gifSafeSearchChanged();
     void storeRecentGifsChanged();
+    void videoPrefetchEnabledChanged();
+    void videoPrefetchMaxMbChanged();
     void gifPreferredProviderChanged();
     void showRoomActivityChanged();
     void showMembershipEventsChanged();
@@ -961,6 +1030,7 @@ private:
     // private.
     friend class CustomThemeStore;
     friend class RailLayoutStore;
+    friend class ChatBackdropController;
     friend class SpaceChannelModel;
 
     void migratePlaintextTokenIfPresent();
