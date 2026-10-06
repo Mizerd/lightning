@@ -51,6 +51,43 @@ TimelineModel::TimelineModel(QObject *parent)
     connect(this, &QAbstractItemModel::rowsRemoved, this, resync);
     connect(this, &QAbstractItemModel::modelReset, this, resync);
     connect(this, &QAbstractItemModel::dataChanged, this, resync);
+    // The "sent" check follows sends and receipts without every mutation site
+    // having to remember it (a missed site would leave a stale check).
+    // Structural changes are picked up from countChanged, which every
+    // insert/remove handler emits AFTER endInsertRows()/endRemoveRows() has
+    // returned, i.e. after every view has processed the change. Hooking
+    // rowsInserted itself ran this first (the model's own connection is the
+    // oldest) and its dataChanged for the row that lost the check reached the
+    // view before the view had seen the insertion, and was lost: the check
+    // stayed under a message the other person had since answered.
+    connect(this, &TimelineModel::countChanged, this,
+            [this] { refreshSentReceipt(); });
+    connect(this, &QAbstractItemModel::modelReset, this,
+            [this] { refreshSentReceipt(); });
+    // Only the roles the answer depends on (an empty list means "everything",
+    // as a whole-row Set emits). A reaction or a media update must not pay for
+    // a scan.
+    connect(this, &QAbstractItemModel::dataChanged, this,
+            [this](const QModelIndex &, const QModelIndex &,
+                   const QList<int> &roles) {
+        if (!roles.isEmpty()) {
+            bool relevant = false;
+            for (int role : roles) {
+                if (role == ReadReceiptsRole || role == ReadReceiptsTotalRole
+                    || role == StatusRole || role == IsLocalEchoRole
+                    || role == RedactedRole || role == EventIdRole
+                    // onEventEdited() replaces the whole event from the
+                    // mirror, receipts included.
+                    || role == EditedRole) {
+                    relevant = true;
+                    break;
+                }
+            }
+            if (!relevant)
+                return;
+        }
+        refreshSentReceipt();
+    });
 
 }
 
@@ -269,7 +306,10 @@ void TimelineModel::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::paginationStateChanged,
                 this, &TimelineModel::onPaginationStateChanged);
         connect(m_client, &MatrixClient::loginSucceeded, this,
-                [this](const QString &userId) { m_selfUserId = userId; });
+                [this](const QString &userId) {
+                    m_selfUserId = userId;
+                    refreshSentReceipt();
+                });
     }
     reload();
     refreshTypingText();
@@ -749,6 +789,71 @@ bool TimelineModel::rowHostsReceipts(int row) const
             return true;
     }
     return false;
+}
+
+int TimelineModel::sentReceiptRow() const
+{
+    // Element (EventTileReceiptState): an own message, successfully sent, the
+    // newest such one, with no read receipts of anyone else. Lightning goes one
+    // step further and also requires that nobody has read anything AFTER it,
+    // because its facepile already shows that reader further down.
+    if (m_selfUserId.isEmpty() || m_roomId != m_realRoomId)
+        return -1;
+    int own = -1;
+    for (int r = static_cast<int>(m_events.size()) - 1; r >= 0; --r) {
+        const auto &e = m_events.at(r);
+        if (e.sender != m_selfUserId)
+            continue;
+        if (e.isVirtual() || e.type == TimelineEvent::DateDivider
+            || e.type == TimelineEvent::StateChange || isCallEventRow(e)
+            || e.redacted)
+            continue;
+        // Pending and failed sends have their own indicators.
+        if (e.isLocalEcho || e.status != TimelineEvent::Sent
+            || e.eventId.isEmpty())
+            continue;
+        own = r;
+        break;
+    }
+    if (own < 0)
+        return -1;
+    for (int r = own; r < m_events.size(); ++r) {
+        const auto &e = m_events.at(r);
+        // Readers beyond the delivered window are someone.
+        if (e.readByTotal > static_cast<int>(e.readBy.size()))
+            return -1;
+        for (const auto &receipt : e.readBy) {
+            if (receipt.userId != m_selfUserId)
+                return -1;
+        }
+    }
+    return own;
+}
+
+void TimelineModel::refreshSentReceipt()
+{
+    if (m_refreshingSentReceipt)
+        return; // our own dataChanged below comes back through here
+    m_refreshingSentReceipt = true;
+    const int row = sentReceiptRow();
+    const QString now = row >= 0 ? m_events.at(row).eventId : QString();
+    if (now != m_sentReceiptEventId) {
+        const QString before = m_sentReceiptEventId;
+        m_sentReceiptEventId = now;
+        for (const QString &id : {before, now}) {
+            if (id.isEmpty())
+                continue;
+            // A plain search, not rowForEventId(): the row index may still be
+            // dirty while a structural signal is being delivered.
+            for (int r = static_cast<int>(m_events.size()) - 1; r >= 0; --r) {
+                if (m_events.at(r).eventId != id)
+                    continue;
+                Q_EMIT dataChanged(index(r), index(r), { SentReceiptRole });
+                break;
+            }
+        }
+    }
+    m_refreshingSentReceipt = false;
 }
 
 int TimelineModel::receiptHostRow(int row) const
@@ -1418,6 +1523,11 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
     }
     case ReplyToKindRole:        return e.redacted ? QString{} : e.replyToKind;
     case ReplyToCountRole:       return e.redacted ? 0 : e.replyToCount;
+    case SentReceiptRole:
+        // The answer is cached by refreshSentReceipt(); reading it must not
+        // scan, or binding N own rows costs O(N^2).
+        return !e.eventId.isEmpty() && e.eventId == m_sentReceiptEventId
+            && e.sender == m_selfUserId;
     case StateKindRole: return e.stateKind;
     case StateGroupIdRole: {
         const int leader = stateGroupLeaderRow(raw);
@@ -1555,6 +1665,7 @@ QHash<int, QByteArray> TimelineModel::roleNames() const
         { GalleryItemsRole,         "galleryItems" },
         { ReplyToKindRole,          "replyToKind" },
         { ReplyToCountRole,         "replyToCount" },
+        { SentReceiptRole,          "sentReceipt" },
     };
 }
 

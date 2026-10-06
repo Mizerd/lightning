@@ -189,6 +189,8 @@ private Q_SLOTS:
     // newest-first order, live Set-diff/member-hydration updates, and
     // ReadMarker-row neutrality.
     void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
+    void theSentCheckFollowsTheNewestOwnMessageUntilSomeoneReadsIt();
+    void theSentCheckGoesWhenTheOtherUserAnswersWithAReceiptOnTheirNewRow();
     void readReceiptsUpdateViaSetDiffAndMemberHydration();
     void memberHydrationRerendersOnlyRowsWhoseMentionsChanged();
     void aReaderShowsOnOneHostOnlyAndTheOldHostIsReannounced();
@@ -1215,6 +1217,138 @@ void TimelineModelDiffTest::twoReadersAdvanceIndependentlyWithoutLoss()
     QCOMPARE(hydrated.at(1).toMap()
                  .value(QStringLiteral("displayName")).toString(),
              QStringLiteral("Anna"));
+}
+
+// Element's "sent" check (EventTileReceiptState): the newest own message the
+// server has, while nobody else has read it. Lightning also hides it when a
+// reader's receipt sits on a LATER row, because the facepile shows them there.
+void TimelineModelDiffTest::theSentCheckFollowsTheNewestOwnMessageUntilSomeoneReadsIt()
+{
+    const auto sent = [this](int row) {
+        return m_model->data(m_model->index(row), TimelineModel::SentReceiptRole)
+            .toBool();
+    };
+    QCOMPARE(m_model->roleNames().value(TimelineModel::SentReceiptRole),
+             QByteArrayLiteral("sentReceipt"));
+    // Alice's two messages: never ours.
+    QVERIFY(!sent(0));
+    QVERIFY(!sent(1));
+
+    TimelineEvent mine = makeEvent(QStringLiteral("$mine"), QStringLiteral("hi"));
+    mine.sender = QStringLiteral("@me:example.org");
+    m_client->mirror.append(mine);
+    Q_EMIT m_client->eventAppended(kRoom, mine);
+    QVERIFY2(sent(2), "the newest own message carries the sent check");
+
+    // A pending echo has its own indicator and does not take the check.
+    TimelineEvent echo = makeEvent(QStringLiteral("local:1"), QStringLiteral("typing"),
+                                   TimelineEvent::Sending);
+    echo.sender = QStringLiteral("@me:example.org");
+    echo.isLocalEcho = true;
+    m_client->mirror.append(echo);
+    Q_EMIT m_client->eventAppended(kRoom, echo);
+    QVERIFY(sent(2));
+    QVERIFY(!sent(3));
+
+    // The next own message that the server has takes the check, and the
+    // previous row is told it lost it.
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    TimelineEvent second = makeEvent(QStringLiteral("$mine2"), QStringLiteral("again"));
+    second.sender = QStringLiteral("@me:example.org");
+    m_client->mirror.append(second);
+    Q_EMIT m_client->eventAppended(kRoom, second);
+    QVERIFY(!sent(2));
+    QVERIFY(sent(4));
+    bool oldRowTold = false;
+    for (const auto &sig : changed) {
+        if (sig.at(0).toModelIndex().row() == 2
+            && sig.at(2).value<QList<int>>().contains(TimelineModel::SentReceiptRole))
+            oldRowTold = true;
+    }
+    QVERIFY2(oldRowTold, "the row that lost the check was not announced");
+
+    // Someone else's receipt on a LATER row means they have read past it.
+    TimelineEvent theirs = makeEvent(QStringLiteral("$theirs"), QStringLiteral("yo"));
+    theirs.readBy = { { QStringLiteral("@alice:example.org"), Q_INT64_C(1700000009000) } };
+    m_client->mirror.append(theirs);
+    Q_EMIT m_client->eventAppended(kRoom, theirs);
+    QVERIFY2(!sent(4), "a read message kept its sent check");
+
+    // The same must hold when the receipt arrives by an in-place Set, and the
+    // check must return when it is withdrawn.
+    TimelineEvent unread = theirs;
+    unread.readBy.clear();
+    m_client->mirror[5] = unread;
+    Q_EMIT m_client->eventChangedAt(kRoom, 5, unread);
+    QVERIFY(sent(4));
+    TimelineEvent readNow = mine;
+    readNow.eventId = second.eventId;
+    readNow.itemId = second.itemId;
+    readNow.readBy = { { QStringLiteral("@alice:example.org"), Q_INT64_C(1700000010000) } };
+    m_client->mirror[4] = readNow;
+    Q_EMIT m_client->eventChangedAt(kRoom, 4, readNow);
+    QVERIFY2(!sent(4), "a receipt delivered by a Set did not hide the check");
+    // Our own receipt never counts as a reader.
+    readNow.readBy = { { QStringLiteral("@me:example.org"), Q_INT64_C(1700000011000) } };
+    m_client->mirror[4] = readNow;
+    Q_EMIT m_client->eventChangedAt(kRoom, 4, readNow);
+    QVERIFY(sent(4));
+}
+
+// Reported live (and screenshotted): the other account answered and its
+// implicit receipt arrived ON THE NEW ROW, yet the "sent" check stayed under
+// our message until the app was restarted. Cause: the model announced the row
+// that lost the check from its own rowsInserted slot, which runs before the
+// view's, so the view dropped the notification. The announcement must reach a
+// listener only after the view has processed the insertion.
+void TimelineModelDiffTest::theSentCheckGoesWhenTheOtherUserAnswersWithAReceiptOnTheirNewRow()
+{
+    TimelineEvent mine = makeEvent(QStringLiteral("$mine"), QStringLiteral("hi"));
+    mine.sender = QStringLiteral("@me:example.org");
+    m_client->mirror.append(mine);
+    Q_EMIT m_client->eventAppended(kRoom, mine);
+    const int mineRow = static_cast<int>(m_model->rowCount()) - 1;
+    const auto sent = [this](int row) {
+        return m_model->data(m_model->index(row), TimelineModel::SentReceiptRole)
+            .toBool();
+    };
+    QVERIFY(sent(mineRow));
+
+    // A stand-in for the view: connected after the model's own slots, it
+    // marks the moment the insertion has been processed.
+    bool viewSawInsertion = false;
+    QObject::connect(m_model, &QAbstractItemModel::rowsInserted, m_model,
+                     [&] { viewSawInsertion = true; });
+    bool announcedTooEarly = false;
+    bool announced = false;
+    QObject::connect(m_model, &QAbstractItemModel::dataChanged, m_model,
+                     [&](const QModelIndex &top, const QModelIndex &,
+                         const QList<int> &roles) {
+        if (top.row() == mineRow && roles.contains(TimelineModel::SentReceiptRole)) {
+            announced = true;
+            if (!viewSawInsertion)
+                announcedTooEarly = true;
+        }
+    });
+
+    // The reply arrives with the sender's implicit receipt already on it, in
+    // a burst of several rows.
+    for (int i = 0; i < 4; ++i) {
+        TimelineEvent theirs = makeEvent(QStringLiteral("$theirs%1").arg(i),
+                                         QStringLiteral("reply %1").arg(i));
+        if (i == 3) {
+            theirs.readBy = { { QStringLiteral("@alice:example.org"),
+                                Q_INT64_C(1700000020000) } };
+        }
+        m_client->mirror.append(theirs);
+        viewSawInsertion = false;
+        Q_EMIT m_client->eventAppended(kRoom, theirs);
+    }
+    QVERIFY2(!sent(mineRow), "the check stayed under an answered message");
+    QVERIFY2(announced, "the row that lost the check was never announced");
+    QVERIFY2(!announcedTooEarly,
+             "the check's removal was announced before the view had seen the "
+             "insertion, so a real view drops it");
 }
 
 void TimelineModelDiffTest::readMarkerRowsStayReceiptFreeWithoutIndexDrift()

@@ -559,6 +559,89 @@ qsizetype entityEnd(const QString &html, qsizetype i)
 
 } // namespace
 
+namespace {
+
+// Wrap bare http(s) URLs in a TEXT run of an already-tokenised formatted body.
+//
+// A formatted body is HTML the sender's client produced, and CommonMark has no
+// bare-URL autolinks: a markdown message that also carries a mention pill (so
+// it travels as HTML) arrives with its URL as plain text, which used to draw
+// as dead text while the link-preview card beneath it worked. The text is the
+// sender's, already entity-escaped, so it is copied through untouched; only
+// the href is decoded, re-validated and re-escaped.
+QString linkifyBareUrls(const QString &text, const QString &linkInk)
+{
+    if (!text.contains(QLatin1String("://")))
+        return text;
+    static const QRegularExpression webUrl(
+        QStringLiteral("\\bhttps?://[^\\s<>\"]+"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression trailingEntity(
+        QStringLiteral("&#?[A-Za-z0-9]+;\\z"));
+    static const QStringList delimiterEntities = {
+        QStringLiteral("&gt;"), QStringLiteral("&lt;"), QStringLiteral("&quot;"),
+        QStringLiteral("&#39;"), QStringLiteral("&#x27;"), QStringLiteral("&apos;")};
+    QString out;
+    qsizetype cursor = 0;
+    auto matches = webUrl.globalMatch(text);
+    while (matches.hasNext()) {
+        const auto match = matches.next();
+        out += text.mid(cursor, match.capturedStart() - cursor);
+        const QString raw = match.captured();
+        QString candidate = raw;
+        for (;;) {
+            if (candidate.isEmpty())
+                break;
+            const QChar last = candidate.back();
+            if (last == QLatin1Char(';')) {
+                const auto entity = trailingEntity.match(candidate);
+                if (entity.hasMatch()
+                    && delimiterEntities.contains(entity.captured(0))) {
+                    candidate.chop(entity.captured(0).size());
+                    continue;
+                }
+                if (entity.hasMatch())
+                    break; // an entity that belongs to the URL (&amp;)
+                candidate.chop(1);
+                continue;
+            }
+            if (QStringLiteral(".,:!?'").contains(last)) {
+                candidate.chop(1);
+                continue;
+            }
+            if (last == QLatin1Char(')') || last == QLatin1Char(']')
+                || last == QLatin1Char('}')) {
+                const QChar open = last == QLatin1Char(')')   ? QLatin1Char('(')
+                    : last == QLatin1Char(']')                ? QLatin1Char('[')
+                                                              : QLatin1Char('{');
+                if (candidate.count(open) < candidate.count(last)) {
+                    candidate.chop(1);
+                    continue;
+                }
+            }
+            break;
+        }
+        const QString href = decodeEntities(candidate);
+        const QUrl url(href, QUrl::StrictMode);
+        if (candidate.isEmpty() || !isSafeHttp(url)) {
+            out += raw;
+        } else {
+            out += QStringLiteral("<a href=\"") + href.toHtmlEscaped()
+                + QStringLiteral("\"");
+            if (!linkInk.isEmpty())
+                out += QStringLiteral(" style=\"color:")
+                    + linkInk.toHtmlEscaped() + QStringLiteral("\"");
+            out += QStringLiteral(">") + candidate + QStringLiteral("</a>")
+                + raw.mid(candidate.size());
+        }
+        cursor = match.capturedEnd();
+    }
+    out += text.mid(cursor);
+    return out;
+}
+
+} // namespace
+
 QString MessageHtml::sanitize(
     const QString &html,
     const std::function<QString(const QString &)> &resolveDisplayName,
@@ -578,6 +661,7 @@ QString MessageHtml::sanitize(
     // Per open <span>: was it emitted as a spoiler anchor? Keeps a plain
     // </span> from closing a spoiler anchor and vice versa.
     QList<bool> spanIsSpoiler;
+    int codeDepth = 0;      // inside <code>/<pre>: a URL there stays text
 
     const qsizetype n = in.size();
     TagScanner scanner(in);
@@ -587,8 +671,22 @@ QString MessageHtml::sanitize(
             qsizetype lt = in.indexOf(QLatin1Char('<'), i);
             if (lt < 0)
                 lt = n;
-            if (dropDepth == 0 && mentionSwallow == 0)
-                out += in.mid(i, lt - i);
+            if (dropDepth == 0 && mentionSwallow == 0) {
+                const QString chunk = in.mid(i, lt - i);
+                // Bare URLs become links, except inside an anchor (emitted or
+                // dropped), inside code, or inside a spoiler run, whose own
+                // anchor must not be nested in.
+                if (anchorEmitted.isEmpty() && codeDepth == 0
+                    && !spanIsSpoiler.contains(true)) {
+                    out += linkifyBareUrls(
+                        chunk,
+                        mentionStyle.linkColor.isEmpty()
+                            ? mentionStyle.accentColor
+                            : mentionStyle.linkColor);
+                } else {
+                    out += chunk;
+                }
+            }
             i = lt;
             continue;
         }
@@ -816,6 +914,13 @@ QString MessageHtml::sanitize(
                 spanIsSpoiler.append(false);
             }
             continue;
+        }
+
+        if (name == QLatin1String("code") || name == QLatin1String("pre")) {
+            if (!t.closing)
+                ++codeDepth;
+            else if (codeDepth > 0)
+                --codeDepth;
         }
 
         if (allowedTags().contains(name)) {

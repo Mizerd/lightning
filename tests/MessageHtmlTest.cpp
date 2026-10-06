@@ -293,6 +293,49 @@ private Q_SLOTS:
                  QStringLiteral("<a href=\"https://example.com/x\">site</a>"));
     }
 
+    void aBareUrlInAFormattedBodyBecomesALink()
+    {
+        // A markdown message with a mention pill travels as HTML, and
+        // CommonMark has no bare-URL autolinks, so the URL arrives as plain
+        // text. It must still be a link (reported with a screenshot: the
+        // link-preview card worked, the URL above it was dead text).
+        const QString out = sanitize(QStringLiteral(
+            "<a href=\"https://matrix.to/#/@bob:example.org\">Bob</a> look\n"
+            "https://github.com/matrix-org/matrix.org/pull/3654"));
+        QVERIFY2(out.contains(QStringLiteral(
+                     "<a href=\"https://github.com/matrix-org/matrix.org/pull/"
+                     "3654\">https://github.com/matrix-org/matrix.org/pull/3654"
+                     "</a>")),
+                 qPrintable(out));
+        // Trailing punctuation stays outside the link, an entity that is part
+        // of the URL stays inside it and is decoded in the href.
+        const QString punct = sanitize(QStringLiteral(
+            "see https://example.com/a?x=1&amp;y=2, ok."));
+        QVERIFY2(punct.contains(QStringLiteral(
+                     "<a href=\"https://example.com/a?x=1&amp;y=2\">"
+                     "https://example.com/a?x=1&amp;y=2</a>, ok.")),
+                 qPrintable(punct));
+    }
+
+    void aBareUrlIsLeftAloneInsideLinksCodeAndSpoilers()
+    {
+        // Already a link: no nested anchor.
+        const QString link = sanitize(QStringLiteral(
+            "<a href=\"https://a.example/\">https://a.example/</a>"));
+        QCOMPARE(link.count(QStringLiteral("<a ")), 1);
+        // Code keeps its text literal.
+        const QString code = sanitize(QStringLiteral(
+            "<code>curl https://a.example/x</code>"));
+        QVERIFY2(!code.contains(QStringLiteral("<a ")), qPrintable(code));
+        // A non-http scheme is never linked.
+        const QString js = sanitize(QStringLiteral("javascript://a.example/x"));
+        QVERIFY2(!js.contains(QStringLiteral("<a ")), qPrintable(js));
+        // A spoiler run already carries its own anchor.
+        const QString spoiler = sanitize(QStringLiteral(
+            "<span data-mx-spoiler>https://a.example/x</span>"));
+        QCOMPARE(spoiler.count(QStringLiteral("<a ")), 1);
+    }
+
     void matrixToMentionBecomesInternalLinkWithLocalpart()
     {
         // No resolver -> localpart fallback, never a bare MXID.

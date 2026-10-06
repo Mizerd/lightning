@@ -217,6 +217,12 @@ public:
         // words can say "Image" / "2 images".
         ReplyToKindRole,
         ReplyToCountRole,
+        // Element's "sent" check: true on the newest message this account has
+        // sent successfully, while nobody else has read it (or anything after
+        // it). Always false in thread timelines, whose receipts are not
+        // tracked. Moves, with a dataChanged for both rows, as messages are
+        // sent and read.
+        SentReceiptRole,
     };
 
     explicit TimelineModel(QObject *parent = nullptr);
@@ -548,6 +554,12 @@ private:
     // it hosts.
     bool rowHostsReceipts(int row) const;
     int receiptHostRow(int row) const;
+    // The row carrying the "sent" check (see SentReceiptRole), or -1.
+    int sentReceiptRow() const;
+    // Re-announces SentReceiptRole on the rows that gained or lost it.
+    void refreshSentReceipt();
+    QString m_sentReceiptEventId;
+    bool m_refreshingSentReceipt = false;
     // Re-read grouping roles only around a structural boundary: new rows query
     // their roles on first bind, so only existing neighbours (and a state run
     // crossing the boundary) can change. A whole-model dataChanged grows with

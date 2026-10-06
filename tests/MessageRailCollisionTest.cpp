@@ -91,6 +91,7 @@ class MessageRailCollisionTest : public QObject
         f.insert(QStringLiteral("isLocalEcho"), false);
         f.insert(QStringLiteral("readReceipts"), QVariantList{});
         f.insert(QStringLiteral("readReceiptsTotal"), 0);
+        f.insert(QStringLiteral("sentReceipt"), false);
         return f;
     }
 
@@ -255,6 +256,96 @@ private Q_SLOTS:
                      "facepile (starts at %2) — the avatars paint over its "
                      "buttons and the buttons cannot be pressed")
                      .arg(barRight).arg(pileLeft)));
+    }
+
+    // Element's "sent" check rides the same rail as the facepile, so it must
+    // be arbitrated the same way: on a short row the action bar ends before
+    // the check begins (the facepile lesson, applied to its sibling).
+    void theSentCheckClearsTheActionBarOnAShortRow()
+    {
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), true);
+        f.insert(QStringLiteral("sentReceipt"), true);
+
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        auto *check = d.root->findChild<QQuickItem *>(
+            QStringLiteral("sentReceiptCheck"));
+        QVERIFY2(check, "no sentReceiptCheck in the row");
+        QVERIFY2(check->isVisible() && check->width() > 0,
+                 "the sent check is not drawn on the newest own message");
+        QQuickItem *bar = forceActionBar(d.root);
+        QVERIFY2(bar, "no messageActionBarLoader in the row");
+        QVERIFY2(bar->width() > 0, "the action bar measured empty");
+
+        const qreal barRight = rightEdgeIn(bar, d.root);
+        const qreal checkLeft = leftEdgeIn(check, d.root);
+        QVERIFY2(barRight <= checkLeft + 1.0,
+                 qPrintable(QStringLiteral(
+                     "the action bar (ends at %1) runs into the sent check "
+                     "(starts at %2)").arg(barRight).arg(checkLeft)));
+        // Inside the row, not hanging off its edge.
+        QVERIFY(rightEdgeIn(check, d.root) <= d.root->width() + 1.0);
+    }
+
+    // A row that does not carry the flag, or whose readers are shown, draws no
+    // check; readers replace it rather than sitting beside it.
+    void theSentCheckGivesWayToReaders()
+    {
+        AppController app(AppController::MockBackend);
+        {
+            QVariantMap f = baseFixture();
+            f.insert(QStringLiteral("isOwn"), true);
+            Delegate d;
+            QVERIFY(build(app, f, d));
+            auto *check = d.root->findChild<QQuickItem *>(
+                QStringLiteral("sentReceiptCheck"));
+            QVERIFY(!check || !check->isVisible());
+        }
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), true);
+        f.insert(QStringLiteral("sentReceipt"), true);
+        f.insert(QStringLiteral("readReceipts"), receipts(2));
+        f.insert(QStringLiteral("readReceiptsTotal"), 2);
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        auto *check = d.root->findChild<QQuickItem *>(
+            QStringLiteral("sentReceiptCheck"));
+        QVERIFY2(!check || !check->isVisible(),
+                 "the sent check is drawn beside the readers it gives way to");
+    }
+
+    // Bubbles: an own bubble leaves the check's rail clear, as for the pile.
+    void anOwnBubbleClearsTheSentCheck()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);   // Bubbles
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), true);
+        f.insert(QStringLiteral("sentReceipt"), true);
+
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        QQmlProperty::write(d.root, QStringLiteral("isDirectRoom"), true);
+        QCoreApplication::processEvents();
+        QVERIFY(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool());
+
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *check = d.root->findChild<QQuickItem *>(
+            QStringLiteral("sentReceiptCheck"));
+        QVERIFY(bubble);
+        QVERIFY2(check && check->isVisible() && check->width() > 0,
+                 "no sent check on the newest own bubble");
+        const qreal bubbleRight = rightEdgeIn(bubble, d.root);
+        const qreal checkLeft = leftEdgeIn(check, d.root);
+        QVERIFY2(bubbleRight <= checkLeft + 1.0,
+                 qPrintable(QStringLiteral(
+                     "the own bubble (ends at %1) runs under the sent check "
+                     "(starts at %2)").arg(bubbleRight).arg(checkLeft)));
     }
 
     // It is a reservation, not a permanent indent: on a tall row the bar keeps
