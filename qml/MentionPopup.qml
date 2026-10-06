@@ -66,13 +66,27 @@ Popup {
     y: Math.max(AppTheme.spacing4,
                 anchorInputTop.y - height - AppTheme.spacing4)
 
+    // Set by the composer while an @-token is at the caret. The popup is shown
+    // only when it has something to offer: matches, or a member list that is
+    // still loading. A loaded list with zero matches hides it, and it returns
+    // as soon as the user keeps typing into matches again.
+    property bool tokenActive: false
+    readonly property bool membersLoaded: suggestions ? suggestions.membersLoaded : false
+    readonly property bool shouldShow: tokenActive && (count > 0 || !membersLoaded)
+    onShouldShowChanged: {
+        if (shouldShow) {
+            if (!visible)
+                open()
+        } else if (visible) {
+            close()
+        }
+    }
+
     onCountChanged: {
         if (currentIndex >= count)
             currentIndex = Math.max(0, count - 1)
         if (currentIndex < 0)
             currentIndex = 0
-        if (visible && count === 0)
-            close()
     }
     onOpened: currentIndex = 0
 

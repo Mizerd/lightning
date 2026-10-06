@@ -54,6 +54,7 @@ void MentionSuggestionModel::setRoomId(const QString &roomId)
     // A new room invalidates any in-flight request and the cached snapshot.
     m_membersOp = 0;
     m_all.clear();
+    setMembersLoaded(false);
     // Reset the @room permission to unknown (offered): it belonged to the
     // previous room, and the server refuses what the level does not allow.
     setRoomMentionAllowed(true);
@@ -70,6 +71,14 @@ void MentionSuggestionModel::setQuery(const QString &query)
     m_query = query;
     Q_EMIT queryChanged();
     rebuild(); // re-filter the cached members; never re-hits the server
+}
+
+void MentionSuggestionModel::setMembersLoaded(bool loaded)
+{
+    if (m_membersLoaded == loaded)
+        return;
+    m_membersLoaded = loaded;
+    Q_EMIT membersLoadedChanged();
 }
 
 void MentionSuggestionModel::requestMembers()
@@ -142,6 +151,7 @@ void MentionSuggestionModel::onRoomMembersReceived(quint64 opId,
     }
     m_all = members;
     rebuild();
+    setMembersLoaded(true);
 }
 
 void MentionSuggestionModel::onMembersChanged(const QString &roomId)
@@ -158,6 +168,7 @@ void MentionSuggestionModel::onLoggedOut()
     m_query.clear();
     m_all.clear();
     m_membersOp = 0;
+    setMembersLoaded(false);
     clearResults();
 }
 

@@ -78,6 +78,15 @@ Item {
 
     function remember() { %1.live = [{ start: 0, length: 16 }] }
     function forget() { %1.live.length = 0 }
+    // A "@wor" typed with the popup open and no member picked.
+    function typeUnpicked() {
+        mentionPopup.visible = true
+        threadMentionPopup.visible = true
+        %1.mentionTokenStart = 0
+        %1.threadMentionTokenStart = 0
+        input.cursorPosition = 4
+        threadComposerInput.cursorPosition = 4
+    }
     %3
 }
 )QML";
@@ -315,7 +324,10 @@ private Q_SLOTS:
         QVERIFY(popup.contains(
             QStringLiteral("currentIndex = (currentIndex - 1 + count) % count")));
         QVERIFY(popup.contains(QStringLiteral("if (!m || !m.userId)")));
-        QVERIFY(popup.contains(QStringLiteral("if (visible && count === 0)")));
+        // An empty list closes the popup once members are loaded (and only
+        // then: a list still loading keeps it up).
+        QVERIFY(popup.contains(QStringLiteral(
+            "shouldShow: tokenActive && (count > 0 || !membersLoaded)")));
         QVERIFY(popup.contains(QStringLiteral("close()")));
         // Members-only sourcing: never a directory/server search call.
         QVERIFY(!popup.contains(QStringLiteral("searchDirectory")));
@@ -406,6 +418,71 @@ private Q_SLOTS:
 
         delete root;
         QCOMPARE(warnings, QStringList{});
+    }
+
+    // A loaded member list with no match for the typed token hides the popup;
+    // it comes back when further typing matches again. While the list is still
+    // loading it stays up.
+    void thePopupHidesOnNoMatchesOnceMembersAreLoadedAndReturns()
+    {
+        QQmlApplicationEngine engine;
+        FakeAppContext appContext;
+        engine.rootContext()->setContextProperty("app", &appContext);
+        engine.rootContext()->setContextProperty("mentionModel", &m_model);
+        QQmlComponent component(&engine);
+        component.setData(QByteArray(kScene),
+                          QUrl(QStringLiteral("mentionpopupscene3.qml")));
+        QObject *root = component.create();
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root);
+        QVERIFY(window != nullptr);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *popup = root->findChild<QObject *>(QStringLiteral("popup"));
+        QVERIFY(popup != nullptr);
+
+        const bool allowedBefore = m_model.roomMentionAllowed();
+        QVERIFY(m_model.membersLoaded());
+        m_model.setQuery(QStringLiteral("ali"));
+        QVERIFY(popup->setProperty("tokenActive", true));
+        QTRY_VERIFY(popup->property("visible").toBool());
+
+        // Loaded list, no match: hidden.
+        m_model.setQuery(QStringLiteral("zzqx"));
+        QCOMPARE(m_model.count(), 0);
+        QTRY_VERIFY(!popup->property("visible").toBool());
+
+        // Still no match: stays hidden (the old code reopened it empty here).
+        m_model.setQuery(QStringLiteral("zzqxy"));
+        QVERIFY(!popup->property("visible").toBool());
+
+        // Matches again: returns.
+        m_model.setQuery(QStringLiteral("bo"));
+        QVERIFY(m_model.count() > 0);
+        QTRY_VERIFY(popup->property("visible").toBool());
+
+        // A room whose list has not loaded yet keeps it up despite zero rows.
+        m_model.setRoomId(QStringLiteral("!other:hs"));
+        QVERIFY(!m_model.membersLoaded());
+        QCOMPARE(m_model.count(), 0);
+        QVERIFY(popup->property("shouldShow").toBool());
+        QTRY_VERIFY(popup->property("visible").toBool());
+
+        QVERIFY(popup->setProperty("tokenActive", false));
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        delete root;
+
+        // Restore the shared fixture for later cases.
+        m_model.setRoomId(QStringLiteral("!design:hs"));
+        m_mock.deliver(QStringLiteral("!design:hs"), {
+            member(QStringLiteral("@alice:hs"), QStringLiteral("Alice"),
+                  QStringLiteral("administrator")),
+            member(QStringLiteral("@bob:hs"), QStringLiteral("Bob"),
+                  QStringLiteral("moderator")),
+            member(QStringLiteral("@carol:hs"), QStringLiteral("Carol"),
+                  QStringLiteral("user")),
+        });
+        m_model.setRoomMentionAllowed(allowedBefore);
+        m_model.setQuery(QString());
     }
 
     void moveDownAndMoveUpWrapAcrossEnds()
@@ -506,6 +583,44 @@ private Q_SLOTS:
         QVERIFY(QMetaObject::invokeMethod(root.get(), "forget"));
         QVERIFY(QMetaObject::invokeMethod(root.get(), fn.constData()));
         QCOMPARE(inked(), 0);
+    }
+
+    // Text typed after '@' is plain until a member is picked: the open popup
+    // must not ink the in-progress token (the old presentation-only range
+    // made a nonexistent "@name" look like a real mention until sent).
+    void anUnpickedAtTokenIsNotInkedAsAMention_data()
+    {
+        aForgottenMentionStopsInkingTheComposer_data();
+    }
+
+    void anUnpickedAtTokenIsNotInkedAsAMention()
+    {
+        QFETCH(QString, file);
+        QFETCH(QString, function);
+        QFETCH(QString, rootId);
+        QFETCH(QString, mirror);
+        const QString body = extractFunction(
+            read(QStringLiteral(QML_DIR "/") + file), function);
+        QVERIFY(!body.isEmpty());
+        QQmlEngine engine;
+        QQmlComponent component(&engine);
+        component.setData(QString::fromLatin1(kRefreshScene)
+                              .arg(rootId, mirror, body)
+                              .toUtf8(),
+                          QUrl(QStringLiteral("refreshscene.qml")));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *highlighter =
+            root->findChild<QObject *>(QStringLiteral("highlighter"));
+        QVERIFY(highlighter != nullptr);
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "typeUnpicked"));
+        QVERIFY(QMetaObject::invokeMethod(root.get(), function.toLatin1().constData()));
+        QCOMPARE(highlighter->property("ranges").toList().size(), 0);
+
+        // A picked mention is still inked, popup open or not.
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "remember"));
+        QVERIFY(QMetaObject::invokeMethod(root.get(), function.toLatin1().constData()));
+        QCOMPARE(highlighter->property("ranges").toList().size(), 1);
     }
 };
 

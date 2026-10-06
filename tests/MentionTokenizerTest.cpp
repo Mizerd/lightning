@@ -167,6 +167,26 @@ private slots:
         QVERIFY(plain.userIds.isEmpty());
     }
 
+    // Only a PICKED member becomes a ref. Typed "@name" text, even one that
+    // equals a member's display name, carries no ref, so it expands to itself:
+    // no matrix.to link and no m.mentions id (Element's behaviour).
+    void typedAtTextWithoutAPickSendsAsPlainText()
+    {
+        const QString typed = QStringLiteral("hello @nobody and @Alice");
+        const Expansion e = expand(typed, {});
+        QCOMPARE(e.body, typed);
+        QVERIFY(e.userIds.isEmpty());
+        QVERIFY(!e.body.contains(QStringLiteral("matrix.to")));
+
+        // The same text after a real pick of @Alice does link her, once.
+        const InsertResult r = buildInsertion(
+            QStringLiteral("hello @nobody and @Al"), 18, 21,
+            QStringLiteral("@alice:hs"), QStringLiteral("Alice"));
+        const Expansion picked = expand(r.text, { r.ref });
+        QCOMPARE(picked.userIds, QStringList{ QStringLiteral("@alice:hs") });
+        QVERIFY(picked.body.contains(QStringLiteral("hello @nobody and ")));
+    }
+
     void recoverRoundTripsExpandedBodies()
     {
         // Edit flow: a raw markdown body parses back into display text +

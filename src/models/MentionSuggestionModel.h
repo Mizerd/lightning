@@ -19,6 +19,9 @@ class MentionSuggestionModel : public QAbstractListModel
     Q_PROPERTY(QString roomId READ roomId WRITE setRoomId NOTIFY roomIdChanged)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
     Q_PROPERTY(int count READ count NOTIFY countChanged)
+    // True once a member snapshot for the current room has been applied; lets
+    // the popup tell "no matches" from "list not loaded yet".
+    Q_PROPERTY(bool membersLoaded READ membersLoaded NOTIFY membersLoadedChanged)
     Q_PROPERTY(bool roomMentionAllowed READ roomMentionAllowed
                    WRITE setRoomMentionAllowed
                    NOTIFY roomMentionAllowedChanged)
@@ -37,6 +40,8 @@ public:
     };
 
     explicit MentionSuggestionModel(QObject *parent = nullptr);
+
+    bool membersLoaded() const { return m_membersLoaded; }
 
     void setClient(MatrixClient *client);
 
@@ -69,6 +74,7 @@ Q_SIGNALS:
     void queryChanged();
     void countChanged();
     void roomMentionAllowedChanged();
+    void membersLoadedChanged();
 
 private Q_SLOTS:
     void onRoomMembersReceived(quint64 opId, const QString &roomId,
@@ -91,6 +97,7 @@ private:
     };
 
     void requestMembers();
+    void setMembersLoaded(bool loaded);
     void rebuild();
     void clearResults();
 
@@ -104,6 +111,7 @@ private:
     // would hide @room whenever no room-info snapshot was loaded.
     bool m_roomMentionAllowed = true;
     quint64 m_membersOp = 0;
+    bool m_membersLoaded = false;
     QList<Member> m_all;     // cached members for m_roomId (self excluded)
     QList<Member> m_results; // filtered + ranked + capped
 };
