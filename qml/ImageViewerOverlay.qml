@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -18,12 +17,21 @@ Popup {
 
     // Sender-chosen filename -> hardened, percent-encoded leaf (see
     // TimelinePane.suggestedSaveUrl).
-    function suggestedSaveUrl() {
-        var raw = viewer.current ? (viewer.current.filename || "") : ""
-        var leaf = app.mediaBridge.suggestedSaveName(raw)
-        if (!leaf || leaf.length === 0)
-            leaf = "image"
-        return "file:///" + encodeURIComponent(leaf)
+    // Element's Download (straight to the downloads folder unless the user
+    // asked to always choose), or Save as… (`ask`). app.downloads sanitizes
+    // the sender's name and fixes its extension from the type.
+    function saveCurrent(ask) {
+        if (viewer.current === null || !app.downloads)
+            return
+        var key = viewer.current.mediaKey || ""
+        if (key.length === 0)
+            return
+        var name = viewer.current.filename || ""
+        var mime = viewer.current.mime || ""
+        if (ask)
+            app.downloads.saveAs(key, name, mime)
+        else
+            app.downloads.download(key, name, mime)
     }
     objectName: "imageViewerOverlay"
     parent: Overlay.overlay
@@ -319,10 +327,7 @@ Popup {
             enabled: viewer.current !== null
                      && (viewer.current.mediaKey || "").length > 0
                      && app.mediaBridge.supported
-            onTriggered: {
-                saveDialog.currentFile = viewer.suggestedSaveUrl()
-                saveDialog.open()
-            }
+            onTriggered: viewer.saveCurrent(true)
         }
         AppMenuItem {
             objectName: "viewerOpenLinkInBrowser"
@@ -337,17 +342,6 @@ Popup {
             iconName: "close"
             text: qsTr("Close")
             onTriggered: viewer.close()
-        }
-    }
-
-    FileDialog {
-        id: saveDialog
-        title: qsTr("Save image as…")
-        currentFolder: app.defaultFileDialogFolder()
-        fileMode: FileDialog.SaveFile
-        onAccepted: {
-            if (viewer.current !== null)
-                app.mediaBridge.saveAs(viewer.current.mediaKey, selectedFile)
         }
     }
 
@@ -985,13 +979,11 @@ Popup {
                     iconSize: 20
                     implicitWidth: 32; implicitHeight: 32
                     iconColorOverride: AppTheme.scrimInk
-                    Accessible.name: qsTr("Save image as…")
-                    onClicked: {
-                        if (viewer.current !== null) {
-                            saveDialog.currentFile = viewer.suggestedSaveUrl()
-                            saveDialog.open()
-                        }
-                    }
+                    Accessible.name: qsTr("Download image")
+                    ToolTip.text: qsTr("Download")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
+                    onClicked: viewer.saveCurrent(false)
                 }
             }
         }

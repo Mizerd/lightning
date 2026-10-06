@@ -445,7 +445,7 @@ Rectangle {
             implicitWidth: 24; implicitHeight: 24
             visible: root.canSave
             readonly property string actionLabel:
-                qsTr("Save %1 as…").arg(root.filename || qsTr("audio"))
+                qsTr("Download %1").arg(root.filename || qsTr("audio"))
             Accessible.name: actionLabel
             ToolTip.text: actionLabel
             ToolTip.visible: hovered

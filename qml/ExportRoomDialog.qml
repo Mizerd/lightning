@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Dialogs
 import QtQuick.Layouts
 import MatrixClient
 
@@ -50,11 +49,12 @@ Dialog {
         open()
     }
 
-    FileDialog {
+    NativeFileDialog {
         id: saveDialog
+        purpose: "export"
         objectName: "exportRoomSaveDialog"
         currentFolder: app.defaultFileDialogFolder()
-        fileMode: FileDialog.SaveFile
+        fileMode: "save"
         title: qsTr("Export room")
         nameFilters: root.format === "json"
                      ? [ qsTr("JSON (*.json)"), qsTr("All files (*)") ]
@@ -192,8 +192,7 @@ Dialog {
                 enabled: root.messageCount > 0
                 onClicked: {
                     root.failure = ""
-                    saveDialog.currentFile = ""
-                    saveDialog.selectedFile =
+                    saveDialog.currentName =
                         app.suggestedExportFileName(root.format)
                     saveDialog.open()
                 }

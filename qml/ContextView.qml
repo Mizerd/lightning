@@ -25,7 +25,9 @@ Rectangle {
 
     // Media entry points and room facts supplied by TimelinePane.
     property var openImage: function(mediaKey, httpUrl) {}
-    property var saveMedia: function(mediaKey, filename) {}
+    // (mediaKey, filename, mimetype, ask): ask = "Save as…", otherwise
+    // Download (app.downloads).
+    property var saveMedia: function(mediaKey, filename, mime, ask) {}
     property var currentRoom: ({})
 
     property string highlightEventId: ""

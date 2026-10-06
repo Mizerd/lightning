@@ -336,8 +336,9 @@ private Q_SLOTS:
             { "MessageComposerBar.qml", "pickAttachmentsDialog" },
             { "MessageComposerBar.qml", "pickFileDialog" },
             { "ThreadPanel.qml", "threadAttachDialog" },
-            { "ImageViewerOverlay.qml", "saveDialog" },
-            { "TimelinePane.qml", "saveMediaDialog" },
+            // Saving media has no chooser in QML any more: app.downloads
+            // (DownloadsController) asks for a destination in C++, and
+            // nothing it writes is ever uploaded.
             { "SettingsScreen.qml", "appIconDialog" },
             { "SettingsScreen.qml", "importFileDialog" },
         };
