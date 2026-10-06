@@ -17,6 +17,16 @@ Rectangle {
     id: root
     color: AppTheme.rail
 
+    // The rail's ground when the theme gives `rail` a gradient (Depth or a
+    // custom theme); draws nothing otherwise.
+    // Not z: -1, which draws beneath this Rectangle's own fill; declared
+    // first, so every other child paints above it.
+    ThemedSurface {
+        anchors.fill: parent
+        role: "rail"
+        flatFill: false
+    }
+
     // Emitted by the Add Space tile; MainScreen opens the creation dialog in
     // Space mode.
     signal createSpaceRequested()
@@ -532,7 +542,11 @@ Rectangle {
                 visible: list.contentHeight > list.height
                 gradient: Gradient {
                     GradientStop { position: 0.0; color: "transparent" }
-                    GradientStop { position: 1.0; color: AppTheme.rail }
+                    // The ground actually drawn at the bottom (Depth).
+                    GradientStop {
+                        position: 1.0
+                        color: AppTheme.surfaceColorAt("rail", 1)
+                    }
                 }
             }
 
