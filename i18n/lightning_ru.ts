@@ -424,7 +424,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5487"/>
+        <location filename="../src/app/AppController.cpp" line="+5567"/>
         <source>Room invitation</source>
         <translation>Приглашение в комнату</translation>
     </message>
@@ -439,7 +439,7 @@
         <translation>Вас пригласили в %1</translation>
     </message>
     <message>
-        <location line="-4311"/>
+        <location line="-4389"/>
         <source>Incoming voice call</source>
         <translation>Входящий голосовой вызов</translation>
     </message>
@@ -460,7 +460,12 @@
         <translation>Входящий вызов</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+39"/>
+        <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+63"/>
         <source>Missed call</source>
         <translation>Пропущенный вызов</translation>
     </message>
@@ -507,13 +512,13 @@
     <message>
         <location line="+1"/>
         <location line="+49"/>
-        <location line="+3060"/>
-        <location line="+697"/>
+        <location line="+3076"/>
+        <location line="+714"/>
         <source>Not connected</source>
         <translation>Нет подключения</translation>
     </message>
     <message>
-        <location line="-3803"/>
+        <location line="-3836"/>
         <source>Connecting…</source>
         <translation>Подключение…</translation>
     </message>
@@ -574,24 +579,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1959"/>
+        <location line="+1975"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning не смог прочитать выбранный файл.</translation>
     </message>
     <message>
-        <location line="-1965"/>
+        <location line="-1981"/>
         <source>A room-key import is already in progress.</source>
         <translation>Импорт ключей комнат уже выполняется.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2759"/>
+        <location line="+2775"/>
         <source>Not signed in.</source>
         <translation>Вход не выполнен.</translation>
     </message>
     <message>
-        <location line="-2757"/>
+        <location line="-2773"/>
         <source>Room-key import failed.</source>
         <translation>Не удалось импортировать ключи комнат.</translation>
     </message>
@@ -631,7 +636,7 @@
         <translation>Звонки здесь недоступны.</translation>
     </message>
     <message>
-        <location line="+191"/>
+        <location line="+202"/>
         <source>Modern room list</source>
         <translation>Современный список комнат</translation>
     </message>
@@ -662,7 +667,7 @@
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1090"/>
+        <location line="+1095"/>
         <location line="+44"/>
         <location line="+206"/>
         <source>This build has no Rust SDK backend.</source>
@@ -837,7 +842,7 @@
         <translation>Отображаемые имена ограничены %1 символами.</translation>
     </message>
     <message>
-        <location line="+138"/>
+        <location line="+145"/>
         <source>That account is not signed in on this device.</source>
         <translation>Вход в эту учётную запись на этом устройстве не выполнен.</translation>
     </message>
@@ -852,14 +857,14 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+270"/>
+        <location line="+280"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+373"/>
-        <location filename="../src/app/AppController.cpp" line="-1077"/>
-        <location line="+817"/>
+        <location filename="../src/app/AppController.cpp" line="-1094"/>
+        <location line="+824"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -869,7 +874,7 @@
         <translation>Сейчас не удаётся переключить учётную запись. Если выполняется выход, повторите попытку через мгновение.</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+22"/>
         <source>Could not activate the selected account.</source>
         <translation>Не удалось активировать выбранную учётную запись.</translation>
     </message>
@@ -1081,12 +1086,12 @@
 <context>
     <name>AuthManager</name>
     <message>
-        <location filename="../src/auth/AuthManager.cpp" line="+125"/>
+        <location filename="../src/auth/AuthManager.cpp" line="+132"/>
         <source>Couldn&apos;t open your web browser. Cancel and try again, or sign in another way.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+264"/>
+        <location line="+300"/>
         <source>This build cannot perform browser sign-in.</source>
         <translation>Эта сборка не может выполнить вход через браузер.</translation>
     </message>
@@ -4532,12 +4537,17 @@ Size: %3</source>
 <context>
     <name>DownloadsController</name>
     <message>
-        <location filename="../src/app/DownloadsController.cpp" line="+229"/>
+        <location filename="../src/app/DownloadsController.cpp" line="+422"/>
         <source>Save file</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+262"/>
+        <location line="+71"/>
+        <source>Lightning can&apos;t save outside its sandbox here. Install xdg-desktop-portal, or allow Lightning to access your Downloads folder.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+227"/>
         <source>Choose a downloads folder</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5882,7 +5892,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>IncomingCallPrompt</name>
     <message>
-        <location filename="../qml/IncomingCallPrompt.qml" line="+106"/>
+        <location filename="../qml/IncomingCallPrompt.qml" line="+118"/>
         <source>This build can&apos;t join Matrix calls.</source>
         <translation>Эта сборка не может присоединяться к вызовам Matrix.</translation>
     </message>
@@ -6980,7 +6990,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+514"/>
+        <location filename="../qml/MainScreen.qml" line="+518"/>
+        <source>Signing out…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Switching account…</source>
         <translation>Переключение учётной записи…</translation>
     </message>
@@ -17320,20 +17335,20 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+544"/>
-        <location line="+175"/>
-        <location line="+119"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+604"/>
+        <location line="+184"/>
+        <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
         <translation>Совместное использование экрана недоступно на этом рабочем столе.</translation>
     </message>
     <message>
-        <location line="-292"/>
-        <location line="+728"/>
+        <location line="-313"/>
+        <location line="+793"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Не удалось запустить демонстрацию экрана.</translation>
     </message>
     <message>
-        <location line="-589"/>
+        <location line="-645"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Для совместного использования экрана на Wayland требуется xdg-desktop-portal, и он не отвечает. Установите или запустите портал для рабочего стола — например, xdg-desktop-portal-kde или xdg-desktop-portal-gnome — затем повторите попытку.</translation>
     </message>
@@ -17348,13 +17363,13 @@ Note: importing keys does not verify this session.</source>
         <translation>Совместное использование экрана недоступно: сервер отображения не найден.</translation>
     </message>
     <message>
-        <location line="+55"/>
-        <location line="+139"/>
+        <location line="+61"/>
+        <location line="+145"/>
         <source>No display is available to share.</source>
         <translation>Ни один дисплей не доступен для совместного использования.</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+114"/>
         <source>That display isn&apos;t connected any more.</source>
         <translation>Этот дисплей больше не подключен.</translation>
     </message>
@@ -17369,27 +17384,27 @@ Note: importing keys does not verify this session.</source>
         <translation>Не удалось открыть общий доступ к этому дисплею.</translation>
     </message>
     <message>
-        <location line="+173"/>
+        <location line="+182"/>
         <source>The calling service refused to connect you to this call.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+515"/>
+        <location line="+539"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>Вызовы недоступны на этом домашнем сервере.</translation>
     </message>
     <message>
-        <location line="-500"/>
+        <location line="-524"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Слишком много попыток. Повторите попытку через минуту.</translation>
     </message>
     <message>
-        <location line="-492"/>
+        <location line="-548"/>
         <source>Screen sharing isn&apos;t available in this sandboxed (Flatpak or Snap) build on an X11 session: it can only share through the desktop&apos;s screen-sharing portal, and none is available, and GStreamer plugins installed on your system cannot be used from the sandbox. To share your screen, use the AppImage or a distribution package of Lightning, which capture an X11 screen directly, or log into a Wayland session, where your desktop&apos;s portal provides screen sharing. If your desktop&apos;s xdg-desktop-portal supports screen casting on X11, make sure it is installed and running.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+470"/>
+        <location line="+526"/>
         <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17460,12 +17475,13 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+438"/>
+        <location line="+462"/>
+        <location line="+90"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>Не удалось подключиться к звонку.</translation>
     </message>
     <message>
-        <location line="-436"/>
+        <location line="-550"/>
         <source>The calling service is having trouble.</source>
         <translation>У службы вызовов возникли проблемы.</translation>
     </message>
@@ -17558,22 +17574,27 @@ Note: importing keys does not verify this session.</source>
         <translation>Звонок еще не готов.</translation>
     </message>
     <message>
-        <location line="+762"/>
+        <location line="+417"/>
+        <source>You can share your screen once the call has reconnected.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+784"/>
         <source>Call audio stopped: this computer&apos;s sound output disconnected. It resumes when an output is available again; if it does not, leave and rejoin the call.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-843"/>
+        <location line="-1282"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Эта комната зашифрована, и зашифрованные звонки в этой сборке пока недоступны.</translation>
     </message>
     <message>
-        <location line="+211"/>
+        <location line="+215"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>Не удалось объявить вас во время звонка.</translation>
     </message>
     <message>
-        <location line="+216"/>
+        <location line="+278"/>
         <source>The call ended because the connection was lost.</source>
         <translation>Звонок прервался, поскольку связь была потеряна.</translation>
     </message>
@@ -19645,7 +19666,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThemeEditorDialog</name>
     <message>
-        <location filename="../qml/ThemeEditorDialog.qml" line="+242"/>
+        <location filename="../qml/ThemeEditorDialog.qml" line="+255"/>
         <source>Theme imported.</source>
         <translation>Тема импортирована.</translation>
     </message>
@@ -22414,7 +22435,12 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>VoiceConnectedBar</name>
     <message>
-        <location filename="../qml/VoiceConnectedBar.qml" line="+48"/>
+        <location filename="../qml/VoiceConnectedBar.qml" line="+49"/>
+        <source>Reconnecting…</source>
+        <translation type="unfinished">Повторное подключение…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Voice connected</source>
         <translation>Голосовое соединение подключено</translation>
     </message>
