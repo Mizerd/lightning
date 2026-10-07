@@ -422,7 +422,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5567"/>
+        <location filename="../src/app/AppController.cpp" line="+5582"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -437,7 +437,7 @@
         <translation>你被邀请加入 %1</translation>
     </message>
     <message>
-        <location line="-4389"/>
+        <location line="-4404"/>
         <source>Incoming voice call</source>
         <translation>语音来电</translation>
     </message>
@@ -510,13 +510,13 @@
     <message>
         <location line="+1"/>
         <location line="+49"/>
-        <location line="+3076"/>
+        <location line="+3091"/>
         <location line="+714"/>
         <source>Not connected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location line="-3836"/>
+        <location line="-3851"/>
         <source>Connecting…</source>
         <translation>正在连接…</translation>
     </message>
@@ -577,29 +577,29 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1975"/>
+        <location line="+1990"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning 无法读取所选文件。</translation>
     </message>
     <message>
-        <location line="-1981"/>
+        <location line="-1996"/>
         <source>A room-key import is already in progress.</source>
         <translation>已有房间密钥导入正在进行中。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2775"/>
+        <location line="+2790"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-2773"/>
+        <location line="-2788"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
     <message>
-        <location line="+101"/>
+        <location line="+116"/>
         <source>Lightning</source>
         <translation type="unfinished">Lightning</translation>
     </message>
@@ -1332,7 +1332,7 @@
     </message>
     <message>
         <location line="+1"/>
-        <source>Strong (RNNoise)</source>
+        <source>Strong (RNNoise) · Recommended</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4598,7 +4598,7 @@ Size: %3</source>
 <context>
     <name>EmojiPicker</name>
     <message>
-        <location filename="../qml/EmojiPicker.qml" line="+53"/>
+        <location filename="../qml/EmojiPicker.qml" line="+69"/>
         <source>Search results</source>
         <translation>搜索结果</translation>
     </message>
@@ -4608,7 +4608,27 @@ Size: %3</source>
         <translation>最近使用</translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+253"/>
+        <source>Quick reactions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+72"/>
+        <source>React with %1</source>
+        <translation type="unfinished">用 %1 回应</translation>
+    </message>
+    <message>
+        <location line="+53"/>
+        <source>Show all emoji</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>All emoji</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+44"/>
         <source>Search emoji</source>
         <translation>搜索表情</translation>
     </message>
@@ -4623,7 +4643,7 @@ Size: %3</source>
         <translation>自定义表情符号</translation>
     </message>
     <message>
-        <location line="+241"/>
+        <location line="+247"/>
         <source>No recently used emoji</source>
         <translation>没有最近使用的表情</translation>
     </message>
@@ -8110,12 +8130,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+101"/>
         <location line="+926"/>
-        <location line="+931"/>
+        <location line="+935"/>
         <source>Reply</source>
         <translation>回复</translation>
     </message>
     <message>
-        <location line="-1842"/>
+        <location line="-1846"/>
         <source>(original message not loaded)</source>
         <translation>（原消息未加载）</translation>
     </message>
@@ -8209,29 +8229,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2140"/>
+        <location line="+2144"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location line="-2110"/>
-        <location line="+988"/>
+        <location line="-2114"/>
+        <location line="+990"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-983"/>
+        <location line="-985"/>
         <source>Cancel sending this message</source>
         <translation>取消发送这条消息</translation>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1156"/>
+        <location line="+1160"/>
         <source>Hide image</source>
         <translation>隐藏图像</translation>
     </message>
     <message>
-        <location line="-1152"/>
+        <location line="-1156"/>
         <source>Hide</source>
         <translation>隐藏</translation>
     </message>
@@ -8342,14 +8362,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1、%2 和另外 %3 人已读</translation>
     </message>
     <message>
-        <location line="+255"/>
+        <location line="+257"/>
         <source>Message · %1 · %2</source>
         <translation>消息 · %1 · %2</translation>
     </message>
     <message>
-        <location line="-786"/>
+        <location line="-788"/>
         <location line="+4"/>
-        <location line="+910"/>
+        <location line="+914"/>
         <source>Reply in thread</source>
         <translation>在消息列中回复</translation>
     </message>
@@ -8461,13 +8481,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3442"/>
-        <location line="+1134"/>
+        <location line="-3446"/>
+        <location line="+1138"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-3549"/>
+        <location line="-3553"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8508,12 +8528,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="-544"/>
         <location line="+66"/>
         <location line="+477"/>
-        <location line="+3926"/>
+        <location line="+3930"/>
         <source>Image</source>
         <translation type="unfinished">图片</translation>
     </message>
     <message>
-        <location line="-4467"/>
+        <location line="-4471"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8542,7 +8562,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1486"/>
+        <location line="+1490"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>删除编辑记录</translation>
@@ -8652,12 +8672,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>回复对象</translation>
     </message>
     <message>
-        <location line="-1756"/>
+        <location line="-1760"/>
         <source>Show preview</source>
         <translation>显示预览</translation>
     </message>
     <message>
-        <location line="+1572"/>
+        <location line="+1576"/>
         <source>Remove edits?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8773,10 +8793,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>贴纸加载失败 — 点击重试</translation>
     </message>
     <message>
-        <location line="-5291"/>
+        <location line="-5295"/>
         <location line="+70"/>
         <location line="+480"/>
-        <location line="+3924"/>
+        <location line="+3928"/>
         <location line="+1022"/>
         <location line="+66"/>
         <source>Video</source>
@@ -8788,9 +8808,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location line="-5574"/>
+        <location line="-5578"/>
         <location line="+546"/>
-        <location line="+4034"/>
+        <location line="+4038"/>
         <location line="+1136"/>
         <location line="+31"/>
         <source>File</source>
@@ -9372,12 +9392,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Strong (RNNoise)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>Advanced (DeepFilterNet)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9387,17 +9402,22 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>Standard WebRTC suppression, as browsers use. The lightest on CPU, and the recommended default.</source>
+        <location line="-6"/>
+        <source>Strong (RNNoise) · Recommended</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Standard WebRTC suppression, as browsers use. The lightest on CPU, but it removes little.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <source>Neural suppression. Removes more noise, such as fans and keyboards, at moderate CPU use.</source>
+        <source>Recommended. Neural suppression that removes fans, keyboards and traffic while keeping speech clear, at moderate CPU use.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>Advanced neural suppression. Potentially the strongest, and the most demanding on CPU.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9830,7 +9850,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>PopupResizeGrip</name>
     <message>
-        <location filename="../qml/PopupResizeGrip.qml" line="+52"/>
+        <location filename="../qml/PopupResizeGrip.qml" line="+61"/>
         <source>Resize</source>
         <translation>调整大小</translation>
     </message>
@@ -12464,7 +12484,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+395"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+396"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>Lightning 无法为此账号创建本地存储目录。请检查文件系统权限和可用空间。</translation>
     </message>
@@ -12635,7 +12655,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+206"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+3946"/>
+        <location line="+3951"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -12644,15 +12664,15 @@ Signing out and signing in again is the only fix.</source>
         <translation>未登录。</translation>
     </message>
     <message>
-        <location line="-4344"/>
+        <location line="-4349"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+4138"/>
+        <location line="+4143"/>
         <source>Unknown room: %1</source>
         <translation>未知房间：%1</translation>
     </message>
     <message>
-        <location line="-4346"/>
+        <location line="-4351"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -12660,13 +12680,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+595"/>
-        <location line="+2294"/>
+        <location line="+2299"/>
         <location line="+54"/>
         <source>The sticker could not be sent.</source>
         <translation>无法发送贴纸。</translation>
     </message>
     <message>
-        <location line="-1121"/>
+        <location line="-1126"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12696,7 +12716,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+138"/>
         <source>Matrix session is no longer authorized.</source>
         <translation>Matrix 会话已失去授权。</translation>
     </message>
@@ -12748,7 +12768,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5017"/>
+        <location line="-5022"/>
         <source>Enter your username.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12763,7 +12783,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5009"/>
+        <location line="+5014"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>消息发送失败。你可以通过该消息的“重试”操作再次发送。</translation>
     </message>
@@ -17269,7 +17289,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+604"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+646"/>
         <location line="+184"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -17323,12 +17343,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+539"/>
+        <location line="+547"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>此家庭服务器上无法进行呼叫。</translation>
     </message>
     <message>
-        <location line="-524"/>
+        <location line="-532"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>尝试次数太多。稍后再试一次。</translation>
     </message>
@@ -17409,13 +17429,13 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+462"/>
+        <location line="+470"/>
         <location line="+90"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>无法接通通话。</translation>
     </message>
     <message>
-        <location line="-550"/>
+        <location line="-558"/>
         <source>The calling service is having trouble.</source>
         <translation>呼叫服务出现问题。</translation>
     </message>
@@ -17508,7 +17528,7 @@ Note: importing keys does not verify this session.</source>
         <translation>呼叫尚未准备好。</translation>
     </message>
     <message>
-        <location line="+417"/>
+        <location line="+425"/>
         <source>You can share your screen once the call has reconnected.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17518,17 +17538,17 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1282"/>
+        <location line="-1290"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>该房间已加密，并且在此版本中尚不支持加密呼叫。</translation>
     </message>
     <message>
-        <location line="+215"/>
+        <location line="+207"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>无法在通话中通知您。</translation>
     </message>
     <message>
-        <location line="+278"/>
+        <location line="+294"/>
         <source>The call ended because the connection was lost.</source>
         <translation>由于连接丢失，通话结束。</translation>
     </message>
@@ -20419,7 +20439,7 @@ Note: importing keys does not verify this session.</source>
         <translation>还没有回复。在下方开始对话吧。</translation>
     </message>
     <message>
-        <location line="+289"/>
+        <location line="+290"/>
         <source>Loading older replies…</source>
         <translation>正在加载更早的回复…</translation>
     </message>
@@ -20785,12 +20805,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-498"/>
         <location filename="../qml/TimelinePane.qml" line="+373"/>
-        <location line="+5020"/>
+        <location line="+5022"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5019"/>
+        <location filename="../qml/TimelinePane.qml" line="-5021"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -20845,12 +20865,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3652"/>
+        <location line="+3654"/>
         <source>Room information</source>
         <translation>房间信息</translation>
     </message>
     <message>
-        <location line="-3636"/>
+        <location line="-3638"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation type="unfinished"></translation>
@@ -21051,7 +21071,7 @@ Note: importing keys does not verify this session.</source>
         <translation>搜索无法完成。</translation>
     </message>
     <message>
-        <location line="+2701"/>
+        <location line="+2703"/>
         <location line="+395"/>
         <source>Loading older messages…</source>
         <translation>正在加载更早的消息…</translation>
@@ -21477,13 +21497,13 @@ Note: importing keys does not verify this session.</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-5571"/>
+        <location line="-5573"/>
         <location line="+91"/>
         <source>View profile</source>
         <translation type="unfinished">查看个人资料</translation>
     </message>
     <message>
-        <location line="+4806"/>
+        <location line="+4808"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -22675,7 +22695,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2226"/>
+        <location filename="../src/main.cpp" line="+2291"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>原生 Qt/QML Matrix 客户端。后端：--backend={mock,http,rust}。默认：rust（在没有 Rust SDK 的构建中为 http）。</translation>
     </message>
