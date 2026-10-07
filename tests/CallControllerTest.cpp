@@ -17,6 +17,7 @@
 #include "calls/CallParticipantModel.h"
 #include "calls/CallShareModel.h"
 #include "calls/CallStageState.h"
+#include "calls/CameraPortal.h"
 #include "calls/SdpStore.h"
 #include "calls/RtcController.h"
 #include "calls/ScreenCastPortal.h"
@@ -4979,6 +4980,243 @@ private Q_SLOTS:
                      /*sandboxed=*/false, /*portalUsable=*/false,
                      /*directDeviceVisible=*/false),
                  Route::Direct);
+    }
+
+    // 2026-10-07 report (Debian 12, Flatpak, Flatseal's "All devices (e.g.
+    // webcam)" on): "my camera registers, but there's no feed". A portal
+    // camera that never sent a frame stayed a black tile for the whole call.
+    // With device access granted it now retries ONCE on the device node,
+    // without a notice; if the device node is silent too, the user is told
+    // and the camera goes off. Fails on the old controller, which turned the
+    // camera off and announced on the first report.
+    void aSilentPortalCameraFallsBackOnceToTheGrantedDeviceNode()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        call.setCameraCidForTest(QStringLiteral("cam-portal"));
+        call.setCameraRouteForTest(/*viaPortal=*/true,
+                                   /*portalReportedCamera=*/true,
+                                   /*deviceNodeVisible=*/true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("cam-portal")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        QVERIFY2(failed.isEmpty(),
+                 "a portal camera with a granted device node was given up "
+                 "instead of retried on the device");
+        QVERIFY(call.cameraOn());
+        QVERIFY(call.cameraFellBackForTest());
+        QVERIFY(!call.cameraViaPortalForTest());
+
+        // The device node gives nothing either: no third attempt.
+        call.setCameraCidForTest(QStringLiteral("cam-device"));
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("cam-device")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        QCOMPARE(failed.count(), 1);
+        QVERIFY2(failed.at(0).at(0).toString().contains(
+                     QStringLiteral("camera sent no picture")),
+                 qPrintable(failed.at(0).at(0).toString()));
+        QVERIFY(!call.cameraOn());
+    }
+
+    // Without device access the portal camera has nowhere else to go, and
+    // the notice says what the portal did (offered no camera, or a camera
+    // that sent nothing) instead of the generic "isn't available". Fails on
+    // the old controller, which said "Your camera isn't available." or
+    // nothing at all.
+    void aSilentPortalCameraWithoutDeviceAccessNamesThePortal()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        call.setCameraCidForTest(QStringLiteral("cam-1"));
+        call.setCameraRouteForTest(/*viaPortal=*/true,
+                                   /*portalReportedCamera=*/true,
+                                   /*deviceNodeVisible=*/false);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("cam-1")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.at(0).at(0).toString(),
+                 SfuCallController::cameraPortalNotice(
+                     QStringLiteral("camera_portal_no_picture"),
+                     /*flatpak=*/false));
+        QVERIFY(!call.cameraOn());
+        QVERIFY(!call.cameraFellBackForTest());
+
+        // The portal reported no camera when it was chosen: say so.
+        call.setCameraCidForTest(QStringLiteral("cam-2"));
+        call.setCameraRouteForTest(/*viaPortal=*/true,
+                                   /*portalReportedCamera=*/false,
+                                   /*deviceNodeVisible=*/false);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("cam-2")),
+            Q_ARG(QString, QStringLiteral("camera_failed"))));
+        QCOMPARE(failed.count(), 2);
+        QCOMPARE(failed.at(1).at(0).toString(),
+                 SfuCallController::cameraPortalNotice(
+                     QStringLiteral("camera_portal_no_camera"),
+                     /*flatpak=*/false));
+    }
+
+    // The fallback is for a portal that produced nothing or is absent, never
+    // a way round the desktop's answer: a decline never reaches it
+    // (CameraPortal::cancelled is a separate signal), a refusal over the bus
+    // (`not_allowed`: a camera lockdown, NotAllowed/AccessDenied; mapped in
+    // CameraPortal::failureCategory) and an unexplained portal error
+    // (`portal_failed`) never fall back, an unanswered dialog (`timeout`) is
+    // not consent, a chosen camera that is missing is never replaced, and
+    // the direct route has nowhere else to go.
+    void theCameraFallbackNeedsAPortalThatGaveNothingAndAGrantedNode()
+    {
+        using Step = SfuCallController::CameraFailureStep;
+        for (const char *category : { "camera_no_frames", "camera_failed",
+                                      "no_portal", "no_pipewire_remote" }) {
+            const QString c = QString::fromLatin1(category);
+            QCOMPARE(SfuCallController::cameraFailureStep(c, true, true, false),
+                     Step::OpenDeviceNode);
+            // No device node, already fell back, or not the portal: notice.
+            QCOMPARE(SfuCallController::cameraFailureStep(c, true, false,
+                                                          false),
+                     Step::Notice);
+            QCOMPARE(SfuCallController::cameraFailureStep(c, true, true, true),
+                     Step::Notice);
+            QCOMPARE(SfuCallController::cameraFailureStep(c, false, true,
+                                                          false),
+                     Step::Notice);
+        }
+        for (const char *category : { "not_allowed", "portal_failed",
+                                      "timeout", "busy", "camera_unavailable",
+                                      "camera_list_unavailable",
+                                      "camera_source_closed" }) {
+            QCOMPARE(SfuCallController::cameraFailureStep(
+                         QString::fromLatin1(category), true, true, false),
+                     Step::Notice);
+        }
+    }
+
+    // The notice categories by route, and the Flatpak wording naming the one
+    // grant a Flatpak user can give (Flatseal's "All devices"); other builds
+    // get no advice they cannot act on.
+    void theCameraPortalNoticesNameWhatHappenedAndTheGrant()
+    {
+        using C = SfuCallController;
+        QCOMPARE(C::cameraNoticeCategory(QStringLiteral("camera_no_frames"),
+                                         true, true),
+                 QStringLiteral("camera_portal_no_picture"));
+        QCOMPARE(C::cameraNoticeCategory(QStringLiteral("camera_no_frames"),
+                                         true, false),
+                 QStringLiteral("camera_portal_no_camera"));
+        QCOMPARE(C::cameraNoticeCategory(QStringLiteral("camera_no_frames"),
+                                         false, true),
+                 QStringLiteral("camera_no_frames"));
+        QCOMPARE(C::cameraNoticeCategory(QStringLiteral("no_portal"), true,
+                                         false),
+                 QStringLiteral("camera_portal_unavailable"));
+        QCOMPARE(C::cameraNoticeCategory(QStringLiteral("timeout"), true,
+                                         true),
+                 QStringLiteral("camera_failed"));
+        QCOMPARE(C::cameraNoticeCategory(QStringLiteral("not_allowed"), true,
+                                         true),
+                 QStringLiteral("camera_not_allowed"));
+        QCOMPARE(C::cameraNoticeCategory(QStringLiteral("portal_failed"), true,
+                                         true),
+                 QStringLiteral("camera_failed"));
+        QCOMPARE(C::cameraNoticeCategory(QStringLiteral("camera_unavailable"),
+                                         true, true),
+                 QStringLiteral("camera_unavailable"));
+        for (const char *category :
+             { "camera_portal_no_camera", "camera_portal_no_picture",
+               "camera_portal_unavailable" }) {
+            const QString c = QString::fromLatin1(category);
+            const QString flatpak = C::cameraPortalNotice(c, true);
+            const QString other = C::cameraPortalNotice(c, false);
+            QVERIFY2(flatpak.contains(QStringLiteral("Flatseal"))
+                         && flatpak.contains(QStringLiteral("All devices")),
+                     qPrintable(flatpak));
+            QVERIFY2(!other.isEmpty()
+                         && !other.contains(QStringLiteral("Flatseal")),
+                     qPrintable(other));
+        }
+        QVERIFY(C::cameraPortalNotice(QStringLiteral("camera_failed"), true)
+                    .isEmpty());
+    }
+
+    // 2026-10-07 review: a camera the DESKTOP refused (xdg-desktop-portal's
+    // camera lockdown answers NotAllowed) must never be opened through
+    // /dev/video* instead, even with device access granted; it says why the
+    // camera is off. An absent portal still falls back. Drives the real
+    // portal-failure handler through a wired CameraPortal; no engine, so it
+    // proves the decision and the notice, not a publish. Fails on the old
+    // controller, which announced "Your camera isn't available." for every
+    // portal failure (and the old CameraPortal sent `no_portal` for a
+    // lockdown, which the fallback would then have routed around).
+    void aCameraTheDesktopRefusedIsNeverOpenedThroughTheDevice()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        CameraPortal portal;
+        call.setClient(&client);
+        call.setCameraPortal(&portal);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        call.setCameraCidForTest(QString());
+        call.setCameraRouteForTest(/*viaPortal=*/true,
+                                   /*portalReportedCamera=*/true,
+                                   /*deviceNodeVisible=*/true);
+        call.setCameraAwaitingPortalForTest();
+        Q_EMIT portal.failed(QStringLiteral("not_allowed"));
+        QVERIFY(!call.cameraFellBackForTest());
+        QVERIFY(!call.cameraOn());
+        QCOMPARE(failed.count(), 1);
+        QVERIFY2(failed.at(0).at(0).toString().contains(
+                     QStringLiteral("turned off in your system settings")),
+                 qPrintable(failed.at(0).at(0).toString()));
+
+        // No portal at all, device granted: the device is the camera.
+        call.setCameraRouteForTest(true, true, true);
+        call.setCameraAwaitingPortalForTest();
+        Q_EMIT portal.failed(QStringLiteral("no_portal"));
+        QVERIFY(call.cameraFellBackForTest());
+        QVERIFY(call.cameraOn());
+        QCOMPARE(failed.count(), 1);
+    }
+
+    // The fall-back latch is per call: it must not make the next call skip
+    // the portal ("earlier in this call" would be false). Fails without the
+    // resets in teardown() and join().
+    void theCameraFallbackLatchDoesNotOutliveTheCall()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setMembershipForTest(QStringLiteral("!room:x"), QString());
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setCameraCidForTest(QStringLiteral("cam-portal"));
+        call.setCameraRouteForTest(true, true, true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEnginePublishFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("cam-portal")),
+            Q_ARG(QString, QStringLiteral("camera_no_frames"))));
+        QVERIFY(call.cameraFellBackForTest());
+        call.leave();
+        QVERIFY2(!call.cameraFellBackForTest(),
+                 "the portal fallback outlived the call that needed it");
     }
 
     // The chosen camera route is logged with what decided it, so a silent

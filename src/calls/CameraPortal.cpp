@@ -145,6 +145,27 @@ bool CameraPortal::cameraPresent()
 #endif
 }
 
+QString CameraPortal::failureCategory(const QString &errorName,
+                                     bool openingRemote)
+{
+    // xdg-desktop-portal answers a camera lockdown (and, at
+    // OpenPipeWireRemote, any permission other than "yes") with NotAllowed.
+    if (errorName == QLatin1String("org.freedesktop.portal.Error.NotAllowed")
+        || errorName == QLatin1String("org.freedesktop.portal.Error.Cancelled")
+        || errorName == QLatin1String("org.freedesktop.DBus.Error.AccessDenied"))
+        return QStringLiteral("not_allowed");
+    if (errorName == QLatin1String("org.freedesktop.DBus.Error.ServiceUnknown")
+        || errorName == QLatin1String("org.freedesktop.DBus.Error.UnknownMethod")
+        || errorName
+            == QLatin1String("org.freedesktop.DBus.Error.UnknownInterface")
+        || errorName == QLatin1String("org.freedesktop.DBus.Error.UnknownObject")
+        || errorName
+            == QLatin1String("org.freedesktop.DBus.Error.NameHasNoOwner"))
+        return QStringLiteral("no_portal");
+    return openingRemote ? QStringLiteral("no_pipewire_remote")
+                         : QStringLiteral("portal_failed");
+}
+
 void CameraPortal::cancel()
 {
     ++m_generation;
@@ -222,12 +243,17 @@ void CameraPortal::requestAccess()
                     return;
                 }
                 if (reply.isError()) {
-                    // Error text can name the desktop and paths; report a
-                    // category only.
+                    // Error text can name the desktop and paths; the error
+                    // NAME decides between a refusal and no portal at all.
+                    const QString category = failureCategory(
+                        reply.error().name(), /*openingRemote=*/false);
+                    qCWarning(lcCameraPortal)
+                        << "camera AccessCamera failed error="
+                        << reply.error().name() << "category=" << category;
                     portal::dropSubscription(subscription);
                     reset();
                     m_requestTimeout.stop();
-                    Q_EMIT failed(QStringLiteral("no_portal"));
+                    Q_EMIT failed(category);
                     return;
                 }
                 portal::reconcileRequestPath(this, subscription,
@@ -260,7 +286,11 @@ void CameraPortal::openRemote()
                         << (reply.isError() ? reply.error().name()
                                             : QStringLiteral("no_fd"));
                     cancel();
-                    Q_EMIT failed(QStringLiteral("no_pipewire_remote"));
+                    Q_EMIT failed(
+                        reply.isError()
+                            ? failureCategory(reply.error().name(),
+                                              /*openingRemote=*/true)
+                            : QStringLiteral("no_pipewire_remote"));
                     return;
                 }
                 // QDBusUnixFileDescriptor closes its fd with the last copy, so

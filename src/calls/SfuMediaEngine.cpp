@@ -213,6 +213,10 @@ enum class CryptoDropCause { None, NoKey, Undecryptable };
 
 struct CryptoProbeCtx {
     SfuMediaEngine *engine = nullptr;
+    /// Set for a portal camera started off the GUI thread: every use of the
+    /// raw engine pointers below happens under it. See
+    /// SfuMediaEngine::ProbeGate.
+    std::shared_ptr<SfuMediaEngine::ProbeGate> gate;
     /// Send side only. Shared because the sender can leave while one of their
     /// frames is still in the probe. The receive side resolves its ring per
     /// frame through `streamId`, since the sending participant may be
@@ -413,9 +417,12 @@ struct VideoSinkCtx {
     /// share, but tiles attach to it before tracks are announced and servers
     /// that omit `mid` still need to render.
     QString streamId;
-    /// Decrypted frames with nowhere to go. Last, so brace initialisers stay
-    /// valid.
+    /// Decrypted frames with nowhere to go. After the routing keys, so brace
+    /// initialisers stay valid.
     quint64 unrouted = 0;
+    /// The self-view of a portal camera started off the GUI thread; see
+    /// SfuMediaEngine::ProbeGate.
+    std::shared_ptr<SfuMediaEngine::ProbeGate> gate;
 };
 
 void videoSinkCtxFree(void *data, GClosure *)
@@ -430,6 +437,16 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
     auto *ctx = static_cast<VideoSinkCtx *>(userData);
     if (!ctx || !ctx->engine)
         return GST_FLOW_OK;
+    std::unique_lock<std::mutex> gateLock;
+    if (ctx->gate) {
+        gateLock = std::unique_lock<std::mutex>(ctx->gate->mutex);
+        if (!ctx->gate->open) {
+            if (GstSample *dropped =
+                    gst_app_sink_pull_sample(GST_APP_SINK(sink)))
+                gst_sample_unref(dropped);
+            return GST_FLOW_OK;
+        }
+    }
 
     GstSample *sample = gst_app_sink_pull_sample(GST_APP_SINK(sink));
     if (!sample)
@@ -657,6 +674,14 @@ GstPadProbeReturn cryptoProbe(GstPad *pad, GstPadProbeInfo *info,
     auto *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
     if (!buffer || !ctx)
         return GST_PAD_PROBE_OK;
+    // Held for the whole frame: the engine may be closing the gate on its way
+    // out, and must not finish until this frame has stopped using it.
+    std::unique_lock<std::mutex> gateLock;
+    if (ctx->gate) {
+        gateLock = std::unique_lock<std::mutex>(ctx->gate->mutex);
+        if (!ctx->gate->open)
+            return GST_PAD_PROBE_DROP;
+    }
     // The send ring never changes. The receive ring is looked up per frame:
     // the sid a keyed device publishes under arrives in a participant update
     // that is not ordered against the pad appearing.
@@ -1074,6 +1099,12 @@ void SfuMediaEngine::teardown(bool endOfCall)
     m_sessionLive->store(false);
     m_sessionLive = std::make_shared<std::atomic<bool>>(true);
     m_active = false;
+    // Before destroyPeer() sets the publisher to NULL on this thread: every
+    // portal camera leaves first, started or not (see detachPendingStart()).
+    for (const QString &cid : m_asyncStarts.keys())
+        detachPendingStart(cid, m_publishedBins.value(cid, nullptr),
+                           /*force=*/true);
+    m_asyncStarts.clear();
     m_publishedBins.clear();
     m_shareKeepAliveTimer.stop();
     for (auto it = m_publishWatch.cbegin(); it != m_publishWatch.cend(); ++it)
@@ -4107,6 +4138,12 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     // Shared by the probes below and handlePublishError(); created before the
     // bin can play.
     auto probeState = std::make_shared<PublishProbeState>();
+    // A portal camera is started off the GUI thread (below), so it can still
+    // be starting when the engine goes; its engine-touching callbacks are
+    // gated. See ProbeGate.
+    const bool asyncStart = !screenShare && pipewireFd >= 0;
+    const std::shared_ptr<ProbeGate> gate =
+        asyncStart ? std::make_shared<ProbeGate>() : nullptr;
     probeState->startedMs = monotonicMs();
     probeState->screenShare = screenShare;
     m_publishWatch.insert(cid, PublishWatch{probeState, false});
@@ -4249,6 +4286,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
         auto *ctx = new VideoSinkCtx{this, QString(),
                                      screenShare ? localScreenStreamId()
                                                  : localCameraStreamId()};
+        ctx->gate = gate;
         g_signal_connect_data(selfSink, "new-sample",
                               G_CALLBACK(onVideoSample), ctx,
                               videoSinkCtxFree, GConnectFlags(0));
@@ -4280,7 +4318,7 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
                     delete static_cast<std::shared_ptr<PublishProbeState> *>(
                         data);
                 });
-            installEncryptProbe(encoded, /*video=*/true);
+            installEncryptProbe(encoded, /*video=*/true, gate);
             gst_object_unref(encoded);
         }
         gst_object_unref(encoder);
@@ -4321,12 +4359,110 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     }
     if (sinkPad)
         gst_object_unref(sinkPad);
-    gst_element_sync_state_with_parent(bin);
+    // A portal camera is started off this thread. pipewiresrc's start blocks
+    // the thread that changes its state until PipeWire has negotiated a format
+    // with the camera node (`wait_started`, bounded at 30 s), and when the
+    // host cannot stream that node it never does: measured on Debian 12
+    // (PipeWire 0.3.65, "can't negotiate buffers"), the whole app froze for
+    // 30 s, missed its membership heartbeat and was dropped from the call by
+    // its own delayed leave. The element keeps a ref for the call; a bin
+    // already detached has no parent, and syncing it is then a no-op. A
+    // teardown while it is still starting detaches it rather than wait (see
+    // detachPendingStart()).
+    if (asyncStart) {
+        auto pending = std::make_shared<std::atomic<bool>>(true);
+        m_asyncStarts.insert(cid, AsyncStart{gate, pending});
+        gst_element_call_async(
+            bin,
+            [](GstElement *element, gpointer data) {
+                gst_element_sync_state_with_parent(element);
+                (*static_cast<std::shared_ptr<std::atomic<bool>> *>(data))
+                    ->store(false);
+            },
+            new std::shared_ptr<std::atomic<bool>>(pending),
+            [](gpointer data) {
+                delete static_cast<std::shared_ptr<std::atomic<bool>> *>(
+                    data);
+            });
+    } else {
+        gst_element_sync_state_with_parent(bin);
+    }
     // Now there is something to offer; the negotiation-needed fired at
     // PLAYING was ignored.
     ++m_publishedMedia;
     m_publisherEverPublished = true;
     renegotiatePublisher();
+    // A camera that opens and never delivers posts no error; see
+    // kCameraFirstFrameTimeoutMs. Screen shares are exempt: an on-damage
+    // capture legitimately waits for the screen to change.
+    if (!screenShare) {
+        const quint64 generation = m_generation.load();
+        QTimer::singleShot(asyncStart ? m_portalCameraFirstFrameTimeoutMs
+                                      : m_cameraFirstFrameTimeoutMs,
+                           this, [this, cid, generation] {
+                               checkCameraFirstFrame(cid, generation);
+                           });
+    }
+}
+
+namespace {
+/// A portal camera bin detached while still starting; finished on a pool
+/// thread. Holds no engine pointer: the engine may be gone by then.
+struct AbandonedStart {
+    int fd = -1;
+};
+
+void finishAbandonedStart(GstElement *bin, gpointer data)
+{
+    // Waits for the start still holding the bin's state lock (pipewiresrc,
+    // up to 30 s), here rather than on the GUI thread. The descriptor only
+    // after NULL: pipewiresrc may still be using it.
+    gst_element_set_state(bin, GST_STATE_NULL);
+    auto *ctx = static_cast<AbandonedStart *>(data);
+    if (ctx && ctx->fd > 0) {
+        ::close(ctx->fd);
+        ctx->fd = -1;
+    }
+}
+
+void abandonedStartFree(gpointer data)
+{
+    delete static_cast<AbandonedStart *>(data);
+}
+} // namespace
+
+bool SfuMediaEngine::detachPendingStart(const QString &cid, GstElement *bin,
+                                        bool force)
+{
+    const AsyncStart start = m_asyncStarts.take(cid);
+    // Only portal cameras started off the GUI thread are taken over: they are
+    // the only bins whose engine-touching callbacks are gated. Any other bin
+    // (a direct camera, a share) keeps the normal path, whose teardown the
+    // engine counts and waits for before it goes.
+    if (!start.gate)
+        return false;
+    {
+        // Waits for at most one frame already inside a gated callback.
+        std::lock_guard<std::mutex> lock(start.gate->mutex);
+        start.gate->open = false;
+    }
+    if (!bin || !m_publisher.pipeline
+        || (!force && !start.pending->load()))
+        return false;
+    // gst_bin_remove takes object locks only, never the child's state lock
+    // that the start holds, and unlinks the bin's pads.
+    gst_object_ref(bin);
+    gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
+    auto *ctx = new AbandonedStart{m_publishedFds.take(cid)};
+    if (ctx->fd == 0)
+        ctx->fd = -1;
+    gst_element_call_async(bin, finishAbandonedStart, ctx,
+                           abandonedStartFree);
+    gst_object_unref(bin);
+    qCInfo(lcSfuMedia) << "portal camera detached and finished off the GUI "
+                          "thread starting="
+                       << start.pending->load();
+    return true;
 }
 
 void SfuMediaEngine::releasePublishedFd(const QString &cid)
@@ -4475,8 +4611,13 @@ void SfuMediaEngine::unpublish(const QString &cid)
     // Take first: errors the bin posts on its way to NULL must not be
     // reported as a publish failure.
     GstElement *bin = m_publishedBins.take(cid);
-    if (const auto dead = m_publishWatch.take(cid); dead.state)
+    // Whether the capture ever delivered: a portal camera that never did may
+    // be wedged in pipewiresrc, and is detached rather than stopped in place.
+    bool deliveredNothing = false;
+    if (const auto dead = m_publishWatch.take(cid); dead.state) {
+        deliveredNothing = dead.state->captured.load() == 0;
         releaseKeepAlive(dead.state);
+    }
     updateShareKeepAliveTimer();
     if (cid == m_micCid)
         m_micCid.clear();
@@ -4491,6 +4632,7 @@ void SfuMediaEngine::unpublish(const QString &cid)
         m_shareAudioSources.stop();
     }
     if (!bin || !m_publisher.pipeline) {
+        detachPendingStart(cid, nullptr);
         releasePublishedFd(cid);
         return;
     }
@@ -4553,6 +4695,16 @@ void SfuMediaEngine::unpublish(const QString &cid)
         gst_object_unref(peer);
     }
 
+    // A PORTAL camera (and only one: see detachPendingStart()) still starting,
+    // or one that never delivered, is detached and finished elsewhere; its
+    // gate is closed either way, so it needs no bounded wait at teardown. Every
+    // other bin takes the IDLE-probe path below, which the engine counts.
+    if (detachPendingStart(cid, bin, /*force=*/deliveredNothing)) {
+        publishTeardownFree(ctx);
+        gst_object_unref(srcPad);
+        renegotiatePublisher();
+        return;
+    }
     // No destroy notify: publishTeardownProbe hands ctx on.
     gst_pad_add_probe(srcPad, GST_PAD_PROBE_TYPE_IDLE, publishTeardownProbe,
                       ctx, nullptr);
@@ -6109,12 +6261,14 @@ void SfuMediaEngine::noteStreamIds(const QHash<int, QString> &byMline,
     }
 }
 
-void SfuMediaEngine::installEncryptProbe(GstPad *pad, bool video)
+void SfuMediaEngine::installEncryptProbe(GstPad *pad, bool video,
+                                         std::shared_ptr<ProbeGate> gate)
 {
     if (!pad)
         return;
     auto *ctx = new CryptoProbeCtx;
     ctx->engine = this;
+    ctx->gate = std::move(gate);
     // The engine owns the send cryptor for its whole life; a non-owning alias
     // suffices.
     ctx->cryptor = std::shared_ptr<CallFrameCryptor>(m_sendCryptor.get(),
@@ -6645,6 +6799,37 @@ void SfuMediaEngine::handlePublishError(const QString &cid)
     Q_EMIT publishFailed(cid, screenShare
                                   ? QStringLiteral("screen_share_failed")
                                   : QStringLiteral("camera_failed"));
+}
+
+void SfuMediaEngine::checkCameraFirstFrame(const QString &cid,
+                                           quint64 generation)
+{
+    // GUI thread. A stopped or restarted engine, an unpublished camera or one
+    // already reported (a bus error got there first) is not ours to judge.
+    if (!m_active || generation != m_generation.load()
+        || !m_publishedBins.contains(cid))
+        return;
+    const auto watch = m_publishWatch.constFind(cid);
+    if (watch == m_publishWatch.cend() || !watch->state || watch->reported
+        || watch->state->screenShare)
+        return;
+    if (watch->state->captured.load() > 0)
+        return;
+    // Whatever state the bin reached, no picture is no picture: a portal
+    // camera whose start never completes (see publishVideo()) is still short
+    // of PLAYING here. The state is logged only to tell those apart.
+    GstState current = GST_STATE_VOID_PENDING;
+    if (GstElement *bin = m_publishedBins.value(cid))
+        gst_element_get_state(bin, &current, nullptr, 0);
+    m_publishWatch[cid].reported = true;
+    qCWarning(lcSfuMedia) << "camera delivered no frames; reporting it"
+                          << "waitedMs="
+                          << (m_publishedFds.contains(cid)
+                                  ? m_portalCameraFirstFrameTimeoutMs
+                                  : m_cameraFirstFrameTimeoutMs)
+                          << "portal=" << m_publishedFds.contains(cid)
+                          << "state=" << gst_element_state_get_name(current);
+    Q_EMIT publishFailed(cid, QStringLiteral("camera_no_frames"));
 }
 
 // ── GStreamer-thread callbacks ──────────────────────────────────────────

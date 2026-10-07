@@ -691,11 +691,24 @@ void SfuCallController::setCameraPortal(CameraPortal *portal)
             [this](const QString &category) {
                 qCWarning(lcSfuCall) << "camera portal failed category="
                                      << category;
+                // A portal that could not hand out a remote is not the user
+                // saying no: with device access granted, open the camera
+                // directly instead (cameraFailureStep()).
+                if (m_cameraAwaitingPortal && active()
+                    && cameraFailureStep(category, /*viaPortal=*/true,
+                                         cameraDeviceNodeVisible(),
+                                         m_cameraFellBack)
+                        == CameraFailureStep::OpenDeviceNode) {
+                    m_cameraAwaitingPortal = false;
+                    fallBackToDeviceCamera(category);
+                    return;
+                }
                 abandonPendingCamera();
-                // Same wording as a device that will not open; to the user it
-                // is the same fact. No track was declared.
-                announceCameraNotice(QStringLiteral("camera_failed"),
-                                     QString());
+                // No track was declared.
+                announceCameraNotice(
+                    cameraNoticeCategory(category, /*viaPortal=*/true,
+                                         m_cameraPortalReportedCamera),
+                    QString());
             });
 }
 
@@ -726,6 +739,115 @@ SfuCallController::LinuxCameraRoute SfuCallController::linuxCameraRoute(
         return LinuxCameraRoute::Portal;
     // 5. Direct, including its honest failure.
     return LinuxCameraRoute::Direct;
+}
+
+SfuCallController::CameraFailureStep SfuCallController::cameraFailureStep(
+    const QString &category, bool viaPortal, bool directDeviceVisible,
+    bool alreadyFellBack)
+{
+    if (!viaPortal || !directDeviceVisible || alreadyFellBack)
+        return CameraFailureStep::Notice;
+    // The portal route produced nothing, or could not start because there is
+    // no portal or no PipeWire behind it. Deliberately not `not_allowed` (the
+    // desktop refused the camera: a lockdown, or a stored "no"), not
+    // `portal_failed` (an error that is neither absence nor refusal), not
+    // `timeout` (an unanswered permission dialog) or `busy`; and a decline
+    // never arrives here at all.
+    if (category == QLatin1String("camera_no_frames")
+        || category == QLatin1String("camera_failed")
+        || category == QLatin1String("no_portal")
+        || category == QLatin1String("no_pipewire_remote"))
+        return CameraFailureStep::OpenDeviceNode;
+    return CameraFailureStep::Notice;
+}
+
+QString SfuCallController::cameraNoticeCategory(const QString &category,
+                                                bool viaPortal,
+                                                bool portalReportedCamera)
+{
+    if (category == QLatin1String("no_portal"))
+        return QStringLiteral("camera_portal_unavailable");
+    // The desktop refused the camera (a lockdown): say so; nothing else
+    // would make sense of a camera that will not turn on.
+    if (category == QLatin1String("not_allowed"))
+        return QStringLiteral("camera_not_allowed");
+    // The rest of CameraPortal's failure categories: the same fact as a
+    // device that will not open.
+    if (category == QLatin1String("no_pipewire_remote")
+        || category == QLatin1String("portal_failed")
+        || category == QLatin1String("timeout")
+        || category == QLatin1String("busy"))
+        return QStringLiteral("camera_failed");
+    if (viaPortal
+        && (category == QLatin1String("camera_no_frames")
+            || category == QLatin1String("camera_failed"))) {
+        return portalReportedCamera
+            ? QStringLiteral("camera_portal_no_picture")
+            : QStringLiteral("camera_portal_no_camera");
+    }
+    return category;
+}
+
+QString SfuCallController::cameraPortalNotice(const QString &category,
+                                              bool flatpak)
+{
+    // Flatseal labels `--device=all` "All devices (e.g. webcam)"; the same
+    // grant is `flatpak override --user --device=all <app id>`.
+    if (category == QLatin1String("camera_portal_no_camera")) {
+        return flatpak
+            ? tr("Your desktop's camera portal offered Lightning no camera. "
+                 "If the camera works in other apps, allow Lightning to "
+                 "use all devices (in Flatseal: \"All devices\"), then turn "
+                 "the camera on again.")
+            : tr("Your desktop's camera portal offered Lightning no "
+                 "camera.");
+    }
+    if (category == QLatin1String("camera_portal_no_picture")) {
+        return flatpak
+            ? tr("Your desktop's camera portal sent no picture. To let "
+                 "Lightning open the camera itself, allow it to use all "
+                 "devices (in Flatseal: \"All devices\"), then turn the "
+                 "camera on again.")
+            : tr("Your desktop's camera portal sent no picture from the "
+                 "camera.");
+    }
+    if (category == QLatin1String("camera_portal_unavailable")) {
+        return flatpak
+            ? tr("This desktop has no camera portal. Install "
+                 "xdg-desktop-portal, or allow Lightning to use all devices "
+                 "(in Flatseal: \"All devices\").")
+            : tr("This desktop has no camera portal, so the camera can't be "
+                 "used.");
+    }
+    return {};
+}
+
+bool SfuCallController::cameraDeviceNodeVisible() const
+{
+    if (m_deviceNodeVisibleForTest >= 0)
+        return m_deviceNodeVisibleForTest == 1;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    return v4l2DeviceNodeVisible();
+#else
+    return false;
+#endif
+}
+
+void SfuCallController::fallBackToDeviceCamera(const QString &category)
+{
+    m_cameraFellBack = true;
+    qCWarning(lcSfuCall) << "camera portal gave no picture; opening the "
+                            "device node directly category="
+                         << category;
+    // Whatever the portal route declared is gone (unpublished by the caller,
+    // or never declared): tell the SFU before the replacement is declared,
+    // exactly as turning the camera off and on again would.
+    m_cameraOn = false;
+    applyVideoState();
+    m_cameraOn = true;
+    m_cameraViaPortal = false;
+    publishCameraTrack(/*pipewireFd=*/-1);
+    Q_EMIT mediaStateChanged();
 }
 
 SfuCallController::LinuxShareRoute SfuCallController::linuxShareRoute(
@@ -1441,8 +1563,29 @@ QString SfuCallController::userFacingError(const QString &category) const
         return tr("Screen sharing couldn't start.");
     if (category == QLatin1String("camera_source_closed"))
         return tr("Your camera stopped.");
+    // A snap opens the camera itself only through its camera interface,
+    // which the store does not connect by default.
+    if ((category == QLatin1String("camera_failed")
+         || category == QLatin1String("camera_no_frames"))
+        && sandboxenv::isSnap()) {
+        return tr("Your camera isn't available. Lightning is a snap: run "
+                  "snap connect lightning:camera");
+    }
     if (category == QLatin1String("camera_failed"))
         return tr("Your camera isn't available.");
+    // Opened and never sent a frame: a virtual camera with nothing feeding
+    // it, or a device node that is not a capture device.
+    if (category == QLatin1String("camera_no_frames"))
+        return tr("The camera sent no picture. If it's a virtual camera, "
+                  "make sure something is feeding it.");
+    if (category == QLatin1String("camera_not_allowed"))
+        return tr("Camera access is turned off in your system settings.");
+    if (category.startsWith(QLatin1String("camera_portal_"))) {
+        const QString notice =
+            cameraPortalNotice(category, sandboxenv::isFlatpak());
+        if (!notice.isEmpty())
+            return notice;
+    }
     // Never replaced by another camera; see CaptureDeviceSelection.h.
     if (category == QLatin1String("camera_unavailable"))
         return tr("The camera you chose isn't available, so no camera was "
@@ -1596,6 +1739,8 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_roomId = roomId;
     m_withVideo = withVideo;
     m_cameraOn = withVideo;
+    // A new call tries the preferred camera route again.
+    m_cameraFellBack = false;
     m_screenSharing = false;
     m_handRaised = false;
     m_handReactionId.clear();
@@ -2805,12 +2950,24 @@ void SfuCallController::onEnginePublishFailed(const QString &cid,
         return;
     // Turn the control back off and withdraw the track; the call stays up.
     const bool camera = cid == m_cameraCid;
+    QString noticeCategory = category;
     if (camera) {
+        const bool viaPortal = m_cameraViaPortal;
         m_cameraOn = false;
         unpublishTrack(m_cameraCid);
 #ifdef HAVE_LIGHTNING_WEBRTC
         clearLocalVideoSurface(SfuMediaEngine::localCameraStreamId());
 #endif
+        // A portal camera that gave nothing gets one retry on the device
+        // node the user granted; see cameraFailureStep().
+        if (cameraFailureStep(category, viaPortal, cameraDeviceNodeVisible(),
+                              m_cameraFellBack)
+            == CameraFailureStep::OpenDeviceNode) {
+            fallBackToDeviceCamera(category);
+            return;
+        }
+        noticeCategory = cameraNoticeCategory(category, viaPortal,
+                                              m_cameraPortalReportedCamera);
     } else if (cid == m_screenCid) {
         m_screenSharing = false;
         unpublishTrack(m_screenCid);
@@ -2833,7 +2990,7 @@ void SfuCallController::onEnginePublishFailed(const QString &cid,
     // A plain-wording notice; the state is unchanged and the call stays
     // active. The camera's is withdrawn by a later camera that works.
     if (camera) {
-        announceCameraNotice(category, cid);
+        announceCameraNotice(noticeCategory, cid);
         return;
     }
     Q_EMIT callFailed(userFacingError(category));
@@ -4049,6 +4206,8 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_cameraCid.clear();
     m_screenCid.clear();
     m_cameraOn = false;
+    // Per call: the next call must not skip the portal on this one's account.
+    m_cameraFellBack = false;
     m_screenSharing = false;
     m_handRaised = false;
     m_handReactionId.clear();
@@ -4214,15 +4373,26 @@ void SfuCallController::startCameraCapture()
     // Choose the camera route. Linux only in practice: elsewhere CameraPortal
     // is unavailable and this resolves to Direct.
     const bool sandboxed = runningSandboxed();
-    const bool deviceNode = v4l2DeviceNodeVisible();
+    const bool deviceNode = cameraDeviceNodeVisible();
     const bool portalWired = !m_cameraPortal.isNull();
     const bool portalUsable = portalWired && CameraPortal::available()
         && CameraPortal::cameraPresent();
     LinuxCameraRoute route =
         linuxCameraRoute(sandboxed, portalUsable, deviceNode);
+    // The portal already gave this camera nothing (see
+    // fallBackToDeviceCamera()): a rejoin goes straight to the device node
+    // rather than making the user wait for the same silence again.
+    if (route == LinuxCameraRoute::Portal && m_cameraFellBack && deviceNode) {
+        qCInfo(lcSfuCall) << "camera portal gave no picture earlier in this "
+                             "call; using the device node";
+        route = LinuxCameraRoute::Direct;
+    }
     // The portal route needs a wired portal object, or a sandboxed build would
     // wait forever on a signal nothing can emit.
-    if (route == LinuxCameraRoute::Portal && !portalWired) {
+    // Except in a sandbox with no device node, where the direct device cannot
+    // exist either: say what is missing instead (below).
+    const bool nothingToOpen = sandboxed && !deviceNode;
+    if (route == LinuxCameraRoute::Portal && !portalWired && !nothingToOpen) {
         qCWarning(lcSfuCall)
             << "camera route=portal but no camera portal is wired; falling "
                "back to the direct device";
@@ -4238,6 +4408,19 @@ void SfuCallController::startCameraCapture()
                       << "portal_wired=" << portalWired
                       << "portal_usable=" << portalUsable;
 
+    m_cameraViaPortal = route == LinuxCameraRoute::Portal;
+    m_cameraPortalReportedCamera = portalUsable;
+    if (route == LinuxCameraRoute::Portal && !portalWired) {
+        // A sandbox with neither a camera portal nor a device node (Flathub's
+        // permissions on a desktop without xdg-desktop-portal): opening
+        // v4l2src would only fail with "Your camera isn't available".
+        qCWarning(lcSfuCall) << "no camera portal and no device node in the "
+                                "sandbox; no camera can be opened";
+        abandonPendingCamera();
+        announceCameraNotice(QStringLiteral("camera_portal_unavailable"),
+                             QString());
+        return;
+    }
     if (route == LinuxCameraRoute::Direct) {
         publishCameraTrack(/*pipewireFd=*/-1);
         return;
@@ -4266,6 +4449,7 @@ void SfuCallController::publishCameraTrack(int pipewireFd)
                           SfuMediaEngine::kCameraHeight,
                           false, m_roomEncrypted);
     // The engine takes ownership of the fd; see SfuMediaEngine::publishVideo().
+    m_cameraViaPortal = pipewireFd >= 0;
     m_engine->publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1,
                            pipewireFd);
     m_cameraCid = cid;
@@ -4302,6 +4486,8 @@ void SfuCallController::setCameraOn(bool on)
     }
     m_cameraOn = on;
     if (on) {
+        // A fresh press tries the preferred route again.
+        m_cameraFellBack = false;
         // May publish now (direct) or after a portal dialog; `m_cameraOn` is
         // already true so the control responds immediately.
         startCameraCapture();

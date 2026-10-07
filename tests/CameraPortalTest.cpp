@@ -39,11 +39,14 @@ public:
         InstantGrant,     // Response 0 immediately after the reply (the race)
         InstantDecline,   // Response 1 immediately after the reply
         LateGrantOnOtherPath, // an older portal: unpredicted path, answered later
+        AccessError,      // AccessCamera answers the D-Bus error `errorName`
+        OpenError,        // granted, then OpenPipeWireRemote answers `errorName`
     };
 
     explicit FakeCameraPortal(QDBusConnection bus) : m_bus(bus) {}
 
     Answer answer = Answer::InstantGrant;
+    QString errorName;
     int accessCalls = 0;
     int openCalls = 0;
     int fixtureErrors = 0; // the fake failed, not the code under test
@@ -58,6 +61,13 @@ public:
 
         if (message.member() == QLatin1String("AccessCamera")) {
             ++accessCalls;
+            if (answer == Answer::AccessError) {
+                // xdg-desktop-portal 1.16 camera.c: a lockdown is an error on
+                // the call itself, before any Request exists.
+                m_bus.send(message.createErrorReply(
+                    errorName, QStringLiteral("Camera access disabled")));
+                return true;
+            }
             // A virtual object receives the raw message, so the a{sv} is a
             // QDBusArgument here, not a QVariantMap; `toMap()` would lose the
             // token and the fake would reply with an invalid path.
@@ -99,6 +109,11 @@ public:
 
         if (message.member() == QLatin1String("OpenPipeWireRemote")) {
             ++openCalls;
+            if (answer == Answer::OpenError) {
+                m_bus.send(message.createErrorReply(
+                    errorName, QStringLiteral("Permission denied")));
+                return true;
+            }
             int fds[2] = {-1, -1};
             if (::pipe(fds) != 0)
                 return false;
@@ -129,6 +144,9 @@ private Q_SLOTS:
     void anInstantGrantIsNotLost();
     void anInstantDeclineIsReported();
     void aPortalThatUsesAnotherPathIsStillFollowed();
+    void aRefusalIsNeverMistakenForAMissingPortal();
+    void aRefusalOverTheBusIsReportedAsNotAllowed_data();
+    void aRefusalOverTheBusIsReportedAsNotAllowed();
 
 private:
     QProcess m_daemon;
@@ -251,6 +269,92 @@ void CameraPortalTest::aPortalThatUsesAnotherPathIsStillFollowed()
              "a portal older than 0.9 returns a path nobody predicted; the "
              "returned path must still be followed");
     ::close(ready.takeFirst().at(0).toInt());
+}
+
+// 2026-10-07 review: every AccessCamera error was reported as `no_portal`, and
+// the controller then opened /dev/video* instead, routing around a camera the
+// desktop had locked down. The error NAME decides: a refusal is `not_allowed`
+// (never routed around), only absence is `no_portal`. Fails on the old code,
+// which had no such mapping (and sent `no_portal` for NotAllowed).
+void CameraPortalTest::aRefusalIsNeverMistakenForAMissingPortal()
+{
+    const auto access = [](const char *name) {
+        return CameraPortal::failureCategory(QString::fromLatin1(name), false);
+    };
+    const auto open = [](const char *name) {
+        return CameraPortal::failureCategory(QString::fromLatin1(name), true);
+    };
+    for (const char *refusal : { "org.freedesktop.portal.Error.NotAllowed",
+                                 "org.freedesktop.portal.Error.Cancelled",
+                                 "org.freedesktop.DBus.Error.AccessDenied" }) {
+        QCOMPARE(access(refusal), QStringLiteral("not_allowed"));
+        QCOMPARE(open(refusal), QStringLiteral("not_allowed"));
+    }
+    for (const char *absent :
+         { "org.freedesktop.DBus.Error.ServiceUnknown",
+           "org.freedesktop.DBus.Error.UnknownMethod",
+           "org.freedesktop.DBus.Error.UnknownInterface",
+           "org.freedesktop.DBus.Error.UnknownObject",
+           "org.freedesktop.DBus.Error.NameHasNoOwner" }) {
+        QCOMPARE(access(absent), QStringLiteral("no_portal"));
+        QCOMPARE(open(absent), QStringLiteral("no_portal"));
+    }
+    // Anything else is a failure, not an absence.
+    QCOMPARE(access("org.freedesktop.portal.Error.Failed"),
+             QStringLiteral("portal_failed"));
+    QCOMPARE(open("org.freedesktop.portal.Error.Failed"),
+             QStringLiteral("no_pipewire_remote"));
+    QCOMPARE(access("org.freedesktop.DBus.Error.NoReply"),
+             QStringLiteral("portal_failed"));
+}
+
+void CameraPortalTest::aRefusalOverTheBusIsReportedAsNotAllowed_data()
+{
+    QTest::addColumn<int>("answer");
+    QTest::addColumn<QString>("errorName");
+    QTest::addColumn<QString>("category");
+    QTest::newRow("lockdown at AccessCamera")
+        << int(FakeCameraPortal::Answer::AccessError)
+        << QStringLiteral("org.freedesktop.portal.Error.NotAllowed")
+        << QStringLiteral("not_allowed");
+    QTest::newRow("access denied at AccessCamera")
+        << int(FakeCameraPortal::Answer::AccessError)
+        << QStringLiteral("org.freedesktop.DBus.Error.AccessDenied")
+        << QStringLiteral("not_allowed");
+    QTest::newRow("no Camera interface")
+        << int(FakeCameraPortal::Answer::AccessError)
+        << QStringLiteral("org.freedesktop.DBus.Error.UnknownMethod")
+        << QStringLiteral("no_portal");
+    QTest::newRow("refused at OpenPipeWireRemote")
+        << int(FakeCameraPortal::Answer::OpenError)
+        << QStringLiteral("org.freedesktop.portal.Error.NotAllowed")
+        << QStringLiteral("not_allowed");
+    QTest::newRow("no PipeWire at OpenPipeWireRemote")
+        << int(FakeCameraPortal::Answer::OpenError)
+        << QStringLiteral("org.freedesktop.portal.Error.Failed")
+        << QStringLiteral("no_pipewire_remote");
+}
+
+void CameraPortalTest::aRefusalOverTheBusIsReportedAsNotAllowed()
+{
+    QFETCH(int, answer);
+    QFETCH(QString, errorName);
+    QFETCH(QString, category);
+    CameraPortal portal;
+    QSignalSpy ready(&portal, &CameraPortal::ready);
+    QSignalSpy failed(&portal, &CameraPortal::failed);
+    QSignalSpy cancelled(&portal, &CameraPortal::cancelled);
+    m_fake->answer = static_cast<FakeCameraPortal::Answer>(answer);
+    m_fake->errorName = errorName;
+
+    portal.requestAccess();
+
+    QVERIFY(failed.wait(5000));
+    QCOMPARE(failed.takeFirst().at(0).toString(), category);
+    QCOMPARE(ready.count(), 0);
+    QCOMPARE(cancelled.count(), 0);
+    QVERIFY(!portal.busy());
+    m_fake->answer = FakeCameraPortal::Answer::InstantGrant;
 }
 
 QTEST_GUILESS_MAIN(CameraPortalTest)

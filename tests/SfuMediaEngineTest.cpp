@@ -296,6 +296,89 @@ void raw_only_cam_class_init(RawOnlyCamClass *klass)
         "A v4l2src-shaped YUYV-only camera", "Lightning");
 }
 
+/// A camera whose start blocks the thread that starts it, as pipewiresrc's
+/// does (`wait_started`) until PipeWire has negotiated a format with the
+/// camera node: up to 30 s when the host cannot stream that node.
+struct SlowStartCam {
+    GstBin parent;
+};
+struct SlowStartCamClass {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(SlowStartCam, slow_start_cam, GST_TYPE_BIN)
+
+constexpr int kSlowStartCamMs = 2500;
+
+GstStateChangeReturn slowStartCamChangeState(GstElement *element,
+                                             GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_READY_TO_PAUSED)
+        g_usleep(gulong(kSlowStartCamMs) * 1000);
+    return GST_ELEMENT_CLASS(slow_start_cam_parent_class)
+        ->change_state(element, transition);
+}
+
+void slow_start_cam_init(SlowStartCam *self)
+{
+    GstElement *device =
+        gst_element_factory_make("videotestsrc", "slowcamdevice");
+    g_object_set(device, "is-live", TRUE, nullptr);
+    gst_bin_add(GST_BIN(self), device);
+    GstPad *inner = gst_element_get_static_pad(device, "src");
+    GstPad *ghost = gst_ghost_pad_new("src", inner);
+    gst_object_unref(inner);
+    gst_element_add_pad(GST_ELEMENT(self), ghost);
+}
+
+void slow_start_cam_class_init(SlowStartCamClass *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Slow-start camera (test)", "Source/Video",
+        "A pipewiresrc-shaped camera whose start blocks", "Lightning");
+    GST_ELEMENT_CLASS(klass)->change_state = slowStartCamChangeState;
+}
+
+/// A camera that starts at once and then blocks the thread that STOPS it, as
+/// a pipewiresrc whose PipeWire link never negotiated does in every later
+/// state change (pw_thread_loop_timed_wait, 30 s; measured on Debian 12).
+struct SlowStopCam {
+    GstBin parent;
+};
+struct SlowStopCamClass {
+    GstBinClass parent_class;
+};
+G_DEFINE_TYPE(SlowStopCam, slow_stop_cam, GST_TYPE_BIN)
+
+GstStateChangeReturn slowStopCamChangeState(GstElement *element,
+                                            GstStateChange transition)
+{
+    if (transition == GST_STATE_CHANGE_PLAYING_TO_PAUSED
+        || transition == GST_STATE_CHANGE_PAUSED_TO_READY)
+        g_usleep(gulong(kSlowStartCamMs) * 1000);
+    return GST_ELEMENT_CLASS(slow_stop_cam_parent_class)
+        ->change_state(element, transition);
+}
+
+void slow_stop_cam_init(SlowStopCam *self)
+{
+    GstElement *device =
+        gst_element_factory_make("videotestsrc", "slowstopdevice");
+    g_object_set(device, "is-live", TRUE, nullptr);
+    gst_bin_add(GST_BIN(self), device);
+    GstPad *inner = gst_element_get_static_pad(device, "src");
+    GstPad *ghost = gst_ghost_pad_new("src", inner);
+    gst_object_unref(inner);
+    gst_element_add_pad(GST_ELEMENT(self), ghost);
+}
+
+void slow_stop_cam_class_init(SlowStopCamClass *klass)
+{
+    gst_element_class_set_static_metadata(
+        GST_ELEMENT_CLASS(klass), "Slow-stop camera (test)", "Source/Video",
+        "A wedged-pipewiresrc-shaped camera whose stop blocks", "Lightning");
+    GST_ELEMENT_CLASS(klass)->change_state = slowStopCamChangeState;
+}
+
 /// Wires a sender's publisher to a receiver's subscriber, the way the SFU
 /// relays them, and records the first failure either reports.
 void wireLoopback(SfuMediaEngine &sender, SfuMediaEngine &receiver,
@@ -5830,6 +5913,323 @@ private slots:
         GstState state = GST_STATE_VOID_PENDING;
         gst_element_get_state(pipeline, &state, nullptr, 0);
         QCOMPARE(state, GST_STATE_PLAYING);
+    }
+
+    // 2026-10-07 report (Debian 12 Flatpak): "my camera registers, but
+    // there's no feed". A camera whose capture opens and never delivers a
+    // buffer (a portal PipeWire remote with no camera node linked to it)
+    // posts no bus error, so the track stayed declared and black for the
+    // whole call. It must be reported, once, as `camera_no_frames`. Fails on
+    // the old engine, which never reports a silent camera.
+    void aCameraThatNeverDeliversIsReportedAsNoFrames()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setVideoSourceForTest(
+            QStringLiteral("appsrc is-live=true format=time"));
+        engine.setCameraFirstFrameTimeoutForTest(1500);
+        QSignalSpy trackFailed(&engine, &SfuMediaEngine::publishFailed);
+        QSignalSpy failed(&engine, &SfuMediaEngine::failed);
+        engine.start();
+        engine.publishVideo(QStringLiteral("cid-camera"),
+                            /*screenShare=*/false, -1, -1);
+        QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-camera")));
+        QTRY_COMPARE_WITH_TIMEOUT(trackFailed.count(), 1, 10000);
+        QCOMPARE(trackFailed.at(0).at(0).toString(),
+                 QStringLiteral("cid-camera"));
+        QCOMPARE(trackFailed.at(0).at(1).toString(),
+                 QStringLiteral("camera_no_frames"));
+        // Once, and the call itself is not failed.
+        QTest::qWait(3500);
+        QCOMPARE(trackFailed.count(), 1);
+        QCOMPARE(failed.count(), 0);
+        engine.stop();
+    }
+
+    // 2026-10-07, Debian 12 Flatpak: a portal camera whose PipeWire link
+    // never negotiated froze the whole app for 30 s (pipewiresrc's start
+    // blocks the thread that starts it), long enough for the call's own
+    // delayed leave to drop us. A portal camera (a descriptor is passed) is
+    // started off the GUI thread now, and still starts. Fails on the old
+    // engine, where publishVideo() returns only after the start.
+    void aPortalCameraIsStartedOffTheGuiThread()
+    {
+        static const bool registered =
+            gst_element_register(nullptr, "lightningslowstartcam",
+                                 GST_RANK_NONE, slow_start_cam_get_type());
+        QVERIFY(registered);
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setVideoSourceForTest(
+            QStringLiteral("lightningslowstartcam"));
+        engine.start();
+        const QString cid = QStringLiteral("cid-portal-camera");
+        // Stands in for the portal's PipeWire descriptor; the engine owns
+        // and closes it.
+        const int fd = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+        QVERIFY(fd >= 0);
+        QElapsedTimer took;
+        took.start();
+        engine.publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1, fd);
+        const qint64 ms = took.elapsed();
+        QVERIFY(engine.hasPublishedBinForTest(cid));
+        QVERIFY2(ms < kSlowStartCamMs / 2,
+                 qPrintable(QStringLiteral("publishVideo() blocked %1 ms on "
+                                           "the camera's start")
+                                .arg(ms)));
+        // And it starts: frames leave `capsrc`.
+        std::atomic<int> frames{0};
+        GstElement *bin = engine.publishedBinForTest(cid);
+        QVERIFY(bin);
+        GstElement *capture = gst_bin_get_by_name(GST_BIN(bin), "capsrc");
+        QVERIFY(capture);
+        GstPad *out = gst_element_get_static_pad(capture, "src");
+        const gulong probe = gst_pad_add_probe(
+            out, GST_PAD_PROBE_TYPE_BUFFER,
+            [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                static_cast<std::atomic<int> *>(data)->fetch_add(1);
+                return GST_PAD_PROBE_OK;
+            },
+            &frames, nullptr);
+        QTRY_VERIFY_WITH_TIMEOUT(frames.load() > 5, 15000);
+        gst_pad_remove_probe(out, probe);
+        gst_object_unref(out);
+        gst_object_unref(capture);
+        engine.stop();
+    }
+
+    // Review of the first fix: moving the start off the GUI thread only moved
+    // the freeze. A teardown while the start was still inside the camera
+    // (hang-up, an ICE reconnect's suspend, quit) set the publisher pipeline
+    // to NULL on the GUI thread, which waits for the bin's state lock the
+    // start holds. The starting bin is detached and finished on a pool thread
+    // now. Fails on the first fix: stop() and suspend() each take the whole
+    // start (~2.5 s) there.
+    void aTeardownDuringAPortalCameraStartDoesNotWaitForIt()
+    {
+        static const bool registered =
+            gst_element_register(nullptr, "lightningslowstartcam",
+                                 GST_RANK_NONE, slow_start_cam_get_type());
+        QVERIFY(registered);
+        for (const bool suspend : { false, true }) {
+            SfuMediaEngine engine;
+            engine.setTestSourceMode(true);
+            engine.setVideoSourceForTest(
+                QStringLiteral("lightningslowstartcam"));
+            engine.start();
+            const int fd = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+            QVERIFY(fd >= 0);
+            engine.publishVideo(QStringLiteral("cid-portal-camera"),
+                                /*screenShare=*/false, /*nodeId=*/-1, fd);
+            QVERIFY(engine.hasPublishedBinForTest(
+                QStringLiteral("cid-portal-camera")));
+            QElapsedTimer took;
+            took.start();
+            if (suspend)
+                engine.suspend();
+            else
+                engine.stop();
+            const qint64 ms = took.elapsed();
+            QVERIFY2(ms < kSlowStartCamMs / 2,
+                     qPrintable(QStringLiteral("%1() waited %2 ms for a "
+                                               "camera still starting")
+                                    .arg(suspend ? QStringLiteral("suspend")
+                                                 : QStringLiteral("stop"))
+                                    .arg(ms)));
+            // Let the detached start finish before the next round.
+            QTest::qWait(kSlowStartCamMs + 500);
+        }
+    }
+
+    // Measured live on Debian 12 after the first round of this fix: a
+    // hang-up 3 s after a portal camera started froze the app for 30 s even
+    // though the start had RETURNED, because the wedged pipewiresrc blocks
+    // the next state change too and teardown set the publisher to NULL on
+    // the GUI thread. Every portal camera is detached at teardown now,
+    // started or not. Fails when only a still-starting bin is detached:
+    // stop() then takes the camera's whole stop (~2.5 s).
+    void aTeardownNeverStopsAPortalCameraOnTheGuiThread()
+    {
+        static const bool registered =
+            gst_element_register(nullptr, "lightningslowstopcam",
+                                 GST_RANK_NONE, slow_stop_cam_get_type());
+        QVERIFY(registered);
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setVideoSourceForTest(QStringLiteral("lightningslowstopcam"));
+        engine.start();
+        const int fd = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+        QVERIFY(fd >= 0);
+        const QString cid = QStringLiteral("cid-portal-camera");
+        engine.publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1, fd);
+        GstElement *bin = engine.publishedBinForTest(cid);
+        QVERIFY(bin);
+        // Started: the bin reaches PLAYING.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            [bin] {
+                GstState state = GST_STATE_VOID_PENDING;
+                gst_element_get_state(bin, &state, nullptr, 0);
+                return state == GST_STATE_PLAYING;
+            }(),
+            5000);
+        QElapsedTimer took;
+        took.start();
+        engine.stop();
+        const qint64 ms = took.elapsed();
+        QVERIFY2(ms < kSlowStartCamMs / 2,
+                 qPrintable(QStringLiteral("stop() waited %1 ms on a portal "
+                                           "camera's own stop")
+                                .arg(ms)));
+        // Let the detached bin's stop finish (two blocking transitions).
+        QTest::qWait(2 * kSlowStartCamMs + 500);
+    }
+
+    // Review of camfix-2: the takeover is for PORTAL cameras only. A direct
+    // camera (or a share) that never delivered has no ProbeGate, so it must
+    // keep the counted teardown path that stop() and the destructor wait for;
+    // taken over, its stop would run on an uncounted pool thread while its
+    // probes still point into the engine. Fails when unpublish() takes over
+    // every silent bin: the counted teardown never starts.
+    void aSilentDirectCameraKeepsTheCountedTeardown()
+    {
+        static const bool registered =
+            gst_element_register(nullptr, "lightningslowstopcam",
+                                 GST_RANK_NONE, slow_stop_cam_get_type());
+        QVERIFY(registered);
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setVideoSourceForTest(QStringLiteral("lightningslowstopcam"));
+        engine.start();
+        const QString cid = QStringLiteral("cid-direct-camera");
+        engine.publishVideo(cid, /*screenShare=*/false, /*nodeId=*/-1,
+                            /*pipewireFd=*/-1);
+        QVERIFY(engine.hasPublishedBinForTest(cid));
+        QCOMPARE(engine.pendingTeardownsForTest(), 0);
+        engine.unpublish(cid);
+        // The camera's stop blocks for ~2.5 s, so a counted teardown is
+        // still outstanding here.
+        QVERIFY2(engine.pendingTeardownsForTest() > 0,
+                 "a direct camera's teardown was taken off the counted path");
+        QTRY_COMPARE_WITH_TIMEOUT(engine.pendingTeardownsForTest(), 0,
+                                  4 * kSlowStartCamMs);
+        engine.stop();
+    }
+
+    // The same start outliving the ENGINE: the detached bin finishes starting
+    // after the engine is destroyed and pushes frames through its encrypt
+    // probe and self-view sink, both of which hold raw engine pointers. They
+    // are gated now (closed at teardown), so they do nothing. NOT A PROOF
+    // without ASan: without the gate this is a use-after-free that usually
+    // passes silently; only an ASan build fails reliably on the old code. It
+    // does prove stop() does not wait for the start.
+    void anEngineDestroyedDuringAPortalCameraStartLeavesItInert()
+    {
+        static const bool registered =
+            gst_element_register(nullptr, "lightningslowstartcam",
+                                 GST_RANK_NONE, slow_start_cam_get_type());
+        QVERIFY(registered);
+        auto *engine = new SfuMediaEngine;
+        engine->setTestSourceMode(true);
+        engine->setSelfViewInTestModeForTest(true);
+        engine->setVideoSourceForTest(QStringLiteral("lightningslowstartcam"));
+        engine->start();
+        engine->setEncryptionRequired(true);
+        engine->setOutboundKey(3, QByteArray(32, 'k'));
+        const int fd = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+        QVERIFY(fd >= 0);
+        engine->publishVideo(QStringLiteral("cid-portal-camera"),
+                             /*screenShare=*/false, /*nodeId=*/-1, fd);
+        // The destructor may also wait (bounded) for a retiring webrtcbin, so
+        // only what it shares with stop() is timed: the engine goes while the
+        // camera is still starting either way.
+        QElapsedTimer took;
+        took.start();
+        engine->stop();
+        const qint64 ms = took.elapsed();
+        delete engine;
+        QVERIFY2(ms < kSlowStartCamMs / 2,
+                 qPrintable(QStringLiteral("stop() waited %1 ms for a camera "
+                                           "still starting")
+                                .arg(ms)));
+        // The start completes now, frames flow into the gated callbacks.
+        QTest::qWait(kSlowStartCamMs + 1500);
+    }
+
+    // The offer/caps timing of an asynchronously started camera, end to end
+    // (the working-portal case was not testable live on Debian 12): a camera
+    // whose start blocks is still offered, negotiated, encrypted and
+    // decrypted by the far end. A regression guard for the async start.
+    void anAsyncStartedPortalCameraReachesTheFarEndDecrypted()
+    {
+        static const bool registered =
+            gst_element_register(nullptr, "lightningslowstartcam",
+                                 GST_RANK_NONE, slow_start_cam_get_type());
+        QVERIFY(registered);
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QSignalSpy trackFailed(&sender, &SfuMediaEngine::publishFailed);
+        sender.start();
+        receiver.start();
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("cid-portal-camera"), 3, key);
+        sender.setVideoSourceForTest(QStringLiteral("lightningslowstartcam"));
+        const int fd = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+        QVERIFY(fd >= 0);
+        sender.publishVideo(QStringLiteral("cid-portal-camera"),
+                            /*screenShare=*/false, /*nodeId=*/-1, fd);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.framesDecrypted() > 10,
+            qPrintable(QStringLiteral("async-started camera: %1 frames "
+                                      "decrypted, %2 encrypted; failure=%3")
+                           .arg(receiver.framesDecrypted())
+                           .arg(sender.framesEncrypted())
+                           .arg(failure)),
+            45000);
+        QCOMPARE(trackFailed.count(), 0);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        sender.stop();
+        receiver.stop();
+    }
+
+    // The control: a camera that delivers is never reported, and neither is
+    // a silent screen share (an on-damage capture legitimately waits for the
+    // screen to change), nor a silent camera that was unpublished first.
+    void aCameraThatDeliversOrAShareThatWaitsIsNotReported()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setCameraFirstFrameTimeoutForTest(1000);
+        QSignalSpy trackFailed(&engine, &SfuMediaEngine::publishFailed);
+        engine.start();
+        // Default test source: videotestsrc, which delivers.
+        engine.publishVideo(QStringLiteral("cid-camera"),
+                            /*screenShare=*/false, -1, -1);
+        QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-camera")));
+        engine.setVideoSourceForTest(
+            QStringLiteral("appsrc is-live=true format=time"));
+        engine.publishVideo(QStringLiteral("cid-share"),
+                            /*screenShare=*/true, -1, -1);
+        QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-share")));
+        engine.publishVideo(QStringLiteral("cid-gone"),
+                            /*screenShare=*/false, -1, -1);
+        QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-gone")));
+        engine.unpublish(QStringLiteral("cid-gone"));
+        QTest::qWait(4000);
+        QString reported;
+        if (!trackFailed.isEmpty()) {
+            reported = QStringLiteral("%1 %2").arg(
+                trackFailed.at(0).at(0).toString(),
+                trackFailed.at(0).at(1).toString());
+        }
+        QVERIFY2(trackFailed.isEmpty(), qPrintable(reported));
+        engine.stop();
     }
 
     // One failed video publish poisoned every later one (found live: a busy

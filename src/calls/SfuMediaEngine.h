@@ -26,6 +26,7 @@
 #include <array>
 #include <atomic>
 #include <memory>
+#include <mutex>
 
 #include <QHash>
 #include <QSet>
@@ -452,6 +453,36 @@ public:
     /// handlePublishError(), which covers a publish that never started.
     void handleCaptureEnded(const QString &cid);
 
+    /// How long a direct camera publish may run without its capture producing
+    /// a single buffer before it is reported as `camera_no_frames`. A camera
+    /// that opens and never delivers posts no error (a PipeWire remote with
+    /// no camera node routed to it waits forever), so without this the track
+    /// is declared, the far end shows a tile, and nobody ever sees a picture.
+    /// Generous: a UVC camera's first frame takes 0.3-2 s.
+    static constexpr int kCameraFirstFrameTimeoutMs = 8000;
+    /// The same for a camera granted by the xdg Camera portal: PipeWire's
+    /// negotiation comes first, and IPU6/libcamera cameras behind it are slow
+    /// to start. Nothing waits on it (the start runs off the GUI thread).
+    static constexpr int kPortalCameraFirstFrameTimeoutMs = 15000;
+    /// Test-only: shorten both first-frame budgets to `ms`.
+    void setCameraFirstFrameTimeoutForTest(int ms)
+    {
+        m_cameraFirstFrameTimeoutMs = ms;
+        m_portalCameraFirstFrameTimeoutMs = ms;
+    }
+
+    /// Lets a probe or sink callback outlive the engine safely. A portal
+    /// camera's bin can still be starting when the engine tears down (its
+    /// pipewiresrc may block for 30 s), so it is detached and finished on a
+    /// pool thread, out of reach of the bounded teardown wait; its callbacks
+    /// that touch the engine hold `mutex` while they do and do nothing once
+    /// `open` is false. Closing takes the mutex, so it waits for at most one
+    /// frame already inside.
+    struct ProbeGate {
+        std::mutex mutex;
+        bool open = true;
+    };
+
     /// Test-only: sink pads on the publisher webrtcbin (one per offered m=
     /// section), or -1 with no publisher.
     int publisherTrackSlotsForTest() const;
@@ -762,7 +793,9 @@ Q_SIGNALS:
     void failed(const QString &category);
     /// One published track cannot carry media; the call itself is fine.
     /// Deliberately not `failed()`, which ends the call. See
-    /// handlePublishError() for when it is raised.
+    /// handlePublishError() for when it is raised, and
+    /// checkCameraFirstFrame() for `camera_no_frames` (a camera whose capture
+    /// delivered nothing within kCameraFirstFrameTimeoutMs).
     void publishFailed(const QString &cid, const QString &category);
     /// A received track's output failed (the sound server went away) and
     /// could not be rebuilt: true once when recovery is given up, false once
@@ -857,6 +890,11 @@ public Q_SLOTS:
     /// its capture delivered zero buffers (never prerolled), and it has not
     /// been reported yet.
     void handlePublishError(const QString &cid);
+    /// The camera first-frame watchdog, armed by publishVideo(). Reports
+    /// `camera_no_frames` once when the publish `cid` of this engine run is
+    /// still registered, unreported, and its capture has delivered zero
+    /// buffers, whatever state the bin reached.
+    void checkCameraFirstFrame(const QString &cid, quint64 generation);
 
     /// A peak from `miccapturelevel`, what the device captures BEFORE noise
     /// suppression, on the GUI thread: the dead-microphone judgement and the
@@ -920,8 +958,20 @@ private:
     void clearSessionRouting();
     bool tokenIsLive(quintptr token, quint64 generation,
                      Target *target = nullptr) const;
-    /// Install the ENCRYPT probe on one outgoing pad.
-    void installEncryptProbe(GstPad *pad, bool video);
+    /// Install the ENCRYPT probe on one outgoing pad. With `gate`, the probe
+    /// does nothing once the gate is closed; see ProbeGate.
+    void installEncryptProbe(GstPad *pad, bool video,
+                             std::shared_ptr<ProbeGate> gate = {});
+    /// A portal camera started off the GUI thread (see publishVideo()): closes
+    /// its gate, and when its start is still in progress, or `force`, detaches
+    /// the bin from the publisher now and finishes it (NULL, then its
+    /// descriptor closed) on a pool thread, so this thread never changes the
+    /// state of its pipewiresrc: a pipewiresrc whose PipeWire link never
+    /// negotiated blocks EVERY state change in pw_thread_loop_timed_wait (30 s,
+    /// measured on Debian 12 at hang-up, after the start had returned).
+    /// Returns true when it took the bin over. `bin` may be null (gate only).
+    bool detachPendingStart(const QString &cid, GstElement *bin,
+                            bool force = false);
     /// Install the DECRYPT probe on one incoming pad for `streamId`. An
     /// unknown stream id still gets a ring, so a later key lands correctly.
     void installDecryptProbe(GstPad *pad, bool video, const QString &streamId);
@@ -983,6 +1033,14 @@ private:
     /// PipeWire remote descriptors owned by publishing bins, closed on
     /// teardown.
     QHash<QString, int> m_publishedFds;
+    /// Portal cameras whose start was handed to a pool thread: the gate of
+    /// their engine-touching callbacks, and whether the start is still in
+    /// progress (cleared by the pool thread). See detachPendingStart().
+    struct AsyncStart {
+        std::shared_ptr<ProbeGate> gate;
+        std::shared_ptr<std::atomic<bool>> pending;
+    };
+    QHash<QString, AsyncStart> m_asyncStarts;
     /// Volumes requested before their receive bin existed, keyed as
     /// setTrackVolume() addresses them; applied when the bin is built.
     QHash<QString, int> m_pendingTrackVolume;
@@ -1232,6 +1290,8 @@ private:
     bool m_micRestartPending = false;
     bool m_micFailureReported = false;
     int m_micRestartBaseDelayMs = 500;
+    int m_cameraFirstFrameTimeoutMs = kCameraFirstFrameTimeoutMs;
+    int m_portalCameraFirstFrameTimeoutMs = kPortalCameraFirstFrameTimeoutMs;
     int m_rebuildBaseDelayMs = 500;
     bool m_failReceiveRebuilds = false;
     /// remotePlaybackFailed(true) was emitted and not yet withdrawn.

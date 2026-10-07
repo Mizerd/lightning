@@ -54,6 +54,22 @@ public:
 
     /// Abandon an in-flight request. Idempotent; there is no session to close.
     void cancel();
+
+    /// The `failed` category for a D-Bus error `errorName` from AccessCamera
+    /// (`openingRemote` false) or OpenPipeWireRemote (true). Pure.
+    ///
+    ///  - `not_allowed`: the desktop REFUSED the camera
+    ///    (org.freedesktop.portal.Error.NotAllowed: a camera lockdown, or a
+    ///    permission that is not "yes" when the remote is opened;
+    ///    org.freedesktop.portal.Error.Cancelled;
+    ///    org.freedesktop.DBus.Error.AccessDenied). A refusal; callers must
+    ///    never route around it.
+    ///  - `no_portal`: there is no camera portal to ask (ServiceUnknown,
+    ///    UnknownMethod/Interface/Object, NameHasNoOwner).
+    ///  - otherwise `no_pipewire_remote` when opening the remote failed, or
+    ///    `portal_failed` when asking for access did.
+    static QString failureCategory(const QString &errorName,
+                                   bool openingRemote);
     bool busy() const { return m_busy; }
 
 Q_SIGNALS:
@@ -64,7 +80,8 @@ Q_SIGNALS:
     /// The user declined or the portal denied. Not an error; show no message.
     void cancelled();
     /// A coarse, safe-to-log category, never a raw D-Bus error string (which
-    /// can carry paths and device names).
+    /// can carry paths and device names); see failureCategory(). Also `busy`,
+    /// `timeout`, and `no_portal` without a session bus.
     void failed(const QString &category);
 
 private:

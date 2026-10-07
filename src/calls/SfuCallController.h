@@ -398,6 +398,52 @@ public:
     static LinuxCameraRoute linuxCameraRoute(bool sandboxed, bool portalUsable,
                                              bool directDeviceVisible);
 
+    /// What a camera that failed should do next. Pure, every input passed in.
+    enum class CameraFailureStep {
+        /// Turn the camera off and tell the user (cameraNoticeCategory()).
+        Notice,
+        /// Retry once on the device node with `v4l2src`.
+        OpenDeviceNode,
+    };
+
+    /// A portal camera that produced nothing (`camera_no_frames`: the remote
+    /// opened and never delivered a buffer; `camera_failed`: it errored
+    /// before its first buffer), or a portal that is absent or has no
+    /// PipeWire behind it (`no_portal`, `no_pipewire_remote`), falls back ONCE to
+    /// the device node when one is visible, which inside a sandbox means the
+    /// user granted device access themselves (Flatseal's "All devices (e.g.
+    /// webcam)" is `--device=all`). Never after the user or the desktop
+    /// REFUSED the camera: a decline never reaches here
+    /// (CameraPortal::cancelled), a refusal over the bus is `not_allowed`
+    /// (CameraPortal::failureCategory()), and neither `portal_failed` nor a
+    /// `timeout` (an unanswered dialog) is taken as consent. A direct camera
+    /// that failed has nowhere else to go.
+    static CameraFailureStep cameraFailureStep(const QString &category,
+                                               bool viaPortal,
+                                               bool directDeviceVisible,
+                                               bool alreadyFellBack);
+
+    /// The notice category for a camera that failed, refining the engine's
+    /// and the portal's categories by route so the message names what
+    /// actually went wrong:
+    ///  - portal route, nothing delivered: `camera_portal_no_camera` when the
+    ///    portal reported no camera when it was chosen (IsCameraPresent
+    ///    false), else `camera_portal_no_picture`;
+    ///  - the portal itself missing (`no_portal`): `camera_portal_unavailable`;
+    ///  - the desktop refusing the camera (`not_allowed`): `camera_not_allowed`;
+    ///  - any other portal failure: `camera_failed`;
+    ///  - otherwise the category unchanged (`camera_no_frames` on the direct
+    ///    route included).
+    static QString cameraNoticeCategory(const QString &category,
+                                        bool viaPortal,
+                                        bool portalReportedCamera);
+
+    /// The wording of the camera-portal notices, or empty for any other
+    /// category. `flatpak` adds the one remedy a Flatpak user has (device
+    /// access, e.g. in Flatseal); other builds get no advice they cannot act
+    /// on.
+    static QString cameraPortalNotice(const QString &category, bool flatpak);
+
     /// Accepts a native, root-relative screen rectangle as an X11 capture
     /// region, or returns an invalid rect. No arithmetic (see
     /// nativeScreenRect()). ximagesrc's coordinates are unsigned, so a
@@ -603,6 +649,29 @@ public:
         m_cameraCid = cid;
         m_cameraOn = !cid.isEmpty();
     }
+    /// Record how the running camera was opened, as startCameraCapture() and
+    /// publishCameraTrack() do, and what /dev holds, so the fallback can be
+    /// tested without a portal, an engine or a camera. `deviceNodeVisible`
+    /// overrides the real /dev scan until the controller is destroyed.
+    void setCameraRouteForTest(bool viaPortal, bool portalReportedCamera,
+                               bool deviceNodeVisible)
+    {
+        m_cameraViaPortal = viaPortal;
+        m_cameraPortalReportedCamera = portalReportedCamera;
+        m_cameraFellBack = false;
+        m_deviceNodeVisibleForTest = deviceNodeVisible ? 1 : 0;
+    }
+    /// Test-only: the camera is on and waiting for the portal's answer, as
+    /// startCameraCapture() leaves it on the portal route.
+    void setCameraAwaitingPortalForTest()
+    {
+        m_cameraAwaitingPortal = true;
+        m_cameraOn = true;
+    }
+    /// Test-only: the camera fell back from the portal to the device node.
+    bool cameraFellBackForTest() const { return m_cameraFellBack; }
+    /// Test-only: the route the running (or pending) camera uses.
+    bool cameraViaPortalForTest() const { return m_cameraViaPortal; }
     /// Shorten the reconnect timing (the first backoff, which doubles to 8x;
     /// each attempt's watchdog; the whole budget; and, when not negative,
     /// the ICE-disconnected grace) so tests run quickly. The real timers and
@@ -956,6 +1025,12 @@ private:
     /// Give up on a camera turned on but never published (declined or failed
     /// dialog, call ended): reset `cameraOn` and tell the SFU.
     void abandonPendingCamera();
+    /// Whether a V4L2 device node is visible (or the test override).
+    bool cameraDeviceNodeVisible() const;
+    /// The portal camera produced nothing and the device node is reachable:
+    /// retire the portal track and publish the camera directly. See
+    /// cameraFailureStep().
+    void fallBackToDeviceCamera(const QString &category);
     /// Hand a local self-view surface an empty frame; see the definition.
     void clearLocalVideoSurface(const QString &streamId);
     QString userFacingError(const QString &category) const;
@@ -974,6 +1049,17 @@ private:
     /// The camera is on but its portal grant has not arrived: `m_cameraOn` is
     /// true, but nothing is declared or published.
     bool m_cameraAwaitingPortal = false;
+    /// How the running or pending camera was opened: through the camera
+    /// portal (true) or the device node. Read by the failure path.
+    bool m_cameraViaPortal = false;
+    /// The portal's IsCameraPresent when the portal route was chosen; picks
+    /// the wording when it then delivers nothing.
+    bool m_cameraPortalReportedCamera = false;
+    /// The camera already fell back from the portal to the device node since
+    /// it was turned on; one retry, never a loop.
+    bool m_cameraFellBack = false;
+    /// -1: scan /dev; 0/1: setCameraRouteForTest()'s answer.
+    int m_deviceNodeVisibleForTest = -1;
     QPointer<SettingsManager> m_settings;
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
