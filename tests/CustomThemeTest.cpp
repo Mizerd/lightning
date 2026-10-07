@@ -1081,6 +1081,39 @@ private Q_SLOTS:
                  "map again");
     }
 
+    // Escape on a clean editor closes it (live Flatpak FAIL 2026-10-07: three
+    // tries, nothing). The close policy needs the popup to hold active focus,
+    // which it loses once a transient field is destroyed; one always-live
+    // Shortcut peels every layer instead. Fails on the old tree, whose
+    // Shortcut was enabled only with transient state and left the last layer
+    // to CloseOnEscape.
+    void aCleanThemeEditorClosesOnEscapeWhateverHasFocus()
+    {
+        const QString appThemePath = QStringLiteral(APPTHEME_QML_PATH);
+        QFile dialog(appThemePath.left(appThemePath.lastIndexOf(QLatin1Char('/')) + 1)
+                     + QStringLiteral("ThemeEditorDialog.qml"));
+        QVERIFY(dialog.open(QIODevice::ReadOnly | QIODevice::Text));
+        QString source = QString::fromUtf8(dialog.readAll());
+        source.replace(QRegularExpression(QStringLiteral("\\s+")),
+                       QStringLiteral(" "));
+        QVERIFY2(source.contains(QStringLiteral("closePolicy: Popup.NoAutoClose ")),
+                 "the last Escape layer is left to the focus-dependent close "
+                 "policy again");
+        QVERIFY2(source.contains(QStringLiteral(
+                     "sequence: \"Escape\" enabled: root.opened "
+                     "onActivated: root.peelEscape()")),
+                 "Escape is not one always-live shortcut");
+        const int peel = source.indexOf(QStringLiteral("function peelEscape()"));
+        QVERIFY(peel > 0);
+        const QString body = source.mid(peel, 400);
+        QVERIFY2(body.contains(QStringLiteral("root.dismissTransient()"))
+                     && body.contains(QStringLiteral("root.close()")),
+                 "peelEscape() does not end with closing the editor");
+        QVERIFY2(body.indexOf(QStringLiteral("root.dismissTransient()"))
+                     < body.indexOf(QStringLiteral("root.close()")),
+                 "a transient layer must close before the editor does");
+    }
+
     // ---- couplings that would fail silently ----
 
     // AppTheme merges overrides straight over the base palette, so an editable

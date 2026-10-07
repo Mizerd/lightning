@@ -483,11 +483,15 @@ Item {
     }
 
     // Account switching overlay: the previous session is already detached, so
-    // block interaction and say what is happening.
+    // block interaction and say what is happening. Also while a sign-out
+    // waits (bounded) for its call to be left: nothing may change accounts
+    // under it.
     Rectangle {
         id: switchingOverlay
+        objectName: "accountSwitchingOverlay"
         anchors.fill: parent
-        visible: app.accountSwitching
+        readonly property bool signingOut: !!(app.auth && app.auth.logoutPending)
+        visible: app.accountSwitching || signingOut
         color: AppTheme.overlayScrim
 
         MouseArea { anchors.fill: parent; hoverEnabled: true }
@@ -511,7 +515,8 @@ Item {
                 }
                 Label {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: qsTr("Switching account…")
+                    text: switchingOverlay.signingOut ? qsTr("Signing out…")
+                                                      : qsTr("Switching account…")
                     color: AppTheme.textPrimary
                     font.pixelSize: AppTheme.textBody
                     font.weight: AppTheme.weightStrong

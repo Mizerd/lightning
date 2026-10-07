@@ -118,6 +118,24 @@ ScreenCastPortal::ScreenCastPortal(QObject *parent) : QObject(parent)
         cancel();
         Q_EMIT failed(QStringLiteral("timeout"));
     });
+    m_answerWatchdog.setSingleShot(true);
+    connect(&m_answerWatchdog, &QTimer::timeout, this, [this] {
+        if (!m_busy)
+            return;
+        qCWarning(lcPortal)
+            << "screen share portal gave no answer within the caller's bound; "
+               "abandoning it";
+        cancel();
+        Q_EMIT failed(QStringLiteral("no_answer"));
+    });
+}
+
+void ScreenCastPortal::armAnswerWatchdog(int ms)
+{
+    if (ms > 0)
+        m_answerWatchdog.start(ms);
+    else
+        m_answerWatchdog.stop();
 }
 
 ScreenCastPortal::~ScreenCastPortal()
@@ -155,6 +173,7 @@ void ScreenCastPortal::cancel()
     ++m_generation;
     m_busy = false;
     m_requestTimeout.stop();
+    m_answerWatchdog.stop();
 #ifdef HAVE_QT_DBUS
     if (!m_sessionHandle.isEmpty()) {
         // Close the session, or the compositor keeps streaming to nobody.
@@ -170,13 +189,17 @@ void ScreenCastPortal::cancel()
 void ScreenCastPortal::reset()
 {
     m_busy = false;
+    m_answerWatchdog.stop();
     m_sessionHandle.clear();
 }
 
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-void ScreenCastPortal::requestShare(int types)
+void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
+                                    int pickerBoundMs)
 {
     Q_UNUSED(types);
+    Q_UNUSED(preparationBoundMs);
+    Q_UNUSED(pickerBoundMs);
     // No portal broker here: resolve a monitor index and deliver it through
     // the same `ready` signal, in the node-id slot, which
     // SfuMediaEngine::screenShareSource() reads as a monitor index on these
@@ -200,14 +223,18 @@ void ScreenCastPortal::requestShare(int types)
     Q_EMIT ready(static_cast<unsigned>(index < 0 ? 0 : index), -1);
 }
 #elif !defined(HAVE_QT_DBUS)
-void ScreenCastPortal::requestShare(int types)
+void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
+                                    int pickerBoundMs)
 {
     Q_UNUSED(types);
+    Q_UNUSED(preparationBoundMs);
+    Q_UNUSED(pickerBoundMs);
     // No portal means no screen sharing; report it.
     Q_EMIT failed(QStringLiteral("no_portal"));
 }
 #else
-void ScreenCastPortal::requestShare(int types)
+void ScreenCastPortal::requestShare(int types, int preparationBoundMs,
+                                    int pickerBoundMs)
 {
     if (m_busy) {
         // A second request would open a second dialog and orphan a session.
@@ -221,6 +248,8 @@ void ScreenCastPortal::requestShare(int types)
 
     m_busy = true;
     m_requestTimeout.start();
+    m_pickerBoundMs = pickerBoundMs;
+    armAnswerWatchdog(preparationBoundMs);
     const quint64 generation = ++m_generation;
     const auto stale = [this, generation] {
         return generation != m_generation;
@@ -241,8 +270,14 @@ void ScreenCastPortal::requestShare(int types)
         if (stale())
             return;
         if (response != 0) {
+            // No dialog is shown at this step, so nothing here is the user
+            // declining: the portal refused to make a session (KDE's does on
+            // X11, where KWin's screencast protocol is absent). Said, never
+            // swallowed as a silent "cancel".
+            qCWarning(lcPortal) << "screen share session refused response="
+                                << response;
             reset();
-            Q_EMIT cancelled();
+            Q_EMIT failed(QStringLiteral("session_refused"));
             return;
         }
         m_sessionHandle =
@@ -307,9 +342,17 @@ void ScreenCastPortal::selectSources(int types)
     const auto onAnswer = [this, stale](uint response, const QVariantMap &) {
         if (stale())
             return;
-        if (response != 0) {
+        if (response == 1) {
             cancel();
             Q_EMIT cancelled();
+            return;
+        }
+        if (response != 0) {
+            // 2: "ended in some other way" -- the portal, not the user.
+            qCWarning(lcPortal) << "screen share source selection refused "
+                                   "response=" << response;
+            cancel();
+            Q_EMIT failed(QStringLiteral("session_refused"));
             return;
         }
         startSession();
@@ -347,7 +390,10 @@ void ScreenCastPortal::startSession()
         return generation != m_generation;
     };
 
-    // Step 3: Start, where the portal shows its picker.
+    // Step 3: Start, where the portal shows its picker. From here a human
+    // may be choosing, so the caller's picker bound replaces the
+    // preparation bound.
+    armAnswerWatchdog(m_pickerBoundMs);
     QDBusMessage start = QDBusMessage::createMethodCall(
         kService, kPath, kScreenCast, QStringLiteral("Start"));
     const QString token = freshToken();
@@ -476,6 +522,7 @@ void ScreenCastPortal::openRemote(unsigned nodeId)
                 }
                 m_busy = false;
                 m_requestTimeout.stop();
+                m_answerWatchdog.stop();
                 Q_EMIT ready(nodeId, fd);
             });
 }

@@ -4,6 +4,8 @@
 #include <QString>
 #include <QVariantList>
 
+#include <functional>
+
 class MatrixClient;
 
 class AuthManager : public QObject
@@ -12,6 +14,10 @@ class AuthManager : public QObject
 
     Q_PROPERTY(bool isLoggingIn READ isLoggingIn NOTIFY isLoggingInChanged)
     Q_PROPERTY(bool isLoggedIn READ isLoggedIn NOTIFY isLoggedInChanged)
+    /// A sign-out is waiting (bounded) for the call to be left first. The
+    /// account switcher, Add account and removal are refused meanwhile, and
+    /// the main screen says "Signing out…".
+    Q_PROPERTY(bool logoutPending READ logoutPending NOTIFY logoutPendingChanged)
     Q_PROPERTY(QString currentUserId READ currentUserId NOTIFY isLoggedInChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
@@ -135,6 +141,20 @@ public:
                            const QString &user,
                            const QString &password);
     Q_INVOKABLE void logout();
+    /// Runs before every sign-out, with a `proceed` it must call exactly once
+    /// when the session may go. AppController leaves a live call there, so
+    /// the MatrixRTC membership retraction is sent while the session can
+    /// still send it (live 2026-10-07: the logout ran first, the retraction
+    /// "could not be dispatched", and a ghost participant stayed ~5 min).
+    /// A second logout() while one is waiting is ignored. The deferred
+    /// logout applies only to the session it was asked for: if another
+    /// session became current meanwhile (same user id AND the same session
+    /// generation), it is dropped and logoutAbandoned() says so, because the
+    /// client's logout() acts on whatever session it holds now and would
+    /// sign out, and delete the store of, the wrong account.
+    using BeforeLogout = std::function<void(std::function<void()> proceed)>;
+    void setBeforeLogout(BeforeLogout hook) { m_beforeLogout = std::move(hook); }
+    bool logoutPending() const { return m_logoutPending; }
     Q_INVOKABLE void restoreSession();
     void clearLastError();
 
@@ -155,6 +175,10 @@ Q_SIGNALS:
     void loginSucceeded();
     void loginFailed(const QString &reason);
     void loggedOut();
+    void logoutPendingChanged();
+    /// A deferred sign-out was dropped because its session is no longer the
+    /// current one; nothing was signed out.
+    void logoutAbandoned();
 
 private:
     void setLoggingIn(bool v);
@@ -173,6 +197,13 @@ private:
     bool refuseBeforeTheBrowser(const QString &homeserver);
 
     MatrixClient *m_client = nullptr;
+    void setLogoutPending(bool pending);
+
+    BeforeLogout m_beforeLogout;
+    bool m_logoutPending = false;
+    // Bumped on every sign-in, restore and sign-out the client reports, so a
+    // deferred logout can tell "the same session" from "the same user id".
+    quint64 m_sessionGeneration = 0;
     bool m_loggingIn = false;
     bool m_lastSignInInteractive = false;
     QString m_lastError;

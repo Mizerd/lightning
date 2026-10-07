@@ -14,10 +14,12 @@
 #include <QSet>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
 
 using lightning::update::canInstallAutomatically;
+using lightning::update::defaultInstallEnvironment;
 using lightning::update::detectInstall;
 using lightning::update::fileLooksLikeAppImage;
 using lightning::update::InstallDetection;
@@ -102,6 +104,8 @@ private slots:
     void unrecognisedCompileTimeValueIsUnknown();
     void flatpakEnvironmentIsDetected();
     void flatpakInfoFileIsDetected();
+    void flatpakContainerVariableIsDetected();
+    void hostPathCheckSeesAnUnlinkedBindMountedFile();
     void snapNeedsBothVariables();
     void appImageNeedsAnExistingPath();
     void runtimeEvidenceOverridesCompileTimeValue();
@@ -359,6 +363,44 @@ void UpdateInstallTypeTest::flatpakInfoFileIsDetected()
         detectInstall(makeEnvironment({}, { QStringLiteral("/.flatpak-info") },
                                       QStringLiteral("linux-deb")));
     QCOMPARE(detection.type, InstallType::LinuxFlatpak);
+}
+
+void UpdateInstallTypeTest::flatpakContainerVariableIsDetected()
+{
+    // Flatpak exports container=flatpak; $FLATPAK_ID is the usual evidence,
+    // this is the second one that needs no file at all.
+    const InstallDetection detection = detectInstall(makeEnvironment(
+        { { QStringLiteral("container"), QStringLiteral("flatpak") } }, {},
+        QStringLiteral("linux-deb")));
+    QCOMPARE(detection.type, InstallType::LinuxFlatpak);
+}
+
+void UpdateInstallTypeTest::hostPathCheckSeesAnUnlinkedBindMountedFile()
+{
+#if defined(Q_OS_LINUX)
+    // /.flatpak-info is bind-mounted from a file bwrap already unlinked
+    // (st_nlink == 0), and Qt 6 reports such a file as absent. An open fd to
+    // an unlinked file, reached through /proc/self/fd, is the same inode
+    // shape. The host check must still see it.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString name = dir.filePath(QStringLiteral("flatpak-info"));
+    {
+        QFile out(name);
+        QVERIFY(out.open(QIODevice::WriteOnly));
+        out.write("[Application]\nname=net.example.App\n");
+    }
+    QFile held(name);
+    QVERIFY(held.open(QIODevice::ReadOnly));
+    QVERIFY(QFile::remove(name));
+    const QString unlinked =
+        QStringLiteral("/proc/self/fd/%1").arg(held.handle());
+    qInfo() << "QFileInfo::exists() on an unlinked file:"
+            << QFileInfo::exists(unlinked);
+    QVERIFY(defaultInstallEnvironment().pathExists(unlinked));
+#else
+    QSKIP("Linux only");
+#endif
 }
 
 void UpdateInstallTypeTest::snapNeedsBothVariables()

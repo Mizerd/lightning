@@ -16,6 +16,7 @@
 #include "app/DownloadsController.h"
 #include "app/FileChooser.h"
 #include "app/FileLauncher.h"
+#include "app/SandboxEnvironment.h"
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
 #include "media/MediaBridge.h"
@@ -537,6 +538,297 @@ private Q_SLOTS:
         QCOMPARE(DownloadsController::sandboxBlocksDownloads(sandbox), blocked);
     }
 
+    // ── Sandbox detection: never stat-gated (live Flatpak FAIL 2026-10-07) ──
+
+    void hostSandboxReadsAnUnlinkedFlatpakInfo()
+    {
+#if defined(Q_OS_LINUX)
+        // In the Flathub build /.flatpak-info "did not exist" to Qt (an
+        // unlinked bind mount, st_nlink == 0), so hostSandbox() said "not
+        // sandboxed" and Download wrote into the sandbox's private home. An
+        // open fd to an unlinked file is the same shape. Fails if the
+        // exists() gate comes back.
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString name = dir.filePath(QStringLiteral("flatpak-info"));
+        writeFile(dir.path(), QStringLiteral("flatpak-info"),
+                  "[Application]\nname=org.example.App\n\n[Context]\n"
+                  "filesystems=xdg-run/pipewire-0;\n");
+        QFile held(name);
+        QVERIFY(held.open(QIODevice::ReadOnly));
+        QVERIFY(QFile::remove(name));
+        const DownloadsController::Sandbox sandbox =
+            DownloadsController::hostSandbox(
+                QStringLiteral("/proc/self/fd/%1").arg(held.handle()));
+        QVERIFY(sandbox.flatpak);
+        QCOMPARE(sandbox.appId, QStringLiteral("org.example.App"));
+        QCOMPARE(sandbox.flatpakFilesystems,
+                 QStringLiteral("xdg-run/pipewire-0;"));
+        QVERIFY(DownloadsController::sandboxBlocksDownloads(sandbox));
+#else
+        QSKIP("Linux only");
+#endif
+    }
+
+    void aLeakedFlatpakEnvironmentAloneDoesNotSandboxDownloads()
+    {
+        // The description's contents decide; $FLATPAK_ID leaked into a native
+        // process must not refuse its every save.
+        const QByteArray saved = qgetenv("FLATPAK_ID");
+        const bool wasSet = qEnvironmentVariableIsSet("FLATPAK_ID");
+        qputenv("FLATPAK_ID", QByteArrayLiteral("org.example.LightningTest"));
+        QTemporaryDir dir;
+        const DownloadsController::Sandbox sandbox =
+            DownloadsController::hostSandbox(
+                dir.filePath(QStringLiteral("no-such-flatpak-info")));
+        if (wasSet)
+            qputenv("FLATPAK_ID", saved);
+        else
+            qunsetenv("FLATPAK_ID");
+        QVERIFY(!sandbox.flatpak);
+        QVERIFY(!DownloadsController::sandboxBlocksDownloads(sandbox));
+    }
+
+    void sandboxDetectionReadsAnUnlinkedFlatpakInfo()
+    {
+#if defined(Q_OS_LINUX)
+        // The real /.flatpak-info: st_nlink == 0, which Qt reports as absent
+        // though it opens. An open fd to an unlinked file is the same shape.
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString name = dir.filePath(QStringLiteral("flatpak-info"));
+        writeFile(dir.path(), QStringLiteral("flatpak-info"),
+                  "[Application]\nname=org.example.App\n\n[Context]\n"
+                  "shared=network;ipc;\n"
+                  "filesystems=xdg-run/pipewire-0;xdg-config/kdeglobals:ro;\n");
+        QFile held(name);
+        QVERIFY(held.open(QIODevice::ReadOnly));
+        QVERIFY(QFile::remove(name));
+        const QString unlinked =
+            QStringLiteral("/proc/self/fd/%1").arg(held.handle());
+        qInfo() << "QFileInfo::exists() on an unlinked file:"
+                << QFileInfo::exists(unlinked);
+
+        const sandboxenv::Detection d = sandboxenv::detect(
+            sandboxenv::Environment{}, sandboxenv::readFileUngated(unlinked));
+        QVERIFY(d.flatpak);
+        QCOMPARE(d.appId, QStringLiteral("org.example.App"));
+        QCOMPARE(d.flatpakFilesystems,
+                 QStringLiteral("xdg-run/pipewire-0;xdg-config/kdeglobals:ro;"));
+        QVERIFY(sandboxenv::pathPresent(unlinked));
+
+        DownloadsController::Sandbox sandbox;
+        sandbox.flatpak = d.flatpak;
+        sandbox.flatpakFilesystems = d.flatpakFilesystems;
+        QVERIFY(DownloadsController::sandboxBlocksDownloads(sandbox));
+#else
+        QSKIP("Linux only");
+#endif
+    }
+
+    void theContainerVariableAloneMeansFlatpak()
+    {
+        sandboxenv::Environment env;
+        env.container = QStringLiteral("flatpak");
+        QVERIFY(sandboxenv::detect(env, {}).flatpak);
+        env.container = QStringLiteral("podman");
+        QVERIFY(!sandboxenv::detect(env, {}).flatpak);
+        sandboxenv::Environment snap;
+        snap.snap = QStringLiteral("/snap/lightning/1");
+        QVERIFY(!sandboxenv::detect(snap, {}).snap); // needs SNAP_NAME too
+        snap.snapName = QStringLiteral("lightning");
+        QVERIFY(sandboxenv::detect(snap, {}).snap);
+    }
+
+    // ── Only a path the host can see may be called saved ──
+
+    void aPathReachesTheHostOnlyThroughAGrantThePortalOrTheAppsOwnFolder_data()
+    {
+        QTest::addColumn<QString>("filesystems");
+        QTest::addColumn<QString>("relative"); // under the fake home
+        QTest::addColumn<bool>("reaches");
+        QTest::newRow("no grant, home") << "" << "notes.txt" << false;
+        QTest::newRow("no grant, Downloads") << "" << "Downloads/a.pdf" << false;
+        QTest::newRow("no grant, own .var/app")
+            << "" << ".var/app/org.example.App/a.pdf" << true;
+        QTest::newRow("no grant, another app's .var/app")
+            << "" << ".var/app/org.other.App/a.pdf" << false;
+        QTest::newRow("xdg-download, Downloads")
+            << "xdg-download;" << "Downloads/a.pdf" << true;
+        QTest::newRow("xdg-download, home") << "xdg-download;" << "a.pdf" << false;
+        QTest::newRow("xdg-download:ro") << "xdg-download:ro;" << "Downloads/a.pdf"
+                                         << false;
+        QTest::newRow("xdg-download revoked")
+            << "xdg-download;!xdg-download;" << "Downloads/a.pdf" << false;
+        QTest::newRow("xdg-download/sub") << "xdg-download/Lightning;"
+                                          << "Downloads/Lightning/a.pdf" << true;
+        QTest::newRow("xdg-download/sub, outside")
+            << "xdg-download/Lightning;" << "Downloads/a.pdf" << false;
+        QTest::newRow("home") << "home;" << "notes.txt" << true;
+        QTest::newRow("~/Stuff") << "~/Stuff;" << "Stuff/a.pdf" << true;
+        QTest::newRow("~/Stuff, elsewhere") << "~/Stuff;" << "Other/a.pdf" << false;
+        QTest::newRow("xdg-config does not count")
+            << "xdg-config/kdeglobals;" << ".config/kdeglobals" << false;
+    }
+    void aPathReachesTheHostOnlyThroughAGrantThePortalOrTheAppsOwnFolder()
+    {
+        QFETCH(QString, filesystems);
+        QFETCH(QString, relative);
+        QFETCH(bool, reaches);
+        QTemporaryDir home;
+        QVERIFY(home.isValid());
+        DownloadsController::Sandbox sandbox;
+        sandbox.flatpak = true;
+        sandbox.flatpakFilesystems = filesystems;
+        sandbox.appId = QStringLiteral("org.example.App");
+        sandbox.home = home.path();
+        sandbox.xdgDirs.insert(QStringLiteral("xdg-download"),
+                               home.path() + QStringLiteral("/Downloads"));
+        const QString path = home.path() + QLatin1Char('/') + relative;
+        QCOMPARE(DownloadsController::pathReachesHost(sandbox, path), reaches);
+        // Outside a sandbox everything reaches the host.
+        QVERIFY(DownloadsController::pathReachesHost(
+            DownloadsController::Sandbox{}, path));
+    }
+
+    void theHostGrantStopsAtFlatpaksReservedTrees_data()
+    {
+        QTest::addColumn<QString>("path");
+        QTest::addColumn<bool>("reaches");
+        QTest::newRow("home") << "/home/tester/notes.txt" << true;
+        QTest::newRow("Silverblue home") << "/var/home/tester/a.pdf" << true;
+        QTest::newRow("removable media") << "/run/media/tester/usb/a.pdf" << true;
+        QTest::newRow("mnt") << "/mnt/data/a.pdf" << true;
+        QTest::newRow("tmp") << "/tmp/a.pdf" << false;
+        QTest::newRow("etc") << "/etc/a.conf" << false;
+        QTest::newRow("root") << "/root/a.pdf" << false;
+        QTest::newRow("var") << "/var/lib/a.pdf" << false;
+        QTest::newRow("run") << "/run/user/1000/a.pdf" << false;
+        QTest::newRow("boot") << "/boot/a" << false;
+        QTest::newRow("lib64") << "/lib64/a" << false;
+        QTest::newRow("usr") << "/usr/share/a" << false;
+        QTest::newRow("app") << "/app/bin/a" << false;
+    }
+    void theHostGrantStopsAtFlatpaksReservedTrees()
+    {
+        QFETCH(QString, path);
+        QFETCH(bool, reaches);
+        DownloadsController::Sandbox sandbox;
+        sandbox.flatpak = true;
+        sandbox.flatpakFilesystems = QStringLiteral("host;");
+        sandbox.home = QStringLiteral("/home/tester");
+        QCOMPARE(DownloadsController::pathReachesHost(sandbox, path), reaches);
+    }
+
+    void aSymlinkInsideAGrantIntoThePrivateTreeDoesNotReachTheHost()
+    {
+        // The canonical form decides: Downloads is granted, but a link in it
+        // pointing into the sandbox-private home sends the bytes to tmpfs.
+        QTemporaryDir home;
+        QVERIFY(home.isValid());
+        QVERIFY(QDir().mkpath(home.path() + QStringLiteral("/Downloads")));
+        QVERIFY(QDir().mkpath(home.path() + QStringLiteral("/private")));
+        QVERIFY(QFile::link(home.path() + QStringLiteral("/private"),
+                            home.path() + QStringLiteral("/Downloads/escape")));
+        DownloadsController::Sandbox sandbox;
+        sandbox.flatpak = true;
+        sandbox.flatpakFilesystems = QStringLiteral("xdg-download;");
+        sandbox.home = home.path();
+        sandbox.xdgDirs.insert(QStringLiteral("xdg-download"),
+                               home.path() + QStringLiteral("/Downloads"));
+        QVERIFY(DownloadsController::pathReachesHost(
+            sandbox, home.path() + QStringLiteral("/Downloads/a.pdf")));
+        QVERIFY(!DownloadsController::pathReachesHost(
+            sandbox, home.path() + QStringLiteral("/Downloads/escape/a.pdf")));
+    }
+
+    void aDocumentPortalPathReachesTheHost()
+    {
+        DownloadsController::Sandbox sandbox;
+        sandbox.flatpak = true;
+        sandbox.home = QStringLiteral("/home/tester");
+        QVERIFY(DownloadsController::pathReachesHost(
+            sandbox, QStringLiteral("/run/flatpak/doc/514b5633/lt-test.png")));
+        QVERIFY(!DownloadsController::pathReachesHost(
+            sandbox, QStringLiteral("/tmp/lt-test.png")));
+    }
+
+    void aSaveIntoTheSandboxOnlyHomeIsRefusedNotReportedAsSaved()
+    {
+        // Debian KDE with no xdg-desktop-portal: Qt's own dialog runs inside
+        // the sandbox and shows its private tmpfs home. Live 2026-10-07 the
+        // card said "Saved to tester" for a file lost at exit.
+        QTemporaryDir home;
+        QVERIFY(home.isValid());
+        DownloadsController::Sandbox sandbox;
+        sandbox.flatpak = true;
+        sandbox.flatpakFilesystems = QStringLiteral("xdg-run/pipewire-0;");
+        sandbox.appId = QStringLiteral("org.example.App");
+        sandbox.home = home.path();
+        Fixture f(home.path() + QStringLiteral("/Downloads"), sandbox);
+        QVERIFY(f.downloads->asksWhereToSave());
+        f.answer = QUrl::fromLocalFile(home.path() + QStringLiteral("/notes.txt"));
+
+        f.downloads->saveAs(QStringLiteral("$doc"), QStringLiteral("notes.txt"),
+                            QStringLiteral("text/plain"));
+        QTRY_COMPARE(f.runnerCalls, 1);
+        QTRY_COMPARE(f.downloads->items().size(), 1);
+        const QVariantMap item = f.downloads->items().value(0).toMap();
+        QCOMPARE(item.value(QStringLiteral("state")).toString(),
+                 QStringLiteral("failed"));
+        QVERIFY(item.value(QStringLiteral("message")).toString().contains(
+            QStringLiteral("sandbox")));
+        QCOMPARE(item.value(QStringLiteral("canOpen")).toBool(), false);
+        QTest::qWait(20);
+        QVERIFY(f.client.fetches.isEmpty()); // nothing fetched, nothing written
+        QVERIFY(!QFileInfo::exists(home.path() + QStringLiteral("/notes.txt")));
+    }
+
+    void aSaveIntoTheAppsOwnFolderIsAllowedInTheSandbox()
+    {
+        QTemporaryDir home;
+        QVERIFY(home.isValid());
+        const QString own = home.path() + QStringLiteral("/.var/app/org.example.App");
+        QVERIFY(QDir().mkpath(own));
+        DownloadsController::Sandbox sandbox;
+        sandbox.flatpak = true;
+        sandbox.appId = QStringLiteral("org.example.App");
+        sandbox.home = home.path();
+        Fixture f(home.path() + QStringLiteral("/Downloads"), sandbox);
+        f.answer = QUrl::fromLocalFile(own + QStringLiteral("/notes.txt"));
+        f.downloads->saveAs(QStringLiteral("$doc"), QStringLiteral("notes.txt"),
+                            QStringLiteral("text/plain"));
+        QTRY_COMPARE(f.client.fetches.size(), 1);
+        f.client.succeed(f.client.fetches.at(0).opId, "hello");
+        QTRY_COMPARE(f.downloads->items().value(0).toMap()
+                         .value(QStringLiteral("state")).toString(),
+                     QStringLiteral("done"));
+        QCOMPARE(readFile(own + QStringLiteral("/notes.txt")), QByteArray("hello"));
+    }
+
+    void aDownloadsFolderOnlyTheSandboxSeesIsNeverWrittenDirectly()
+    {
+        // xdg-download is granted, but the folder the setting names is not
+        // under it: Download must ask (the portal) rather than write there.
+        QTemporaryDir home;
+        QVERIFY(home.isValid());
+        DownloadsController::Sandbox sandbox;
+        sandbox.flatpak = true;
+        sandbox.flatpakFilesystems = QStringLiteral("xdg-download;");
+        sandbox.home = home.path();
+        sandbox.xdgDirs.insert(QStringLiteral("xdg-download"),
+                               home.path() + QStringLiteral("/Downloads"));
+        Fixture f(home.path() + QStringLiteral("/Elsewhere"), sandbox);
+        QVERIFY(!f.downloads->asksWhereToSave()); // the grant covers Downloads
+        f.answer = QUrl(); // the user cancels the dialog
+        f.downloads->download(QStringLiteral("$pic"), QStringLiteral("a.png"),
+                              QStringLiteral("image/png"));
+        QTRY_COMPARE(f.runnerCalls, 1);
+        QTest::qWait(20);
+        QVERIFY(f.client.fetches.isEmpty());
+        QVERIFY(!QFileInfo::exists(home.path() + QStringLiteral("/Elsewhere")));
+    }
+
     // ── Element's Download ──
 
     void downloadSavesStraightToTheFolderAndNeverReplacesAFile()
@@ -674,7 +966,8 @@ private Q_SLOTS:
 private:
     struct Fixture
     {
-        explicit Fixture(const QString &folder)
+        explicit Fixture(const QString &folder,
+                         const DownloadsController::Sandbox &sandbox = {})
         {
             bridge = std::make_unique<MediaBridge>();
             bridge->setClient(&client);
@@ -694,8 +987,7 @@ private:
             launcher = std::make_unique<FileLauncher>(
                 FileLauncher::Platform::Linux, hooksFor(log));
             downloads = std::make_unique<DownloadsController>(
-                bridge.get(), chooser.get(), launcher.get(),
-                DownloadsController::Sandbox{});
+                bridge.get(), chooser.get(), launcher.get(), sandbox);
             downloads->setSettings(settings.get());
             downloads->setDefaultFolderProvider([folder] { return folder; });
         }

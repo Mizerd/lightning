@@ -6,6 +6,7 @@
 #include <QMediaDevices>
 #include <QVariantMap>
 
+#include "app/SandboxEnvironment.h"
 #include "app/SettingsManager.h"
 #include "calls/CaptureDeviceSelection.h"
 
@@ -172,8 +173,8 @@ bool CallDeviceController::hasSpeaker() const
 bool CallDeviceController::camerasChosenByDesktop() const
 {
 #if defined(Q_OS_LINUX)
-    return !qEnvironmentVariableIsEmpty("FLATPAK_ID")
-        || QFileInfo::exists(QStringLiteral("/.flatpak-info"));
+    // Never QFileInfo::exists("/.flatpak-info"): see SandboxEnvironment.h.
+    return sandboxenv::isFlatpak();
 #else
     return false;
 #endif

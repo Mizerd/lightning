@@ -117,6 +117,28 @@ QVariantMap participant(const QString &identity, bool sharing = false)
     return row;
 }
 
+// A client whose membership retractions are dispatched and answered on
+// demand, like the Rust bridge; MockMatrixClient refuses them (op 0).
+class RetractingClient : public MockMatrixClient
+{
+public:
+    using MockMatrixClient::MockMatrixClient;
+    quint64 rtcRetractMembership(const QString &roomId,
+                                 const QString &delayId) override
+    {
+        Q_UNUSED(delayId);
+        retractedRooms.append(roomId);
+        return ++lastOp;
+    }
+    void answer(quint64 op, bool ok,
+                const QString &failure = QStringLiteral("forbidden"))
+    {
+        Q_EMIT rtcMembershipRetracted(op, ok, ok ? QString() : failure);
+    }
+    QStringList retractedRooms;
+    quint64 lastOp = 1000;
+};
+
 QVariantMap departed(const QString &identity)
 {
     QVariantMap row = participant(identity);
@@ -543,6 +565,148 @@ private Q_SLOTS:
         // The card is still up: silencing is not dismissing.
         QVERIFY(root->property("shouldShow").toBool());
         QVERIFY(controller.calls()->rejectIncoming());
+    }
+
+    // Dismiss on the in-app card stops THIS device's ringer and withdraws the
+    // desktop card, and declines nothing (live Flatpak FAIL 2026-10-07: the
+    // card went, the ring went on for 87.8 s). Fails on the old tree, where
+    // Dismiss only set dismissedCallId.
+    void theDismissButtonStopsOurRingerAndSendsNothing()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        auto log = install(controller, true);
+        auto *notices = controller.notificationsForTest();
+
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QSignalSpy created(&engine, &QQmlApplicationEngine::objectCreated);
+        engine.loadFromModule(QStringLiteral("MatrixClient"),
+                              QStringLiteral("IncomingCallPrompt"));
+        if (created.isEmpty())
+            QVERIFY(created.wait(kSignalTimeoutMs));
+        auto *root = qobject_cast<QQuickItem *>(
+            created.at(0).at(0).value<QObject *>());
+        QVERIFY(root);
+        auto *dismiss = root->findChild<QQuickItem *>(
+            QStringLiteral("incomingCallPromptDismiss"));
+        QVERIFY(dismiss);
+
+        mock(controller)->emitCallSignalForTest(
+            invite(QStringLiteral("call-1")));
+        QCOMPARE(log->loop, QStringLiteral("ring"));
+        QCOMPARE(notices->activeCallIdForTest(), QStringLiteral("call-1"));
+        QTRY_VERIFY_WITH_TIMEOUT(root->property("shouldShow").toBool(),
+                                 kSignalTimeoutMs);
+
+        QVERIFY(QMetaObject::invokeMethod(dismiss, "clicked"));
+        // Our ringer stopped, and stays stopped for this call.
+        QCOMPARE(log->loop, QString());
+        QCOMPARE(controller.callSounds()->ringingCallId(), QString());
+        QVERIFY(controller.callSounds()->isRingSilenced(
+            QStringLiteral("call-1")));
+        // The desktop card is withdrawn.
+        QCOMPARE(notices->activeCallIdForTest(), QString());
+        // The in-app card is hidden for this call.
+        QVERIFY(!root->property("shouldShow").toBool());
+        // Nothing went on the wire: the call still rings (for the caller and
+        // our other devices) and can still be declined.
+        QCOMPARE(controller.calls()->state(), CallController::State::Ringing);
+        QVERIFY(controller.calls()->rejectIncoming());
+
+        // A crafted or stale id cannot dismiss another call.
+        QVERIFY(!controller.callSounds()->dismissRing(QStringLiteral("call-1")));
+        QVERIFY(!controller.callSounds()->dismissRing(QString()));
+    }
+
+    // Sign-out leaves a live group call first and waits (bounded) for its
+    // membership retraction before the session goes. Live 2026-10-07 the
+    // logout ran first, the retraction "could not be dispatched" and the
+    // deleted device stayed in the call as a ghost. Fails on the old tree:
+    // the mock's logout is synchronous, so loggedOut had already fired with
+    // the call still up.
+    void signOutLeavesTheCallBeforeTheSessionGoes()
+    {
+        RetractingClient rtcClient;
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        SfuCallController *call = controller.groupCall();
+        call->setClient(&rtcClient);
+        call->setMembershipForTest(kRoom, QString());
+        call->setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy loggedOut(controller.auth(), &AuthManager::loggedOut);
+
+        controller.auth()->logout();
+        QVERIFY(!call->active());
+        QCOMPARE(rtcClient.retractedRooms, QStringList{ kRoom });
+        QVERIFY(call->membershipWritesPending());
+        QCOMPARE(loggedOut.count(), 0); // still signed in: it can be sent
+        controller.auth()->logout();    // a second press waits with the first
+        QCOMPARE(loggedOut.count(), 0);
+
+        rtcClient.answer(rtcClient.lastOp, true);
+        QTRY_COMPARE_WITH_TIMEOUT(loggedOut.count(), 1, kSignalTimeoutMs);
+        QVERIFY(!call->membershipWritesPending());
+        QCOMPARE(rtcClient.retractedRooms.size(), 1);
+    }
+
+    // A server that never answers cannot hold the sign-out.
+    void signOutDuringACallIsBoundedWhenTheServerNeverAnswers()
+    {
+        RetractingClient rtcClient;
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        SfuCallController *call = controller.groupCall();
+        call->setClient(&rtcClient);
+        call->setMembershipForTest(kRoom, QString());
+        call->setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy loggedOut(controller.auth(), &AuthManager::loggedOut);
+
+        controller.auth()->logout();
+        QCOMPARE(loggedOut.count(), 0);
+        QTRY_COMPARE_WITH_TIMEOUT(loggedOut.count(), 1, 8000);
+    }
+
+    // A retraction still in its retry chain when the sign-out bound expires
+    // is abandoned with the session: the app's one client serves the next
+    // account, and a retry would send the old account's retraction under it.
+    // Fails on the first fpfix patch, whose retry fired after the logout.
+    void aFailedRetractionIsNeverRetriedAfterTheSignOut()
+    {
+        RetractingClient rtcClient;
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        SfuCallController *call = controller.groupCall();
+        call->setClient(&rtcClient);
+        call->setMembershipForTest(kRoom, QString());
+        call->setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy loggedOut(controller.auth(), &AuthManager::loggedOut);
+
+        controller.auth()->logout();
+        QCOMPARE(rtcClient.retractedRooms.size(), 1);
+        // Transient failures: retried after 2 s, then 4 s.
+        rtcClient.answer(rtcClient.lastOp, false, QStringLiteral("network"));
+        QTRY_COMPARE_WITH_TIMEOUT(rtcClient.retractedRooms.size(), 2, 4000);
+        rtcClient.answer(rtcClient.lastOp, false, QStringLiteral("network"));
+        QVERIFY(call->membershipWritesPending()); // a retry is armed
+        QCOMPARE(loggedOut.count(), 0);
+
+        // The 4 s bound expires first; the retry would fire ~2 s later.
+        QTRY_COMPARE_WITH_TIMEOUT(loggedOut.count(), 1, 8000);
+        QVERIFY(!call->membershipWritesPending());
+        QTest::qWait(3000);
+        QCOMPARE(rtcClient.retractedRooms.size(), 2);
+    }
+
+    // Without a call, sign-out is immediate, exactly as before.
+    void signOutWithoutACallIsImmediate()
+    {
+        AppController controller(AppController::MockBackend);
+        QVERIFY(login(controller));
+        QSignalSpy loggedOut(controller.auth(), &AuthManager::loggedOut);
+        controller.auth()->logout();
+        QCOMPARE(loggedOut.count(), 1);
+        QVERIFY(!controller.auth()->logoutPending());
     }
 
     void thePromptHidesSilenceWhenTheDesktopRings()

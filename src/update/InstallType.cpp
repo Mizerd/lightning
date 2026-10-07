@@ -1,4 +1,5 @@
 #include "update/InstallType.h"
+#include "app/SandboxEnvironment.h"
 #include "storage/PortableMode.h"
 
 #include <QCoreApplication>
@@ -210,7 +211,11 @@ InstallEnvironment defaultInstallEnvironment()
             return {};
         return qEnvironmentVariable(name);
     };
-    environment.pathExists = [](const QString &path) { return QFileInfo::exists(path); };
+    // sandboxenv::pathPresent, not QFileInfo::exists: /.flatpak-info is an
+    // unlinked bind-mounted file that Qt reports as absent.
+    environment.pathExists = [](const QString &path) {
+        return sandboxenv::pathPresent(path);
+    };
     environment.looksLikeAppImage = [](const QString &path) {
         return fileLooksLikeAppImage(path);
     };
@@ -286,7 +291,9 @@ InstallDetection detectInstall(const InstallEnvironment &environment)
 
     // 1. Runtime ecosystem evidence.
     std::optional<InstallType> runtimeType;
-    if (envIsSet(environment, "FLATPAK_ID") || pathExists(QStringLiteral("/.flatpak-info"))) {
+    if (envIsSet(environment, "FLATPAK_ID")
+        || envValue(environment, "container") == QLatin1String("flatpak")
+        || pathExists(QStringLiteral("/.flatpak-info"))) {
         runtimeType = InstallType::LinuxFlatpak;
     } else if (envIsSet(environment, "SNAP") && envIsSet(environment, "SNAP_NAME")) {
         runtimeType = InstallType::LinuxSnap;

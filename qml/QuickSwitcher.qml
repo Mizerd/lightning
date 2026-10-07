@@ -206,7 +206,7 @@ Popup {
                     label: qsTr("Switch to %1").arg(label),
                     subtitle: acc.userId, iconName: "person",
                     keywords: "switch account " + label + " " + acc.userId,
-                    enabled: !app.accountSwitching,
+                    enabled: !app.accountSwitching && !(app.auth && app.auth.logoutPending),
                     run: function() { app.switchToAccount(acc.userId) }
                 })
             })(accountList[a])

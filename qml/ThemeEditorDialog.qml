@@ -28,12 +28,14 @@ Popup {
     height: parent ? parent.height : 0
     padding: 0
     modal: true
-    // Escape peels one layer at a time (see dismissTransient): while anything
-    // transient is open it is handled by the Escape shortcut below, and only
-    // a clean editor closes on it. Otherwise Escape in the hex field threw
-    // away the whole editor.
-    closePolicy: root.hasTransientState ? Popup.NoAutoClose
-                                        : Popup.CloseOnEscape
+    // Escape peels one layer at a time (peelEscape): a transient layer, then
+    // the role filter, then the editor itself. All of it goes through the one
+    // Escape Shortcut below, never the close policy: CloseOnEscape needs the
+    // popup to HAVE active focus, which it loses once a transient field is
+    // destroyed or the empty canvas is clicked, so a clean editor ignored
+    // Escape (live 2026-10-07, three tries). Escape in the hex field still
+    // closes only the picker.
+    closePolicy: Popup.NoAutoClose
 
     // Create the theme on open so there is something to edit; a theme with no
     // overrides simply follows its base. A host that opened the editor for one
@@ -58,6 +60,17 @@ Popup {
         root.confirmingReset || root.confirmingDelete
         || root.editingRole.length > 0
         || (root.compact && root.reportOpen) || root.importing
+
+    function peelEscape() {
+        if (root.hasTransientState) {
+            root.dismissTransient()
+        } else if (filterField.text.length > 0 || root.roleFilter.length > 0) {
+            filterField.text = ""
+            root.roleFilter = ""
+        } else {
+            root.close()
+        }
+    }
 
     function dismissTransient() {
         if (root.confirmingReset)
@@ -674,8 +687,8 @@ Popup {
     }
     Shortcut {
         sequence: "Escape"
-        enabled: root.opened && root.hasTransientState
-        onActivated: root.dismissTransient()
+        enabled: root.opened
+        onActivated: root.peelEscape()
     }
 
     ColumnLayout {

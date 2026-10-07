@@ -410,8 +410,12 @@ private Q_SLOTS:
         // owns the in-call form.
         QVERIFY(norm.contains(
             QStringLiteral("onClicked: app.calls.rejectIncoming()")));
+        QVERIFY(norm.contains(QStringLiteral("onClicked: root.dismiss()")));
         QVERIFY(norm.contains(QStringLiteral(
-            "onClicked: root.dismissedCallId = app.calls.activeCallId")));
+            "root.dismissedCallId = id")));
+        // Dismiss stops this device's ringer (live 2026-10-07) and is still
+        // local: no decline on the wire.
+        QVERIFY(norm.contains(QStringLiteral("app.callSounds.dismissRing(id)")));
         QVERIFY(norm.contains(
             QStringLiteral("objectName: \"incomingCallPromptDecline\"")));
         QVERIFY(norm.contains(
@@ -3903,9 +3907,17 @@ ApplicationWindow {
             "bool CallDeviceController::camerasChosenByDesktop() const"));
         QVERIFY(fn >= 0);
         const QString body = cpp.mid(fn, cpp.indexOf(QLatin1Char('}'), fn) - fn);
-        QVERIFY2(body.contains(QStringLiteral("FLATPAK_ID"))
-                     && body.contains(QStringLiteral("/.flatpak-info")),
+        QVERIFY2(body.contains(QStringLiteral("sandboxenv::isFlatpak()")),
                  "the answer must come from the sandbox, not a constant");
+        // The one shared detector asks the environment and OPENS
+        // /.flatpak-info: bwrap bind-mounts it from an unlinked file, so an
+        // exists() test is false inside every Flatpak (2026-10-07 data loss).
+        const QString detector =
+            read(QStringLiteral(SRC_DIR "/app/SandboxEnvironment.h"));
+        QVERIFY(detector.contains(QStringLiteral("\"FLATPAK_ID\"")));
+        QVERIFY(detector.contains(QStringLiteral("/.flatpak-info")));
+        QVERIFY2(!detector.contains(QStringLiteral("exists(flatpakInfoPath")),
+                 "never gate /.flatpak-info on exists()");
     }
 
     void microphoneGainIsOfferedWithItsMicrophoneAndSaysWhatItCosts()

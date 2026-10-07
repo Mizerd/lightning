@@ -358,6 +358,18 @@ bool CallSoundController::silenceRing(const QString &callId)
     return true;
 }
 
+bool CallSoundController::dismissRing(const QString &callId)
+{
+    // Live 2026-10-07: Dismiss only hid the card and the ring went on for
+    // 87.8 s, until the caller hung up, with no control left on screen to
+    // stop it. Silence first (same refusal rules), then the card.
+    if (!silenceRing(callId))
+        return false;
+    qCInfo(lcCallSound) << "incoming call dismissed on this device";
+    Q_EMIT ringDismissed(callId);
+    return true;
+}
+
 qreal CallSoundController::cueVolume() const
 {
     const int percent = m_settings ? m_settings->callSoundVolume()

@@ -4,11 +4,17 @@
 #include "matrix/MatrixClient.h"
 #include "storage/AppDataPaths.h"
 
+#include <QLoggingCategory>
+#include <QPointer>
 #include <QHostAddress>
 #include <QRegularExpression>
 #include <QUrl>
 
 #include <utility>
+
+namespace {
+Q_LOGGING_CATEGORY(lcAuthLogout, "lightning.auth.logout")
+} // namespace
 
 AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     : QObject(parent)
@@ -21,6 +27,7 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
         // restore (launch, account switch, add-account rollback) reaches the
         // client directly and arrives here with m_loggingIn false.
         m_lastSignInInteractive = m_loggingIn;
+        ++m_sessionGeneration;
         setLoggingIn(false);
         setBrowserLoginInProgress(false);
         // Signed in: a probe asked for during the attempt is moot.
@@ -132,6 +139,7 @@ AuthManager::AuthManager(MatrixClient *client, QObject *parent)
     });
 
     connect(m_client, &MatrixClient::loggedOut, this, [this] {
+        ++m_sessionGeneration;
         setLoggingIn(false);
         setLastError({});
         setLoginStage(QStringLiteral("idle"));
@@ -299,7 +307,42 @@ void AuthManager::login(const QString &homeserver,
 
 void AuthManager::logout()
 {
-    m_client->logout();
+    if (m_logoutPending)
+        return; // already leaving the call on the way out
+    if (!m_beforeLogout) {
+        m_client->logout();
+        return;
+    }
+    // The session this sign-out is for. The client's logout() acts on
+    // whatever session it holds when it runs, so a deferred one must check
+    // that it is still this one.
+    const QString userId = m_client->currentUserId();
+    const quint64 generation = m_sessionGeneration;
+    setLogoutPending(true);
+    QPointer<AuthManager> self(this);
+    m_beforeLogout([self, userId, generation] {
+        if (!self || !self->m_logoutPending)
+            return;
+        self->setLogoutPending(false);
+        MatrixClient *client = self->m_client;
+        if (!client || generation != self->m_sessionGeneration
+            || client->currentUserId() != userId) {
+            qCWarning(lcAuthLogout)
+                << "deferred sign-out dropped: the session it was for is no "
+                   "longer the current one";
+            Q_EMIT self->logoutAbandoned();
+            return;
+        }
+        client->logout();
+    });
+}
+
+void AuthManager::setLogoutPending(bool pending)
+{
+    if (m_logoutPending == pending)
+        return;
+    m_logoutPending = pending;
+    Q_EMIT logoutPendingChanged();
 }
 
 void AuthManager::restoreSession()

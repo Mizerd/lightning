@@ -80,11 +80,13 @@
 #include <QScreen>
 #include <QStandardPaths>
 #include <QSysInfo>
+#include <QPointer>
 #include <QTimer>
 #include <QPalette>
 #include <QStyleHints>
 #include <QUuid>
 #include <QLoggingCategory>
+#include <memory>
 
 Q_LOGGING_CATEGORY(lcApp, "matrix.app")
 
@@ -1257,6 +1259,68 @@ AppController::AppController(Backend backend, bool screenshotDemo,
             [this](const QString &callId) {
                 m_notifications->silenceIncomingCall(callId);
             });
+    // Dismiss on the in-app card: the desktop card for that call goes too
+    // (local only; the missed-call notice still follows if it is missed).
+    connect(m_callSounds.get(), &CallSoundController::ringDismissed, this,
+            [this](const QString &callId) {
+                m_notifications->stopIncomingCall(callId);
+            });
+    // Sign-out leaves a live group call FIRST, so its MatrixRTC membership is
+    // retracted while the session can still send it. Live 2026-10-07 the
+    // logout ran first: "retraction could not be dispatched", and the deleted
+    // device stayed in the room's call as a ghost until its membership
+    // expired (~5 min). Bounded: a server that does not answer cannot hold
+    // the sign-out; the delayed leave (MSC4140) or expiry then covers it.
+    // A deferred sign-out whose session is no longer current was dropped:
+    // the removal or reset that asked for it did not happen either.
+    connect(m_auth.get(), &AuthManager::logoutAbandoned, this, [this] {
+        m_pendingRemovalUserId.clear();
+        m_pendingRemovalIdentity = {};
+        m_pendingRemovalResolved = false;
+        if (m_resetResultPending) {
+            m_resetResultPending = false;
+            Q_EMIT localRustStoreResetResult(
+                false, tr("The sign-out was cancelled because the account "
+                          "changed. Nothing was reset."));
+        }
+    });
+    m_auth->setBeforeLogout([this](std::function<void()> proceed) {
+        SfuCallController *call = m_groupCall.get();
+        if (call && call->active()) {
+            qCInfo(lcApp) << "sign-out: leaving the call first";
+            call->leave();
+        }
+        if (!call || !call->membershipWritesPending()) {
+            proceed();
+            return;
+        }
+        constexpr int kSignOutCallLeaveBoundMs = 4000;
+        auto *waiter = new QObject(this);
+        auto done = std::make_shared<bool>(false);
+        QPointer<SfuCallController> callGuard(call);
+        auto finish = [this, waiter, done, proceed, callGuard](bool settled) {
+            if (*done)
+                return;
+            *done = true;
+            if (!settled)
+                qCWarning(lcApp)
+                    << "sign-out: the call's membership retraction did not "
+                       "settle within" << kSignOutCallLeaveBoundMs
+                    << "ms; signing out anyway";
+            // Nothing of this account's may be retried once its session is
+            // gone: the next account would send it.
+            if (callGuard)
+                callGuard->abandonOutstandingMembershipWrites();
+            waiter->deleteLater();
+            // Never inside the stack that delivered the answer (the backend's
+            // event drain): the logout tears that machinery down.
+            QTimer::singleShot(0, this, proceed);
+        };
+        connect(call, &SfuCallController::membershipWritesSettled, waiter,
+                [finish] { finish(true); });
+        QTimer::singleShot(kSignOutCallLeaveBoundMs, waiter,
+                           [finish] { finish(false); });
+    });
     connect(m_calls.get(), &CallController::incomingCallEnded, this,
             [this](const QString &roomId, const QString &callId,
                    int reason, bool missed) {
@@ -3229,9 +3293,20 @@ void AppController::enableCallSounds()
         return;
     // Cues follow the call's chosen speaker, read live on every cue.
     QPointer<SettingsManager> settings = m_settings.get();
-    m_callSounds->setSink(std::make_unique<CallSoundPlayer>([settings] {
+    auto player = std::make_unique<CallSoundPlayer>([settings] {
         return settings ? settings->preferredSpeakerId() : QString();
-    }));
+    });
+    // Cues whose output went away are reloaded when the output list changes,
+    // told by the device controller: its signal is the one measured to fire
+    // on Windows 2026-10-07 (the player's own path never reloaded). Asking it
+    // anything also starts its watcher, which only a call engine did before;
+    // Qt Multimedia is already up, the player just listed the outputs.
+    CallDeviceController *devices = m_callDevices.get();
+    devices->hasSpeaker();
+    player->followOutputChanges(devices,
+                                &CallDeviceController::audioOutputsChanged,
+                                [devices] { return devices->hasSpeaker(); });
+    m_callSounds->setSink(std::move(player));
 }
 
 void AppController::enableCallMediaEngine()
@@ -3536,6 +3611,11 @@ void AppController::setCurrentRoomId(const QString &roomId)
 
 void AppController::showLogin()
 {
+    // Add account would replace the session a waiting sign-out is for.
+    if (m_auth->logoutPending() && m_client->isLoggedIn()) {
+        qCInfo(lcApp) << "add account refused: a sign-out is in progress";
+        return;
+    }
     // Entering login while signed in is the add-account flow; remember where
     // to return if it fails or the user goes back.
     if (m_client->isLoggedIn())
@@ -5507,6 +5587,13 @@ void AppController::switchToAccount(const QString &userId)
     const QString target = userId.trimmed();
     if (m_accountSwitching || target.isEmpty())
         return;
+    // A sign-out waiting for its call to be left acts on the client's
+    // current session when it runs: switching now would sign out, and delete
+    // the store of, the account switched to.
+    if (m_auth->logoutPending()) {
+        qCInfo(lcApp) << "account switch refused: a sign-out is in progress";
+        return;
+    }
     if (target == m_settings->activeAccountUserId() && m_client->isLoggedIn())
         return;
     if (!m_settings->hasSavedAccount(target)) {
@@ -5574,6 +5661,10 @@ void AppController::switchToAccount(const QString &userId)
                                 "moment."));
         return;
     }
+    // The previous account's session is no longer the client's: a
+    // retraction still being retried for it would go out under the next one.
+    if (m_groupCall)
+        m_groupCall->abandonOutstandingMembershipWrites();
 
     m_settings->setActiveAccountUserId(target);
     clearCrossAccountCaches();
@@ -5783,6 +5874,12 @@ void AppController::removeAccount(const QString &userId)
     const QString target = userId.trimmed();
     if (target.isEmpty() || m_accountSwitching)
         return;
+    // Arming a removal now would attach it to a sign-out already waiting, or
+    // (another account) change sessions under it.
+    if (m_auth->logoutPending()) {
+        qCInfo(lcApp) << "removal refused: a sign-out is in progress";
+        return;
+    }
     if (!m_settings->hasSavedAccount(target))
         return;
     // Its sign-in is in a keyring that cannot be read now: removing the

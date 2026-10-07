@@ -5,9 +5,10 @@ import MatrixClient
 
 // The voice-call corner card. It reflects call state, not ring policy: it
 // shows whenever a call is live (ringing, dialing, connecting or active) even
-// in a muted room. Dismiss hides a ringing card only (the caller and our other
-// devices keep ringing); Decline sends the event that stops the ring
-// everywhere.
+// in a muted room. Dismiss is local: it hides the ringing card, stops THIS
+// device's ringer and withdraws its desktop card, and sends nothing (the
+// caller and our other devices keep ringing, as with Element's dismiss);
+// Decline sends the event that stops the ring everywhere.
 //
 // Two lanes ring here and are answered differently:
 // * the legacy 1:1 `m.call.*` lane by `app.calls.answer()`, which needs the
@@ -22,6 +23,17 @@ Rectangle {
 
     // Dismissal is per call; the next call shows again.
     property string dismissedCallId: ""
+
+    // Read at the press, so it names this card's call. The ringer stops here
+    // too (live 2026-10-07: it rang on for 87.8 s with the card gone and no
+    // control left to stop it); dismissRing refuses any call but the ringing
+    // one.
+    function dismiss() {
+        var id = app.calls.activeCallId
+        root.dismissedCallId = id
+        if (root.callSoundsReachable)
+            app.callSounds.dismissRing(id)
+    }
 
     readonly property bool ringing:
         app.calls.state === CallController.Ringing
@@ -355,7 +367,7 @@ Rectangle {
                 storm: true
                 Layout.fillWidth: true
                 text: qsTr("Dismiss")
-                onClicked: root.dismissedCallId = app.calls.activeCallId
+                onClicked: root.dismiss()
             }
         }
     }

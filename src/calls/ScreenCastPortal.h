@@ -46,7 +46,18 @@ public:
     /// Begin the handshake. `types` is a SourceType bitmask; the portal decides
     /// what it can offer. Answers exactly once with `ready`, `cancelled` or
     /// `failed`.
-    void requestShare(int types = Monitor | Window);
+    ///
+    /// No-answer bounds, for a caller that has somewhere else to go (an X11
+    /// session, where SfuCallController has its own display picker): when
+    /// `preparationBoundMs` > 0, a portal that has not created the session
+    /// and accepted the source selection within that long (no human is
+    /// involved in either step) is abandoned with `failed("no_answer")`;
+    /// when `pickerBoundMs` > 0, so is one whose picker (Start) has not
+    /// answered within that long. xdg-desktop-portal-kde on X11 advertises
+    /// ScreenCast and then never produces a session (live 2026-10-07). 0
+    /// keeps only the generous overall timeout.
+    void requestShare(int types = Monitor | Window, int preparationBoundMs = 0,
+                      int pickerBoundMs = 0);
     /// Abandon an in-flight request and close any open session. Idempotent.
     void cancel();
     bool busy() const { return m_busy; }
@@ -65,6 +76,8 @@ Q_SIGNALS:
 
 private:
     void reset();
+    /// (Re)arms the no-answer bound; 0 stops it.
+    void armAnswerWatchdog(int ms);
 #ifdef HAVE_QT_DBUS
     void selectSources(int types);
     void startSession();
@@ -79,6 +92,9 @@ private:
     /// one that never arrives would leave `m_busy` set and sharing refused
     /// until restart. Generous, since a human is choosing.
     QTimer m_requestTimeout;
+    /// The caller's tighter no-answer bound (requestShare()), per step.
+    QTimer m_answerWatchdog;
+    int m_pickerBoundMs = 0;
     QString m_sessionHandle;
     /// Discards replies to a superseded request, so a stale Response cannot
     /// start a capture.

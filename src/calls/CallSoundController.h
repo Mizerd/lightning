@@ -83,6 +83,13 @@ public:
     /// now, so a stale or crafted id cannot silence the next call. Stops our
     /// ringer and emits ringSilenced so the card drops its themed sound.
     Q_INVOKABLE bool silenceRing(const QString &callId);
+    /// The incoming-call card's Dismiss: this device stops ringing for
+    /// `callId` (exactly as silenceRing, so a re-announcement stays silent)
+    /// and its desktop card is withdrawn (ringDismissed). Nothing is sent:
+    /// the caller and our other devices keep ringing, as with Element's
+    /// "Dismiss"/close on its call toast; Decline is the wire action. False
+    /// unless it is the call ringing now.
+    Q_INVOKABLE bool dismissRing(const QString &callId);
     /// Whether `callId` was silenced; checked before (re-)announcing a call.
     bool isRingSilenced(const QString &callId) const
     {
@@ -112,6 +119,8 @@ Q_SIGNALS:
     /// Emitted after the state is recorded, so isRingSilenced() is already
     /// true in handlers.
     void ringSilenced(const QString &callId);
+    /// After ringSilenced, for a Dismiss: the desktop card goes too.
+    void ringDismissed(const QString &callId);
 
 private:
     void setRingCallId(const QString &callId);

@@ -71,12 +71,32 @@ public:
         /// The `filesystems=` line of /.flatpak-info's [Context] group.
         QString flatpakFilesystems;
         bool snap = false;
+        /// The Flatpak's application id: ~/.var/app/<id> is its own folder
+        /// on the host.
+        QString appId;
+        /// $HOME as this process sees it (the sandbox's view).
+        QString home;
+        /// "xdg-download" etc. -> that folder's path, for resolving
+        /// filesystems= grants.
+        QHash<QString, QString> xdgDirs;
     };
     /// Whether a sandbox keeps this process from writing to ~/Downloads:
     /// a Flatpak without `home`, `host` or `xdg-download` (read-write), or a
     /// Snap (which has no `home` plug, and whose $HOME is its own).
     static bool sandboxBlocksDownloads(const Sandbox &sandbox);
+    /// Whether a file written at `path` lands on the HOST's disk, where the
+    /// user can find it after the app quits. Outside a sandbox: always. In a
+    /// Flatpak: a document-portal file, the app's own ~/.var/app/<id>, or a
+    /// path under a read-write filesystems= grant; anything else is the
+    /// sandbox's private tmpfs and is gone at exit. A Snap's writes either
+    /// reach the host or are refused by AppArmor, so they count as reaching.
+    static bool pathReachesHost(const Sandbox &sandbox, const QString &path);
+    /// This process's sandbox, from /.flatpak-info's contents (opened, never
+    /// stat-gated; the environment is only a hint) and $SNAP/$SNAP_NAME.
     static Sandbox hostSandbox();
+    /// The same, reading the sandbox description from `flatpakInfoPath`
+    /// (tests).
+    static Sandbox hostSandbox(const QString &flatpakInfoPath);
 
     DownloadsController(MediaBridge *bridge, FileChooser *chooser,
                         FileLauncher *launcher, QObject *parent = nullptr);
@@ -152,6 +172,12 @@ private:
                      const QString &mime);
     int addItem(const QString &mediaKey, const QString &rawName,
                 const QString &mime, bool asked, const QString &fileName);
+    /// A save that would stay inside the sandbox, refused and listed as a
+    /// failure that says why, instead of written and reported as saved.
+    void refuseSandboxOnlySave(const QString &mediaKey, const QString &rawName,
+                               const QString &mime, bool asked,
+                               const QString &fileName);
+    static QString sandboxOnlyMessage();
     Item *itemById(int id);
     const Item *itemById(int id) const;
     Item *oldestSaving(const QString &mediaKey);
@@ -167,6 +193,7 @@ private:
     QPointer<FileLauncher> m_launcher;
     QPointer<SettingsManager> m_settings;
     std::function<QString()> m_defaultFolder;
+    Sandbox m_sandbox;
     bool m_sandboxBlocks = false;
     QList<Item> m_items;
     int m_nextId = 1;

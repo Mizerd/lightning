@@ -10,6 +10,8 @@
 #include "matrix/MatrixClient.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
+#include "calls/SfuCallController.h"
+#include "matrix/MockMatrixClient.h"
 #include "gif/GifSearchController.h"
 #include "gif/GifStarredStore.h"
 #include "spaces/RailLayoutStore.h"
@@ -26,6 +28,8 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
+
+#include <functional>
 
 class FakeSecretStore final : public SecretStore
 {
@@ -96,6 +100,29 @@ private:
     bool m_locked = false;
     mutable bool m_lastReadFailed = false;
     bool m_unvouched = false;
+};
+
+// Membership retractions dispatched and answered on demand, like the Rust
+// bridge (MockMatrixClient refuses them with op 0).
+class RetractingCallClient final : public MockMatrixClient
+{
+    Q_OBJECT
+
+public:
+    using MockMatrixClient::MockMatrixClient;
+    quint64 rtcRetractMembership(const QString &roomId,
+                                 const QString &delayId) override
+    {
+        Q_UNUSED(delayId);
+        retractedRooms.append(roomId);
+        return ++lastOp;
+    }
+    void answer(quint64 op, bool ok)
+    {
+        Q_EMIT rtcMembershipRetracted(op, ok, QString());
+    }
+    QStringList retractedRooms;
+    quint64 lastOp = 5000;
 };
 
 namespace {
@@ -199,6 +226,105 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.accountSwitching());
         app.setCurrentRoomId(roomA);
         QTRY_COMPARE(rosters.count(), 4);
+    }
+
+    // A sign-out waits (bounded) for the call to be left, and the client's
+    // logout() acts on whatever session it holds when it finally runs. While
+    // it waits, nothing may change accounts; and if a session change gets
+    // past that anyway, the deferred sign-out is dropped rather than signing
+    // out, and deleting, the account switched to (§6). Fails on the first
+    // fpfix patch: the switch went through and bob was signed out.
+    void aSignOutWaitingForItsCallNeverSignsOutTheNextAccount()
+    {
+        RetractingCallClient rtc;
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QCOMPARE(app.auth()->currentUserId(), kAlice);
+
+        SfuCallController *call = app.groupCall();
+        call->setClient(&rtc);
+        call->setMembershipForTest(QStringLiteral("!call:one.example"),
+                                   QString());
+        call->setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy pendingChanged(app.auth(),
+                                  &AuthManager::logoutPendingChanged);
+        QSignalSpy loggedOut(app.auth(), &AuthManager::loggedOut);
+        QSignalSpy abandoned(app.auth(), &AuthManager::logoutAbandoned);
+
+        app.auth()->logout();
+        QVERIFY(app.auth()->logoutPending());
+        QCOMPARE(pendingChanged.count(), 1);
+        QCOMPARE(loggedOut.count(), 0);
+
+        // The ways the UI changes accounts are refused while it waits.
+        app.switchToAccount(kBob);
+        QVERIFY(!app.accountSwitching());
+        QCOMPARE(app.auth()->currentUserId(), kAlice);
+        app.removeAccount(kBob);
+        QVERIFY(app.settings()->hasSavedAccount(kBob));
+        app.showLogin();
+        QCOMPARE(app.currentScreen(), AppController::MainScreen);
+
+        // The call is left; the sign-out goes ahead for alice, and only
+        // alice.
+        rtc.answer(rtc.lastOp, true);
+        QTRY_COMPARE(loggedOut.count(), 1);
+        QCOMPARE(abandoned.count(), 0);
+        QVERIFY(!app.auth()->logoutPending());
+        QVERIFY(app.settings()->hasSavedAccount(kBob));
+        QCOMPARE(app.settings()->accessTokenFor(kBob),
+                 QStringLiteral("bob-token-fixture"));
+    }
+
+    // If a session change gets past those refusals anyway, the deferred
+    // sign-out is dropped: the client's logout() would otherwise act on the
+    // new session. Driven on AuthManager itself, since every app path that
+    // changes sessions is refused above.
+    void aDeferredSignOutIsDroppedWhenTheSessionChangedMeanwhile()
+    {
+        MockMatrixClient client;
+        AuthManager auth(&client);
+        QSignalSpy loggedIn(&auth, &AuthManager::loginSucceeded);
+        auth.login(QStringLiteral("https://mock.local"),
+                   QStringLiteral("alice"), QStringLiteral("unused"));
+        QVERIFY(loggedIn.count() == 1 || loggedIn.wait(3000));
+        const QString alice = client.currentUserId();
+        QVERIFY(!alice.isEmpty());
+
+        std::function<void()> proceed;
+        auth.setBeforeLogout([&proceed](std::function<void()> go) {
+            proceed = std::move(go);
+        });
+        QSignalSpy loggedOut(&auth, &AuthManager::loggedOut);
+        QSignalSpy abandoned(&auth, &AuthManager::logoutAbandoned);
+        auth.logout();
+        QVERIFY(auth.logoutPending());
+        QVERIFY(proceed);
+
+        // Another session becomes the client's (same user id or not: the
+        // generation decides).
+        Q_EMIT client.loginSucceeded(alice);
+        proceed();
+        QCOMPARE(abandoned.count(), 1);
+        QCOMPARE(loggedOut.count(), 0);
+        QVERIFY(!auth.logoutPending());
+        QVERIFY(client.isLoggedIn());
+
+        // The same session, undisturbed: the deferred sign-out runs.
+        proceed = nullptr;
+        auth.logout();
+        QVERIFY(proceed);
+        proceed();
+        QCOMPARE(loggedOut.count(), 1);
     }
 
     void switchActivatesTargetWithoutLoginScreen()

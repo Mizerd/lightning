@@ -271,7 +271,7 @@ Popup {
                 objectName: "identityCard_" + (modelData.userId || "")
                 width: cardList.width
                 rowHeight: root.rowH
-                enabled: !app.accountSwitching
+                enabled: !app.accountSwitching && !(app.auth && app.auth.logoutPending)
 
                 active: modelData.isActive === true
                 displayName: modelData.displayName || ""
@@ -472,14 +472,14 @@ Popup {
                 objectName: "accountFooterAdd"
                 text: qsTr("Add")
                 iconName: "person_add"
-                enabled: !app.accountSwitching
+                enabled: !app.accountSwitching && !(app.auth && app.auth.logoutPending)
                 onClicked: { root.close(); app.showLogin() }
             }
             FooterAction {
                 objectName: "accountFooterSettings"
                 text: qsTr("Settings")
                 iconName: "settings"
-                enabled: !app.accountSwitching
+                enabled: !app.accountSwitching && !(app.auth && app.auth.logoutPending)
                 onClicked: { root.close(); app.showSettingsSection("general") }
             }
             FooterAction {
@@ -487,7 +487,7 @@ Popup {
                 text: qsTr("Sign out")
                 iconName: "logout"
                 dangerAction: true
-                enabled: !app.accountSwitching
+                enabled: !app.accountSwitching && !(app.auth && app.auth.logoutPending)
                 onClicked: { root.close(); signOutConfirm.open() }
             }
         }
