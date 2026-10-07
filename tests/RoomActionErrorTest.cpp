@@ -73,6 +73,71 @@ private Q_SLOTS:
                  "nothing reaches the status strip");
     }
 
+    // The reason (rust/src/roomaction.rs) turns the sentence into one the
+    // reader can act on, without changing which control it names.
+    void theReasonSaysWhatTheReaderCanDo()
+    {
+        using matrix::room_action::failureHint;
+        using matrix::room_action::userFacingError;
+        const QString base = userFacingError(QStringLiteral("favourite"));
+
+        const QString transport = failureHint(QStringLiteral("network"));
+        QVERIFY2(!transport.isEmpty(),
+                 "a dropped connection said nothing about the connection");
+        QCOMPARE(failureHint(QStringLiteral("timeout")), transport);
+        QCOMPARE(failureHint(QStringLiteral("connect")), transport);
+
+        const QString busy = failureHint(QStringLiteral("http_429_M_LIMIT_EXCEEDED"));
+        QVERIFY(!busy.isEmpty() && busy != transport);
+        QCOMPARE(failureHint(QStringLiteral("http_502_no_errcode")), busy);
+
+        const QString session = failureHint(QStringLiteral("refresh_failed"));
+        QVERIFY(!session.isEmpty() && session != busy && session != transport);
+        QCOMPARE(failureHint(QStringLiteral("http_401_M_UNKNOWN_TOKEN")), session);
+
+        const QString refused = failureHint(QStringLiteral("http_403_M_FORBIDDEN"));
+        QVERIFY(!refused.isEmpty() && refused != session);
+
+        QCOMPARE(userFacingError(QStringLiteral("favourite"), QStringLiteral("network")),
+                 base + QLatin1Char(' ') + transport);
+        // A reason with nothing actionable keeps the plain sentence, never a
+        // guess; and an action that is silent stays silent whatever the reason.
+        QCOMPARE(userFacingError(QStringLiteral("favourite"),
+                                 QStringLiteral("http_400_M_BAD_JSON")), base);
+        QCOMPARE(userFacingError(QStringLiteral("favourite"), QString{}), base);
+        QVERIFY(userFacingError(QStringLiteral("read_receipt"),
+                                QStringLiteral("network")).isEmpty());
+    }
+
+    // "room action failed category= favourite" was the whole log line for a
+    // failed Favourite: the reason was dropped in Rust. The handler must log
+    // it and hand it to the sentence.
+    void theProductionHandlerLogsAndUsesTheReason()
+    {
+        QFile file(QStringLiteral(SRC_DIR "/src/matrix/RustSdkMatrixClient.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString source = QString::fromUtf8(file.readAll());
+        const int branch = source.indexOf(QStringLiteral("\"room_action_error\""));
+        QVERIFY(branch > 0);
+        const QString body = source.mid(branch, 1400);
+        QVERIFY2(body.contains(QStringLiteral("\"reason=\"")),
+                 "the failure log line does not carry the reason, so a failed "
+                 "room action cannot be diagnosed from a log");
+        QVERIFY2(body.contains(QStringLiteral("userFacingError(action, reason)")),
+                 "the sentence ignores the reason");
+        QVERIFY2(body.contains(QStringLiteral("redactId(")),
+                 "the room is logged in the clear or not at all");
+
+        QFile rust(QStringLiteral(SRC_DIR "/rust/src/lib.rs"));
+        QVERIFY2(rust.open(QIODevice::ReadOnly), qPrintable(rust.fileName()));
+        const QString lib = QString::fromUtf8(rust.readAll());
+        // Every producer goes through the one event builder that adds the reason.
+        QVERIFY2(!lib.contains(QStringLiteral("\"type\": \"room_action_error\"")),
+                 "a room_action_error is still built by hand in lib.rs, without "
+                 "its reason");
+        QCOMPARE(lib.count(QStringLiteral("roomaction::failure_event(")), 4);
+    }
+
     // A queue overflow must repair the stream, not only announce it. The
     // Rust->C++ queue drops its oldest entries at EVENT_QUEUE_CAP and injects
     // one `queue_overflow` marker; the payload is positional (timeline diffs,

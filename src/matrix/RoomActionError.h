@@ -21,4 +21,14 @@ namespace matrix::room_action {
 /// the reader knows which control refused.
 QString userFacingError(const QString &action);
 
+/// The same sentence followed by what the failure `reason` (a token from
+/// rust/src/roomaction.rs: `timeout`, `connect`, `network`, `refresh_failed`,
+/// `http_<status>_<errcode>`) means for the reader, when it says anything a
+/// reader can act on. Empty exactly when the one-argument form is empty.
+QString userFacingError(const QString &action, const QString &reason);
+
+/// The reader-facing sentence for a failure reason alone, or empty when the
+/// reason says nothing a reader can act on (or is unknown).
+QString failureHint(const QString &reason);
+
 } // namespace matrix::room_action

@@ -109,6 +109,7 @@ mod qrlogin;
 mod profile;
 mod push_verdict;
 mod rooms;
+mod roomaction;
 mod rtc;
 mod serveradmin;
 mod sfu;
@@ -2500,13 +2501,17 @@ pub unsafe extern "C" fn mx_rust_send_read_receipt(
                 return;
             }
             let receipts = receipts_for_mode(event_id, mode);
-            if room.send_multiple_receipts(receipts).await.is_ok() {
-                enqueue(&events, json!({ "type": "read_marker_advanced", "room_id": room_id }));
-            } else {
-                enqueue(&events, json!({
-                    "type": "room_action_error", "action": "read_receipt",
-                    "room_id": room_id
-                }));
+            // Not retried: the serial lock is held across this call, and the next
+            // receipt supersedes this one anyway.
+            match room.send_multiple_receipts(receipts).await {
+                Ok(()) => enqueue(&events, json!({
+                    "type": "read_marker_advanced", "room_id": room_id
+                })),
+                Err(error) => {
+                    let mut event = roomaction::failure_event("read_receipt", &error, 1);
+                    event["room_id"] = json!(room_id);
+                    enqueue(&events, event);
+                }
             }
         });
         Ok(String::new())
@@ -2528,11 +2533,15 @@ pub unsafe extern "C" fn mx_rust_set_marked_unread(
             .ok_or_else(|| "unknown room".to_owned())?;
         let events = Arc::clone(&bridge.events);
         bridge.spawn_room_action(async move {
-            match room.set_unread_flag(unread != 0).await {
+            let (result, attempts) = roomaction::set_unread_flag(
+                &room, unread != 0, &roomaction::ROOM_ACTION_RETRY_DELAYS).await;
+            match result {
                 Ok(()) => enqueue_rooms(&events, &client).await,
-                Err(_) => enqueue(&events, json!({
-                    "type": "room_action_error", "action": "marked_unread"
-                })),
+                Err(error) => {
+                    let mut event = roomaction::failure_event("marked_unread", &error, attempts);
+                    event["room_id"] = json!(room_id);
+                    enqueue(&events, event);
+                }
             }
         });
         Ok(String::new())
@@ -2540,10 +2549,12 @@ pub unsafe extern "C" fn mx_rust_set_marked_unread(
 }
 
 /// Add or remove this room's `m.favourite` tag via `Room::set_is_favourite`,
-/// which also drops a conflicting `m.lowpriority` tag.
+/// which also drops a conflicting `m.lowpriority` tag (`roomaction::set_favourite`,
+/// which retries a transport failure the SDK does not).
 ///
 /// Not optimistic: the room list is re-emitted on success, so a rejected
-/// write leaves the row unchanged.
+/// write leaves the row unchanged. A failure carries its reason (status and
+/// errcode, or the transport class) so the log can say why.
 #[no_mangle]
 pub unsafe extern "C" fn mx_rust_set_room_favourite(
     ptr: *mut c_void,
@@ -2559,14 +2570,15 @@ pub unsafe extern "C" fn mx_rust_set_room_favourite(
             .ok_or_else(|| "unknown room".to_owned())?;
         let events = Arc::clone(&bridge.events);
         bridge.spawn_room_action(async move {
-            // `tag_order` stays None: Lightning sorts Favourites by activity, and an
-            // invented order would be written to the account and honoured by other
-            // clients.
-            match room.set_is_favourite(favourite != 0, None).await {
+            let (result, attempts) = roomaction::set_favourite(
+                &room, favourite != 0, &roomaction::ROOM_ACTION_RETRY_DELAYS).await;
+            match result {
                 Ok(()) => enqueue_rooms(&events, &client).await,
-                Err(_) => enqueue(&events, json!({
-                    "type": "room_action_error", "action": "favourite"
-                })),
+                Err(error) => {
+                    let mut event = roomaction::failure_event("favourite", &error, attempts);
+                    event["room_id"] = json!(room_id);
+                    enqueue(&events, event);
+                }
             }
         });
         Ok(String::new())
@@ -2640,28 +2652,39 @@ pub unsafe extern "C" fn mx_rust_mark_room_read(
         let events = Arc::clone(&bridge.events);
         let mode = bridge.receipt_privacy.load(Ordering::SeqCst);
         bridge.spawn_room_action(async move {
+            let delays = &roomaction::ROOM_ACTION_RETRY_DELAYS;
             let latest = room.latest_event().event_id();
-            let mut ok = true;
+            // The first failure, with its attempt count; it is what gets reported.
+            let mut failure: Option<(matrix_sdk::Error, u32)> = None;
             if let Some(event_id) = latest {
                 // Same helper as the in-room path, so this discloses no more.
-                let receipts = receipts_for_mode(event_id, mode);
-                ok = room.send_multiple_receipts(receipts).await.is_ok();
+                let (result, attempts) = roomaction::with_transport_retry(delays, || {
+                    let room = room.clone();
+                    let receipts = receipts_for_mode(event_id.clone(), mode);
+                    async move { room.send_multiple_receipts(receipts).await }
+                }).await;
+                if let Err(error) = result {
+                    failure = Some((error, attempts));
+                }
             }
             // Unconditional: a room explicitly marked unread must not stay unread just
             // because it had no event to receipt.
-            if room.set_unread_flag(false).await.is_err() {
-                ok = false;
+            let (result, attempts) = roomaction::set_unread_flag(&room, false, delays).await;
+            if let Err(error) = result {
+                failure.get_or_insert((error, attempts));
             }
-            if ok {
-                enqueue(&events, json!({
-                    "type": "read_marker_advanced", "room_id": room_id
-                }));
-                enqueue_rooms(&events, &client).await;
-            } else {
-                enqueue(&events, json!({
-                    "type": "room_action_error", "action": "mark_read",
-                    "room_id": room_id
-                }));
+            match failure {
+                None => {
+                    enqueue(&events, json!({
+                        "type": "read_marker_advanced", "room_id": room_id
+                    }));
+                    enqueue_rooms(&events, &client).await;
+                }
+                Some((error, attempts)) => {
+                    let mut event = roomaction::failure_event("mark_read", &error, attempts);
+                    event["room_id"] = json!(room_id);
+                    enqueue(&events, event);
+                }
             }
         });
         Ok(String::new())

@@ -5551,11 +5551,17 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
             Q_EMIT markRoomReadFailed(event.value(QStringLiteral("room_id")).toString());
         if (action == QLatin1String("read_receipt"))
             m_lastReceiptSent.remove(event.value(QStringLiteral("room_id")).toString());
-        qCWarning(lcRust) << "room action failed category=" << action;
+        // reason: a fixed token from rust/src/roomaction.rs (status + errcode,
+        // or the transport class), never server prose; the room only redacted.
+        const QString reason = event.value(QStringLiteral("reason")).toString();
+        qCWarning(lcRust) << "room action failed category=" << action
+                          << "reason=" << reason << "attempts="
+                          << event.value(QStringLiteral("attempts")).toInt() << "room="
+                          << matrix::e2ee::redactId(event.value(QStringLiteral("room_id")).toString());
         // A write the user asked for must not fail silently: an unchanged list
         // is indistinguishable from a slow sync. read_receipt stays silent on
         // purpose; see matrix/RoomActionError.h.
-        const QString message = matrix::room_action::userFacingError(action);
+        const QString message = matrix::room_action::userFacingError(action, reason);
         if (!message.isEmpty())
             Q_EMIT errorOccurred(message);
         return;
