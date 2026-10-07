@@ -55,8 +55,34 @@ public:
     // A notification through the icon's balloon, Qt's only delivery without a
     // freedesktop daemon (Windows, macOS). Returns false when the icon is not
     // visible. `image` is the sender's avatar, or null for the app icon.
+    // `platformSound`: the platform may add its own notification sound (the
+    // sound plan's platformSound: the user chose System default, or our own
+    // sound cannot play). False means it must stay silent, because Lightning
+    // plays its own chime or none.
+    //
+    // QSystemTrayIcon::showMessage cannot honour false on Windows: Qt's
+    // balloon never sets NIIF_NOSOUND, so Windows played its "Notify System
+    // Generic" on every balloon, on top of our chime and with notification
+    // sound Off. There the balloon is raised on Qt's own icon (same window
+    // and id, so a click still reaches messageClicked()) with the flags
+    // balloonInfoFlags() composes, and Qt's call is only the fallback.
     bool showMessage(const QString &title, const QString &body,
-                     const QImage &image);
+                     const QImage &image, bool platformSound);
+
+    // The Win32 NIIF_* values (shellapi.h) a balloon is composed from,
+    // mirrored here so the composition is testable off Windows. TrayIcon.cpp
+    // static_asserts them against the SDK on Windows.
+    static constexpr unsigned kBalloonInfo = 0x01;      // NIIF_INFO
+    static constexpr unsigned kBalloonUser = 0x04;      // NIIF_USER
+    static constexpr unsigned kBalloonNoSound = 0x10;   // NIIF_NOSOUND
+    static constexpr unsigned kBalloonLargeIcon = 0x20; // NIIF_LARGE_ICON
+    // dwInfoFlags for a Windows balloon. The icon bits are exactly Qt
+    // 6.11.2's (NIIF_INFO without an image, NIIF_USER | NIIF_LARGE_ICON with
+    // one); NIIF_NOSOUND is added unless the platform sound was asked for.
+    static unsigned balloonInfoFlags(bool hasImage, bool platformSound);
+    // The balloon's image: the avatar scaled down (never up) to fit 256x256,
+    // keeping its aspect, as Qt's icon.actualSize(QSize(256, 256)) did.
+    static QImage balloonImage(const QImage &avatar);
 
     // The icon's right-click menu: "Show Lightning" and "Quit Lightning".
     // Built on first use, so it is testable without a tray.
@@ -75,6 +101,16 @@ Q_SIGNALS:
 private:
     void refreshTooltip();
     void refreshIcon();
+#ifdef Q_OS_WIN
+    // The balloon raised natively; false when Qt's call must carry it.
+    bool showNativeBalloon(const QString &title, const QString &body,
+                           const QImage &image, bool platformSound);
+    void releaseBalloonIcon();
+    // HICON of the last native balloon, kept until the next one replaces it
+    // (Qt keeps its own the same way). void* so this header needs no
+    // windows.h.
+    void *m_balloonIcon = nullptr;
+#endif
 
     QSystemTrayIcon *m_icon = nullptr;
     std::unique_ptr<QMenu> m_menu;

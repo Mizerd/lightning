@@ -803,9 +803,20 @@ most failure branches are **NOT TESTED**. The full inventory is at the end of
   active-room, DND-by-mode and ignored senders never reach delivery, so they
   never sound. `Policy::allowsNotificationSound` keeps the chime quiet in a
   call, while a call rings and while a share captures the output mix.
-  Windows and macOS deliver through `QSystemTrayIcon::showMessage`, which
-  has no sound parameter: the platform may still add its own sound there,
-  and the tree has no native toast path. NOT LIVE-TESTED on any platform.
+  Windows and macOS deliver through the tray balloon, which carries the
+  plan's `platformSound`. **Windows (2026-10-07):** Qt's
+  `QWindowsSystemTrayIcon::showMessage` never sets `NIIF_NOSOUND`, so every
+  balloon played Windows' "Notify System Generic" on top of our chime, for
+  silent messages and with sound Off (measured on the pipeline-289 package).
+  `TrayIcon` now raises the balloon itself with `Shell_NotifyIconW(NIM_MODIFY)`
+  on Qt's own icon (its hidden `QTrayIconMessageWindow`, uID 0, found among
+  the GUI thread's windows) with `NIIF_NOSOUND` unless System default was
+  chosen, so a click still reaches Qt's `messageClicked()`. If that window
+  cannot be found, or the shell refuses, it falls back to Qt's call and logs
+  once that Windows may add its sound. The call balloon is silent while our
+  own ringer plays. macOS: Qt's `NSUserNotification` sets no sound (by
+  reading Qt 6.11.2). Read-withdrawal still needs a native toast path.
+  NOT LIVE-TESTED.
 - **Reading a room withdraws its notifications.** `closeRoomNotifications`
   runs on Mark as read and on a reply, and it reaches the desktop's HISTORY:
   an expired popup (freedesktop reason 1) keeps its payload, since KDE and

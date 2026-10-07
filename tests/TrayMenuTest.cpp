@@ -114,6 +114,60 @@ private slots:
                  qPrintable(QStringLiteral("red area %1 expected %2")
                                 .arg(red).arg(expectedArea)));
     }
+
+    // Windows, 2026-10-07: every balloon also played Windows' "Notify System
+    // Generic", because Qt 6.11.2's QWindowsSystemTrayIcon::showMessage sets
+    // dwInfoFlags to NIIF_INFO or NIIF_USER | NIIF_LARGE_ICON and never
+    // NIIF_NOSOUND. The values are shellapi.h's; TrayIcon.cpp static_asserts
+    // the mirrored constants against the SDK on Windows.
+    void aWindowsBalloonCarriesNoSoundUnlessThePlatformSoundWasAskedFor()
+    {
+        constexpr unsigned niifInfo = 0x01, niifUser = 0x04,
+                           niifNoSound = 0x10, niifLargeIcon = 0x20;
+        QCOMPARE(TrayIcon::kBalloonInfo, niifInfo);
+        QCOMPARE(TrayIcon::kBalloonUser, niifUser);
+        QCOMPARE(TrayIcon::kBalloonNoSound, niifNoSound);
+        QCOMPARE(TrayIcon::kBalloonLargeIcon, niifLargeIcon);
+
+        // Lightning's chime or silence: Windows must add nothing.
+        QCOMPARE(TrayIcon::balloonInfoFlags(/*hasImage=*/false,
+                                            /*platformSound=*/false),
+                 niifInfo | niifNoSound);
+        QCOMPARE(TrayIcon::balloonInfoFlags(true, false),
+                 niifUser | niifLargeIcon | niifNoSound);
+        // System default chosen: exactly Qt's own composition, so the icon
+        // and size the balloon showed before are unchanged.
+        QCOMPARE(TrayIcon::balloonInfoFlags(false, true), niifInfo);
+        QCOMPARE(TrayIcon::balloonInfoFlags(true, true),
+                 niifUser | niifLargeIcon);
+    }
+
+    // The balloon image is what Qt's icon.actualSize(QSize(256, 256)) gave:
+    // scaled down to fit, aspect kept, never scaled up.
+    void theBalloonImageFitsQtsBoundWithoutUpscaling()
+    {
+        QVERIFY(TrayIcon::balloonImage(QImage()).isNull());
+        QImage small(64, 48, QImage::Format_ARGB32_Premultiplied);
+        small.fill(Qt::red);
+        QCOMPARE(TrayIcon::balloonImage(small).size(), QSize(64, 48));
+        QImage wide(1024, 512, QImage::Format_ARGB32_Premultiplied);
+        wide.fill(Qt::blue);
+        QCOMPARE(TrayIcon::balloonImage(wide).size(), QSize(256, 128));
+        QImage tall(300, 600, QImage::Format_ARGB32_Premultiplied);
+        tall.fill(Qt::green);
+        QCOMPARE(TrayIcon::balloonImage(tall).size(), QSize(128, 256));
+    }
+
+    // Without an icon there is no balloon, and the caller falls back to its
+    // own log line; the sound argument changes nothing about that.
+    void noIconMeansNoBalloonWhateverTheSound()
+    {
+        TrayIcon tray;
+        QVERIFY(!tray.showMessage(QStringLiteral("t"), QStringLiteral("b"),
+                                  QImage(), false));
+        QVERIFY(!tray.showMessage(QStringLiteral("t"), QStringLiteral("b"),
+                                  QImage(), true));
+    }
 };
 
 QTEST_MAIN(TrayMenuTest)

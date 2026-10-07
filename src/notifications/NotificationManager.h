@@ -222,6 +222,11 @@ public:
     int callTrayAttemptsForTest() const { return m_callTrayAttempts; }
     QVariantMap lastCallTrayPayloadForTest() const
     { return m_lastCallTrayPayload; }
+    // Every tray balloon attempt (messages and calls), and whether the last
+    // one allowed the platform's own sound. Attempts, as above.
+    int trayAttemptsForTest() const { return m_trayAttempts; }
+    bool lastTrayPlatformSoundForTest() const
+    { return m_lastTrayPlatformSound; }
     // Deliveries parked waiting for an avatar fetch. They have no notification
     // id yet, so tests observe them here.
     int avatarWaitCountForTest() const { return m_avatarWaits.size(); }
@@ -320,11 +325,16 @@ private:
     // The incoming-call ring's tray delivery; see the definition.
     bool deliverCallThroughTray();
     /// Balloon delivery for sessions with no freedesktop daemon. True when the
-    /// tray showed it.
+    /// tray showed it. `platformSound` is the sound plan's: the balloon may
+    /// make the platform's own sound only when the plan asks for it (System
+    /// default chosen), never on top of or instead of silence by Lightning.
     bool deliverThroughTray(const QString &title, const QString &body,
-                            const QVariantMap &payload, const QImage &avatar);
+                            const QVariantMap &payload, const QImage &avatar,
+                            bool platformSound);
     QPointer<TrayIcon> m_fallbackTray;
     QVariantMap m_lastFallbackPayload;
+    int m_trayAttempts = 0;
+    bool m_lastTrayPlatformSound = false;
 
     // Bounded number of click payloads retained for routing.
     static constexpr int kMaxPendingPayloads = 64;

@@ -80,6 +80,8 @@ private Q_SLOTS:
     void theChimeFollowsThePolicyThatDecidesTheNotification();
     void aMentionPlaysTheMentionChime();
     void theSystemDefaultSourcePlaysNoChimeOfOurs();
+    void aTrayBalloonAllowsThePlatformSoundOnlyWhenSystemDefaultWasChosen();
+    void aCallBalloonIsSilentWhileLightningRings();
     void directMessageNotifiesWithSenderOnlyDefault()
     {
         const auto decision =
@@ -1636,6 +1638,113 @@ void NotificationManagerTest::theSystemDefaultSourcePlaysNoChimeOfOurs()
     other.setSoundSource(NotificationManager::SourceLightning);
     other.processEvent(incomingText(QStringLiteral("again")), context);
     QCOMPARE(played, 1);
+}
+
+// Windows, measured 2026-10-07 on the pipeline-289 package: every tray balloon
+// ALSO played Windows' "Notify System Generic" — on top of Lightning's chime,
+// for a plain message that should have been silent, and with notification
+// sound Off — because the balloon was told nothing about the sound plan and
+// Qt's never sets NIIF_NOSOUND. The balloon now carries the plan's
+// platformSound, and only System default may set it. Driven through the
+// no-bus branch (DBUS_SESSION_BUS_ADDRESS is dead for this suite), which is
+// the same deliverThroughTray() the no-QtDBus build uses.
+void NotificationManagerTest::
+    aTrayBalloonAllowsThePlatformSoundOnlyWhenSystemDefaultWasChosen()
+{
+    struct Row {
+        const char *name;
+        NotificationManager::SoundSource source;
+        NotificationManager::SoundMode mode;
+        bool mention;
+        bool expectOwnChime;
+        bool expectPlatformSound;
+    };
+    using M = NotificationManager;
+    const Row rows[] = {
+        // The measured FAIL: our mention chime AND Windows' sound.
+        { "lightning, mention", M::SourceLightning, M::SoundMentionsAndDirect,
+          true, true, false },
+        // A plain message under the default mode makes no sound at all.
+        { "lightning, plain message", M::SourceLightning,
+          M::SoundMentionsAndDirect, false, false, false },
+        // Sound Off silences everything, whatever the style.
+        { "lightning, sound off", M::SourceLightning, M::SoundOff, true,
+          false, false },
+        { "system default, sound off", M::SourceSystem, M::SoundOff, true,
+          false, false },
+        // The one case the platform plays: the user chose its sound.
+        { "system default, mention", M::SourceSystem, M::SoundAll, true,
+          false, true },
+    };
+    for (const Row &row : rows) {
+        NotificationManager manager;
+        int chimes = 0;
+        manager.setOwnSoundPlayer([&chimes](bool) { ++chimes; return true; });
+        manager.setSoundSource(row.source);
+        NotificationManager::Context context = baseContext();
+        context.soundMode = row.mode;
+        TimelineEvent event = incomingText();
+        event.mentionsMe = row.mention;
+        manager.processEvent(event, context);
+        QVERIFY2(manager.trayAttemptsForTest() == 1,
+                 qPrintable(QStringLiteral("%1: the notification did not reach "
+                                           "the tray balloon at all")
+                                .arg(QLatin1String(row.name))));
+        QVERIFY2(chimes == (row.expectOwnChime ? 1 : 0),
+                 qPrintable(QStringLiteral("%1: own chime played %2 times")
+                                .arg(QLatin1String(row.name))
+                                .arg(chimes)));
+        QVERIFY2(manager.lastTrayPlatformSoundForTest()
+                     == row.expectPlatformSound,
+                 qPrintable(QStringLiteral(
+                                "%1: the balloon %2 the platform's own "
+                                "notification sound")
+                                .arg(QLatin1String(row.name),
+                                     row.expectPlatformSound
+                                         ? QStringLiteral("forbade")
+                                         : QStringLiteral("allowed"))));
+    }
+
+    // A burst coalesces into one alert for the platform's sound too: the
+    // second balloon inside the window is silent.
+    NotificationManager burst;
+    burst.setSoundSource(M::SourceSystem);
+    NotificationManager::Context context = baseContext();
+    context.soundMode = M::SoundAll;
+    burst.processEvent(incomingText(), context);
+    QVERIFY(burst.lastTrayPlatformSoundForTest());
+    burst.processEvent(incomingText(QStringLiteral("two")), context);
+    QCOMPARE(burst.trayAttemptsForTest(), 2);
+    QVERIFY2(!burst.lastTrayPlatformSoundForTest(),
+             "a coalesced balloon still allowed the platform's sound");
+}
+
+// The call balloon follows the caller's "the desktop rings": AppController
+// passes it true only when Lightning's own ringer cannot play. With our ringer
+// running the balloon must not add Windows' notification sound to the ring.
+void NotificationManagerTest::aCallBalloonIsSilentWhileLightningRings()
+{
+    NotificationManager ours;
+    ours.showIncomingCall(QStringLiteral("!ring:example.org"),
+                          QStringLiteral("call-1"),
+                          QStringLiteral("Incoming call"),
+                          QStringLiteral("body"),
+                          /*sound=*/false, /*ringSeconds=*/60);
+    QCOMPARE(ours.callTrayAttemptsForTest(), 1);
+    QCOMPARE(ours.trayAttemptsForTest(), 1);
+    QVERIFY2(!ours.lastTrayPlatformSoundForTest(),
+             "the call balloon allowed Windows' sound while Lightning rings");
+    ours.stopIncomingCall(QStringLiteral("call-1"));
+
+    NotificationManager desktop;
+    desktop.showIncomingCall(QStringLiteral("!ring:example.org"),
+                             QStringLiteral("call-2"),
+                             QStringLiteral("Incoming call"),
+                             QStringLiteral("body"),
+                             /*sound=*/true, /*ringSeconds=*/60);
+    QCOMPARE(desktop.trayAttemptsForTest(), 1);
+    QVERIFY(desktop.lastTrayPlatformSoundForTest());
+    desktop.stopIncomingCall(QStringLiteral("call-2"));
 }
 
 QTEST_MAIN(NotificationManagerTest)

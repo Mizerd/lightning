@@ -13,6 +13,20 @@
 #include <QApplication>
 #include <QSystemTrayIcon>
 
+#ifdef Q_OS_WIN
+#include <QLoggingCategory>
+#include <QSettings>
+#include <QThread>
+
+#include <qt_windows.h>
+// qt_windows.h may define WIN32_LEAN_AND_MEAN, which keeps shellapi.h out of
+// windows.h.
+#include <shellapi.h>
+
+#include <cstring>
+#include <cwchar>
+#endif
+
 namespace {
 
 // Deliberately not a theme token: the badge sits in the OS tray, not our window.
@@ -159,7 +173,16 @@ TrayIcon::TrayIcon(QObject *parent)
 {
 }
 
-TrayIcon::~TrayIcon() = default;
+TrayIcon::~TrayIcon()
+{
+#ifdef Q_OS_WIN
+    // The icon goes first (NIM_DELETE takes its balloon with it), then the
+    // HICON that balloon was showing.
+    delete m_icon;
+    m_icon = nullptr;
+    releaseBalloonIcon();
+#endif
+}
 
 bool TrayIcon::platformSupportsTray()
 {
@@ -177,6 +200,9 @@ void TrayIcon::setEnabled(bool enabled)
     if (!enabled) {
         delete m_icon;
         m_icon = nullptr;
+#ifdef Q_OS_WIN
+        releaseBalloonIcon();
+#endif
         return;
     }
     if (!platformSupportsTray())
@@ -301,11 +327,40 @@ void TrayIcon::refreshTooltip()
     m_icon->setToolTip(text);
 }
 
+unsigned TrayIcon::balloonInfoFlags(bool hasImage, bool platformSound)
+{
+    unsigned flags = hasImage ? (kBalloonUser | kBalloonLargeIcon)
+                              : kBalloonInfo;
+    if (!platformSound)
+        flags |= kBalloonNoSound;
+    return flags;
+}
+
+QImage TrayIcon::balloonImage(const QImage &avatar)
+{
+    constexpr int kMaxSide = 256;
+    if (avatar.isNull())
+        return {};
+    if (avatar.width() <= kMaxSide && avatar.height() <= kMaxSide)
+        return avatar;
+    return avatar.scaled(kMaxSide, kMaxSide, Qt::KeepAspectRatio,
+                         Qt::SmoothTransformation);
+}
+
 bool TrayIcon::showMessage(const QString &title, const QString &body,
-                           const QImage &image)
+                           const QImage &image, bool platformSound)
 {
     if (!m_icon || !m_icon->isVisible())
         return false;
+#ifdef Q_OS_WIN
+    if (showNativeBalloon(title, body, image, platformSound))
+        return true;
+#else
+    // macOS: Qt's NSUserNotification sets no soundName, so it is already
+    // silent (qcocoasystemtrayicon.mm, Qt 6.11.2). A Linux tray balloon
+    // carries no sound of its own.
+    Q_UNUSED(platformSound);
+#endif
     // Windows treats this as a hint and macOS ignores it.
     constexpr int kMillis = 10000;
     if (image.isNull())
@@ -314,3 +369,188 @@ bool TrayIcon::showMessage(const QString &title, const QString &body,
         m_icon->showMessage(title, body, QIcon(QPixmap::fromImage(image)), kMillis);
     return true;
 }
+
+#ifdef Q_OS_WIN
+namespace {
+
+Q_LOGGING_CATEGORY(lcTrayBalloon, "matrix.notify")
+
+static_assert(TrayIcon::kBalloonInfo == NIIF_INFO);
+static_assert(TrayIcon::kBalloonUser == NIIF_USER);
+static_assert(TrayIcon::kBalloonNoSound == NIIF_NOSOUND);
+static_assert(TrayIcon::kBalloonLargeIcon == NIIF_LARGE_ICON);
+
+// How Qt 6.11.2 registers a QSystemTrayIcon (qwindowssystemtrayicon.cpp):
+// uID is the constant q_uNOTIFYICONID = 0 (no NIF_GUID), on a hidden
+// top-level window (deliberately NOT HWND_MESSAGE: message-only windows miss
+// "TaskbarCreated") titled "QTrayIconMessageWindow", whose class is
+// "Qt<version>[d][namespace]TrayIconMessageWindowClass[uuid]", created on the
+// GUI thread. One such window per QSystemTrayIcon. Its window procedure turns
+// NIN_BALLOONUSERCLICK on that window into messageClicked(), so a balloon
+// raised here routes its click exactly as Qt's own.
+constexpr UINT kQtTrayIconId = 0;
+constexpr wchar_t kQtTrayWindowTitle[] = L"QTrayIconMessageWindow";
+constexpr wchar_t kQtTrayWindowClassPart[] = L"TrayIconMessageWindowClass";
+
+struct TrayWindowSearch {
+    HWND found = nullptr;
+    int matches = 0;
+};
+
+BOOL CALLBACK findQtTrayWindow(HWND hwnd, LPARAM param)
+{
+    auto *search = reinterpret_cast<TrayWindowSearch *>(param);
+    // The class name first: it is read without a message. Only then the
+    // title, which is a WM_GETTEXT; safe, because EnumThreadWindows offers
+    // only windows of the calling (GUI) thread, so it cannot block on another.
+    wchar_t className[256] = {};
+    if (GetClassNameW(hwnd, className, 256) <= 0
+        || !std::wcsstr(className, kQtTrayWindowClassPart))
+        return TRUE;
+    wchar_t title[64] = {};
+    if (GetWindowTextW(hwnd, title, 64) <= 0
+        || std::wcscmp(title, kQtTrayWindowTitle) != 0)
+        return TRUE;
+    search->found = hwnd;
+    ++search->matches;
+    return TRUE;
+}
+
+// Qt's supportsMessages(): with balloon tips switched off by policy Qt shows
+// nothing, and neither do we. An absent key (usual on Windows 10+) means on.
+bool balloonTipsEnabled()
+{
+    const QSettings advanced(
+        QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\"
+                       "CurrentVersion\\Explorer\\Advanced"),
+        QSettings::NativeFormat);
+    return advanced.value(QStringLiteral("EnableBalloonTips"), 1).toInt() != 0;
+}
+
+// A QString into a fixed NOTIFYICONDATAW field, NUL included, as Qt's
+// qStringToLimitedWCharArray, but never splitting a surrogate pair at the cut.
+template <size_t N>
+void copyLimited(const QString &in, wchar_t (&target)[N])
+{
+    qsizetype length = qMin<qsizetype>(qsizetype(N) - 1, in.size());
+    if (length > 0 && length < in.size() && in.at(length - 1).isHighSurrogate())
+        --length;
+    std::memset(target, 0, sizeof(target));
+    for (qsizetype i = 0; i < length; ++i)
+        target[i] = wchar_t(in.at(i).unicode());
+}
+
+enum class BalloonPath { Native, NoQtWindow, Ambiguous, Refused, WrongThread };
+
+// Which path the balloons take, logged once per path for the life of the
+// process (category matrix.notify, as NotificationManager's own lines). Never
+// the title or body.
+void logPathOnce(BalloonPath path)
+{
+    static unsigned logged = 0;
+    const unsigned bit = 1u << unsigned(path);
+    if (logged & bit)
+        return;
+    logged |= bit;
+    switch (path) {
+    case BalloonPath::Native:
+        qCInfo(lcTrayBalloon) << "tray balloon raised natively on Qt's icon; "
+                                 "the platform sound follows the sound plan";
+        break;
+    case BalloonPath::NoQtWindow:
+        qCWarning(lcTrayBalloon) << "tray balloon fell back to Qt (its tray "
+                                    "window was not found): Windows may add "
+                                    "its own notification sound";
+        break;
+    case BalloonPath::Ambiguous:
+        qCWarning(lcTrayBalloon) << "tray balloon fell back to Qt (more than "
+                                    "one Qt tray window): Windows may add its "
+                                    "own notification sound";
+        break;
+    case BalloonPath::Refused:
+        qCWarning(lcTrayBalloon) << "tray balloon fell back to Qt (the shell "
+                                    "refused NIM_MODIFY): Windows may add its "
+                                    "own notification sound";
+        break;
+    case BalloonPath::WrongThread:
+        qCWarning(lcTrayBalloon) << "tray balloon fell back to Qt (not on the "
+                                    "GUI thread): Windows may add its own "
+                                    "notification sound";
+        break;
+    }
+}
+
+} // namespace
+
+void TrayIcon::releaseBalloonIcon()
+{
+    if (m_balloonIcon) {
+        DestroyIcon(static_cast<HICON>(m_balloonIcon));
+        m_balloonIcon = nullptr;
+    }
+}
+
+bool TrayIcon::showNativeBalloon(const QString &title, const QString &body,
+                                 const QImage &image, bool platformSound)
+{
+    // Qt's tray window lives on the GUI thread, and only a window of the
+    // calling thread may be asked its title without risking a block.
+    if (QThread::currentThread() != thread()) {
+        logPathOnce(BalloonPath::WrongThread);
+        return false;
+    }
+    if (!balloonTipsEnabled())
+        return true; // what Qt's own call would have shown: nothing
+
+    TrayWindowSearch search;
+    EnumThreadWindows(GetCurrentThreadId(), findQtTrayWindow,
+                      reinterpret_cast<LPARAM>(&search));
+    if (search.matches == 0) {
+        logPathOnce(BalloonPath::NoQtWindow);
+        return false;
+    }
+    if (search.matches > 1) {
+        // Another QSystemTrayIcon in the process: which window is ours is
+        // unknowable from outside Qt.
+        logPathOnce(BalloonPath::Ambiguous);
+        return false;
+    }
+
+    NOTIFYICONDATAW data;
+    std::memset(&data, 0, sizeof(data));
+    data.cbSize = sizeof(data);
+    data.hWnd = search.found;
+    data.uID = kQtTrayIconId;
+    // As Qt: NIF_SHOWTIP keeps the standard tooltip under
+    // NOTIFYICON_VERSION_4, which Qt set on the icon after NIM_ADD.
+    data.uFlags = NIF_INFO | NIF_SHOWTIP;
+    // Shares a union with uVersion and is ignored since Vista (the
+    // accessibility timeout decides); Qt's value anyway.
+    data.uTimeout = 10000;
+    // As Qt: a title with an empty body still shows.
+    QString message = body;
+    if (message.isEmpty() && !title.isEmpty())
+        message = QStringLiteral(" ");
+    copyLimited(message, data.szInfo);
+    copyLimited(title, data.szInfoTitle);
+
+    HICON icon = nullptr;
+    const QImage scaled = balloonImage(image);
+    if (!scaled.isNull())
+        icon = scaled.toHICON();
+    data.dwInfoFlags = balloonInfoFlags(icon != nullptr, platformSound);
+    data.hBalloonIcon = icon;
+
+    if (!Shell_NotifyIconW(NIM_MODIFY, &data)) {
+        if (icon)
+            DestroyIcon(icon);
+        logPathOnce(BalloonPath::Refused);
+        return false;
+    }
+    // The previous balloon's icon is no longer on screen.
+    releaseBalloonIcon();
+    m_balloonIcon = icon;
+    logPathOnce(BalloonPath::Native);
+    return true;
+}
+#endif // Q_OS_WIN

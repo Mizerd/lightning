@@ -691,8 +691,10 @@ void NotificationManager::deliverNow(const QString &title,
     if (!bus.isConnected()) {
         // No session bus: fall back to the tray balloon. Our chime does not
         // depend on the bus.
-        takeSoundPlan(sound, payload.value(QStringLiteral("mention")).toBool());
-        if (!deliverThroughTray(title, body, payload, avatar))
+        const SoundPlan plan = takeSoundPlan(
+            sound, payload.value(QStringLiteral("mention")).toBool());
+        if (!deliverThroughTray(title, body, payload, avatar,
+                                plan.platformSound))
             qCInfo(lcNotify) << "notification service unavailable";
         return;
     }
@@ -750,6 +752,7 @@ void NotificationManager::deliverNow(const QString &title,
         bus.asyncCall(call, kNotifyTimeoutMs), this);
     connect(watcher, &QDBusPendingCallWatcher::finished, this,
             [this, watcher, title, body, payload, avatar,
+             platformSound = plan.platformSound,
              generation = m_deliveryGeneration] {
         watcher->deleteLater();
         const QDBusPendingReply<quint32> reply = *watcher;
@@ -767,16 +770,17 @@ void NotificationManager::deliverNow(const QString &title,
         else
             qCWarning(lcNotify) << "notification server refused the notification:"
                                 << reply.error().name();
-        deliverThroughTray(title, body, payload, avatar);
+        deliverThroughTray(title, body, payload, avatar, platformSound);
     });
 #else
     // No QtDBus (Windows, macOS): the tray balloon carries the notification
-    // (a toast on Windows, a user notification on macOS).
-    // The balloon cannot carry sound settings (QSystemTrayIcon has none), so
-    // the platform may add its own on top of Lightning's chime; see the
-    // notification-sound notes in docs/feature-contracts.md.
-    takeSoundPlan(sound, payload.value(QStringLiteral("mention")).toBool());
-    if (!deliverThroughTray(title, body, payload, avatar))
+    // (a toast on Windows, a user notification on macOS). It carries the
+    // plan's platformSound too: on Windows TrayIcon raises the balloon with
+    // NIIF_NOSOUND unless System default was chosen, since Qt's own balloon
+    // always made Windows add its sound on top of (or instead of) ours.
+    const SoundPlan plan = takeSoundPlan(
+        sound, payload.value(QStringLiteral("mention")).toBool());
+    if (!deliverThroughTray(title, body, payload, avatar, plan.platformSound))
         qCInfo(lcNotify) << "native notifications unavailable on this build";
 #endif
 }
@@ -855,9 +859,13 @@ void NotificationManager::setFallbackTray(TrayIcon *tray)
 bool NotificationManager::deliverThroughTray(const QString &title,
                                              const QString &body,
                                              const QVariantMap &payload,
-                                             const QImage &avatar)
+                                             const QImage &avatar,
+                                             bool platformSound)
 {
-    if (!m_fallbackTray || !m_fallbackTray->showMessage(title, body, avatar))
+    ++m_trayAttempts;
+    m_lastTrayPlatformSound = platformSound;
+    if (!m_fallbackTray
+        || !m_fallbackTray->showMessage(title, body, avatar, platformSound))
         return false;
     // One balloon at a time: the latest payload is the one a click resolves to.
     m_lastFallbackPayload = payload;
@@ -1196,8 +1204,11 @@ bool NotificationManager::deliverCallThroughTray()
         { QStringLiteral("threadRootId"), QString() },
     };
     m_lastCallTrayPayload = payload;
+    // m_activeCallSound is the caller's "the desktop rings", true only when
+    // ringing is on and Lightning's own ringer cannot play (AppController);
+    // with our ringer running, or ringing off, the balloon stays silent.
     if (!deliverThroughTray(m_activeCallTitle, m_activeCallBody, payload,
-                            QImage())) {
+                            QImage(), m_activeCallSound)) {
         qCInfo(lcNotify) << "incoming call could not be announced: no "
                             "notification service and no tray balloon";
         return false;
