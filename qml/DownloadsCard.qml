@@ -10,6 +10,11 @@ import MatrixClient
 // stays until dismissed or retried. A file whose type can run programs is
 // never opened from here: it offers Show in folder only and says why.
 //
+// A Snap or Flatpak gets a portal-granted file back from the save dialog in
+// the document portal's mount, whose folder is a document id; folderName is
+// empty then (unless the portal named the real folder) and the row says only
+// "Saved" under the file's name, never the id.
+//
 // The list is app.downloads.items, owned by C++, so it survives a room
 // switch. The card rests in the bottom-left corner of `safeArea`, which the
 // host sets to the chat column between the room header and the composer (the
@@ -26,7 +31,8 @@ Rectangle {
                                     parent ? parent.height : 0)
     // Another floating card in the parent's coordinates, or null.
     property Item avoid: null
-    // [{id, fileName, folderName, state, message, risky, canOpen}]
+    // [{id, fileName, folderName, state, message, risky, canOpen,
+    //   revealFailed}]
     property var items: app && app.downloads ? app.downloads.items : []
     readonly property int margin: AppTheme.spacing12
 
@@ -175,6 +181,10 @@ Rectangle {
                                 if (row.failed)
                                     return row.modelData.message
                                            || qsTr("The download failed.")
+                                // Show in folder found no way to show it.
+                                if (row.modelData.revealFailed)
+                                    return qsTr("Saved, but its folder "
+                                                + "couldn't be opened.")
                                 return folder.length > 0
                                     ? qsTr("Saved to %1").arg(folder)
                                     : qsTr("Saved")

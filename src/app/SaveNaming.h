@@ -87,4 +87,34 @@ bool markAsDownloaded(const QString &path);
 /// when the name has no extension.
 QStringList saveDialogFilters(const QString &leaf);
 
+// ── Files the xdg document portal granted ──
+//
+// A Snap or a Flatpak that saves through the FileChooser portal is handed the
+// file inside the document portal's FUSE mount: /run/user/<uid>/doc/<id>/<name>
+// (a Snap, whose $XDG_RUNTIME_DIR is /run/user/<uid>/snap.<name>, still sees
+// it there), or /run/flatpak/doc/<id>/<name> once a Flatpak's symlink is
+// resolved, or, on the host, .../doc/by-app/<app>/<id>/<name>. <id> is a
+// document id like "fd37b80a": a folder name the user has never seen, and one
+// no file manager outside the sandbox can be pointed at usefully.
+
+/// Whether `path` lies in the document portal's mount (the mount, a document's
+/// folder, or a file in one). `runtimeDir` is $XDG_RUNTIME_DIR; the
+/// /run/user/<uid>/doc and /run/flatpak/doc mounts count whatever it is.
+bool isDocumentPortalPath(const QString &path, const QString &runtimeDir);
+/// The same, with the process's own $XDG_RUNTIME_DIR.
+bool isDocumentPortalPath(const QString &path);
+
+/// The document id of a path in the document portal's mount ("fd37b80a" for
+/// /run/user/1000/doc/fd37b80a/report.pdf), or empty for any other path.
+QString documentPortalId(const QString &path, const QString &runtimeDir);
+QString documentPortalId(const QString &path);
+
+/// The folder a saved file is shown as being in, by name: the parent of
+/// `path`, or, for a document-portal file, the parent of `hostPath` (the real
+/// location the portal reported) and EMPTY when that is not known, never the
+/// document id. Empty means "say only that it was saved".
+QString savedFolderName(const QString &path, const QString &hostPath,
+                        const QString &runtimeDir);
+QString savedFolderName(const QString &path, const QString &hostPath);
+
 } // namespace savenaming

@@ -27,7 +27,9 @@
 #include <QDBusVirtualObject>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QProcess>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -189,6 +191,7 @@ private Q_SLOTS:
     void theRouteFollowsThePlatformAndTheOverride();
     void nameFiltersAreParsedLikeQtDoes();
     void theRequestIdIsReturnedBeforeAnyAnswer();
+    void aDocumentPortalFolderIsNeverRemembered();
     void thePortalOpensSeveralFilesFromTheRememberedFolder();
     void thePortalSaveDialogIsPrefilledWithNameAndType();
     void aCancelledPortalDialogIsARejection();
@@ -342,6 +345,56 @@ void FileChooserTest::theRequestIdIsReturnedBeforeAnyAnswer()
     QCOMPARE(seen.mode, FileChooser::Mode::SaveFile);
     QCOMPARE(seen.currentName, QStringLiteral("name.pdf"));
     QCOMPARE(chooser.lastUsedRoute(), FileChooser::Route::QtDialog);
+}
+
+// A Snap or Flatpak gets a portal-granted file back inside the document
+// portal's mount (/run/user/<uid>/doc/<id>/<name>). That folder holds one
+// document; remembering it started the next Save dialog in a folder named
+// by an id (2026-10-07, found with the "Saved to fd37b80a" report).
+void FileChooserTest::aDocumentPortalFolderIsNeverRemembered()
+{
+    QTemporaryDir runtime;
+    QVERIFY(runtime.isValid());
+    const QString root = QFileInfo(runtime.path()).canonicalFilePath();
+    const QString docFolder = root + QStringLiteral("/doc/fd37b80a");
+    QVERIFY(QDir().mkpath(docFolder));
+    const bool hadRuntime = qEnvironmentVariableIsSet("XDG_RUNTIME_DIR");
+    const QByteArray savedRuntime = qgetenv("XDG_RUNTIME_DIR");
+    qputenv("XDG_RUNTIME_DIR", root.toUtf8());
+    const auto restore = qScopeGuard([&] {
+        if (hadRuntime)
+            qputenv("XDG_RUNTIME_DIR", savedRuntime);
+        else
+            qunsetenv("XDG_RUNTIME_DIR");
+    });
+
+    QTemporaryDir fallback;
+    QVERIFY(fallback.isValid());
+    FileChooser chooser{FileChooser::Environment{}};
+    FileChooser::Request seen;
+    chooser.setQtRunner([&](const FileChooser::Request &r, bool,
+                            FileChooser::Completion done) {
+        seen = r;
+        done(true, {QUrl::fromLocalFile(docFolder + QStringLiteral("/a.pdf"))},
+             {});
+    });
+    QList<QUrl> remembered;
+    // An older build may have remembered one already.
+    chooser.setFolderMemory(
+        [&](const QString &) { return QUrl::fromLocalFile(docFolder); },
+        [&](const QString &, const QUrl &dir) { remembered.append(dir); });
+    chooser.setDefaultFolder([&] { return QUrl::fromLocalFile(fallback.path()); });
+
+    FileChooser::Request request;
+    request.mode = FileChooser::Mode::SaveFile;
+    request.currentName = QStringLiteral("a.pdf");
+    request.purpose = QStringLiteral("save");
+    QSignalSpy finished(&chooser, &FileChooser::finished);
+    chooser.open(request, {});
+    QVERIFY(finished.wait(2000));
+    QCOMPARE(finished.at(0).at(1).toBool(), true);
+    QVERIFY(remembered.isEmpty());
+    QCOMPARE(seen.folder, QUrl::fromLocalFile(fallback.path()));
 }
 
 void FileChooserTest::thePortalOpensSeveralFilesFromTheRememberedFolder()

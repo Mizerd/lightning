@@ -237,6 +237,103 @@ private Q_SLOTS:
         QCOMPARE(saveDialogFilters(QStringLiteral("README")),
                  QStringList{QStringLiteral("All files (*)")});
     }
+
+    // Reported 2026-10-07 from the Ubuntu 26 snap: a download saved through
+    // the portal's Save dialog said "Saved to fd37b80a", the document
+    // portal's id for the file, and Show in folder opened nothing. The
+    // Flatpak takes the same path.
+    void documentPortalPathsAreRecognised_data()
+    {
+        QTest::addColumn<QString>("path");
+        QTest::addColumn<QString>("runtimeDir");
+        QTest::addColumn<bool>("portal");
+        QTest::addColumn<QString>("docId");
+        // The folder named with no host path, and with the real one
+        // ("/home/someone/Downloads/report.pdf").
+        QTest::addColumn<QString>("folder");
+        QTest::addColumn<QString>("folderWithHost");
+
+        // A Snap's runtime dir is its own; the doc mount is not under it.
+        QTest::newRow("snap")
+            << "/run/user/1000/doc/fd37b80a/report.pdf"
+            << "/run/user/1000/snap.lightning" << true << "fd37b80a" << ""
+            << "Downloads";
+        QTest::newRow("flatpak")
+            << "/run/user/1000/doc/fd37b80a/report.pdf" << "/run/user/1000"
+            << true << "fd37b80a" << "" << "Downloads";
+        // MediaBridge canonicalizes the parent, and in a Flatpak
+        // /run/user/<uid>/doc is a symlink to this.
+        QTest::newRow("flatpak, resolved")
+            << "/run/flatpak/doc/fd37b80a/report.pdf" << "/run/user/1000"
+            << true << "fd37b80a" << "" << "Downloads";
+        QTest::newRow("host view, by app")
+            << "/run/user/1000/doc/by-app/snap.lightning/fd37b80a/report.pdf"
+            << "/run/user/1000" << true << "fd37b80a" << "" << "Downloads";
+        QTest::newRow("runtime dir elsewhere")
+            << "/tmp/rt/doc/abc123/notes.txt" << "/tmp/rt/" << true
+            << "abc123" << "" << "Downloads";
+        QTest::newRow("no runtime dir")
+            << "/run/user/1000/doc/fd37b80a/report.pdf" << "" << true
+            << "fd37b80a" << "" << "Downloads";
+        QTest::newRow("the document's folder")
+            << "/run/user/1000/doc/fd37b80a" << "" << true << "fd37b80a"
+            << "" << "Downloads";
+        QTest::newRow("the mount itself")
+            << "/run/user/1000/doc" << "" << true << "" << "" << "Downloads";
+        // Not the portal: the parent folder, whatever host path is given.
+        QTest::newRow("ordinary file")
+            << "/home/someone/Downloads/report.pdf" << "/run/user/1000"
+            << false << "" << "Downloads" << "Downloads";
+        QTest::newRow("docs, not doc")
+            << "/run/user/1000/docs/report.pdf" << "/run/user/1000" << false
+            << "" << "docs" << "docs";
+        // The old test ("/run/user/" and "/doc/" anywhere) took this one.
+        QTest::newRow("a share with a doc folder")
+            << "/run/user/1000/gvfs/smb-share:server=nas,share=files/doc/a.pdf"
+            << "/run/user/1000" << false << "" << "doc" << "doc";
+        QTest::newRow("not a uid")
+            << "/run/user/someone/doc/x/a.pdf" << "" << false << "" << "x"
+            << "x";
+        QTest::newRow("dot-dot out of the mount")
+            << "/run/user/1000/doc/../Downloads/a.pdf" << "" << false << ""
+            << "Downloads" << "Downloads";
+        QTest::newRow("empty") << "" << "/run/user/1000" << false << "" << ""
+                               << "";
+    }
+    void documentPortalPathsAreRecognised()
+    {
+        QFETCH(QString, path);
+        QFETCH(QString, runtimeDir);
+        QFETCH(bool, portal);
+        QFETCH(QString, docId);
+        QFETCH(QString, folder);
+        QFETCH(QString, folderWithHost);
+        QCOMPARE(isDocumentPortalPath(path, runtimeDir), portal);
+        QCOMPARE(documentPortalId(path, runtimeDir), docId);
+        QCOMPARE(savedFolderName(path, QString(), runtimeDir), folder);
+        QCOMPARE(savedFolderName(path,
+                                 QStringLiteral(
+                                     "/home/someone/Downloads/report.pdf"),
+                                 runtimeDir),
+                 folderWithHost);
+    }
+
+    // A "host path" that is itself in the mount, or relative, names nothing
+    // better than the id did: still no folder.
+    void aHostPathInsideTheMountIsNotARealFolder()
+    {
+        const QString path = QStringLiteral("/run/user/1000/doc/fd37b80a/a.pdf");
+        QCOMPARE(savedFolderName(path,
+                                 QStringLiteral("/run/user/1000/doc/fd37b80a/a.pdf"),
+                                 QStringLiteral("/run/user/1000")),
+                 QString());
+        QCOMPARE(savedFolderName(path, QStringLiteral("/run/flatpak/doc/x/a.pdf"),
+                                 QString()),
+                 QString());
+        QCOMPARE(savedFolderName(path, QStringLiteral("Downloads/a.pdf"),
+                                 QString()),
+                 QString());
+    }
 };
 
 QTEST_GUILESS_MAIN(SaveNamingTest)

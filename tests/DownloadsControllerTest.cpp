@@ -28,6 +28,10 @@
 #include <QTemporaryDir>
 #include <QtTest/QtTest>
 
+#if defined(Q_OS_LINUX)
+#include <sys/xattr.h>
+#endif
+
 namespace {
 
 // The MediaBridge test's fake: records fetches, answers on demand.
@@ -98,8 +102,13 @@ struct LaunchLog
     QList<QPair<QString, QStringList>> started;
     QList<QUrl> shown;
     QStringList portalDirs;
+    QStringList portalFiles;
+    QStringList hostPathAsked;
+    /// What the Documents portal says a document's real path is.
+    QString hostPath;
     bool fileManagerAnswers = true;
     bool portalAnswers = true;
+    bool portalFileAnswers = true;
     bool startSucceeds = true;
 };
 
@@ -124,8 +133,59 @@ FileLauncher::Hooks hooksFor(LaunchLog &log)
         log.portalDirs.append(path);
         done(log.portalAnswers);
     };
+    // (2026-10-07 hooks: drop these two to build the document-portal cases
+    // against the tree before that fix.)
+    hooks.portalOpenFile = [&log](const QString &path,
+                                  std::function<void(bool)> done) {
+        log.portalFiles.append(path);
+        done(log.portalFileAnswers);
+    };
+    hooks.documentHostPath = [&log](const QString &, const QString &docId,
+                                    std::function<void(const QString &)> done) {
+        log.hostPathAsked.append(docId);
+        done(log.hostPath);
+    };
     return hooks;
 }
+
+// $XDG_RUNTIME_DIR pointed at a scratch folder holding a fake document-portal
+// mount, restored afterwards.
+class FakeDocumentPortal
+{
+public:
+    FakeDocumentPortal()
+        : m_saved(qgetenv("XDG_RUNTIME_DIR")),
+          m_had(qEnvironmentVariableIsSet("XDG_RUNTIME_DIR"))
+    {
+        // Canonical, because MediaBridge canonicalizes the folder it writes
+        // into and the path it reports must still be inside this mount.
+        m_root = QFileInfo(m_dir.path()).canonicalFilePath();
+        qputenv("XDG_RUNTIME_DIR", m_root.toUtf8());
+        QDir().mkpath(documentFolder());
+    }
+    ~FakeDocumentPortal()
+    {
+        if (m_had)
+            qputenv("XDG_RUNTIME_DIR", m_saved);
+        else
+            qunsetenv("XDG_RUNTIME_DIR");
+    }
+    bool isValid() const { return m_dir.isValid() && !m_root.isEmpty(); }
+    QString documentFolder() const
+    {
+        return m_root + QStringLiteral("/doc/fd37b80a");
+    }
+    QString file(const QString &leaf) const
+    {
+        return documentFolder() + QLatin1Char('/') + leaf;
+    }
+
+private:
+    QTemporaryDir m_dir;
+    QString m_root;
+    QByteArray m_saved;
+    bool m_had;
+};
 
 QString writeFile(const QString &dir, const QString &name,
                   const QByteArray &bytes = QByteArray("old"))
@@ -155,6 +215,10 @@ private Q_SLOTS:
         QStandardPaths::setTestModeEnabled(true);
         QVERIFY(m_config.isValid());
         qputenv("XDG_CONFIG_HOME", m_config.path().toUtf8());
+        // No bus: a real portal hook that slips past the fakes must not
+        // reach (or D-Bus activate) the desktop's portals.
+        qputenv("DBUS_SESSION_BUS_ADDRESS",
+                QByteArrayLiteral("unix:path=/nonexistent/lightning-test-bus"));
     }
 
     // ── FileLauncher: the right platform call ──
@@ -239,6 +303,203 @@ private Q_SLOTS:
         QVERIFY(!launcher.showInFolder(dir.path() + QStringLiteral("/gone.pdf")));
         QVERIFY(log.opened.isEmpty());
         QVERIFY(log.shown.isEmpty());
+    }
+
+    // ── Files the document portal granted (Snap, Flatpak) ──
+    //
+    // Reported 2026-10-07 from the Ubuntu 26 snap: "Saved to fd37b80a" (the
+    // document portal's id for the file), and Show in folder opened nothing.
+
+    void showInFolderHandsAPortalFileToThePortalNotByName()
+    {
+        FakeDocumentPortal portal;
+        QVERIFY(portal.isValid());
+        const QString path = writeFile(portal.documentFolder(),
+                                       QStringLiteral("report.pdf"));
+        LaunchLog log;
+        FileLauncher launcher(FileLauncher::Platform::Linux, hooksFor(log));
+        QSignalSpy how(&launcher, &FileLauncher::revealFinished);
+        QVERIFY(launcher.showInFolder(path));
+        // OpenDirectory with the file; the host's file manager is never
+        // handed the sandbox's path.
+        QCOMPARE(log.portalDirs, QStringList{path});
+        QVERIFY(log.shown.isEmpty());
+        QVERIFY(log.opened.isEmpty());
+        QCOMPARE(how.count(), 1);
+        QCOMPARE(how.at(0).at(0).toString(), QStringLiteral("portal"));
+    }
+
+    void withoutThePortalAPortalFileIsShownByItsRealPathOrNotAtAll()
+    {
+        FakeDocumentPortal portal;
+        QVERIFY(portal.isValid());
+        const QString path = writeFile(portal.documentFolder(),
+                                       QStringLiteral("report.pdf"));
+        LaunchLog log;
+        log.portalAnswers = false;
+        log.hostPath = QStringLiteral("/home/someone/Downloads/report.pdf");
+        FileLauncher launcher(FileLauncher::Platform::Linux, hooksFor(log));
+        QSignalSpy how(&launcher, &FileLauncher::revealFinished);
+        QVERIFY(launcher.showInFolder(path));
+        QCOMPARE(log.hostPathAsked, QStringList{QStringLiteral("fd37b80a")});
+        QCOMPARE(log.shown, QList<QUrl>{QUrl::fromLocalFile(log.hostPath)});
+        QCOMPARE(how.at(0).at(0).toString(), QStringLiteral("file-manager"));
+
+        // Nothing names the real folder: an honest failure, never the
+        // document's own folder (a directory named by its id).
+        log.hostPath.clear();
+        log.shown.clear();
+        how.clear();
+        QString reported;
+        QVERIFY(launcher.showInFolder(path, [&reported](const QString &h) {
+            reported = h;
+        }));
+        QVERIFY(log.shown.isEmpty());
+        QVERIFY(log.opened.isEmpty());
+        QCOMPARE(how.at(0).at(0).toString(), QStringLiteral("failed"));
+        QCOMPARE(reported, QStringLiteral("failed"));
+    }
+
+    void openHandsAPortalFileToTheOpenUriPortal()
+    {
+        FakeDocumentPortal portal;
+        QVERIFY(portal.isValid());
+        const QString path = writeFile(portal.documentFolder(),
+                                       QStringLiteral("report.pdf"));
+        LaunchLog log;
+        FileLauncher launcher(FileLauncher::Platform::Linux, hooksFor(log));
+        QVERIFY(launcher.openFile(path));
+        QCOMPARE(log.portalFiles, QStringList{path});
+        QVERIFY(log.opened.isEmpty());
+        // A portal that fails: Qt's own route, once.
+        log.portalFiles.clear();
+        log.portalFileAnswers = false;
+        QVERIFY(launcher.openFile(path));
+        QCOMPARE(log.portalFiles, QStringList{path});
+        QCOMPARE(log.opened, QList<QUrl>{QUrl::fromLocalFile(path)});
+    }
+
+    void aPortalSaveNamesTheFileNotTheDocumentId()
+    {
+        FakeDocumentPortal portal;
+        QVERIFY(portal.isValid());
+        QTemporaryDir dir;
+        Fixture f(dir.path());
+        f.settings->setAlwaysAskWhereToSave(true);
+        // What the portal's Save dialog hands a Snap or a Flatpak.
+        f.answer = QUrl::fromLocalFile(portal.file(QStringLiteral("report.pdf")));
+        f.downloads->download(QStringLiteral("$report"),
+                              QStringLiteral("report.pdf"),
+                              QStringLiteral("application/pdf"));
+        QTRY_COMPARE(f.client.fetches.size(), 1);
+        f.client.succeed(f.client.fetches.at(0).opId, "pdf");
+        QTRY_COMPARE(f.downloads->items().value(0).toMap()
+                         .value(QStringLiteral("state")).toString(),
+                     QStringLiteral("done"));
+        QVariantMap item = f.downloads->items().value(0).toMap();
+        QCOMPARE(readFile(portal.file(QStringLiteral("report.pdf"))),
+                 QByteArray("pdf"));
+        QCOMPARE(item.value(QStringLiteral("fileName")).toString(),
+                 QStringLiteral("report.pdf"));
+        // Not "fd37b80a": the card then says only "Saved".
+        QCOMPARE(item.value(QStringLiteral("folderName")).toString(), QString());
+        QCOMPARE(f.log.hostPathAsked, QStringList{QStringLiteral("fd37b80a")});
+        QCOMPARE(item.value(QStringLiteral("canOpen")).toBool(), true);
+
+        // Show in folder, with no portal and no real path: the row says so.
+        f.log.portalAnswers = false;
+        const int id = item.value(QStringLiteral("id")).toInt();
+        QVERIFY(f.downloads->showInFolder(id));
+        item = f.downloads->items().value(0).toMap();
+        QCOMPARE(item.value(QStringLiteral("revealFailed")).toBool(), true);
+        QVERIFY(f.log.opened.isEmpty());
+        // A second try that works clears it.
+        f.log.portalAnswers = true;
+        QVERIFY(f.downloads->showInFolder(id));
+        item = f.downloads->items().value(0).toMap();
+        QCOMPARE(item.value(QStringLiteral("revealFailed")).toBool(), false);
+
+        // Open goes to the portal with the granted file.
+        QVERIFY(f.downloads->open(id));
+        QCOMPARE(f.log.portalFiles,
+                 QStringList{portal.file(QStringLiteral("report.pdf"))});
+    }
+
+    void thePortalsRealFolderIsNamedWhenItSaysOne()
+    {
+        FakeDocumentPortal portal;
+        QVERIFY(portal.isValid());
+        QTemporaryDir dir;
+        Fixture f(dir.path());
+        f.log.hostPath = QStringLiteral("/home/someone/Downloads/report.pdf");
+        f.answer = QUrl::fromLocalFile(portal.file(QStringLiteral("report.pdf")));
+        f.downloads->saveAs(QStringLiteral("$report"),
+                            QStringLiteral("report.pdf"),
+                            QStringLiteral("application/pdf"));
+        QTRY_COMPARE(f.client.fetches.size(), 1);
+        f.client.succeed(f.client.fetches.at(0).opId, "pdf");
+        QTRY_COMPARE(f.downloads->items().value(0).toMap()
+                         .value(QStringLiteral("state")).toString(),
+                     QStringLiteral("done"));
+        QCOMPARE(f.downloads->items().value(0).toMap()
+                     .value(QStringLiteral("folderName")).toString(),
+                 QStringLiteral("Downloads"));
+    }
+
+    void aRiskyPortalFileIsNeverOpenedEither()
+    {
+        FakeDocumentPortal portal;
+        QVERIFY(portal.isValid());
+        QTemporaryDir dir;
+        Fixture f(dir.path());
+        f.answer = QUrl::fromLocalFile(portal.file(QStringLiteral("setup.exe")));
+        f.downloads->saveAs(QStringLiteral("$setup"), QStringLiteral("setup.exe"),
+                            QStringLiteral("application/x-msdownload"));
+        QTRY_COMPARE(f.client.fetches.size(), 1);
+        f.client.succeed(f.client.fetches.at(0).opId, "MZ");
+        QTRY_COMPARE(f.downloads->items().value(0).toMap()
+                         .value(QStringLiteral("state")).toString(),
+                     QStringLiteral("done"));
+        const QVariantMap item = f.downloads->items().value(0).toMap();
+        QCOMPARE(item.value(QStringLiteral("canOpen")).toBool(), false);
+        const int id = item.value(QStringLiteral("id")).toInt();
+        QVERIFY(!f.downloads->open(id));
+        QVERIFY(f.log.portalFiles.isEmpty());
+        QVERIFY(f.log.opened.isEmpty());
+        // Shown, through the portal.
+        QVERIFY(f.downloads->showInFolder(id));
+        QCOMPARE(f.log.portalDirs,
+                 QStringList{portal.file(QStringLiteral("setup.exe"))});
+    }
+
+    // The real reader: the attribute the document portal sets on every
+    // document. Needs a filesystem with user xattrs (skips without one); no
+    // bus is reachable here, so GetHostPaths answers nothing.
+    void theDefaultReaderTakesTheHostPathFromThePortalsAttribute()
+    {
+#if !defined(Q_OS_LINUX)
+        QSKIP("the document portal is Linux only");
+#else
+        FakeDocumentPortal portal;
+        QVERIFY(portal.isValid());
+        const QString path = writeFile(portal.documentFolder(),
+                                       QStringLiteral("report.pdf"));
+        FileLauncher launcher(FileLauncher::Platform::Linux,
+                              FileLauncher::Hooks{});
+        QString host = QStringLiteral("unset");
+        launcher.resolveHostPath(path, [&host](const QString &h) { host = h; });
+        QTRY_COMPARE(host, QString()); // no attribute, no bus: nothing
+
+        const QByteArray value("/home/someone/Downloads/report.pdf");
+        if (::setxattr(QFile::encodeName(path).constData(),
+                       "user.document-portal.host-path", value.constData(),
+                       static_cast<size_t>(value.size()), 0)
+            != 0)
+            QSKIP("this filesystem refuses user extended attributes");
+        host = QStringLiteral("unset");
+        launcher.resolveHostPath(path, [&host](const QString &h) { host = h; });
+        QCOMPARE(host, QString::fromUtf8(value));
+#endif
     }
 
     // ── Sandboxes that cannot write to Downloads always ask ──

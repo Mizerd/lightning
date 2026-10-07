@@ -13,6 +13,18 @@
 //                   Windows: `explorer.exe /select,<path>`.
 //                   macOS: `open -R <path>`.
 //
+// A file the document portal granted (a Snap or Flatpak that saved through
+// the FileChooser portal: /run/user/<uid>/doc/<id>/<name>) is a path only the
+// sandbox can use, so neither action hands it to anyone by name:
+//   Open            the OpenURI portal's OpenFile with a descriptor on the
+//                   file; Qt's own route if the portal fails.
+//   Show in folder  the OpenURI portal's OpenDirectory with a descriptor on
+//                   the file (the portal resolves the document to the real
+//                   folder and selects the file); then FileManager1 with the
+//                   REAL path when the Documents portal could name it; then
+//                   an honest failure. Never the document's own folder, whose
+//                   name is an id the user has never seen.
+//
 // The platform calls go through Hooks so a test can observe which path was
 // taken on any host, without starting a file manager.
 //
@@ -43,8 +55,21 @@ public:
         /// the call succeeded.
         std::function<void(const QUrl &, std::function<void(bool)>)> showItems;
         /// The OpenURI portal's OpenDirectory for this file; asynchronous.
+        /// True once the portal's Request answered success (or was cancelled
+        /// by the user), false when the call or its Response failed.
         std::function<void(const QString &, std::function<void(bool)>)>
             portalOpenDirectory;
+        /// The OpenURI portal's OpenFile for this file; asynchronous, answers
+        /// like portalOpenDirectory.
+        std::function<void(const QString &, std::function<void(bool)>)>
+            portalOpenFile;
+        /// The real location of a document-portal file (`path`, document id
+        /// `docId`): the portal's host-path attribute, then
+        /// org.freedesktop.portal.Documents.GetHostPaths. Empty when neither
+        /// says; asynchronous.
+        std::function<void(const QString &path, const QString &docId,
+                           std::function<void(const QString &)>)>
+            documentHostPath;
     };
 
     explicit FileLauncher(QObject *parent = nullptr);
@@ -55,12 +80,19 @@ public:
     static Platform hostPlatform();
 
     /// Opens `path` with the desktop's handler. False when the file is gone or
-    /// the desktop refused.
+    /// the desktop refused. A document-portal file goes to the OpenURI portal
+    /// (asynchronous; true once handed over).
     bool openFile(const QString &path);
-    /// Reveals `path` in the file manager. Asynchronous on Linux; the result,
-    /// for logging and tests, arrives on revealFinished. Falls back to the
-    /// containing folder. False only when the file is gone.
-    bool showInFolder(const QString &path);
+    /// Reveals `path` in the file manager. Asynchronous on Linux; the result
+    /// arrives on revealFinished and on `done`, if given. Falls back to the
+    /// containing folder, except for a document-portal file (see above).
+    /// False only when the file is gone.
+    bool showInFolder(const QString &path,
+                      std::function<void(const QString &how)> done = {});
+    /// The real location of a document-portal file, asynchronously; empty
+    /// when the portal does not say. Any other path answers itself at once.
+    void resolveHostPath(const QString &path,
+                         std::function<void(const QString &)> done);
 
     Platform platform() const { return m_platform; }
 
@@ -71,7 +103,15 @@ Q_SIGNALS:
 
 private:
     void installDefaults();
-    void openContainingFolder(const QString &path);
+    void openContainingFolder(const QString &path,
+                              const std::function<void(const QString &)> &done);
+    void revealDocument(const QString &path,
+                        std::function<void(const QString &)> done);
+    void finishReveal(const QString &how,
+                      const std::function<void(const QString &)> &done);
+    /// OpenURI.<method>(parent, fd on `path`, options) and its Response.
+    void callOpenUriWithFd(const QString &method, const QString &path,
+                           std::function<void(bool)> done);
 
     Platform m_platform;
     Hooks m_hooks;

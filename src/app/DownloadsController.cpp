@@ -19,14 +19,6 @@ Q_LOGGING_CATEGORY(lcDownloads, "lightning.files.downloads")
 
 // Finished items kept for the card; older ones fall off.
 constexpr int kMaxFinishedItems = 6;
-
-// A file a Flatpak's save portal granted lives in the document portal's FUSE
-// mount, where only that exact name is writable.
-bool isDocumentPortalPath(const QString &path)
-{
-    return path.startsWith(QLatin1String("/run/user/"))
-        && path.contains(QLatin1String("/doc/"));
-}
 } // namespace
 
 bool DownloadsController::sandboxBlocksDownloads(const Sandbox &sandbox)
@@ -257,7 +249,9 @@ void DownloadsController::startAsking(const QString &mediaKey,
         const QFileInfo info(local);
         const QString leaf = info.fileName();
         const QString fixed = savenaming::ensureExtension(leaf, extension);
-        if (fixed != leaf && !isDocumentPortalPath(local)) {
+        // A file the save portal granted lives in the document portal's FUSE
+        // mount, where only that exact name is writable.
+        if (fixed != leaf && !savenaming::isDocumentPortalPath(local)) {
             // The user removed the extension; it goes back. The dialog
             // confirmed overwriting the name it saw, not this one, so a
             // taken name is numbered rather than replaced.
@@ -317,10 +311,30 @@ DownloadsController::Item *DownloadsController::oldestSaving(
 void DownloadsController::onSaveCompleted(const QString &mediaKey,
                                           const QString &path)
 {
-    if (Item *item = oldestSaving(mediaKey)) {
-        item->path = path;
-        item->fileName = QFileInfo(path).fileName();
-    }
+    Item *item = oldestSaving(mediaKey);
+    if (!item)
+        return;
+    item->path = path;
+    item->fileName = QFileInfo(path).fileName();
+    item->hostPath.clear();
+    if (!m_launcher || !savenaming::isDocumentPortalPath(path))
+        return;
+    // The folder the card names is the real one, once the portal says where
+    // the document lives; its own parent is a document id.
+    const int id = item->id;
+    QPointer<DownloadsController> self(this);
+    m_launcher->resolveHostPath(path, [self, id, path](const QString &host) {
+        if (!self || host.isEmpty())
+            return;
+        Item *resolved = self->itemById(id);
+        if (!resolved || resolved->path != path)
+            return;
+        resolved->hostPath = host;
+        // Before saveFinished, the row is still "saving" and is published
+        // with it; after it, this is news.
+        if (resolved->state != State::Saving)
+            Q_EMIT self->itemsChanged();
+    });
 }
 
 void DownloadsController::onSaveCancelled(const QString &mediaKey)
@@ -382,20 +396,23 @@ QVariantList DownloadsController::items() const
         case State::Done: state = QStringLiteral("done"); break;
         case State::Failed: state = QStringLiteral("failed"); break;
         }
-        const QString dir = item.path.isEmpty()
-            ? (item.asked ? QString() : folder)
-            : QFileInfo(item.path).absolutePath();
+        // Never the document portal's id folder: savedFolderName() names
+        // the real one when the portal said, and nothing otherwise.
+        const QString folderName = !item.path.isEmpty()
+            ? savenaming::savedFolderName(item.path, item.hostPath)
+            : (item.asked || folder.isEmpty() ? QString()
+                                              : QFileInfo(folder).fileName());
         out.append(QVariantMap{
             {QStringLiteral("id"), item.id},
             {QStringLiteral("mediaKey"), item.mediaKey},
             {QStringLiteral("fileName"), item.fileName},
-            {QStringLiteral("folderName"),
-             dir.isEmpty() ? QString() : QFileInfo(dir).fileName()},
+            {QStringLiteral("folderName"), folderName},
             {QStringLiteral("state"), state},
             {QStringLiteral("message"), item.message},
             {QStringLiteral("risky"),
              savenaming::isRiskyToOpen(item.fileName, item.mime)},
             {QStringLiteral("canOpen"), canOpen(item)},
+            {QStringLiteral("revealFailed"), item.revealFailed},
         });
     }
     return out;
@@ -411,11 +428,27 @@ bool DownloadsController::open(int id)
 
 bool DownloadsController::showInFolder(int id)
 {
-    const Item *item = itemById(id);
+    Item *item = itemById(id);
     if (!item || item->state != State::Done || item->path.isEmpty()
         || !m_launcher)
         return false;
-    return m_launcher->showInFolder(item->path);
+    const QString path = item->path;
+    if (item->revealFailed) {
+        item->revealFailed = false;
+        Q_EMIT itemsChanged();
+    }
+    QPointer<DownloadsController> self(this);
+    return m_launcher->showInFolder(
+        path, [self, id](const QString &how) {
+            if (!self || how != QLatin1String("failed"))
+                return;
+            // Said on the row, not silently nothing (a sandbox with no
+            // portal to show a document-portal file's folder).
+            if (Item *shown = self->itemById(id)) {
+                shown->revealFailed = true;
+                Q_EMIT self->itemsChanged();
+            }
+        });
 }
 
 void DownloadsController::cancel(int id)

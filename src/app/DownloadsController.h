@@ -19,6 +19,12 @@
 // user clicks.
 //
 // Paths stay in C++: QML gets ids, the file name and the folder's name.
+//
+// A Snap or Flatpak saving through the portal gets the file back as a path in
+// the document portal's mount (/run/user/<uid>/doc/<id>/<name>), whose parent
+// is a document id. That id is never shown as the folder: the real location
+// is asked of the portal (FileLauncher::resolveHostPath) and named when it
+// answers; until then, or when it cannot, the card says only "Saved".
 
 #include <QHash>
 #include <QList>
@@ -39,7 +45,11 @@ class DownloadsController : public QObject
 {
     Q_OBJECT
     /// Oldest first: maps of {id, mediaKey, fileName, folderName, state
-    /// ("saving" | "done" | "failed"), message, risky, canOpen}.
+    /// ("saving" | "done" | "failed"), message, risky, canOpen,
+    /// revealFailed}. folderName is empty when no folder the user knows can
+    /// be named (a document-portal file whose real location the portal did
+    /// not say); revealFailed is true after Show in folder found no way to
+    /// show it.
     Q_PROPERTY(QVariantList items READ items NOTIFY itemsChanged)
     /// True when "Download" will ask where to save: the setting is on, or the
     /// sandbox cannot write to the downloads folder.
@@ -129,8 +139,11 @@ private:
         bool asked = false;
         QString fileName;
         QString path;
+        /// A document-portal file's real location, once the portal said.
+        QString hostPath;
         State state = State::Saving;
         QString message;
+        bool revealFailed = false;
     };
 
     void startDirect(const QString &mediaKey, const QString &rawName,

@@ -8,6 +8,8 @@
 #include <QRegularExpression>
 #include <QSet>
 
+#include <utility>
+
 #if defined(Q_OS_WIN)
 #include <qt_windows.h>
 
@@ -460,6 +462,103 @@ QStringList saveDialogFilters(const QString &leaf)
     }
     filters << QCoreApplication::translate("SaveNaming", "All files (*)");
     return filters;
+}
+
+namespace {
+
+// The document-portal mount `path` lies in, or empty. The path's parts below
+// it follow in `rest`.
+QString documentPortalRoot(const QString &rawPath, const QString &runtimeDir,
+                           QStringList *rest)
+{
+    if (rawPath.isEmpty())
+        return {};
+    const QString path = QDir::cleanPath(QDir::fromNativeSeparators(rawPath));
+    if (!path.startsWith(QLatin1Char('/')))
+        return {};
+    QStringList roots;
+    if (!runtimeDir.isEmpty()) {
+        const QString runtime =
+            QDir::cleanPath(QDir::fromNativeSeparators(runtimeDir));
+        if (runtime.startsWith(QLatin1Char('/')) && runtime != QLatin1String("/"))
+            roots << runtime + QStringLiteral("/doc");
+    }
+    roots << QStringLiteral("/run/flatpak/doc");
+    // A Snap's $XDG_RUNTIME_DIR is /run/user/<uid>/snap.<name>, and the doc
+    // mount is not under it.
+    static const QRegularExpression userRun(
+        QStringLiteral("^(/run/user/[0-9]+/doc)(/|$)"));
+    const QRegularExpressionMatch m = userRun.match(path);
+    if (m.hasMatch())
+        roots << m.captured(1);
+    for (const QString &root : std::as_const(roots)) {
+        if (path == root) {
+            if (rest)
+                rest->clear();
+            return root;
+        }
+        if (path.startsWith(root + QLatin1Char('/'))) {
+            if (rest)
+                *rest = path.mid(root.size() + 1)
+                            .split(QLatin1Char('/'), Qt::SkipEmptyParts);
+            return root;
+        }
+    }
+    return {};
+}
+
+} // namespace
+
+bool isDocumentPortalPath(const QString &path, const QString &runtimeDir)
+{
+    return !documentPortalRoot(path, runtimeDir, nullptr).isEmpty();
+}
+
+bool isDocumentPortalPath(const QString &path)
+{
+    return isDocumentPortalPath(path, qEnvironmentVariable("XDG_RUNTIME_DIR"));
+}
+
+QString documentPortalId(const QString &path, const QString &runtimeDir)
+{
+    QStringList rest;
+    if (documentPortalRoot(path, runtimeDir, &rest).isEmpty())
+        return {};
+    // The host's view lists every app's documents under by-app/<app>/.
+    if (rest.value(0) == QLatin1String("by-app"))
+        rest = rest.mid(2);
+    return rest.value(0);
+}
+
+QString documentPortalId(const QString &path)
+{
+    return documentPortalId(path, qEnvironmentVariable("XDG_RUNTIME_DIR"));
+}
+
+QString savedFolderName(const QString &path, const QString &hostPath,
+                        const QString &runtimeDir)
+{
+    if (path.isEmpty())
+        return {};
+    QString shown = path;
+    if (isDocumentPortalPath(path, runtimeDir)) {
+        // The real location, when the portal said; a host path that is
+        // itself in the mount names nothing better.
+        if (hostPath.isEmpty() || !QDir::isAbsolutePath(hostPath)
+            || isDocumentPortalPath(hostPath, runtimeDir))
+            return {};
+        shown = hostPath;
+    }
+    const QString dir =
+        QFileInfo(QDir::cleanPath(QDir::fromNativeSeparators(shown)))
+            .absolutePath();
+    return QFileInfo(dir).fileName();
+}
+
+QString savedFolderName(const QString &path, const QString &hostPath)
+{
+    return savedFolderName(path, hostPath,
+                           qEnvironmentVariable("XDG_RUNTIME_DIR"));
 }
 
 } // namespace savenaming

@@ -1,5 +1,7 @@
 #include "app/FileChooser.h"
 
+#include "app/SaveNaming.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -331,8 +333,11 @@ int FileChooser::open(const Request &in, Completion done)
     request.id = m_nextId++;
     if (!request.purpose.isEmpty() && m_recall) {
         const QUrl remembered = m_recall(request.purpose);
+        // A document-portal folder (remembered by an older build) is one
+        // document's mount point, not a place to start a dialog in.
         if (remembered.isLocalFile()
-            && QFileInfo(remembered.toLocalFile()).isDir())
+            && QFileInfo(remembered.toLocalFile()).isDir()
+            && !savenaming::isDocumentPortalPath(remembered.toLocalFile()))
             request.folder = remembered;
     }
     if ((!request.folder.isLocalFile()
@@ -615,7 +620,12 @@ void FileChooser::complete(int id, Route used, bool accepted,
         const QString folder = request.mode == Mode::Folder
             ? local
             : QFileInfo(local).absolutePath();
-        if (QFileInfo(folder).isDir())
+        // A file the portal granted to a Snap or Flatpak comes back inside
+        // the document portal's mount (/run/user/<uid>/doc/<id>/<name>): its
+        // folder exists for that one document only, and the next dialog
+        // opened there would start in a folder named by its id.
+        if (QFileInfo(folder).isDir()
+            && !savenaming::isDocumentPortalPath(folder))
             m_remember(request.purpose, QUrl::fromLocalFile(folder));
     }
     const Completion done = m_completions.take(id);
