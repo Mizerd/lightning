@@ -32,7 +32,7 @@ QString normalizePreviewText(const QString &text, int maxChars)
     return s;
 }
 
-QString oneLineSummary(const TimelineEvent &event)
+QString oneLineSummary(const TimelineEvent &event, const QString &actorLabel)
 {
     if (event.redacted)
         return QStringLiteral("Message removed");
@@ -87,6 +87,13 @@ QString oneLineSummary(const TimelineEvent &event)
             ? QStringLiteral("Poll")
             : QStringLiteral("Poll: ") + normalized;
     }
+    case TimelineEvent::StateChange:
+        // The room list showed "@alice:example.org updated room settings."
+        // where the person's name belongs (VM test, 2026-10-07).
+        return normalizePreviewText(actorSentence(
+            event.body, event.sender,
+            actorLabel.isEmpty() ? event.senderDisplayName : actorLabel,
+            event.senderNameAmbiguous));
     default:
         return normalizePreviewText(event.body);
     }

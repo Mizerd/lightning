@@ -29,8 +29,13 @@ public:
     /// anything above `kMaxBytes`. Returns true only when bytes were written.
     bool store(const QString &userId, const QByteArray &bytes);
 
-    /// Remove the account's picture; called when the account is removed.
+    /// Remove the account's picture; called when the account is removed or
+    /// signs out. False when nothing was there to remove, or the delete
+    /// failed: use hasStored() first to tell those apart.
     bool forget(const QString &userId);
+
+    /// Whether a picture file exists for the account (any size).
+    bool hasStored(const QString &userId) const;
 
     /// The directory, created on demand; empty when nothing is writable.
     static QString storeRoot();

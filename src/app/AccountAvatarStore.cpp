@@ -102,6 +102,15 @@ bool AccountAvatarStore::store(const QString &userId, const QByteArray &bytes)
     return true;
 }
 
+bool AccountAvatarStore::hasStored(const QString &userId) const
+{
+    const QString path = fileFor(userId);
+    if (path.isEmpty())
+        return false;
+    const QFileInfo info(path);
+    return info.exists() || info.isSymLink();
+}
+
 bool AccountAvatarStore::forget(const QString &userId)
 {
     const QString path = fileFor(userId);

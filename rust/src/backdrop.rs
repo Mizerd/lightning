@@ -46,12 +46,18 @@ use std::sync::Arc;
 use matrix_sdk::{
     config::RequestConfig,
     deserialized_responses::RawAnySyncOrStrippedState,
-    ruma::{api::client::state::get_state_event_for_key, events::StateEventType},
+    event_handler::EventHandlerHandle,
+    ruma::{
+        api::client::state::get_state_event_for_key,
+        events::{macros::EventContent, EmptyStateKey, StateEventType},
+    },
+    Client, Room,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::rooms::{require_client, sniff_image_mime};
-use crate::{enqueue, RustClient};
+use crate::{enqueue, EventQueueRef, RustClient};
 
 /// The event type. Namespaced under the project's reverse domain, like the
 /// legacy banner type.
@@ -202,6 +208,44 @@ fn choice(value: Option<&Value>, allowed: &[&'static str], default: &'static str
 fn bounded_count(value: Option<&Value>) -> Option<u64> {
     let n = value?.as_u64()?;
     (n <= i32::MAX as u64).then_some(n)
+}
+
+/// The event as the SDK's event handlers see it. Typed only so the SDK
+/// dispatches this one state type to [`install_change_handler`] (as rtc.rs
+/// does for the legacy call member): the content is a passthrough, never read.
+/// A change is re-read through [`fetch_room_background`], the one parser.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
+#[ruma_event(
+    type = "org.lightning_matrix.room.background",
+    kind = State,
+    state_key_type = EmptyStateKey
+)]
+pub(crate) struct RoomBackgroundEventContent {}
+
+/// What crosses to C++ when a room's (or Space's) background changed in sync:
+/// the room id only. C++ re-reads only the scopes it already shows, so a
+/// change in a room nobody opened costs no request.
+pub(crate) fn change_payload(room_id: &str) -> Value {
+    json!({ "type": "room_background_changed", "room_id": room_id })
+}
+
+/// Observe live background changes.
+///
+/// Sliding sync never puts this type in `required_state`, so the store never
+/// learns of a change, and `fetch_room_background` ran only when a room was
+/// opened: a background set while the room was open appeared only after
+/// leaving and re-opening it (VM test, 2026-10-07). The change DOES arrive as
+/// a timeline event (the open room's subscription, the room list's latest
+/// event), and matrix-sdk dispatches timeline state events to state handlers
+/// by type (`handle_sync_timeline_events`), so this fires for it. A Space is a
+/// room, so a Space's change arrives the same way.
+pub(crate) fn install_change_handler(client: &Client, events: EventQueueRef) -> EventHandlerHandle {
+    client.add_event_handler(move |_ev: SyncRoomBackgroundEvent, room: Room| {
+        let events = Arc::clone(&events);
+        async move {
+            enqueue(&events, change_payload(room.room_id().as_str()));
+        }
+    })
 }
 
 /// Read a content object (bare content from `/state`, or a full event from the
@@ -536,6 +580,9 @@ mod tests {
         // every shared background vanish.
         assert_eq!(ROOM_BACKGROUND_EVENT, "org.lightning_matrix.room.background");
         assert_eq!(SCHEMA_VERSION, 1);
+        // The handler's typed event is the same type, or it never fires.
+        use matrix_sdk::ruma::events::StaticEventContent;
+        assert_eq!(RoomBackgroundEventContent::TYPE, ROOM_BACKGROUND_EVENT);
     }
 
     #[test]
@@ -687,6 +734,71 @@ mod tests {
         assert!(!is_canonical_json_safe(&json!({"a": [1, {"b": 0.5}]})));
         assert!(!is_canonical_json_safe(&json!(9_007_199_254_740_993_u64)));
         assert!(is_canonical_json_safe(&json!({"a": [1, -2, "x", null, true]})));
+    }
+
+    // The VM-test defect (2026-10-07): a background set by another member
+    // never reached a room that was already open, because nothing observed the
+    // event in sync. Feeds a sliding-sync response through the SDK's own
+    // processing (the path the app's sync loop takes) and requires the
+    // handler to report the room, once per change. Fails without
+    // `install_change_handler`: nothing is enqueued.
+    #[tokio::test]
+    async fn a_background_change_in_sync_reaches_cpp_with_its_room() {
+        use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id, serde::Raw};
+        use matrix_sdk::test_utils::mocks::MatrixMockServer;
+        use matrix_sdk_base::RequestedRequiredStates;
+        use std::collections::VecDeque;
+        use std::sync::Mutex;
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let events: EventQueueRef = Arc::new(Mutex::new(VecDeque::new()));
+        let _handle = install_change_handler(&client, Arc::clone(&events));
+
+        let room = room_id!("!open:example.org");
+        let state_event = |event_type: &str, id: &str, content: Value| {
+            Raw::from_json_string(
+                json!({
+                    "type": event_type,
+                    "state_key": "",
+                    "event_id": id,
+                    "sender": "@other:example.org",
+                    "origin_server_ts": 1_700_000_000_000_u64,
+                    "content": content,
+                })
+                .to_string(),
+            )
+            .expect("raw event")
+        };
+        let mut update = v5::response::Room::default();
+        update.timeline = vec![
+            // An unrelated state event must not be reported.
+            state_event("m.room.topic", "$topic", json!({ "topic": "t" })),
+            state_event(
+                ROOM_BACKGROUND_EVENT,
+                "$bg",
+                json!({ "version": 1, "url": "mxc://example.org/abc" }),
+            ),
+            // Clearing is a change too.
+            state_event(ROOM_BACKGROUND_EVENT, "$clear", json!({})),
+        ];
+        let mut response = v5::Response::new("pos-1".to_owned());
+        response.rooms.insert(room.to_owned(), update);
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("sync processed");
+
+        let queued: Vec<Value> = events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|s| serde_json::from_str(s).unwrap())
+            .collect();
+        let expected = change_payload(room.as_str());
+        assert_eq!(queued, vec![expected.clone(), expected], "{queued:?}");
+        // The id only: no url, content or sender crosses.
+        assert_eq!(queued[0].as_object().map(|o| o.len()), Some(2));
     }
 
     #[test]

@@ -140,6 +140,103 @@ private Q_SLOTS:
         e.body = QStringLiteral("Alice joined the room.");
         QCOMPARE(oneLineSummary(e), QStringLiteral("Alice joined the room."));
     }
+
+    // VM test 2026-10-07: the room list previewed a state event as
+    // "@lightningtest5:matrix.smetonis.net upd…", the raw user id the Rust
+    // bridge phrases state rows with. The preview names the person: the
+    // display name, else the localpart, never the MXID. Old code passes the
+    // body through untouched.
+    void aStateRowNamesThePersonNotTheMxid()
+    {
+        const QString mxid = QStringLiteral("@lightningtest5:matrix.smetonis.net");
+        TimelineEvent e;
+        e.type = TimelineEvent::StateChange;
+        e.sender = mxid;
+        e.body = mxid + QStringLiteral(" updated room settings.");
+
+        e.senderDisplayName = QStringLiteral("Test Five");
+        QCOMPARE(oneLineSummary(e), QStringLiteral("Test Five updated room settings."));
+        // The member cache's answer when the item carried no profile.
+        e.senderDisplayName.clear();
+        QCOMPARE(oneLineSummary(e, QStringLiteral("From Cache")),
+                 QStringLiteral("From Cache updated room settings."));
+        // Nothing known: the localpart, as the timeline falls back.
+        QCOMPARE(oneLineSummary(e), QStringLiteral("lightningtest5 updated room settings."));
+        QVERIFY(!oneLineSummary(e).contains(QLatin1Char(':')));
+        // A "name" that is the id itself is not a name.
+        QCOMPARE(oneLineSummary(e, mxid),
+                 QStringLiteral("lightningtest5 updated room settings."));
+    }
+
+    // Only a WHOLE leading sender id is replaced; a sentence about someone
+    // else, or a different id sharing a prefix, is left alone.
+    void actorSentenceReplacesOnlyTheWholeLeadingSender()
+    {
+        using matrix::preview::actorSentence;
+        const QString alice = QStringLiteral("@alice:example.org");
+        QCOMPARE(actorSentence(alice + QStringLiteral(" invited Bob."), alice,
+                               QStringLiteral("Alice")),
+                 QStringLiteral("Alice invited Bob."));
+        QCOMPARE(actorSentence(QStringLiteral("Bob joined the room."), alice,
+                               QStringLiteral("Alice")),
+                 QStringLiteral("Bob joined the room."));
+        QCOMPARE(actorSentence(QStringLiteral("@alice:example.org.evil changed the room name."),
+                               alice, QStringLiteral("Alice")),
+                 QStringLiteral("@alice:example.org.evil changed the room name."));
+        QCOMPARE(actorSentence(QStringLiteral("Encryption was enabled."), alice,
+                               QStringLiteral("Alice")),
+                 QStringLiteral("Encryption was enabled."));
+        QCOMPARE(actorSentence(alice + QStringLiteral(" left."), QString(),
+                               QStringLiteral("Alice")),
+                 alice + QStringLiteral(" left."));
+    }
+
+    // Review M1: the display name is member-chosen room state. As a name,
+    // "@admin:example.org" would make a power-level row read exactly like
+    // the id-phrased sentence it replaced, so an address-shaped name (NFKC,
+    // fullwidth too) or one another member uses carries the localpart, and
+    // bidi/invisible characters are dropped. The incoming-call card's rule.
+    void anActorNameCannotImpersonateAnAddressOrHideCharacters()
+    {
+        using matrix::preview::actorSentence;
+        const QString mallory = QStringLiteral("@mallory:evil.example");
+        const QString sentence = mallory + QStringLiteral(" changed the power levels.");
+
+        // An id-shaped name is shown, with whose it really is.
+        QCOMPARE(actorSentence(sentence, mallory, QStringLiteral("@admin:example.org")),
+                 QStringLiteral("@admin:example.org (mallory) changed the power levels."));
+        const QString fullwidth = QString(QChar(0xFF20)) + QStringLiteral("admin")
+            + QChar(0xFF1A) + QStringLiteral("example.org");
+        QVERIFY(actorSentence(sentence, mallory, fullwidth)
+                    .contains(QStringLiteral("(mallory) changed")));
+        // Bidi overrides and zero-width characters do not survive into the row.
+        const QString bidi = QStringLiteral("Ad") + QChar(0x202E) + QStringLiteral("min")
+            + QChar(0x200B) + QChar(0x2066);
+        QCOMPARE(actorSentence(sentence, mallory, bidi),
+                 QStringLiteral("Admin changed the power levels."));
+        // Only invisible characters: nothing to show but the localpart.
+        QCOMPARE(actorSentence(sentence, mallory, QString(QChar(0x200B)) + QChar(0x202E)),
+                 QStringLiteral("mallory changed the power levels."));
+        // The actor's own id as its "name" is not a name.
+        QCOMPARE(actorSentence(sentence, mallory, mallory),
+                 QStringLiteral("mallory changed the power levels."));
+        // A name another member also uses carries the localpart.
+        QCOMPARE(actorSentence(sentence, mallory, QStringLiteral("Admin"), true),
+                 QStringLiteral("Admin (mallory) changed the power levels."));
+
+        // The room-list path reads the same rule off the event.
+        TimelineEvent e;
+        e.type = TimelineEvent::StateChange;
+        e.sender = mallory;
+        e.body = sentence;
+        e.senderDisplayName = QStringLiteral("@admin:example.org");
+        QCOMPARE(oneLineSummary(e),
+                 QStringLiteral("@admin:example.org (mallory) changed the power levels."));
+        e.senderDisplayName = QStringLiteral("Admin");
+        e.senderNameAmbiguous = true;
+        QCOMPARE(oneLineSummary(e),
+                 QStringLiteral("Admin (mallory) changed the power levels."));
+    }
 };
 
 QTEST_GUILESS_MAIN(EventPreviewTest)

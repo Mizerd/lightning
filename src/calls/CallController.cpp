@@ -6,6 +6,7 @@
 
 #include "CallMediaBackend.h"
 #include "matrix/MatrixClient.h"
+#include "matrix/PresentableName.h"
 
 Q_LOGGING_CATEGORY(lcCalls, "matrix.calls")
 
@@ -450,69 +451,19 @@ QString CallController::callerNameIn(const MatrixClient *client,
 QString CallController::sanitizedCallerName(const QString &displayName)
 {
     // Sender-chosen text on a card that asks the user to pick up: one line,
-    // nothing invisible. Format characters (Unicode Cf) are dropped: the
-    // bidirectional controls that could reorder the sentence, and the
-    // zero-width space, joiners, word joiner, invisible operators and BOM
-    // that would make "Alice" and "Al<ZWSP>ice" different names that look
-    // the same. Walked by code point, so a Cf outside the BMP (tag
-    // characters) is caught too. The accepted cost: emoji joined by ZWJ fall
-    // apart, variation selectors go (emoji fall back to text presentation,
-    // CJK glyph variants and Mongolian letter forms change), and ZWNJ goes,
-    // which can change how a Persian or Indic name is shaped.
-    const QList<uint> points = displayName.left(256).toUcs4();
-    QString name;
-    name.reserve(points.size());
-    // Default-ignorable code points that are not Cf also render as nothing:
-    // the combining grapheme joiner, the Hangul fillers, the Khmer inherent
-    // vowels, the Mongolian selectors, the variation selectors, and U+2065,
-    // which is unassigned (so not Cf) yet hidden by text shaping.
-    const auto ignorable = [](uint c) {
-        return c == 0x034F || c == 0x115F || c == 0x1160 || c == 0x17B4
-            || c == 0x17B5 || (c >= 0x180B && c <= 0x180F) || c == 0x3164
-            || c == 0x2065 || (c >= 0xFE00 && c <= 0xFE0F) || c == 0xFFA0
-            || (c >= 0xFFF0 && c <= 0xFFF8) || (c >= 0xE0000 && c <= 0xE0FFF);
-    };
-    for (const uint point : points) {
-        const auto category = QChar::category(char32_t(point));
-        if (category == QChar::Other_Format || ignorable(point))
-            continue;
-        if (category == QChar::Other_Control) {
-            name.append(QChar(u' '));
-            continue;
-        }
-        const char32_t unit = char32_t(point);
-        name.append(QString::fromUcs4(&unit, 1));
-    }
-    name = name.simplified();
-    if (name.size() > 64) {
-        name.truncate(64);
-        // Never leave half of a surrogate pair at the cut.
-        if (name.back().isHighSurrogate())
-            name.chop(1);
-    }
-    return name;
+    // nothing invisible. The rule is shared with the timeline's state rows
+    // (matrix/PresentableName.h), so the two cannot drift apart.
+    return matrix::presentable_name::sanitized(displayName);
 }
 
 QString CallController::presentableCallerName(const QString &userId,
                                               const QString &displayName,
                                               bool ambiguous)
 {
-    const QString name = sanitizedCallerName(displayName);
-    // The localpart, as the rest of the app shows an unnamed user.
-    const QString localpart =
-        userId.size() > 1 && userId.startsWith(QLatin1Char('@'))
-        ? userId.mid(1).section(QLatin1Char(':'), 0, 0)
-        : userId;
-    if (name.isEmpty() || name == userId)
-        return localpart;
-    // "@alice:example.org" as a display name impersonates an address.
-    // NFKC, so a fullwidth "＠alice：example.org" counts as an address too.
-    const QString folded = name.normalized(QString::NormalizationForm_KC);
-    const bool looksLikeMxid = folded.startsWith(QLatin1Char('@'))
-        && folded.contains(QLatin1Char(':'));
-    if ((ambiguous || looksLikeMxid) && name != localpart)
-        return QStringLiteral("%1 (%2)").arg(name, localpart);
-    return name;
+    // "@alice:example.org" as a display name impersonates an address; a
+    // borrowed name carries the localpart. See matrix/PresentableName.h.
+    return matrix::presentable_name::presentable(userId, displayName,
+                                                 ambiguous);
 }
 
 bool CallController::sessionLive() const

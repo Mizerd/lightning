@@ -33,6 +33,7 @@ private Q_SLOTS:
     void removalRetriesAStoreThatIsStillOpen();
     void aStoreThatStaysOpenIsReportedFailedNeverRemoved();
     void retriesShareOneBudgetAcrossEveryDirectory();
+    void anAccountRootGoesOnlyWhenEmpty();
 
 private:
     bool writeFile(const QString &path, const QByteArray &contents = "fixture");
@@ -528,6 +529,72 @@ void AppDataPathsTest::retriesShareOneBudgetAcrossEveryDirectory()
     QVERIFY(held.calls >= 2); // the store itself was retried at least once
     QVERIFY(QDir(identity.rustStorePath).removeRecursively());
     QVERIFY(QDir(sibling).removeRecursively());
+}
+
+// VM test 2026-10-07: sign-out deleted the store and left the account's
+// directory, empty and named after the account. The helper removes it only
+// when nothing is in it and only as a direct child of primaryRoot(), and
+// every outcome is distinct (absent is not deleted).
+void AppDataPathsTest::anAccountRootGoesOnlyWhenEmpty()
+{
+    using matrix::app_data::EmptyDirRemoval;
+    using matrix::app_data::removeAccountRootIfEmpty;
+
+    matrix::app_data::AccountIdentity carol;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://matrix.example"), QStringLiteral("carol"),
+        &carol));
+    QDir(carol.accountRoot).removeRecursively();
+
+    // Sign-out removed the store; the directory that held it is empty now.
+    QVERIFY(writeFile(carol.rustStorePath + QStringLiteral("/crypto.db")));
+    QVERIFY(matrix::app_data::removeAccountRustState(carol).removedAnything());
+    QVERIFY(QDir(carol.accountRoot).exists());
+    QCOMPARE(removeAccountRootIfEmpty(carol.accountRoot), EmptyDirRemoval::Deleted);
+    QVERIFY(!QFileInfo::exists(carol.accountRoot));
+    // Nothing there is "absent", never "deleted".
+    QCOMPARE(removeAccountRootIfEmpty(carol.accountRoot), EmptyDirRemoval::Absent);
+
+    // Anything left in it, hidden files included, keeps it and its contents.
+    QVERIFY(writeFile(carol.accountRoot + QStringLiteral("/backgrounds/keep.jpg")));
+    QCOMPARE(removeAccountRootIfEmpty(carol.accountRoot), EmptyDirRemoval::NotEmpty);
+    QVERIFY(QFileInfo::exists(carol.accountRoot + QStringLiteral("/backgrounds/keep.jpg")));
+    QVERIFY(QDir(carol.accountRoot).removeRecursively());
+    QVERIFY(writeFile(carol.accountRoot + QStringLiteral("/.hidden")));
+    QCOMPARE(removeAccountRootIfEmpty(carol.accountRoot), EmptyDirRemoval::NotEmpty);
+    QVERIFY(QFileInfo::exists(carol.accountRoot + QStringLiteral("/.hidden")));
+    QVERIFY(QDir(carol.accountRoot).removeRecursively());
+
+    // Never the root itself, nothing deeper than one level, nothing outside.
+    const QString primary = matrix::app_data::primaryRoot();
+    QVERIFY(QDir().mkpath(primary + QStringLiteral("/nested/empty")));
+    QCOMPARE(removeAccountRootIfEmpty(primary + QStringLiteral("/nested/empty")),
+             EmptyDirRemoval::Refused);
+    QVERIFY(QDir(primary + QStringLiteral("/nested/empty")).exists());
+    QVERIFY(QDir(primary + QStringLiteral("/nested")).removeRecursively());
+    QTemporaryDir outside;
+    QVERIFY(outside.isValid());
+    QCOMPARE(removeAccountRootIfEmpty(outside.path()), EmptyDirRemoval::Refused);
+    QVERIFY(QDir(outside.path()).exists());
+    QCOMPARE(removeAccountRootIfEmpty(QString()), EmptyDirRemoval::Refused);
+    // A file is not a directory to remove.
+    QVERIFY(writeFile(primary + QStringLiteral("/a-file")));
+    QCOMPARE(removeAccountRootIfEmpty(primary + QStringLiteral("/a-file")),
+             EmptyDirRemoval::Refused);
+    QVERIFY(QFile::remove(primary + QStringLiteral("/a-file")));
+
+#ifdef Q_OS_UNIX
+    // A symlink is never followed or removed, even to an empty directory.
+    QTemporaryDir target;
+    QVERIFY(target.isValid());
+    const QString link = primary + QStringLiteral("/linked-account");
+    QFile::remove(link);
+    QVERIFY(QFile::link(target.path(), link));
+    QCOMPARE(removeAccountRootIfEmpty(link), EmptyDirRemoval::Refused);
+    QVERIFY(QFileInfo(link).isSymLink());
+    QVERIFY(QDir(target.path()).exists());
+    QVERIFY(QFile::remove(link));
+#endif
 }
 
 QTEST_MAIN(AppDataPathsTest)

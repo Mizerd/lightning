@@ -141,6 +141,12 @@ class AppController : public QObject
     Q_PROPERTY(bool softwareRendererNoticeVisible
                READ softwareRendererNoticeVisible
                NOTIFY softwareRendererNoticeVisibleChanged)
+    // Which explanation the notice gives: "appimage-nixos", "appimage",
+    // "nixos" or "generic" (lightning::softwareRendererContextId). Names
+    // NixOS only on NixOS and the AppImage only for an AppImage.
+    Q_PROPERTY(QString softwareRendererNoticeContext
+               READ softwareRendererNoticeContext
+               NOTIFY softwareRendererNoticeVisibleChanged)
     Q_PROPERTY(bool initialSyncDone READ initialSyncDone NOTIFY initialSyncDoneChanged)
     Q_PROPERTY(bool localRustResetRequired READ localRustResetRequired
                NOTIFY localRustResetRequiredChanged)
@@ -535,6 +541,10 @@ public:
     /// Called from main.cpp with the GL_RENDERER string (GUI thread).
     void setGlRenderer(const QString &glRenderer);
     Q_INVOKABLE void dismissSoftwareRendererNotice();
+    QString softwareRendererNoticeContext() const
+    {
+        return m_softwareRendererNoticeContext;
+    }
     bool initialSyncDone() const;
     QString rustDeviceIdRedacted() const;
     bool localRustResetRequired() const { return m_localRustResetRequired; }
@@ -1268,6 +1278,10 @@ private:
     // The account whose session most recently succeeded — used to detect a
     // cross-account transition in onLoginSucceeded.
     QString m_lastSessionUserId;
+    // Sign-out of `userId` (not a switch, not a revoked session): its cached
+    // avatar, and its account directory once empty. Each outcome is logged
+    // distinctly; nothing reports success that removed nothing.
+    void signOutAccountResidue(const QString &userId);
     // Removing the active account needs a server logout first, so the
     // removal finishes in onLoggedOut. The identity is resolved before the
     // logout, because sign-out removes the saved record it is keyed on.
@@ -1324,6 +1338,7 @@ private:
     bool m_screenshotDemoActive = false;
     bool m_softwareRenderer = false;
     bool m_softwareRendererNoticeVisible = false;
+    QString m_softwareRendererNoticeContext = QStringLiteral("generic");
     // QObject* keeps ScreenshotDemoController out of this header. Parented to
     // this; null in non-demo builds.
     QObject *m_demoController = nullptr;

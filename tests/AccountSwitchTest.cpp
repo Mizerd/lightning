@@ -4,6 +4,7 @@
 // mid-switch, logout falls back to a remaining account, and removing a
 // background account leaves the active session alone.
 
+#include "app/AccountAvatarStore.h"
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
@@ -531,6 +532,100 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.accountSwitching());
         QVERIFY(!QDir(starredDir).exists());
         QCOMPARE(app.gif()->starredStore()->count(), 0);
+    }
+
+    // VM test 2026-10-07: after a sign-out, account-avatars/<slug>.avatar and
+    // the (now empty) account directory stayed on disk. Sign-out removes both
+    // for the account that signed out, and nothing of another account. Old
+    // code: the avatar file and the directory survive.
+    void signOutDeletesTheAvatarAndTheEmptiedAccountDirectory()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        const QString aliceRoot = matrix::app_data::accountRoot(kAlice);
+        const QString bobRoot = matrix::app_data::accountRoot(kBob);
+        QVERIFY(!aliceRoot.isEmpty() && !bobRoot.isEmpty());
+        // Start from nothing an earlier case left behind.
+        QDir(aliceRoot).removeRecursively();
+        QDir(bobRoot).removeRecursively();
+        app.accountAvatars()->forget(kAlice);
+        app.accountAvatars()->forget(kBob);
+
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+
+        // Real residue: a starred GIF creates Alice's account directory (and
+        // is the only thing in it); both accounts have a cached avatar; Bob
+        // has an empty directory of his own that must survive.
+        const QByteArray gif = QByteArray("GIF89a\x10\x00\x10\x00", 10);
+        app.gif()->starredStore()->starBytes(QStringLiteral("mk"), gif);
+        QVERIFY(QDir(aliceRoot).exists());
+        const QByteArray png =
+            QByteArray("\x89PNG\r\n\x1a\n", 8) + QByteArray(24, '\x01');
+        QVERIFY(app.accountAvatars()->store(kAlice, png));
+        QVERIFY(app.accountAvatars()->store(kBob, png));
+        QVERIFY(!app.accountAvatars()->avatarUrlFor(kAlice).isEmpty());
+        QVERIFY(QDir().mkpath(bobRoot));
+
+        // The mock keeps the record on logout (the Rust backend removes it);
+        // drop it so the fallback set is realistic.
+        app.settings()->clearSessionForAccount(kAlice);
+        app.auth()->logout();
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kBob);
+
+        QVERIFY2(app.accountAvatars()->avatarUrlFor(kAlice).isEmpty(),
+                 "the signed-out account's avatar is still on disk");
+        QVERIFY2(!QDir(aliceRoot).exists(),
+                 "the signed-out account's emptied directory is still on disk");
+        // Never widened to another account.
+        QVERIFY(!app.accountAvatars()->avatarUrlFor(kBob).isEmpty());
+        QVERIFY(QDir(bobRoot).exists());
+        app.accountAvatars()->forget(kBob);
+    }
+
+    // The account directory goes only when EMPTY: anything still in it (here
+    // a personal background) keeps the directory and its contents.
+    void signOutKeepsAnAccountDirectoryThatStillHoldsSomething()
+    {
+        AppController app(AppController::MockBackend);
+        FakeSecretStore secrets;
+        app.settings()->setSecretStore(&secrets);
+        app.settings()->saveSession(kHsOne, kAlice,
+                                    QStringLiteral("ALICEDEV"),
+                                    QStringLiteral("alice-token-fixture"));
+        app.settings()->saveSession(kHsTwo, kBob,
+                                    QStringLiteral("BOBDEV"),
+                                    QStringLiteral("bob-token-fixture"));
+        const QString aliceRoot = matrix::app_data::accountRoot(kAlice);
+        QDir(aliceRoot).removeRecursively();
+        app.switchToAccount(kAlice);
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
+
+        const QString kept = aliceRoot + QStringLiteral("/backgrounds/keep.jpg");
+        QVERIFY(QDir().mkpath(QFileInfo(kept).absolutePath()));
+        {
+            QFile file(kept);
+            QVERIFY(file.open(QIODevice::WriteOnly));
+            file.write("not empty");
+        }
+
+        app.settings()->clearSessionForAccount(kAlice);
+        app.auth()->logout();
+        QTRY_VERIFY(!app.accountSwitching());
+        QTRY_COMPARE(app.auth()->currentUserId(), kBob);
+
+        QVERIFY(QFile::exists(kept));
+        QDir(aliceRoot).removeRecursively();
     }
 
     // Removing the active account goes through the same logout path, so the

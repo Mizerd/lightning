@@ -1891,6 +1891,10 @@ Q_SIGNALS:
     void roomBackgroundSet(quint64 opId, const QString &roomId, bool ok,
                            const QVariantMap &content,
                            const QString &category);
+    // A room's (or Space's) shared background changed in sync, set or
+    // cleared by anyone. No content: the consumer re-reads it through
+    // fetchRoomBackground, so one parser decides what it holds.
+    void roomBackgroundChanged(const QString &roomId);
     // One MSC2545 snapshot of every usable pack, validated and bounded in Rust;
     // see StickerPackModel for the row shape. An empty list means "no packs".
     // `roomCanManage` is whether this account may write `im.ponies.room_emotes`

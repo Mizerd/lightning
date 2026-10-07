@@ -420,6 +420,76 @@ private Q_SLOTS:
         QVERIFY(!backdrops.canSetShared(kRoom));
     }
 
+    // VM test 2026-10-07: a background another member set while the room was
+    // OPEN appeared only after leaving and re-opening it, because the shared
+    // state was read on open alone (rate-limited) and nothing listened to
+    // sync. A change observed in sync must re-read the open room at once, and
+    // a Space's change must reach the rooms that inherit it. Old code: no
+    // second ask, the room keeps showing "none".
+    void aChangeInSyncRereadsTheOpenRoomAndItsSpaceAtOnce()
+    {
+        FakeBackdropClient client;
+        client.roomList = { room(kRoom), room(kSpace, true, { kRoom }) };
+        ChatBackdropController backdrops;
+        backdrops.setClient(&client);
+        backdrops.requestRoom(kRoom);
+        QCOMPARE(client.asks.size(), 2);   // the room and its Space
+        Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom,
+                                             QVariantMap(), false, false);
+        Q_EMIT client.roomBackgroundReceived(client.opFor(kSpace), kSpace,
+                                             QVariantMap(), false, false);
+        QCOMPARE(backdrops.backdropFor(kRoom).value(QStringLiteral("source")).toString(),
+                 QStringLiteral("none"));
+
+        // Set in the open room, well inside the open-time refresh interval.
+        Q_EMIT client.roomBackgroundChanged(kRoom);
+        QCOMPARE(client.asks.size(), 3);
+        QCOMPARE(client.asks.last().scope, kRoom);
+        QSignalSpy revisions(&backdrops, &ChatBackdropController::revisionChanged);
+        Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom,
+                                             shared(QStringLiteral("mxc://e.org/new")),
+                                             false, false);
+        QVariantMap b = backdrops.backdropFor(kRoom);
+        QCOMPARE(b.value(QStringLiteral("source")).toString(), QStringLiteral("room"));
+        QCOMPARE(b.value(QStringLiteral("mxc")).toString(), QStringLiteral("mxc://e.org/new"));
+        QCOMPARE(revisions.count(), 1);
+
+        // Cleared again, then the Space gets a picture: the room inherits it.
+        Q_EMIT client.roomBackgroundChanged(kRoom);
+        Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom,
+                                             QVariantMap(), false, false);
+        Q_EMIT client.roomBackgroundChanged(kSpace);
+        QCOMPARE(client.asks.last().scope, kSpace);
+        Q_EMIT client.roomBackgroundReceived(client.opFor(kSpace), kSpace,
+                                             shared(QStringLiteral("mxc://e.org/space")),
+                                             false, false);
+        b = backdrops.backdropFor(kRoom);
+        QCOMPARE(b.value(QStringLiteral("source")).toString(), QStringLiteral("space"));
+        QCOMPARE(b.value(QStringLiteral("scopeId")).toString(), kSpace);
+
+        // A room this session never showed costs no request.
+        const qsizetype before = client.asks.size();
+        Q_EMIT client.roomBackgroundChanged(QStringLiteral("!elsewhere:example.org"));
+        QCOMPARE(client.asks.size(), before);
+
+        // A change while a read is in flight reads once more when it lands,
+        // since the answer in flight may predate the change.
+        Q_EMIT client.roomBackgroundChanged(kRoom);
+        QCOMPARE(client.asks.size(), before + 1);
+        Q_EMIT client.roomBackgroundChanged(kRoom);
+        QCOMPARE(client.asks.size(), before + 1);   // one read per scope
+        Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom,
+                                             QVariantMap(), false, false);
+        QCOMPARE(client.asks.size(), before + 2);
+        QCOMPARE(client.asks.last().scope, kRoom);
+
+        // Answers belong to the session: after sign-out nothing re-reads.
+        Q_EMIT client.loggedOut();
+        const qsizetype afterSignOut = client.asks.size();
+        Q_EMIT client.roomBackgroundChanged(kRoom);
+        QCOMPARE(client.asks.size(), afterSignOut);
+    }
+
     // A non-mxc url can never become a background, even if a backend let one
     // through; a newer schema is reported, not rendered.
     void onlyMxcRendersAndANewerSchemaIsReported()

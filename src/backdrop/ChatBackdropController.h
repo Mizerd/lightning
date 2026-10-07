@@ -34,8 +34,12 @@ class StagedImageStore;
 //   * SHARED: a state event in the room or one of its Spaces, read through
 //     MatrixClient and cached per session. Asked once per room per session and
 //     refreshed on open (rate-limited), because sliding sync never delivers
-//     this state type. Answers carry the op id they were asked with; one that
-//     is not in flight (a previous account, a superseded read) is dropped.
+//     this state type as state. A change that arrives in sync as a timeline
+//     event (MatrixClient::roomBackgroundChanged) re-reads a scope already
+//     shown at once, so an open room, and every room inheriting a Space's
+//     picture, follows it live. Answers carry the op id they were asked with;
+//     one that is not in flight (a previous account, a superseded read) is
+//     dropped.
 //   * PERSONAL: pictures only this account sees, kept as Lightning-encoded
 //     JPEG/PNG files under <accountRoot>/backgrounds and served to QML from
 //     memory through the staged-image store, never as a file:// URL.
@@ -235,6 +239,9 @@ private:
                         bool unsupportedVersion);
     void handleSet(quint64 opId, const QString &roomId, bool ok,
                    const QVariantMap &content, const QString &category);
+    // MatrixClient::roomBackgroundChanged: re-reads a scope this session
+    // shows (or has asked about), bypassing the open-time rate limit.
+    void handleChanged(const QString &scopeId);
     void handleMediaCached(const QString &cacheKey);
     void handleMediaBytes(const QString &mediaKey, bool ok,
                           const QByteArray &bytes, const QString &category);
@@ -261,6 +268,9 @@ private:
     QHash<QString, Shared> m_shared;          // scopeId -> answer
     QHash<quint64, QString> m_inFlight;       // opId -> scopeId
     QHash<QString, qint64> m_lastAsked;       // scopeId -> ms since epoch
+    // Scopes that changed in sync while a read was in flight; read again
+    // when that read answers.
+    QSet<QString> m_rereadAfterAnswer;
     quint64 m_nextOpId = 1;
     quint64 m_pendingWrite = 0;
     QString m_pendingWriteScope;

@@ -171,6 +171,9 @@ void ChatBackdropController::setClient(MatrixClient *client)
                 &ChatBackdropController::handleReceived);
         connect(m_client, &MatrixClient::roomBackgroundSet, this,
                 &ChatBackdropController::handleSet);
+        // A change observed in sync: the only way an OPEN room learns of it.
+        connect(m_client, &MatrixClient::roomBackgroundChanged, this,
+                &ChatBackdropController::handleChanged);
         // Answers belong to the account that asked.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &ChatBackdropController::clearSession);
@@ -419,6 +422,28 @@ void ChatBackdropController::refreshScope(const QString &scopeId)
     m_client->fetchRoomBackground(scopeId, opId);
 }
 
+void ChatBackdropController::handleChanged(const QString &scopeId)
+{
+    // Only a scope this session shows, or asked about: the open room, or a
+    // Space one of its rooms inherits from (requestRoom asks the whole chain).
+    // A change anywhere else is read when that room opens, as before.
+    if (scopeId.isEmpty()
+        || (!m_shared.contains(scopeId) && !m_lastAsked.contains(scopeId)))
+        return;
+    for (auto it = m_inFlight.constBegin(); it != m_inFlight.constEnd(); ++it) {
+        if (it.value() == scopeId) {
+            // The read in flight may have been answered before the change;
+            // read once more when it lands rather than keep a stale answer.
+            m_rereadAfterAnswer.insert(scopeId);
+            return;
+        }
+    }
+    qCInfo(lcBackdrop) << "shared changed in sync scope=" << scopeTag(scopeId);
+    // Not rate-limited by kRefreshIntervalMs: that bounds re-reads on OPEN,
+    // and this is a real change. refreshScope keeps one read per scope.
+    refreshScope(scopeId);
+}
+
 void ChatBackdropController::handleReceived(quint64 opId, const QString &roomId,
                                             const QVariantMap &content,
                                             bool canSet,
@@ -447,6 +472,9 @@ void ChatBackdropController::handleReceived(quint64 opId, const QString &roomId,
     next.known = true;
     const Shared previous = m_shared.value(roomId);
     m_shared.insert(roomId, next);
+    // A change arrived while this read was in flight: read again.
+    if (m_rereadAfterAnswer.remove(roomId))
+        refreshScope(roomId);
     if (previous.known && previous.content == next.content
         && previous.canSet == next.canSet
         && previous.unsupported == next.unsupported)
@@ -1250,6 +1278,7 @@ void ChatBackdropController::clearSession()
     m_shared.clear();
     m_inFlight.clear();
     m_lastAsked.clear();
+    m_rereadAfterAnswer.clear();
     const bool wasBusy = m_pendingWrite != 0;
     m_pendingWrite = 0;
     m_pendingWriteScope.clear();

@@ -48,4 +48,52 @@ inline bool shouldShowSoftwareRendererNotice(const QString &glRenderer,
     return dismissedVersion != currentVersion;
 }
 
+/// Which explanation the notice gives. The likely cause depends on the package
+/// and the platform, and naming one that does not apply misleads: the notice
+/// used to say "common with the AppImage on NixOS" on every package,
+/// including a .deb in a virtual machine (VM test, 2026-10-07).
+enum class SoftwareRendererContext {
+    Generic,          // e.g. a VM or remote session, or a missing driver
+    AppImageOnNixOS,  // the documented case, with a documented fix
+    AppImage,         // an AppImage elsewhere
+    NixOS,            // NixOS, not an AppImage
+};
+
+/// True when QSysInfo::productType() names NixOS (os-release ID=nixos).
+inline bool isNixOsProductType(const QString &productType)
+{
+    return productType.compare(QLatin1String("nixos"), Qt::CaseInsensitive)
+        == 0;
+}
+
+/// Names NixOS only on NixOS and the AppImage only for an AppImage. Takes the
+/// two facts rather than detecting them, so the choice is testable.
+inline SoftwareRendererContext softwareRendererContext(bool appImage,
+                                                       bool nixos)
+{
+    if (appImage && nixos)
+        return SoftwareRendererContext::AppImageOnNixOS;
+    if (appImage)
+        return SoftwareRendererContext::AppImage;
+    if (nixos)
+        return SoftwareRendererContext::NixOS;
+    return SoftwareRendererContext::Generic;
+}
+
+/// The stable id QML words the notice from.
+inline QString softwareRendererContextId(SoftwareRendererContext context)
+{
+    switch (context) {
+    case SoftwareRendererContext::AppImageOnNixOS:
+        return QStringLiteral("appimage-nixos");
+    case SoftwareRendererContext::AppImage:
+        return QStringLiteral("appimage");
+    case SoftwareRendererContext::NixOS:
+        return QStringLiteral("nixos");
+    case SoftwareRendererContext::Generic:
+        break;
+    }
+    return QStringLiteral("generic");
+}
+
 } // namespace lightning

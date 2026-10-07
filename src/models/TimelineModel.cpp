@@ -1,5 +1,6 @@
 #include "models/TimelineModel.h"
 
+#include "matrix/EventPreview.h"
 #include "matrix/MatrixClient.h"
 #include "models/MessageHtml.h"
 #include "models/UserLookup.h"
@@ -1052,6 +1053,13 @@ QString TimelineModel::visibleBodyFor(const TimelineEvent &e) const
     // rows another backend phrased keep their sentence.
     if (isCallEventRow(e) && e.body.isEmpty())
         return callEventDescription(e, senderDisplayName(e));
+    // The Rust bridge phrases other state rows with the sender's user id
+    // ("@alice:example.org changed the room name."); the row names the
+    // person, as every other row does. Same rule as the room-list preview.
+    if (e.type == TimelineEvent::StateChange)
+        return matrix::preview::actorSentence(e.body, e.sender,
+                                              senderDisplayName(e),
+                                              e.senderNameAmbiguous);
     return e.body;
 }
 

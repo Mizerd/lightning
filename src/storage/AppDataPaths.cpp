@@ -359,6 +359,34 @@ DirRemoval removeAppDataDir(const QString &dir)
                                          : DirRemoval::Failed;
 }
 
+EmptyDirRemoval removeAccountRootIfEmpty(const QString &dir)
+{
+    const QString primary = primaryRoot();
+    if (dir.trimmed().isEmpty() || primary.isEmpty())
+        return EmptyDirRemoval::Refused;
+    const QFileInfo info(dir);
+    if (info.isSymLink())
+        return EmptyDirRemoval::Refused;
+    if (!info.exists())
+        return EmptyDirRemoval::Absent;
+    if (!info.isDir())
+        return EmptyDirRemoval::Refused;
+    const QString root = QDir::cleanPath(QFileInfo(primary).absoluteFilePath());
+    const QFileInfo target(QDir::cleanPath(info.absoluteFilePath()));
+    const QString name = target.fileName();
+    if (target.path() != root || !isSafePathComponent(name))
+        return EmptyDirRemoval::Refused;
+    // Hidden entries count: a dot-file is still something of the account's.
+    if (!QDir(target.absoluteFilePath())
+             .isEmpty(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden
+                      | QDir::System))
+        return EmptyDirRemoval::NotEmpty;
+    // rmdir, not removeRecursively: it fails rather than delete anything that
+    // appeared since the check.
+    return QDir(root).rmdir(name) ? EmptyDirRemoval::Deleted
+                                  : EmptyDirRemoval::Failed;
+}
+
 QString rustSdkSmokeSessionPath(const QString &userId)
 {
     const QString account = accountRoot(userId);

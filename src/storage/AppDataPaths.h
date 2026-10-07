@@ -138,6 +138,39 @@ enum class DirRemoval { Deleted, Absent, Failed };
 // followed.
 DirRemoval removeAppDataDir(const QString &dir);
 
+// Outcome of removing an account directory that should now hold nothing.
+// Every value is a distinct outcome; only Deleted removed anything.
+enum class EmptyDirRemoval {
+    Deleted,   // it was empty and is gone
+    Absent,    // nothing there
+    NotEmpty,  // something still lives in it; left alone
+    Refused,   // not a plain directory directly under primaryRoot()
+    Failed,    // empty, but the filesystem refused to remove it
+};
+
+// Removes an account root ONLY when it is empty. Sign-out deletes the store
+// and its sidecars but used to leave the directory that held them, named
+// after the account (VM test, 2026-10-07). Never recursive, so it cannot
+// delete data: a directory with anything in it is NotEmpty and untouched.
+// Refuses a symlink, a non-directory, and anything that is not a direct,
+// safely named child of primaryRoot(). The caller passes a RECORDED root
+// (AccountIdentity::accountRoot) or the canonical accountRoot(userId); this
+// never derives one.
+EmptyDirRemoval removeAccountRootIfEmpty(const QString &dir);
+
+// Stable log token for an EmptyDirRemoval.
+inline const char *emptyDirRemovalName(EmptyDirRemoval outcome)
+{
+    switch (outcome) {
+    case EmptyDirRemoval::Deleted: return "deleted";
+    case EmptyDirRemoval::Absent: return "absent";
+    case EmptyDirRemoval::NotEmpty: return "kept_not_empty";
+    case EmptyDirRemoval::Refused: return "refused";
+    case EmptyDirRemoval::Failed: return "failed";
+    }
+    return "failed";
+}
+
 // Smoke-only MatrixSession sidecar used by LIGHTNING_TEST_PERSISTENT_STORE=1.
 // It is account-specific session state, not an interactive QSettings or
 // SecretStore entry. Never print its token contents.
