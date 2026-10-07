@@ -218,7 +218,8 @@ public:
     }
 
     /// After the output list changed. A QSoundEffect whose output went away
-    /// sits in Error, and nothing here ever moved it out (setSource() with
+    /// sits in Error, or stays Ready bound to a dead endpoint, and nothing
+    /// here ever moved it out (setSource() with
     /// the same URL is a no-op), so canPlay() stayed false for the rest of
     /// the session. Each such sound is replaced by a new effect, and
     /// a sound never loaded (no output at startup) is loaded now. A loop that
@@ -231,17 +232,23 @@ public:
         int reloaded = 0;
         bool loopLost = false;
         for (const QString &sound : kSounds) {
+            // Every effect is rebuilt, not only those in Error: one still
+            // bound to an endpoint that vanished and came back (an RDP
+            // reconnect) reports Ready and plays into nothing.
             QSoundEffect *old = m_effects.value(sound);
-            if (old && old->status() != QSoundEffect::Error)
-                continue;
             if (old) {
                 // Its status must no longer reach the readiness set: the new
                 // effect's does.
+                // A loop that stopAll() silenced keeps its name; only one
+                // that was audible (or failed) is resumed.
+                loopLost = loopLost
+                    || (sound == m_loopSound
+                        && (old->isPlaying()
+                            || old->status() == QSoundEffect::Error));
                 QObject::disconnect(old, nullptr, this, nullptr);
                 m_effects.remove(sound);
                 old->stop();
                 old->deleteLater();
-                loopLost = loopLost || sound == m_loopSound;
             }
             effect(sound);
             ++reloaded;
