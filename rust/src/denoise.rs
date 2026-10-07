@@ -30,6 +30,12 @@
 //! that was configured inconsistently fails safe (pass-through) rather than at
 //! link time.
 
+/// Local-SNR thresholds (dB) for DeepFilterNet's decoders, as the upstream
+/// `deep-filter` CLI defaults them (libDF/src/bin/enhance_wav.rs, d375b2d8).
+pub const DFN_MIN_DB_THRESH: f32 = -15.0;
+pub const DFN_MAX_DB_ERB_THRESH: f32 = 35.0;
+pub const DFN_MAX_DB_DF_THRESH: f32 = 35.0;
+
 use std::os::raw::{c_float, c_int};
 
 /// Frame processed (enhanced, or libDF's own silence/skip path).
@@ -102,12 +108,21 @@ mod imp {
     }
 
     pub fn create(atten_lim_db: f32) -> Option<Box<DfHandle>> {
-        // Default upstream runtime parameters (as the LADSPA plugin and the
-        // `deep-filter` binary use) with the requested attenuation limit.
+        // The `deep-filter` binary's thresholds (enhance_wav.rs at the
+        // vendored commit d375b2d8), NOT RuntimeParams::default_with_ch's
+        // -10/30/20: measured 2026-10-07 on real speech, those cut ~9% of loud
+        // speech frames at 15 dB SNR and muted 17.6% at 0 dB (STOI 0.842 at
+        // 15 dB vs 0.980 with these), at ~50% more compute.
         // A limit >= 100 dB means "unlimited"; non-finite input falls back to
         // unlimited too.
         let lim = if atten_lim_db.is_finite() { atten_lim_db.abs() } else { 100.0 };
-        let rp = RuntimeParams::default_with_ch(1).with_atten_lim(lim);
+        let rp = RuntimeParams::default_with_ch(1)
+            .with_atten_lim(lim)
+            .with_thresholds(
+                super::DFN_MIN_DB_THRESH,
+                super::DFN_MAX_DB_ERB_THRESH,
+                super::DFN_MAX_DB_DF_THRESH,
+            );
         let params = DfParams::from_bytes(MODEL_TAR_GZ).ok()?;
         let model = DfTract::new(params, &rp).ok()?;
         let hop = model.hop_size;
@@ -452,6 +467,26 @@ pub unsafe extern "C" fn mx_df_destroy(handle: *mut MxDfHandle) {
 
 #[cfg(all(test, feature = "deepfilternet"))]
 mod tests {
+    // 2026-10-07: RuntimeParams::default_with_ch's -10/30/20 muted 17.6% of
+    // speech frames at 0 dB SNR and cut ~9% of loud frames at 15 dB on real
+    // speech. The thresholds are the `deep-filter` CLI's, and create() must
+    // apply them, not the struct defaults.
+    #[test]
+    fn dfn_uses_the_cli_thresholds_not_the_struct_defaults() {
+        assert_eq!(super::DFN_MIN_DB_THRESH, -15.0);
+        assert_eq!(super::DFN_MAX_DB_ERB_THRESH, 35.0);
+        assert_eq!(super::DFN_MAX_DB_DF_THRESH, 35.0);
+        let src = include_str!("denoise.rs");
+        let create = src
+            .find("pub fn create(atten_lim_db: f32)")
+            .expect("create() exists");
+        let body = &src[create..create + 1500];
+        assert!(
+            body.contains(".with_thresholds(") && body.contains("super::DFN_MIN_DB_THRESH"),
+            "create() must apply the CLI thresholds"
+        );
+    }
+
     use super::*;
 
     const SR: usize = 48_000;

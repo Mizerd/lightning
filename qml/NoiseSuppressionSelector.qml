@@ -30,7 +30,7 @@ ColumnLayout {
     function titleFor(key) {
         if (key === "off") return qsTr("Off")
         if (key === "webrtc") return qsTr("Standard (WebRTC)")
-        if (key === "rnnoise") return qsTr("Strong (RNNoise)")
+        if (key === "rnnoise") return qsTr("Strong (RNNoise) · Recommended")
         if (key === "deepfilternet") return qsTr("Advanced (DeepFilterNet)")
         return key
     }
@@ -40,10 +40,11 @@ ColumnLayout {
                         + "captured; volume levelling still applies.")
         if (key === "webrtc")
             return qsTr("Standard WebRTC suppression, as browsers use. The "
-                        + "lightest on CPU, and the recommended default.")
+                        + "lightest on CPU, but it removes little.")
         if (key === "rnnoise")
-            return qsTr("Neural suppression. Removes more noise, such as fans "
-                        + "and keyboards, at moderate CPU use.")
+            return qsTr("Recommended. Neural suppression that removes fans, "
+                        + "keyboards and traffic while keeping speech clear, at "
+                        + "moderate CPU use.")
         if (key === "deepfilternet")
             return qsTr("Advanced neural suppression. Potentially the "
                         + "strongest, and the most demanding on CPU.")

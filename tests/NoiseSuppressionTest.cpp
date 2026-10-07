@@ -440,7 +440,7 @@ private slots:
                 == Mode::WebRtc);
         QVERIFY(calls::noise::modeFromKey("", Mode::WebRtc) == Mode::WebRtc);
         QVERIFY(!calls::noise::isModeKey("deepfilternet "));
-        QVERIFY(calls::noise::kDefaultMode == Mode::WebRtc);
+        QVERIFY(calls::noise::kDefaultMode == Mode::Off);
     }
 
     // Off (and WebRTC, whose suppressor lives in webrtcdsp) leave every byte

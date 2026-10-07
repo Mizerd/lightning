@@ -109,8 +109,10 @@ inline Mode modeFromKey(std::string_view key, Mode fallback)
     return fallback;
 }
 
-/// What a fresh install uses: WebRTC, which is what every build before the
-/// selector ran (webrtcdsp noise-suppression=true).
-constexpr Mode kDefaultMode = Mode::WebRtc;
+/// What a fresh install uses: Off (Rokas, 2026-10-07). The suppressors are a
+/// Labs choice; RNNoise is the one recommended in the UI, measured best on real
+/// speech (LibriSpeech + DEMAND/MUSAN mixes: the only mode above the input's
+/// STOI at every SNR). Before 2026-10-07 the default was WebRTC.
+constexpr Mode kDefaultMode = Mode::Off;
 
 } // namespace calls::noise

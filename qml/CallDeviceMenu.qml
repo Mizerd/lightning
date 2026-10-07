@@ -349,7 +349,7 @@ AppMenu {
     function noiseTitle(key) {
         if (key === "off") return qsTr("Off")
         if (key === "webrtc") return qsTr("Standard (WebRTC)")
-        if (key === "rnnoise") return qsTr("Strong (RNNoise)")
+        if (key === "rnnoise") return qsTr("Strong (RNNoise) · Recommended")
         if (key === "deepfilternet") return qsTr("Advanced (DeepFilterNet)")
         return key
     }

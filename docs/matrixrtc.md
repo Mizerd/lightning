@@ -1309,8 +1309,12 @@ them in front of one sink.
 default, `moderate`), so WebRTC noise suppression already ran on every call
 wherever the element existed; nothing exposed it. It is now one of four modes
 in Settings → Labs, stored machine-wide as `calls/noiseSuppression`: `off`,
-`webrtc` (the default — what every earlier build ran), `rnnoise` and
-`deepfilternet`. Exactly ONE suppressor runs. The voice-processing stage
+`webrtc` (what every build before 2026-10-07 ran), `rnnoise` and
+`deepfilternet`. Since 2026-10-07 a fresh install defaults to `off`, and the UI
+marks `rnnoise` as recommended: with real speech (LibriSpeech over DEMAND,
+MUSAN and freesound noise at 0-15 dB SNR) it was the only mode above the
+input's STOI at every SNR (0.906 vs 0.875 mean), for ~8 % of a core and +28 ms
+(Tasks/2026-10-07-realspeech.md). Exactly ONE suppressor runs. The voice-processing stage
 (`src/calls/noise/MicProcessing.*`, shared by the call and the Settings
 microphone test) sits after the mute valve:
 
