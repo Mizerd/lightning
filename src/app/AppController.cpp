@@ -5197,6 +5197,17 @@ void AppController::onLoggedOut()
                                   ? "deleted"
                                   : "absent");
         }
+        // Personal chat backgrounds under the canonical root, where the
+        // controller writes them. The client removed them under the recorded
+        // root too (finishSignOut); this one does not depend on that identity
+        // being valid.
+        const QString backgroundsDir = matrix::app_data::personalBackgroundsDir(
+            matrix::app_data::accountRoot(m_lastSessionUserId));
+        if (matrix::app_data::removeAppDataDir(backgroundsDir)
+            == matrix::app_data::DirRemoval::Failed) {
+            qCWarning(lcApp) << "personal backgrounds sign-out cleanup FAILED slug="
+                             << matrix::app_data::safeUserSlug(m_lastSessionUserId);
+        }
         signOutAccountResidue(m_lastSessionUserId);
     }
     // Second half of removeAccount() for the active account. Runs before
@@ -5769,8 +5780,9 @@ void AppController::signOutAccountResidue(const QString &userId)
     // bridge badges deleted just above, ONLY if nothing is left in it. The
     // client already tried the RECORDED store root (finishSignOut); with a
     // divergent store slug this is the second directory, and with none it is
-    // the same one, now emptied. Never recursive: personal backgrounds or any
-    // other file keep it.
+    // the same one, now emptied. Never recursive: any other file keeps it.
+    // (Personal chat backgrounds are not such a file: finishSignOut removed
+    // them under both the recorded and the canonical root.)
     const QString root = matrix::app_data::accountRoot(userId);
     if (root.isEmpty())
         return;

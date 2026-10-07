@@ -631,6 +631,40 @@ Popup {
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormText
             }
+            // Chat backgrounds that have not reached the homeserver yet are
+            // deleted with the rest of this device's data.
+            Label {
+                objectName: "signOutUnsavedBackgrounds"
+                readonly property int unsaved: app.backdrops
+                                               ? app.backdrops.syncUnsaved : 0
+                Layout.fillWidth: true
+                visible: unsaved > 0
+                textFormat: Text.PlainText
+                text: qsTr("%n of your chat backgrounds is not saved on your "
+                           + "homeserver yet. Signing out now deletes it from "
+                           + "this device.", "", unsaved)
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                wrapMode: Text.WordWrap
+                color: AppTheme.stormDanger
+            }
+            // Removals not yet taken by the homeserver: the copies there
+            // would come back at the next sign-in.
+            Label {
+                objectName: "signOutOwedRemovals"
+                readonly property int owed: app.backdrops
+                                            ? app.backdrops.syncOwedRemovals : 0
+                Layout.fillWidth: true
+                visible: owed > 0
+                textFormat: Text.PlainText
+                text: qsTr("%n chat background you removed is still on your "
+                           + "homeserver and comes back when you sign in "
+                           + "again.", "", owed)
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                wrapMode: Text.WordWrap
+                color: AppTheme.stormDanger
+            }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }

@@ -3462,6 +3462,100 @@ void RustSdkMatrixClient::setRoomBackground(const QString &roomId,
 }
 
 // ---------------------------------------------------------------------------
+// Personal chat backgrounds in account data (rust/src/bgsync.rs). Scopes are
+// "" or a room id; none of these log a path, a picture or a room id.
+// ---------------------------------------------------------------------------
+
+void RustSdkMatrixClient::readPersonalBackgrounds(const QString &scope,
+                                                  quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT personalBackgroundsRead(opId, scope, QVariantList(),
+                                       QStringList{ scope }, -1);
+        return;
+    }
+    const QByteArray target = scope.toUtf8();
+    const QString result = takeRustString(mx_rust_personal_backgrounds_read(
+        m_rustHandle, target.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "personal background read rejected op=" << opId
+                          << "reason=" << result.left(120);
+        Q_EMIT personalBackgroundsRead(opId, scope, QVariantList(),
+                                       QStringList{ scope }, -1);
+    }
+}
+
+void RustSdkMatrixClient::downloadPersonalBackground(const QString &scope,
+                                                     const QString &expectedId,
+                                                     quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT personalBackgroundDownloaded(opId, scope, false, QVariantMap(),
+                                            QByteArray(),
+                                            QStringLiteral("signed_out"));
+        return;
+    }
+    const QByteArray target = scope.toUtf8();
+    const QByteArray expected = expectedId.toUtf8();
+    const QString result = takeRustString(mx_rust_personal_background_download(
+        m_rustHandle, target.constData(), expected.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "personal background download rejected op=" << opId
+                          << "reason=" << result.left(120);
+        Q_EMIT personalBackgroundDownloaded(opId, scope, false, QVariantMap(),
+                                            QByteArray(),
+                                            backgroundRefusalCategory(result));
+    }
+}
+
+void RustSdkMatrixClient::writePersonalBackground(const QString &scope,
+                                                  int mode,
+                                                  const QString &localPath,
+                                                  const QString &requestedJson,
+                                                  quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT personalBackgroundWritten(opId, scope, false, QVariantMap(),
+                                         QStringLiteral("signed_out"));
+        return;
+    }
+    const QByteArray target = scope.toUtf8();
+    const QByteArray path = localPath.toUtf8();
+    const QByteArray requested = requestedJson.toUtf8();
+    const QString result = takeRustString(mx_rust_personal_background_write(
+        m_rustHandle, target.constData(),
+        static_cast<unsigned int>(qBound(0, mode, 3)), path.constData(),
+        requested.constData(), opId));
+    if (!result.isEmpty()) {
+        const QString category = backgroundRefusalCategory(result);
+        qCWarning(lcRust) << "personal background write rejected op=" << opId
+                          << "stage=ffi category=" << category
+                          << "reason=" << result.left(120);
+        Q_EMIT personalBackgroundWritten(opId, scope, false, QVariantMap(),
+                                         category);
+    }
+}
+
+void RustSdkMatrixClient::clearAllPersonalBackgrounds(
+    const QStringList &knownRooms, quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT personalBackgroundsCleared(opId, false, 0, 0, 0, false);
+        return;
+    }
+    const QByteArray known =
+        QJsonDocument(QJsonArray::fromStringList(knownRooms))
+            .toJson(QJsonDocument::Compact);
+    const QString result = takeRustString(mx_rust_personal_backgrounds_clear_all(
+        m_rustHandle, known.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "personal background removal rejected op=" << opId
+                          << "reason=" << result.left(120);
+        Q_EMIT personalBackgroundsCleared(opId, false, 0, 0, 0, false);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Stickers and custom emoji (MSC2545 image packs)
 // ---------------------------------------------------------------------------
 
@@ -4916,6 +5010,19 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
         : matrix::app_data::RemovalSummary{0, 0, 1};
     const bool didSomething = matchedRecord || files.removedAnything();
     const bool ok = sessionOk && files.ok() && didSomething;
+    // Personal chat backgrounds: pictures this account chose, kept as files.
+    // A copy the user asked to keep on the homeserver comes back at the next
+    // sign-in; this device keeps none after a sign-out. Keyed on the RECORDED
+    // root (and the canonical one the controller writes to), and removed
+    // before the empty-directory check below, which they would otherwise
+    // defeat.
+    const auto backgrounds = identity.isValid()
+        ? matrix::app_data::removePersonalBackgrounds(identity)
+        : matrix::app_data::RemovalSummary{0, 0, 0};
+    if (!backgrounds.ok()) {
+        qCWarning(lcRust) << "personal backgrounds sign-out cleanup FAILED slug="
+                          << identity.slug << "failed=" << backgrounds.failed;
+    }
     // The RECORDED directory that held the store, once nothing is left in it
     // (it outlived every sign-out, named after the account). Never recursive:
     // anything still in it (the starred-GIF store and bridge badges are
@@ -4934,6 +5041,8 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
                    << "deleted=" << files.deleted
                    << "missing=" << files.missing
                    << "failed=" << files.failed
+                   << "backgrounds_deleted=" << backgrounds.deleted
+                   << "backgrounds_failed=" << backgrounds.failed
                    << "account_dir="
                    << matrix::app_data::emptyDirRemovalName(accountDir);
 
@@ -10141,6 +10250,78 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("ok")).toBool(false),
             event.value(QStringLiteral("content")).toObject().toVariantMap(),
             event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+    // Personal backgrounds (rust/src/bgsync.rs). Entries carry no key and no
+    // url; the picture bytes arrive only through the parked media payload.
+    if (type == QLatin1String("personal_background_changed")) {
+        Q_EMIT personalBackgroundChanged(
+            event.value(QStringLiteral("scope")).toString());
+        return true;
+    }
+    if (type == QLatin1String("personal_backgrounds")) {
+        // The requests this read cost (account-data GETs, the switch GET
+        // counted only when not shared): the start-up cost is their sum.
+        qCDebug(lcRust) << "personal background read op=" << opId()
+                        << "gets=" << event.value(QStringLiteral("gets")).toInt();
+        QStringList failed;
+        for (const QJsonValue &value :
+             event.value(QStringLiteral("failed")).toArray())
+            failed.append(value.toString());
+        Q_EMIT personalBackgroundsRead(
+            opId(), event.value(QStringLiteral("scope")).toString(),
+            event.value(QStringLiteral("entries")).toArray().toVariantList(),
+            failed,
+            event.value(QStringLiteral("enabled")).isBool()
+                ? (event.value(QStringLiteral("enabled")).toBool() ? 1 : 0)
+                : -1);
+        return true;
+    }
+    if (type == QLatin1String("personal_background_bytes")) {
+        const QString scope = event.value(QStringLiteral("scope")).toString();
+        const bool ok = event.value(QStringLiteral("ok")).toBool(false);
+        QByteArray bytes;
+        if (ok) {
+            size_t len = 0;
+            unsigned char *raw = mx_rust_personal_background_take(m_rustHandle, opId(), &len);
+            if (raw && len > 0)
+                bytes = QByteArray(reinterpret_cast<const char *>(raw),
+                                   static_cast<qsizetype>(len));
+            if (raw)
+                mx_rust_media_free(raw, len);
+        }
+        const bool delivered = ok && !bytes.isEmpty();
+        Q_EMIT personalBackgroundDownloaded(
+            opId(), scope, delivered,
+            event.value(QStringLiteral("entry")).toObject().toVariantMap(),
+            bytes,
+            delivered ? QString()
+                      : (ok ? QStringLiteral("gone")
+                            : event.value(QStringLiteral("category")).toString()));
+        return true;
+    }
+    if (type == QLatin1String("personal_background_written")) {
+        if (!event.value(QStringLiteral("ok")).toBool(false)) {
+            qCWarning(lcRust)
+                << "personal background write failed op=" << opId()
+                << "mode=" << event.value(QStringLiteral("mode")).toString()
+                << "stage=" << event.value(QStringLiteral("stage")).toString()
+                << "category=" << event.value(QStringLiteral("category")).toString();
+        }
+        Q_EMIT personalBackgroundWritten(
+            opId(), event.value(QStringLiteral("scope")).toString(),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("entry")).toObject().toVariantMap(),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+    if (type == QLatin1String("personal_backgrounds_cleared")) {
+        Q_EMIT personalBackgroundsCleared(
+            opId(), event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("cleared")).toInt(),
+            event.value(QStringLiteral("failed")).toInt(),
+            event.value(QStringLiteral("skipped")).toInt(),
+            event.value(QStringLiteral("switched_off")).toBool(false));
         return true;
     }
     if (type == QLatin1String("sticker_packs")) {

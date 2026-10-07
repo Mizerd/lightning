@@ -1096,6 +1096,7 @@ set(APP_QML_FILES
     qml/CallEventDelegate.qml
     qml/VerifySessionPrompt.qml
     qml/IndexAllPrompt.qml
+    qml/BackgroundSyncPrompt.qml
     qml/EncryptionBrokenPrompt.qml
     qml/QuickReactionStrip.qml
     qml/IdentityCard.qml
@@ -1530,6 +1531,9 @@ if(BUILD_TESTING)
         src/storage/PortableMode.cpp
     )
     target_include_directories(app-data-paths-test PRIVATE src)
+    # The sign-out ordering case reads RustSdkMatrixClient.cpp.
+    target_compile_definitions(app-data-paths-test PRIVATE
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(app-data-paths-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME app-data-paths COMMAND app-data-paths-test)
 
@@ -4516,6 +4520,20 @@ if(BUILD_TESTING)
         PRIVATE lightning-app-testlib Qt6::Test)
     add_test(NAME chat-backdrop COMMAND chat-backdrop-test)
     set_tests_properties(chat-backdrop PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Personal backgrounds kept on the homeserver: the controller's reconcile,
+    # migration, write queue and on/off logic against a recording client.
+    qt_add_executable(background-sync-test
+        tests/BackgroundSyncTest.cpp
+    )
+    target_include_directories(background-sync-test PRIVATE src)
+    target_compile_definitions(background-sync-test PRIVATE
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(background-sync-test
+        PRIVATE lightning-app-testlib Qt6::Test)
+    add_test(NAME background-sync COMMAND background-sync-test)
+    set_tests_properties(background-sync PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Profile banners (MSC4427 over MSC4133), policy half: "no banner", "not

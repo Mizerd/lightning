@@ -900,6 +900,76 @@ char *mx_rust_set_room_background(void *client,
                                   const char *content_json,
                                   unsigned long long op_id);
 /*
+ * Personal chat backgrounds kept on the homeserver (rust/src/bgsync.rs):
+ * global account data org.lightning_matrix.backgrounds (scope "", the
+ * every-room default) and room account data
+ * org.lightning_matrix.room.background (scope = room id); the account-wide
+ * switch is its own global type, org.lightning_matrix.backgrounds.settings.
+ * The picture is an SDK-encrypted attachment; its key stays in Rust and never
+ * crosses here.
+ *
+ * Read one scope, or "*" for the default and every joined room. Answers as
+ *   {"type":"personal_backgrounds","op_id",…,"scope","entries":[{"scope",
+ *    "state":"present"|"cleared"|"unsupported","id","info","color",
+ *    "presentation"}],"failed":[scope],"enabled":bool|null}
+ * A scope with no account data at all is omitted (unknown, not cleared).
+ */
+char *mx_rust_personal_backgrounds_read(void *client,
+                                        const char *scope,
+                                        unsigned long long op_id);
+/*
+ * Download and decrypt one scope's picture; the bytes are parked in their OWN
+ * map for mx_rust_personal_background_take(op_id), never in the timeline
+ * media map (the op ids come from another counter). Answers on the command
+ * lane as
+ *   {"type":"personal_background_bytes","op_id",…,"scope","ok","entry",
+ *    "size","category"}
+ * `expected_id` names the picture to fetch (the id a read reported); another
+ * one is refused with category "changed". Reads ask the server, not the
+ * store, which lags this device's own writes.
+ */
+char *mx_rust_personal_background_download(void *client,
+                                           const char *scope,
+                                           const char *expected_id,
+                                           unsigned long long op_id);
+/*
+ * Write one scope: mode 0 encrypts and uploads `local_path` (magic bytes
+ * decide the type), 1 keeps the current picture with the presentation in
+ * `requested_json` while the server still holds its "expected_id" (else
+ * category "changed"), 2 clears it, 3 sets the account-wide switch
+ * ("enabled", scope "" only; writes the settings type and nothing else).
+ * Uploads and presentation writes are refused with "sync_disabled" when the
+ * server's switch is off, read again immediately before the PUT. All results
+ * answer
+ * on the command lane. Answers as
+ *   {"type":"personal_background_written","op_id",…,"scope","mode","ok",
+ *    "entry","category","stage"}
+ */
+char *mx_rust_personal_background_write(void *client,
+                                        const char *scope,
+                                        unsigned int mode,
+                                        const char *local_path,
+                                        const char *requested_json,
+                                        unsigned long long op_id);
+/*
+ * Remove every server copy (writes the empty object; uploaded media cannot
+ * be deleted) and turn the account-wide switch off. `known_rooms` is a JSON
+ * array of room ids. Answers as
+ *   {"type":"personal_backgrounds_cleared","op_id",…,"ok","cleared","failed",
+ *    "skipped","switched_off"}. The switch goes off FIRST; without it nothing
+ *    else is attempted.
+ */
+char *mx_rust_personal_backgrounds_clear_all(void *client,
+                                             const char *known_rooms,
+                                             unsigned long long op_id);
+/*
+ * Move a decrypted personal background out of its own map; release with
+ * mx_rust_media_free. Null for an unknown op.
+ */
+unsigned char *mx_rust_personal_background_take(void *client,
+                                                unsigned long long op_id,
+                                                size_t *out_len);
+/*
  * Stickers and custom emoji — MSC2545 image packs (`im.ponies.*`).
  *
  * Read every pack this account can use and answer with ONE snapshot:

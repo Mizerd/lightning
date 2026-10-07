@@ -385,6 +385,16 @@ public:
     void fetchRoomBackground(const QString &roomId, quint64 opId) override;
     void setRoomBackground(const QString &roomId, const QString &localPath,
                            const QString &contentJson, quint64 opId) override;
+    bool supportsPersonalBackgroundSync() const override { return true; }
+    void readPersonalBackgrounds(const QString &scope, quint64 opId) override;
+    void downloadPersonalBackground(const QString &scope, const QString &expectedId,
+                                    quint64 opId) override;
+    void writePersonalBackground(const QString &scope, int mode,
+                                 const QString &localPath,
+                                 const QString &requestedJson,
+                                 quint64 opId) override;
+    void clearAllPersonalBackgrounds(const QStringList &knownRooms,
+                                     quint64 opId) override;
     void publishPresence(int state) override;
     void publishPresence(int state, const QString &statusMsg) override;
     void requestRoomNotificationMode(const QString &roomId) override;

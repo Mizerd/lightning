@@ -34,6 +34,7 @@ private Q_SLOTS:
     void aStoreThatStaysOpenIsReportedFailedNeverRemoved();
     void retriesShareOneBudgetAcrossEveryDirectory();
     void anAccountRootGoesOnlyWhenEmpty();
+    void personalBackgroundsGoSoTheRecordedRootCanGo();
 
 private:
     bool writeFile(const QString &path, const QByteArray &contents = "fixture");
@@ -595,6 +596,70 @@ void AppDataPathsTest::anAccountRootGoesOnlyWhenEmpty()
     QVERIFY(QDir(target.path()).exists());
     QVERIFY(QFile::remove(link));
 #endif
+}
+
+// Personal chat backgrounds are files under the account directory, and the
+// sign-out cleanup is never recursive, so they kept the account directory (and
+// the pictures) on disk after every sign-out. They go first now, under the
+// RECORDED root (where the store lived) and the canonical one (where the
+// controller writes), and then the empty account directory can go. A
+// recording that differs from the canonical slug is exactly the case where a
+// cleanup keyed on the user id alone would miss one of the two.
+void AppDataPathsTest::personalBackgroundsGoSoTheRecordedRootCanGo()
+{
+    using matrix::app_data::EmptyDirRemoval;
+    using matrix::app_data::personalBackgroundsDir;
+    using matrix::app_data::removeAccountRootIfEmpty;
+    using matrix::app_data::removePersonalBackgrounds;
+
+    matrix::app_data::AccountIdentity erin;
+    QVERIFY(matrix::app_data::resolveAccountIdentity(
+        QStringLiteral("https://matrix.example"), QStringLiteral("erin"), &erin));
+    const QString canonicalRoot = erin.accountRoot;
+    QVERIFY(matrix::app_data::bindStoreSlug(&erin, QStringLiteral("Erin_typed")));
+    QVERIFY(erin.accountRoot != canonicalRoot);
+    QCOMPARE(personalBackgroundsDir(erin.accountRoot),
+             erin.accountRoot + QStringLiteral("/backgrounds"));
+    QVERIFY(personalBackgroundsDir(QString()).isEmpty());
+
+    const QString recordedPicture =
+        personalBackgroundsDir(erin.accountRoot) + QStringLiteral("/a.jpg");
+    const QString canonicalPicture =
+        personalBackgroundsDir(canonicalRoot) + QStringLiteral("/b.png");
+    QVERIFY(writeFile(recordedPicture));
+    QVERIFY(writeFile(canonicalPicture));
+    // What the old sign-out did: the backgrounds keep both directories.
+    QCOMPARE(removeAccountRootIfEmpty(erin.accountRoot), EmptyDirRemoval::NotEmpty);
+    QCOMPARE(removeAccountRootIfEmpty(canonicalRoot), EmptyDirRemoval::NotEmpty);
+
+    const auto removed = removePersonalBackgrounds(erin);
+    QCOMPARE(removed.deleted, 2);
+    QCOMPARE(removed.failed, 0);
+    QVERIFY(!QFileInfo::exists(recordedPicture));
+    QVERIFY(!QFileInfo::exists(canonicalPicture));
+    QCOMPARE(removeAccountRootIfEmpty(erin.accountRoot), EmptyDirRemoval::Deleted);
+    QCOMPARE(removeAccountRootIfEmpty(canonicalRoot), EmptyDirRemoval::Deleted);
+
+    // Nothing there is "missing", never "deleted".
+    const auto again = removePersonalBackgrounds(erin);
+    QCOMPARE(again.deleted, 0);
+    QCOMPARE(again.missing, 2);
+    QVERIFY(!again.removedAnything());
+
+    // The client's sign-out calls it with the recorded identity BEFORE the
+    // empty-directory check, or that check still sees the pictures.
+    QFile source(QStringLiteral(LIGHTNING_SOURCE_DIR "/src/matrix/RustSdkMatrixClient.cpp"));
+    QVERIFY(source.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString text = QString::fromUtf8(source.readAll());
+    const qsizetype finish = text.indexOf(QStringLiteral("void RustSdkMatrixClient::finishSignOut("));
+    QVERIFY(finish > 0);
+    const qsizetype remove = text.indexOf(
+        QStringLiteral("removePersonalBackgrounds(identity)"), finish);
+    const qsizetype rootCheck = text.indexOf(
+        QStringLiteral("removeAccountRootIfEmpty(identity.accountRoot)"), finish);
+    QVERIFY2(remove > finish, "finishSignOut no longer removes personal backgrounds");
+    QVERIFY2(rootCheck > remove,
+             "personal backgrounds must go before the account directory check");
 }
 
 QTEST_MAIN(AppDataPathsTest)

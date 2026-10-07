@@ -359,6 +359,33 @@ DirRemoval removeAppDataDir(const QString &dir)
                                          : DirRemoval::Failed;
 }
 
+QString personalBackgroundsDir(const QString &accountRootDir)
+{
+    if (accountRootDir.trimmed().isEmpty())
+        return {};
+    return accountRootDir + QLatin1String("/backgrounds");
+}
+
+RemovalSummary removePersonalBackgrounds(const AccountIdentity &identity)
+{
+    RemovalSummary summary;
+    QStringList dirs;
+    const QString recorded = personalBackgroundsDir(identity.accountRoot);
+    if (!recorded.isEmpty())
+        dirs.append(recorded);
+    const QString canonical = personalBackgroundsDir(accountRoot(identity.userId));
+    if (!canonical.isEmpty() && !dirs.contains(canonical))
+        dirs.append(canonical);
+    for (const QString &dir : std::as_const(dirs)) {
+        switch (removeAppDataDir(dir)) {
+        case DirRemoval::Deleted: ++summary.deleted; break;
+        case DirRemoval::Absent: ++summary.missing; break;
+        case DirRemoval::Failed: ++summary.failed; break;
+        }
+    }
+    return summary;
+}
+
 EmptyDirRemoval removeAccountRootIfEmpty(const QString &dir)
 {
     const QString primary = primaryRoot();

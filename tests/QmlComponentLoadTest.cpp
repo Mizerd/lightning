@@ -78,6 +78,7 @@ constexpr const char *kComponents[] = {
     "EncryptionBrokenPrompt",  // B011: the undecryptable-device card
     // The one-time "index all messages now?" card; reads app.messageSearch.
     "IndexAllPrompt",
+    "BackgroundSyncPrompt",
     "CallHeaderBar",
     "ActivityCenterPanel",
     "JumpToDateDialog",

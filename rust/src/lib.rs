@@ -73,6 +73,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 mod backdrop;
+mod bgsync;
 mod banner;
 mod bio;
 mod bridges;
@@ -275,6 +276,15 @@ struct RustClient {
     // `media_ready` and `mx_rust_media_take`. Cleared on shutdown so decrypted
     // media never outlives the session.
     media_results: Arc<Mutex<HashMap<u64, Vec<u8>>>>,
+    // Decrypted personal chat backgrounds (bgsync.rs) between
+    // `personal_background_bytes` and `mx_rust_personal_background_take`. Its
+    // OWN map: those op ids come from another counter, and sharing
+    // `media_results` could hand a timeline picture to the background code.
+    // Bounded (bgsync::park) and cleared on shutdown.
+    personal_background_results: bgsync::ParkedPictures,
+    // The last switch GET a personal-background read made, shared by
+    // concurrent reads (bgsync::switch_after). Keyed by lifecycle.
+    personal_switch_cache: bgsync::SwitchCache,
     // Abort handles for in-flight media fetches, keyed by op id, so
     // mx_rust_media_cancel can stop an abandoned download. Tasks remove their
     // own entry on completion; cleared on shutdown.
@@ -342,6 +352,8 @@ impl RustClient {
             verification_shutdown: Arc::new(AtomicBool::new(false)),
             import_active: Arc::new(AtomicBool::new(false)),
             media_results: Arc::new(Mutex::new(HashMap::new())),
+            personal_background_results: Arc::new(Mutex::new(HashMap::new())),
+            personal_switch_cache: Arc::new(tokio::sync::Mutex::new(None)),
             media_fetch_aborts: Arc::new(Mutex::new(HashMap::new())),
             command_events: Arc::new(Mutex::new(VecDeque::new())),
             bootstrap_task: Mutex::new(None),
@@ -579,6 +591,9 @@ impl RustClient {
 
         // Drop parked (possibly decrypted) media bytes with the session.
         if let Ok(mut guard) = self.media_results.lock() {
+            guard.clear();
+        }
+        if let Ok(mut guard) = self.personal_background_results.lock() {
             guard.clear();
         }
         // Clear abort handles registered between the drain above and sync stop.
@@ -6641,6 +6656,119 @@ pub unsafe extern "C" fn mx_rust_set_room_background(
     })
 }
 
+/// Read this account's personal backgrounds kept in account data
+/// (`bgsync.rs`). `scope` is "" (the every-room default), a room id, or "*"
+/// for the default and every joined room. Result event: `personal_backgrounds
+/// { op_id, lifecycle, scope, entries: [{scope, state, id, info, color,
+/// presentation}], failed: [scope] }`. Never carries the file key or url.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_personal_backgrounds_read(
+    ptr: *mut c_void,
+    scope: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let scope = unsafe { cstr_arg(scope) }?;
+        bgsync::read(bridge, op_id, scope).map(|_| String::new())
+    })
+}
+
+/// Download and decrypt one scope's personal background. The bytes are
+/// parked for `mx_rust_personal_background_take(op_id)` (their own map, never
+/// the timeline media map). Result event (command lane):
+/// `personal_background_bytes { op_id, lifecycle, scope, ok, entry, size,
+/// category }`. `expected_id` names the picture to fetch; another one is
+/// refused with category "changed".
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_personal_background_download(
+    ptr: *mut c_void,
+    scope: *const c_char,
+    expected_id: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let scope = unsafe { cstr_arg(scope) }?;
+        let expected_id = unsafe { cstr_arg(expected_id) }?;
+        bgsync::download(bridge, op_id, scope, expected_id).map(|_| String::new())
+    })
+}
+
+/// Write one scope's personal background. `mode` 0 encrypts and uploads
+/// `local_path`, 1 keeps the current picture with new presentation from
+/// `requested_json` (only while the server still holds its `expected_id`),
+/// 2 clears it, 3 sets the account-wide switch (`enabled`, scope "" only).
+/// Result event (command lane): `personal_background_written { op_id,
+/// lifecycle, scope, mode, ok, entry, category, stage }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_personal_background_write(
+    ptr: *mut c_void,
+    scope: *const c_char,
+    mode: c_uint,
+    local_path: *const c_char,
+    requested_json: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let scope = unsafe { cstr_arg(scope) }?;
+        let path = unsafe { cstr_arg(local_path) }?;
+        let requested = unsafe { cstr_arg(requested_json) }?;
+        bgsync::write(bridge, op_id, scope, mode, path, requested).map(|_| String::new())
+    })
+}
+
+/// Remove every server copy of this account's personal backgrounds (the
+/// account data; uploaded media cannot be deleted by a user). `known_rooms`
+/// is a JSON array of room ids C++ holds synced copies for. Also turns the
+/// account-wide switch off. Result event (command lane):
+/// `personal_backgrounds_cleared { op_id, lifecycle, ok, cleared, failed,
+/// skipped }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_personal_backgrounds_clear_all(
+    ptr: *mut c_void,
+    known_rooms: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let known = unsafe { cstr_arg(known_rooms) }?;
+        bgsync::clear_all(bridge, op_id, known).map(|_| String::new())
+    })
+}
+
+/// Move a decrypted personal background out of its own map. Returns a buffer
+/// the caller releases with `mx_rust_media_free`, or null for an unknown op.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_personal_background_take(
+    ptr: *mut c_void,
+    op_id: u64,
+    out_len: *mut usize,
+) -> *mut u8 {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        if out_len.is_null() {
+            return std::ptr::null_mut();
+        }
+        unsafe { *out_len = 0 };
+        let Ok(bridge) = (unsafe { bridge(ptr) }) else {
+            return std::ptr::null_mut();
+        };
+        let Some(bytes) = bridge
+            .personal_background_results
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.remove(&op_id))
+        else {
+            return std::ptr::null_mut();
+        };
+        let boxed: Box<[u8]> = bytes.into_boxed_slice();
+        unsafe { *out_len = boxed.len() };
+        Box::into_raw(boxed) as *mut u8
+    }));
+    result.unwrap_or(std::ptr::null_mut())
+}
+
 // ---------------------------------------------------------------------------
 // Stickers and image packs (MSC2545)
 // ---------------------------------------------------------------------------
@@ -10573,6 +10701,11 @@ fn install_event_handlers(
     // re-reads the scopes it shows. See backdrop::install_change_handler.
     backdrop::install_change_handler(client, Arc::clone(&events));
 
+    // This account's personal backgrounds changed in account data (another
+    // device set or removed one, or our own write came back). Only the scope
+    // crosses; C++ re-reads it. See bgsync::install_change_handlers.
+    bgsync::install_change_handlers(client, Arc::clone(&events));
+
     // A power-level change invalidates cached permission flags now. Routed
     // through the existing members poke, since the member snapshot carries
     // both per-member levels and the viewer's own permissions.
@@ -12561,13 +12694,34 @@ pub(crate) fn enqueue_terminal(
     parked: &Arc<Mutex<HashMap<u64, Vec<u8>>>>,
     value: serde_json::Value,
 ) {
+    enqueue_terminal_routed(queue, Some(parked), None, value);
+}
+
+/// `enqueue_terminal`, freeing a dropped event's parked payload in the map
+/// that event's TYPE owns: personal chat backgrounds (bgsync.rs) park in
+/// their own map under op ids from another counter, so a dropped background
+/// event must never free a timeline payload with the same number, nor the
+/// reverse. A map that is not given is left alone.
+pub(crate) fn enqueue_terminal_routed(
+    queue: &EventQueueRef,
+    media: Option<&Arc<Mutex<HashMap<u64, Vec<u8>>>>>,
+    personal: Option<&Arc<Mutex<HashMap<u64, Vec<u8>>>>>,
+    value: serde_json::Value,
+) {
     let Ok(mut guard) = queue.lock() else { return };
     while guard.len() >= COMMAND_QUEUE_CAP {
         if let Some(dropped) = guard.pop_front() {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&dropped) {
                 if let Some(op) = v.get("op_id").and_then(|o| o.as_u64()) {
-                    if let Ok(mut results) = parked.lock() {
-                        results.remove(&op);
+                    let owned_by_personal = v
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .is_some_and(|t| t.starts_with("personal_background"));
+                    let owner = if owned_by_personal { personal } else { media };
+                    if let Some(map) = owner {
+                        if let Ok(mut results) = map.lock() {
+                            results.remove(&op);
+                        }
                     }
                 }
             }

@@ -119,6 +119,21 @@ QString rustSdkStorePath(const QString &userId);
 // the canonical accountRoot(userId), never a recorded store slug.
 QString starredGifsDir(const QString &userId);
 
+// <accountRootDir>/backgrounds: personal chat backgrounds, Lightning-encoded
+// pictures only this account sees (ChatBackdropController). A function of a
+// ROOT, so the opener passes the canonical accountRoot(userId) and sign-out
+// can also pass the RECORDED AccountIdentity::accountRoot. Empty for an empty
+// root.
+QString personalBackgroundsDir(const QString &accountRootDir);
+
+// Sign-out: removes the personal-backgrounds directory under the RECORDED
+// root (identity.accountRoot) and, when it differs, under the canonical
+// accountRoot(identity.userId), which is where the controller writes. Every
+// outcome is counted; a missing directory is `missing`, never `deleted`.
+// Must run before removeAccountRootIfEmpty, or the account directory keeps
+// these files and outlives the sign-out.
+RemovalSummary removePersonalBackgrounds(const AccountIdentity &identity);
+
 // <accountRoot(userId)>/bridge-labels.json (BridgeLabelStore). One path for
 // the opener and the cleanup, for the same reason as starredGifsDir.
 QString bridgeLabelsFile(const QString &userId);

@@ -558,6 +558,45 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(contentJson);
         Q_UNUSED(opId);
     }
+    // Personal chat backgrounds kept on the homeserver (account data; see
+    // rust/src/bgsync.rs). Scope "" is the every-room default, a room id is
+    // that room; "*" (read only) is the default and every joined room. The
+    // picture's key never leaves the backend: answers carry a scope, an `id`
+    // naming the upload, and the presentation.
+    virtual bool supportsPersonalBackgroundSync() const { return false; }
+    // Answers on personalBackgroundsRead.
+    virtual void readPersonalBackgrounds(const QString &scope, quint64 opId)
+    {
+        Q_UNUSED(scope); Q_UNUSED(opId);
+    }
+    // Downloads and decrypts the picture `expectedId` names (another one
+    // answers category "changed"); answers on personalBackgroundDownloaded.
+    virtual void downloadPersonalBackground(const QString &scope,
+                                            const QString &expectedId,
+                                            quint64 opId)
+    {
+        Q_UNUSED(scope); Q_UNUSED(expectedId); Q_UNUSED(opId);
+    }
+    // mode: 0 upload `localPath` (encrypted), 1 new presentation for the
+    // current picture (requestedJson carries "expected_id"; a different
+    // picture on the server answers category "changed"), 2 clear, 3 set the
+    // account-wide switch ("enabled", scope "" only). Answers on
+    // personalBackgroundWritten.
+    virtual void writePersonalBackground(const QString &scope, int mode,
+                                         const QString &localPath,
+                                         const QString &requestedJson,
+                                         quint64 opId)
+    {
+        Q_UNUSED(scope); Q_UNUSED(mode); Q_UNUSED(localPath);
+        Q_UNUSED(requestedJson); Q_UNUSED(opId);
+    }
+    // Removes every server copy (the account data) and turns the
+    // account-wide switch off. Answers on personalBackgroundsCleared.
+    virtual void clearAllPersonalBackgrounds(const QStringList &knownRooms,
+                                             quint64 opId)
+    {
+        Q_UNUSED(knownRooms); Q_UNUSED(opId);
+    }
 
     // ---- Stickers and custom emoji: MSC2545 image packs ----------------
     //
@@ -1904,6 +1943,32 @@ Q_SIGNALS:
     // cleared by anyone. No content: the consumer re-reads it through
     // fetchRoomBackground, so one parser decides what it holds.
     void roomBackgroundChanged(const QString &roomId);
+    // Personal backgrounds in account data. `entries` are maps { scope,
+    // state: "present"|"cleared"|"invalid"|"unsupported", id, info, color,
+    // presentation }. A scope with no account data is absent from them, and
+    // one that could not be read is in `failed`. `enabled` is the
+    // account-wide switch as the backend read it with these entries: 1 on,
+    // 0 off, -1 unknown. Apply it before any entry.
+    void personalBackgroundsRead(quint64 opId, const QString &scope,
+                                 const QVariantList &entries,
+                                 const QStringList &failed, int enabled);
+    // The decrypted picture for `scope` (empty unless ok) and its entry.
+    void personalBackgroundDownloaded(quint64 opId, const QString &scope,
+                                      bool ok, const QVariantMap &entry,
+                                      const QByteArray &bytes,
+                                      const QString &category);
+    void personalBackgroundWritten(quint64 opId, const QString &scope,
+                                   bool ok, const QVariantMap &entry,
+                                   const QString &category);
+    // `skipped` counts scopes the pass could not attempt (a room left, a
+    // newer schema); `switchedOff` says the switch went off first (nothing
+    // else is attempted without it). ok is false whenever failed or skipped
+    // is non-zero or the switch did not go off.
+    void personalBackgroundsCleared(quint64 opId, bool ok, int cleared,
+                                    int failed, int skipped, bool switchedOff);
+    // A scope's account data changed in sync (another device, or our own
+    // write coming back). No content: the consumer re-reads it.
+    void personalBackgroundChanged(const QString &scope);
     // One MSC2545 snapshot of every usable pack, validated and bounded in Rust;
     // see StickerPackModel for the row shape. An empty list means "no packs".
     // `roomCanManage` is whether this account may write `im.ponies.room_emotes`

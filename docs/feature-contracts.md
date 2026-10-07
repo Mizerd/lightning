@@ -2226,6 +2226,105 @@ backgrounds others set for this room" remove the two shared levels only.
   memory via the staged-image store. "Use as my background here" is offered
   only in rooms known to be unencrypted: an encrypted room's picture kept as a
   file would be decrypted media at rest.
+- **Personal pictures on the homeserver** (`rust/src/bgsync.rs`, Settings
+  "Keep my backgrounds on my homeserver", default on). The every-room picture
+  is global account data `org.lightning_matrix.backgrounds`
+  (`{version: 1, default: record}`); a room's own picture is room account data
+  `org.lightning_matrix.room.background` (`{version: 1, ...record}`); the
+  ACCOUNT-WIDE switch is its own global type
+  `org.lightning_matrix.backgrounds.settings` (`{version: 1, enabled}`), so no
+  picture write can ever carry (and so undo) it. Only an explicit `{}` or a
+  version-1 object without `default` / `file` is CLEARED; anything malformed
+  is INVALID and changes nothing locally. A record is
+  `{file: EncryptedFile, info, color, presentation}` with integer percentages
+  only (canonical JSON, as the shared event).
+  - Crypto and transport: uploaded with the SDK's attachment encryption
+    (`Client::upload_encrypted_file`), downloaded and decrypted through the
+    bounded media fetch with no SDK cache, sniffed, re-encoded and kept as the
+    same local file as before. The key never leaves Rust: C++ sees a scope,
+    the ciphertext's SHA-256 as `id`, and the presentation. Decrypted bytes
+    are parked in their OWN map (`mx_rust_personal_background_take`), never
+    the timeline media map, whose op ids come from another counter; the
+    command lane's overflow cleanup is routed by event type for the same
+    reason. Every result rides the command lane, and C++ bounds a write or
+    switch answer that never comes. Settings and the notice say the key sits
+    in account data, which the homeserver's administrator can read.
+  - The switch: off stops every device. Every read carries it and C++ applies
+    it before any entry; every upload or presentation write re-reads it from
+    the server immediately before its PUT and stops with `sync_disabled`. A
+    switch change this device could not send is owed and replayed.
+  - Another device's "Remove server copies" never deletes this device's
+    pictures, now or later: the switch goes off FIRST, and a device that sees
+    it off makes its marks DORMANT (`was`). A dormant mark recognises the same
+    picture again (no false conflict) but a cleared copy only drops it, so
+    turning sync on again deletes nothing. The removing device says so:
+    "Your other devices keep their own copies until you remove them there."
+    A removal that did not finish is retried as a removal ("Retry removal"),
+    never by turning sync on and off (which would upload first).
+  - Reconcile: a local record carries `remote` (the id it mirrors). A server
+    copy with another id is downloaded (two at a time, never past the 64-room
+    bound, a failed id only again after Retry); a CLEARED one removes a record
+    that mirrored it (a live mark only); absent or invalid changes nothing. A
+    local-only picture is uploaded only into an empty slot (absent or
+    cleared), and that is checked AGAIN on the server after the upload
+    (`only_if_empty`; a filled slot answers "changed" and becomes a
+    conflict): every device that follows the switch back on migrates at
+    once, and the plain upload let each overwrite the last, with each loser
+    downloading the winner's picture over its own unasked (live,
+    2026-10-07). That check and the PUT are still two requests, so the mark
+    such an upload sets is UNCONFIRMED until a read shows the server still
+    holds it; a different picture seen on an unconfirmed mark is a conflict,
+    never a download over the local one. Before any conflict is shown the
+    synced picture is fetched and compared: only IDENTITY (the same bytes as
+    this file, or as the file it was re-encoded from) adopts the server's
+    copy silently. Alike pixels (every 16 px tile at 512 px within a few
+    levels; the local file decoded with its format pinned) are only a hint:
+    the card says they look the same and pre-selects "Use the synced one".
+    `unconfirmed`, `source` and that hint survive a reload of the store
+    (review F2: dropping `unconfirmed` there silently confirmed the mark). Turning sync on again republishes the pictures each device has
+    (Settings and the off dialog say so). The notice speaks only while a
+    picture still waits for it.
+  - Reads ask the SERVER, never the state store first: the store lags this
+    device's own writes until sync echoes them (measured live, the switch
+    read back "off" 100 ms after this device turned it on), and a stale
+    "cleared" would delete the picture just chosen. The start-up full read
+    takes rooms from the store (one request per room is too many); C++ asks
+    the server again for any room this session wrote, and does not act on a
+    read issued before its own write (or switch write) answered. A download
+    names the picture it wants (`expected_id`) and is refused as "changed"
+    rather than handed the replaced one. A read takes its entries FIRST and
+    the switch AFTER them: "Remove server copies" writes the switch off
+    before it clears, so a "cleared" a read sees always comes with "off"
+    (review N1). Concurrent reads share one switch GET, but only one that
+    started after their entries were COMPLETE (review F1: a GET started
+    mid-entries can predate a "cleared" a later entry shows). Start-up cost: room change notices wait
+    for the start-up full read (one arriving while it is out is read after
+    it), and at most 6 single-scope reads are in flight, the rest queued. A
+    whole write has a 150 s deadline in Rust, inside C++'s 200 s watchdog.
+    Pictures chosen earlier wait for a one-time notice
+    (`BackgroundSyncPrompt`: OK, or "Don't keep them on my homeserver", which
+    turns the switch off for every device); a picture chosen NEW while sync
+    is on uploads at once (the setting is on by default and says so). Against
+    a DIFFERENT server picture both are kept as a conflict the user resolves
+    in the same prompt.
+  - Owed writes: a removal or presentation change the server has not taken
+    (including one made while sync was off, for a picture with a live or
+    dormant mark) is kept in the store (`pending`), replayed on the next
+    start, and the server's old copy is neither downloaded nor followed
+    meanwhile. A presentation change names the picture it is for
+    (`expected_id`: the mark, the dormant mark, or this device's own upload
+    of the SAME file, never an earlier picture's); another picture on the
+    server answers "changed" and is followed instead. An owed write for a
+    room this account has left is dropped.
+  - Sign-out warns separately about pictures not on the homeserver yet and
+    about removals it has not taken, then deletes `<root>/backgrounds` under
+    the RECORDED and the canonical account root before the empty-directory
+    check, so the account directory goes too.
+  - Live (2026-10-07, first version, Account 5 on two private instances):
+    PASS set on one device and restored on a fresh second one, a change seen
+    live, a per-room pick seen live, sign-out deleting every local copy and
+    the account directory, sign-in restoring both, and off + remove clearing
+    the other device. See the bgsync task note for the later rounds' runs.
 - **Pictures.** Shared ones only through `MediaBridge::wideImageSource`; picked
   files are sniffed by magic bytes (SVG refused), first frame only, scaled to
   2560 px and re-encoded with nothing of the original file kept (text chunks,

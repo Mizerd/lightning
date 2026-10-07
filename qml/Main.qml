@@ -950,6 +950,14 @@ ApplicationWindow {
             blocked: verifySessionPromptCard.shouldShow
                      || encryptionBrokenPromptCard.shouldShow
         }
+        // Personal chat backgrounds on the homeserver: the one-time notice
+        // before earlier pictures are uploaded, and "two different
+        // backgrounds" when this device and the server disagree.
+        BackgroundSyncPrompt {
+            objectName: "backgroundSyncPromptHost"
+            blocked: verifySessionPromptCard.shouldShow
+                     || encryptionBrokenPromptCard.shouldShow
+        }
         // Nearest the corner: a session whose published identity key does not
         // match its account cannot decrypt anything it receives.
         EncryptionBrokenPrompt {

@@ -72,7 +72,7 @@ const BACKGROUND_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::fro
 
 /// Upload bound, checked before reading. Lightning's own uploads come out of
 /// ImageCropper's "background" role (<= 2560 px, re-encoded), far below this.
-const MAX_BACKGROUND_BYTES: u64 = 16 * 1024 * 1024;
+pub(crate) const MAX_BACKGROUND_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Longest accepted mxc URI (remote text).
 const MAX_URL_LEN: usize = 512;
@@ -280,7 +280,16 @@ pub(crate) fn parse_content(raw: &Value) -> Parsed {
     let mut out = Map::new();
     out.insert("version".into(), json!(SCHEMA_VERSION));
     out.insert("url".into(), json!(url));
+    normalise_picture_fields(object, &mut out);
+    Parsed::Background(Value::Object(out))
+}
 
+/// The picture fields every background record carries, clamped exactly as
+/// the shared event's: advisory `info` (allowlisted mimetype, bounded
+/// counts), a `#RRGGBB` `color`, and `presentation` as integer percentages
+/// plus the two choices. Shared with the personal records kept in account
+/// data (`bgsync.rs`), so both schemas read and write one shape.
+pub(crate) fn normalise_picture_fields(object: &Map<String, Value>, out: &mut Map<String, Value>) {
     if let Some(info) = object.get("info").and_then(Value::as_object) {
         let mut clean = Map::new();
         if let Some(mime) = info.get("mimetype").and_then(Value::as_str) {
@@ -316,7 +325,6 @@ pub(crate) fn parse_content(raw: &Value) -> Parsed {
             "align": choice(field("align"), &ALIGNS, "center"),
         }),
     );
-    Parsed::Background(Value::Object(out))
 }
 
 /// Build the content to SEND from what C++ composed (presentation, info,

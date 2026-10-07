@@ -737,7 +737,7 @@ private Q_SLOTS:
         QTRY_VERIFY(!app.accountSwitching());
         QTRY_COMPARE(app.auth()->currentUserId(), kAlice);
 
-        const QString kept = aliceRoot + QStringLiteral("/backgrounds/keep.jpg");
+        const QString kept = aliceRoot + QStringLiteral("/unrelated/keep.txt");
         QVERIFY(QDir().mkpath(QFileInfo(kept).absolutePath()));
         {
             QFile file(kept);
