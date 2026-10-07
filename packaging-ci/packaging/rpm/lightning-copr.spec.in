@@ -109,6 +109,7 @@ Recommends:     libenchant-2.so.2()(%{__isa_bits}bit)
 %global qml_module() (qt6qml(%1) or qt6qmlimport(%1))
 Requires:       %{qml_module QtQuick}
 Requires:       %{qml_module QtQuick.Controls}
+Requires:       %{qml_module QtQuick.Controls.impl}
 Requires:       %{qml_module QtQuick.Controls.Basic}
 Requires:       %{qml_module QtQuick.Layouts}
 Requires:       %{qml_module QtQuick.Effects}
