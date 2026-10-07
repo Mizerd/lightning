@@ -29,6 +29,16 @@ ColumnLayout {
     property string audience: ""
     // Show the group title (hosts with their own heading turn it off).
     property bool showTitle: true
+    // On a Settings page: draw the frame, buttons and inks in the storm
+    // tokens the page uses. Off the page (Room information, Space settings)
+    // the panel tokens are right; on the page, `border` and the neutral
+    // button edge are the colour of a light page, so in Moss Light the
+    // preview had no frame and "Choose picture…" read as plain text.
+    property bool storm: false
+    readonly property color mutedInk: storm ? AppTheme.stormTextMuted
+                                            : AppTheme.textMuted
+    readonly property color secondaryInk: storm ? AppTheme.stormTextSecondary
+                                                : AppTheme.textSecondary
 
     spacing: AppTheme.spacing8
 
@@ -100,9 +110,17 @@ ColumnLayout {
     }
     onCurrentChanged: if (!editor.dirty) editor.loadFromCurrent()
     onEffectiveAudienceChanged: editor.loadFromCurrent()
+    // app.backdrops.lastError is one value for the whole app, and several
+    // editors can be alive at once (Settings, Room information, the room
+    // header's dialog, Space settings). Only the editor the user acted in
+    // shows it: after "Sign in to keep your own backgrounds." in the room
+    // dialog, Settings' editor showed the same red line though nobody had
+    // touched it (mock, 2026-10-07).
+    property bool actedHere: false
     onScopeIdChanged: {
         // Another room: its own answer decides again, and a picture picked
         // for the previous room is not carried over.
+        editor.actedHere = false
         editor.audience = ""
         editor.discardPicked()
         editor.loadFromCurrent()
@@ -268,7 +286,7 @@ ColumnLayout {
         Label {
             id: toneLabel
             Layout.preferredWidth: 72
-            color: AppTheme.textSecondary
+            color: editor.secondaryInk
             font.pixelSize: AppTheme.textMeta
             elide: Label.ElideRight
         }
@@ -283,7 +301,7 @@ ColumnLayout {
         visible: editor.showTitle
         text: editor.scopeKind === "default" ? qsTr("Chat background")
                                              : qsTr("Background")
-        color: AppTheme.textSecondary
+        color: editor.secondaryInk
         font.pixelSize: AppTheme.textBody
         font.weight: AppTheme.weightStrong
     }
@@ -291,6 +309,7 @@ ColumnLayout {
     // Who sees it. Rooms only; a Space is shared, the default is personal.
     SegmentedControl {
         objectName: "chatBackgroundAudience"
+        storm: editor.storm
         visible: editor.scopeKind === "room" && editor.sharedPossible
         model: [
             { label: qsTr("Everyone here"), value: "shared" },
@@ -308,15 +327,38 @@ ColumnLayout {
             app.backdrops.discardPrepared()
     }
 
-    // The preview, with the two inks that sit straight on a background.
+    // The preview, with the two inks that sit straight on a background. With
+    // nothing set it is the empty state AND the way in: the whole frame
+    // chooses a picture (pointer, or Tab then Enter/Space), the target a
+    // first-time user aims at.
     Rectangle {
+        id: previewFrame
+        objectName: "chatBackgroundPreview"
+        readonly property bool empty: editor.previewSpec.kind === "none"
+        readonly property bool pickable: previewFrame.empty && editor.editable
         Layout.fillWidth: true
         implicitHeight: 128
         radius: AppTheme.radiusMd
         clip: true
         color: AppTheme.background
-        border.color: AppTheme.border
-        border.width: 1
+        // At rest: the Settings page's strong storm edge (see `storm`), or on
+        // a panel the strong edge while empty, since the frame is then the
+        // control. Pointed at or focused while pickable: the accent.
+        border.color: previewFrame.pickable
+                      && (previewChoose.containsMouse || previewFrame.activeFocus)
+                      ? AppTheme.accent
+                      : (editor.storm ? AppTheme.stormBorderStrong
+                                      : (previewFrame.empty ? AppTheme.borderStrong
+                                                            : AppTheme.border))
+        border.width: previewFrame.activeFocus ? 2 : 1
+        activeFocusOnTab: previewFrame.pickable
+        Accessible.role: previewFrame.pickable ? Accessible.Button
+                                               : Accessible.Graphic
+        Accessible.name: previewFrame.pickable
+                         ? qsTr("Choose a background picture")
+                         : qsTr("Background preview")
+        Keys.onReturnPressed: if (previewFrame.pickable) pictureDialog.open()
+        Keys.onSpacePressed: if (previewFrame.pickable) pictureDialog.open()
 
         ChatBackdrop {
             anchors.fill: parent
@@ -324,7 +366,9 @@ ColumnLayout {
             spec: editor.previewSpec
             edgeFades: false
         }
+        // A picture: sample inks over it, so the reader judges readability.
         Column {
+            visible: !previewFrame.empty
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
@@ -339,14 +383,58 @@ ColumnLayout {
             }
             Label {
                 width: parent.width
-                text: editor.previewSpec.kind === "none"
-                      ? qsTr("No background")
-                      : qsTr("Lightning dims the picture as much as this theme "
-                             + "needs.")
+                text: qsTr("Lightning dims the picture as much as this theme "
+                           + "needs.")
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.textMeta
                 elide: Label.ElideRight
             }
+        }
+        // No picture: say so, and say what a click does.
+        Column {
+            objectName: "chatBackgroundEmptyState"
+            visible: previewFrame.empty
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.margins: AppTheme.spacing12
+            spacing: AppTheme.spacing4
+            Icon {
+                anchors.horizontalCenter: parent.horizontalCenter
+                name: "image"
+                size: 24
+                color: previewFrame.pickable ? AppTheme.accent
+                                             : AppTheme.textMuted
+            }
+            Label {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                text: qsTr("No background")
+                color: AppTheme.textPrimary
+                font.pixelSize: AppTheme.textBody
+                font.weight: AppTheme.weightStrong
+                elide: Label.ElideRight
+            }
+            Label {
+                width: parent.width
+                visible: previewFrame.pickable
+                horizontalAlignment: Text.AlignHCenter
+                text: qsTr("Click to choose a picture")
+                color: AppTheme.textMuted
+                font.pixelSize: AppTheme.textMeta
+                elide: Label.ElideRight
+            }
+        }
+        // An empty preview is the biggest thing in the section, so it is also
+        // the way in.
+        MouseArea {
+            id: previewChoose
+            objectName: "chatBackgroundPreviewChoose"
+            anchors.fill: parent
+            enabled: previewFrame.pickable
+            hoverEnabled: true
+            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: pictureDialog.open()
         }
     }
 
@@ -357,7 +445,7 @@ ColumnLayout {
                  && !editor.canShare
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
-        color: AppTheme.textMuted
+        color: editor.mutedInk
         font.pixelSize: AppTheme.textMeta
         text: editor.scopeKind === "space"
               ? qsTr("Only people allowed to change this space's settings can "
@@ -376,7 +464,7 @@ ColumnLayout {
         }
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
-        color: AppTheme.textMuted
+        color: editor.mutedInk
         font.pixelSize: AppTheme.textMeta
         text: qsTr("A newer version of Lightning set this background, so it "
                    + "is not shown here.")
@@ -400,7 +488,7 @@ ColumnLayout {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
-            color: AppTheme.textMuted
+            color: editor.mutedInk
             font.pixelSize: AppTheme.textMeta
             text: qsTr("Everyone here sees the room's picture. You chose your "
                        + "own picture for this room under \"Only me\", so on "
@@ -411,7 +499,10 @@ ColumnLayout {
             text: qsTr("Use the room's picture instead")
             kind: "ghost"
             size: "sm"
-            onClicked: app.backdrops.clearPersonal(editor.scopeId)
+            onClicked: {
+                editor.actedHere = true
+                app.backdrops.clearPersonal(editor.scopeId)
+            }
         }
     }
     Label {
@@ -420,7 +511,7 @@ ColumnLayout {
         visible: editor.effectiveAudience === "shared" && editor.canShare
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
-        color: AppTheme.textMuted
+        color: editor.mutedInk
         font.pixelSize: AppTheme.textMeta
         text: {
             if (editor.scopeKind === "space")
@@ -444,25 +535,27 @@ ColumnLayout {
                                          || editor.canShare)
                                      && !app.backdrops.busy
 
+    // One decision at a time, so the row never wraps into a puzzle: with a
+    // pending change it is Apply / Cancel (and a different picture); at rest it
+    // is Change / Remove. With nothing set, choosing is the primary action.
+    // Remove is withheld while a change is pending, where it sat beside Apply
+    // and Cancel as a fourth button with the opposite meaning.
+    readonly property bool pending: editor.hasPrepared
+                                    || (editor.dirty && editor.hasCurrent)
     Flow {
+        objectName: "chatBackgroundActions"
         Layout.fillWidth: true
         spacing: AppTheme.spacing8
-        AppButton {
-            objectName: "chatBackgroundChoose"
-            text: editor.hasCurrent || editor.hasPrepared
-                  ? qsTr("Change picture…") : qsTr("Choose picture…")
-            size: "sm"
-            enabled: editor.editable
-            onClicked: pictureDialog.open()
-        }
         AppButton {
             objectName: "chatBackgroundApply"
             text: qsTr("Apply")
             kind: "primary"
+            storm: editor.storm
             size: "sm"
-            visible: editor.hasPrepared || (editor.dirty && editor.hasCurrent)
+            visible: editor.pending
             enabled: editor.editable
             onClicked: {
+                editor.actedHere = true
                 if (editor.effectiveAudience === "shared")
                     app.backdrops.setShared(editor.scopeId, editor.presentation())
                 else
@@ -472,8 +565,10 @@ ColumnLayout {
             }
         }
         AppButton {
+            objectName: "chatBackgroundCancel"
             text: qsTr("Cancel")
             kind: "ghost"
+            storm: editor.storm
             size: "sm"
             visible: editor.hasPrepared || editor.dirty
             onClicked: {
@@ -482,13 +577,27 @@ ColumnLayout {
             }
         }
         AppButton {
+            objectName: "chatBackgroundChoose"
+            text: editor.hasCurrent || editor.hasPrepared
+                  ? qsTr("Change picture…") : qsTr("Choose picture…")
+            // The one thing to do when there is nothing yet.
+            kind: editor.hasCurrent || editor.hasPrepared ? "secondary" : "primary"
+            storm: editor.storm
+            iconName: "image"
+            size: "sm"
+            enabled: editor.editable
+            onClicked: pictureDialog.open()
+        }
+        AppButton {
             objectName: "chatBackgroundRemove"
             text: qsTr("Remove")
             kind: "danger"
+            storm: editor.storm
             size: "sm"
-            visible: editor.hasCurrent && !editor.hasPrepared
+            visible: editor.hasCurrent && !editor.hasPrepared && !editor.dirty
             enabled: editor.editable
             onClicked: {
+                editor.actedHere = true
                 if (editor.effectiveAudience === "shared")
                     app.backdrops.clearShared(editor.scopeId)
                 else
@@ -527,7 +636,7 @@ ColumnLayout {
             visible: editor.pBlur > 0.01 && app.softwareRenderer
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
-            color: AppTheme.textMuted
+            color: editor.mutedInk
             font.pixelSize: AppTheme.textMeta
             text: qsTr("Blur is off on this computer because it is drawing "
                        + "without graphics acceleration.")
@@ -541,24 +650,60 @@ ColumnLayout {
                 onMoved: { editor.pTint = value; editor.dirty = true }
             }
         }
-        SegmentedControl {
-            model: [
-                { label: qsTr("Fill"), value: "cover" },
-                { label: qsTr("Fit"), value: "contain" },
-                { label: qsTr("Tile"), value: "tile" },
-            ]
-            current: editor.pFit
-            onActivated: (value) => { editor.pFit = value; editor.dirty = true }
+        // Labelled like the sliders above: two unlabelled rows of words read
+        // as tabs, not as settings of the picture.
+        RowLayout {
+            objectName: "chatBackgroundFitRow"
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing8
+            Label {
+                Layout.preferredWidth: 72
+                text: qsTr("Size")
+                color: editor.secondaryInk
+                font.pixelSize: AppTheme.textMeta
+                elide: Label.ElideRight
+            }
+            SegmentedControl {
+                storm: editor.storm
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                dense: true
+                fitWidth: true
+                model: [
+                    { label: qsTr("Fill"), value: "cover" },
+                    { label: qsTr("Fit"), value: "contain" },
+                    { label: qsTr("Tile"), value: "tile" },
+                ]
+                current: editor.pFit
+                onActivated: (value) => { editor.pFit = value; editor.dirty = true }
+            }
         }
-        SegmentedControl {
+        RowLayout {
+            objectName: "chatBackgroundAlignRow"
+            Layout.fillWidth: true
             visible: editor.pFit !== "tile"
-            model: [
-                { label: qsTr("Centre"), value: "center" },
-                { label: qsTr("Top"), value: "top" },
-                { label: qsTr("Bottom"), value: "bottom" },
-            ]
-            current: editor.pAlign
-            onActivated: (value) => { editor.pAlign = value; editor.dirty = true }
+            spacing: AppTheme.spacing8
+            Label {
+                Layout.preferredWidth: 72
+                text: qsTr("Position")
+                color: editor.secondaryInk
+                font.pixelSize: AppTheme.textMeta
+                elide: Label.ElideRight
+            }
+            SegmentedControl {
+                storm: editor.storm
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                dense: true
+                fitWidth: true
+                model: [
+                    { label: qsTr("Centre"), value: "center" },
+                    { label: qsTr("Top"), value: "top" },
+                    { label: qsTr("Bottom"), value: "bottom" },
+                ]
+                current: editor.pAlign
+                onActivated: (value) => { editor.pAlign = value; editor.dirty = true }
+            }
         }
     }
 
@@ -577,7 +722,10 @@ ColumnLayout {
         AppSwitch {
             objectName: "chatBackgroundHideSwitch"
             checked: parent.hidden
-            onToggled: app.backdrops.setRoomHidden(editor.scopeId, !checked)
+            onToggled: {
+                editor.actedHere = true
+                app.backdrops.setRoomHidden(editor.scopeId, !checked)
+            }
             Accessible.name: hideLabel.text
         }
         Label {
@@ -585,22 +733,25 @@ ColumnLayout {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap
             textFormat: Text.PlainText
-            color: AppTheme.textSecondary
+            color: editor.secondaryInk
             font.pixelSize: AppTheme.textMeta
             text: qsTr("Hide backgrounds others set for this room")
         }
     }
 
     Label {
+        objectName: "chatBackgroundError"
         Layout.fillWidth: true
         visible: text.length > 0
         wrapMode: Text.WordWrap
         textFormat: Text.PlainText
-        color: editor.convertingSvg ? AppTheme.textSecondary : AppTheme.danger
+        color: editor.convertingSvg ? editor.secondaryInk
+                                     : (editor.storm ? AppTheme.stormDanger : AppTheme.danger)
         font.pixelSize: AppTheme.textMeta
         text: editor.convertingSvg
               ? qsTr("Converting the SVG to a picture…")
-              : (editor.available ? editor.errorText(app.backdrops.lastError) : "")
+              : (editor.available && editor.actedHere
+                 ? editor.errorText(app.backdrops.lastError) : "")
     }
 
     // The converted SVG arrives here (see prepareImage).
@@ -623,6 +774,7 @@ ColumnLayout {
         // The file is read, sniffed, re-encoded and previewed from memory by
         // the controller; QML never loads the chosen path itself.
         onAccepted: {
+            editor.actedHere = true
             var result = app.backdrops.prepareImage(selectedFile)
             // An SVG answers later, on imagePrepared.
             editor.convertingSvg = result.pending === true

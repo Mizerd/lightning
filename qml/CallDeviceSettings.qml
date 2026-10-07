@@ -235,8 +235,11 @@ ColumnLayout {
                 radius: 8
                 // White: a dark thumb on the fill boundary reads as disabled.
                 color: "#FFFFFF"
-                border.width: micGainSlider.visualFocus ? 2 : 0
-                border.color: AppTheme.bolt
+                // A resting edge, as Settings' other thumbs: white on a
+                // light theme's white card had none.
+                border.width: micGainSlider.visualFocus ? 2 : 1
+                border.color: micGainSlider.visualFocus ? AppTheme.bolt
+                                                        : AppTheme.stormBorderStrong
             }
         }
 
@@ -357,8 +360,10 @@ ColumnLayout {
                 storm: true
                 kind: micTest.running ? "secondary" : "primary"
                 enabled: micTest.usable
+                // Says what it does: "Let's check" read as a slogan, and
+                // nobody searching for a microphone test typed it.
                 text: micTest.running ? qsTr("Stop testing")
-                                      : qsTr("Let's check")
+                                      : qsTr("Test microphone")
                 onClicked: {
                     if (micTest.running)
                         app.audioTester.stop();

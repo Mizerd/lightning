@@ -50,8 +50,9 @@ Dialog {
         case "reaction": return qsTr("Reacted %1 to your message").arg(reactionKey)
         case "invite": return qsTr("Invited you")
         case "keyword": return qsTr("Keyword")
-        // The server says it's highlighted, not which rule matched.
-        case "highlight": return qsTr("Highlighted for you")
+        // The server says it's highlighted, not which rule matched; a
+        // highlight is a mention of you or one of your keywords.
+        case "highlight": return qsTr("Mention or keyword")
         }
         return ""
     }
@@ -66,6 +67,21 @@ Dialog {
         return sameDay ? Qt.formatTime(d, app.settings.clockTimeFormat)
                        : Qt.formatDateTime(d, "ddd d MMM")
     }
+    // A sender the model could not name yet arrives as a bare Matrix ID; the
+    // localpart reads as a name ("@bob:example.org" -> "bob"), as mention
+    // pills fall back. The full ID stays in the accessible name.
+    function senderLabel(senderName, senderId) {
+        var n = senderName || ""
+        if (n.length === 0 || n === senderId) {
+            var id = senderId || ""
+            if (id.charAt(0) === "@")
+                id = id.substring(1)
+            var colon = id.indexOf(":")
+            return colon > 0 ? id.substring(0, colon) : id
+        }
+        return n
+    }
+
     function applyKeywords() {
         if (!root.activity)
             return
@@ -285,8 +301,8 @@ Dialog {
                             Label {
                                 text: root.timeLabel(row.timestampMs)
                                 color: AppTheme.stormTextMuted
-                                font.family: AppTheme.monoFont
-                                font.pixelSize: AppTheme.textMicro
+                                // Proportional, like every other list's time.
+                                font.pixelSize: AppTheme.textMeta
                             }
                         }
                         Label {
@@ -294,8 +310,11 @@ Dialog {
                             text: row.encrypted
                                   ? qsTr("Encrypted message")
                                   : (row.kind === "invite"
-                                     ? qsTr("From %1").arg(row.senderName)
-                                     : (row.senderName + ": " + row.preview))
+                                     ? qsTr("From %1").arg(root.senderLabel(
+                                           row.senderName, row.senderId))
+                                     : (root.senderLabel(row.senderName,
+                                                         row.senderId)
+                                        + ": " + row.preview))
                             color: row.encrypted ? AppTheme.stormTextMuted
                                                  : AppTheme.stormTextSecondary
                             font.italic: row.encrypted

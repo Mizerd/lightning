@@ -1981,8 +1981,35 @@ Item {
                                  && root.composerButtonShown("formatting")
                         implicitWidth: 28; implicitHeight: 28
                         radius: AppTheme.radiusControl
-                        iconName: "edit_square"
-                        iconSize: 20
+                        // "Aa", the text-formatting mark of Slack, Teams and
+                        // Outlook. It wore edit_square, the very glyph the
+                        // message hover bar uses for "Edit message", so the
+                        // button beside Attach read as "edit". The icon font
+                        // is a subset with no text-format glyph, so the mark
+                        // is set in the UI face, inked like IconButton's glyph.
+                        id: formatToggleButton
+                        iconName: ""
+                        contentItem: Label {
+                            objectName: "composerFormatToggleGlyph"
+                            // A script's own pair of letter forms where it has
+                            // them (Cyrillic "Аа"), hence translatable.
+                            text: qsTr("Aa", "text-formatting button mark")
+                            textFormat: Text.PlainText
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: 14
+                            font.weight: AppTheme.weightStrong
+                            color: {
+                                if (!formatToggleButton.enabled)
+                                    return AppTheme.textDisabled
+                                if (formatToggleButton.active)
+                                    return AppTheme.accent
+                                return (formatToggleButton.hovered
+                                        || formatToggleButton.down)
+                                       ? AppTheme.textPrimary : AppTheme.icon
+                            }
+                        }
                         // Usable regardless of room state; the format buttons
                         // it reveals are room-gated.
                         active: root.toolbarExpanded
@@ -2266,6 +2293,12 @@ Item {
                                 return qsTr("Select a room to start typing")
                             if (app.composer.isEditing)
                                 return qsTr("Edit message…")
+                            // roomDisplayName() reads the room list through a
+                            // Q_INVOKABLE, which a binding does not track; the
+                            // revision does, so a rename (or a new room's name
+                            // arriving after "Empty Room") reaches the
+                            // placeholder.
+                            var _rev = root.roomListRevision
                             return qsTr("Message %1").arg(root.roomDisplayName())
                         }
                         placeholderTextColor: AppTheme.placeholderInk
@@ -3013,6 +3046,17 @@ Item {
             .trim()
     }
 
+    // Bumped whenever the room list's rows change, so bindings that read a
+    // room through findRoom() (a Q_INVOKABLE, invisible to the binding engine)
+    // re-evaluate. The placeholder read "Message #Empty Room" for the whole
+    // life of a room that was named after it was opened.
+    property int roomListRevision: 0
+    Connections {
+        target: app.roomList
+        function onDataChanged() { root.roomListRevision++ }
+        function onModelReset() { root.roomListRevision++ }
+        function onRowsInserted() { root.roomListRevision++ }
+    }
     // Room name for the "Message #room" placeholder; people keep their plain
     // name.
     function roomDisplayName() {
@@ -3033,12 +3077,31 @@ Item {
             if (app.composer.isEditing)
                 Qt.callLater(root.placeEditCaret)
         }
+        // Starting a reply (hover bar, menu, R, double-click) gives the
+        // composer the keyboard, as in every chat client: the reply was armed
+        // and the next keystrokes went nowhere. A restored draft re-arms its
+        // reply too, and that must NOT take focus (switching rooms must not
+        // steal the keyboard). MessageComposer::setRoomId restores the draft
+        // before it emits roomIdChanged, so during a restore the composer's
+        // room differs from the one recorded below; a user's reply happens in
+        // the room already recorded.
+        function onReplyStateChanged() {
+            if (!app.composer.isReplying
+                    || app.composer.roomId !== root.composerRoomSeen)
+                return
+            Qt.callLater(function () { root.focusEditor() })
+        }
         // A restored draft puts the caret at the end, like an edit. Focus is
         // not taken: switching rooms must not steal the keyboard.
         function onRoomIdChanged() {
             Qt.callLater(root.placeDraftCaret)
         }
     }
+    // The composer's room as of its last roomIdChanged notification (a
+    // binding, so it moves only on the signal; the getter read in
+    // onReplyStateChanged is already the new room during a draft restore).
+    readonly property string composerRoomSeen:
+        app.composer ? app.composer.roomId : ""
     function placeEditCaret() {
         input.cursorPosition = input.length
         root.focusEditor()

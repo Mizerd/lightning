@@ -25,6 +25,7 @@
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
 #include "matrix/MockMatrixClient.h"
+#include "models/RoomListModel.h"
 
 namespace {
 
@@ -781,6 +782,112 @@ private slots:
 
         m_controller->composer()->cancelReplyOrEdit();
         input->setProperty("text", QString());
+    }
+
+    // Reply (hover bar, menu, R, double-click) arms the composer and must hand
+    // it the keyboard: otherwise the next keystrokes go nowhere. Fails on the
+    // old composer, which never took focus for a reply.
+    void startingAReplyGivesTheComposerTheKeyboard()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(30);
+        auto *input = item("composerInput");
+        QVERIFY(input);
+        // The root item is a focus scope, so focusing it keeps the input's
+        // focus: move the keyboard to a sibling outside the composer instead.
+        QQuickItem focusSink(m_window->contentItem());
+        focusSink.forceActiveFocus();
+        QTest::qWait(20);
+        QVERIFY2(!input->hasActiveFocus(),
+                 "the input already had focus, so this case proves nothing");
+
+        m_controller->composer()->beginReply(QStringLiteral("$evt"),
+                                             QStringLiteral("Bob"),
+                                             QStringLiteral("hi"));
+        QTRY_VERIFY2_WITH_TIMEOUT(input->hasActiveFocus(),
+                                  "starting a reply left the keyboard elsewhere",
+                                  2000);
+        m_controller->composer()->cancelReplyOrEdit();
+        input->setProperty("text", QString());
+        QTest::qWait(1200);
+    }
+
+    // The other half: a reply restored with a room's draft is not the user
+    // starting one, and switching rooms must not steal the keyboard.
+    void aRestoredReplyDraftDoesNotTakeTheKeyboard()
+    {
+        if (auto *settings = m_controller->settings()) {
+            settings->saveSession(QStringLiteral("https://mock.local"),
+                                  QStringLiteral("@alice:mock.local"),
+                                  QStringLiteral("DEVICE"),
+                                  QStringLiteral("token-fixture"));
+        }
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *input = item("composerInput");
+        QVERIFY(input);
+        m_controller->composer()->beginReply(QStringLiteral("$evt"),
+                                             QStringLiteral("Bob"),
+                                             QStringLiteral("hi"));
+        input->setProperty("text", QStringLiteral("draft with a reply"));
+        QTest::qWait(80);
+        m_controller->setCurrentRoomId(QStringLiteral("!devs:mock.local"));
+        QTest::qWait(80);
+        QQuickItem focusSink(m_window->contentItem());
+        focusSink.forceActiveFocus();
+        QTest::qWait(20);
+        QVERIFY(!input->hasActiveFocus());
+
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        QTest::qWait(150);
+        QVERIFY2(m_controller->composer()->isReplying(),
+                 "the reply was not restored with the draft, so this case "
+                 "cannot tell a restore from a user's reply");
+        QVERIFY2(!input->hasActiveFocus(),
+                 "restoring a room's reply draft took the keyboard");
+
+        m_controller->composer()->cancelReplyOrEdit();
+        input->setProperty("text", QString());
+        QTest::qWait(1200);
+    }
+
+    // The "Message #room" placeholder reads the room through findRoom(), a
+    // Q_INVOKABLE no binding tracks, so a room named after it was opened kept
+    // "Message #Empty Room". The composer now re-reads on every room-list
+    // change. Fails on the old composer, which has no revision to bump.
+    void thePlaceholderFollowsRoomListChanges()
+    {
+        m_controller->setCurrentRoomId(QStringLiteral("!general:mock.local"));
+        auto *bar = item("composerBar");
+        QVERIFY(bar);
+        const QVariant before = bar->property("roomListRevision");
+        QVERIFY2(before.isValid(),
+                 "the composer does not follow room-list changes");
+        QAbstractItemModel *model = m_controller->roomList();
+        QVERIFY(model);
+        QVERIFY(model->rowCount() > 0);
+        const QModelIndex first = model->index(0, 0);
+        Q_EMIT model->dataChanged(first, first);
+        QTest::qWait(10);
+        QVERIFY(bar->property("roomListRevision").toInt() > before.toInt());
+        // And the placeholder still names the room after the re-read.
+        auto *input = item("composerInput");
+        QVERIFY(input);
+        QVERIFY(input->property("placeholderText").toString()
+                    .startsWith(QStringLiteral("Message ")));
+    }
+
+    // The formatting toggle wore edit_square, the hover bar's "Edit message"
+    // glyph. Fails on the old toggle.
+    void theFormattingToggleDoesNotWearTheEditGlyph()
+    {
+        auto *toggle = item("composerFormatToggleButton");
+        QVERIFY(toggle);
+        QVERIFY(toggle->property("iconName").toString()
+                != QStringLiteral("edit_square"));
+        auto *glyph = item("composerFormatToggleGlyph");
+        QVERIFY2(glyph, "the toggle draws no formatting mark");
+        QVERIFY(!glyph->property("text").toString().isEmpty());
+        QVERIFY(glyph->isVisible());
     }
 
     // A dead-key composition (QInputMethodEvent preedit) must survive until

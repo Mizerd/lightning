@@ -1102,12 +1102,15 @@ Rectangle {
                     Behavior on scale { NumberAnimation { duration: 90 } }
 
                     // Pseudo rows use monochrome icons; real Spaces show
-                    // palette initials until the avatar loads.
+                    // palette initials until the avatar loads. "Other rooms"
+                    // (rooms in no Space) is a "#": its old cluster of dots
+                    // said nothing, and "workspaces" is the glyph menus use
+                    // for a Space itself.
                     Icon {
                         anchors.centerIn: parent
                         visible: spaceItem.pseudo
                         name: spaceItem.isHome ? "home"
-                              : spaceItem.isPeople ? "person" : "workspaces"
+                              : spaceItem.isPeople ? "person" : "tag"
                         // Half the tile.
                         size: root.railChipIconSize
                         // Plain text ink when selected: the accent on an accent
@@ -1327,6 +1330,13 @@ Rectangle {
                         }
                         if (spaceItem.isRealSpace)
                             app.openSpaceHome(spaceItem.spaceId)
+                        // A second tap on the Home tile that is already
+                        // selected goes to Home itself. Without it the only
+                        // way back from an open room to Home was through a
+                        // Space and out again (GUI check 2026-10-07); the first
+                        // tap still only filters, so it never closes a room.
+                        else if (spaceItem.isHome && spaceItem.isActive)
+                            app.openSpaceHome("")
                         else if (app.spaces)
                             app.spaces.activeSpaceId = spaceItem.spaceId
                     }

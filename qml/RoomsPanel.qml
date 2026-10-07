@@ -246,7 +246,7 @@ Rectangle {
             // The header wraps to two rows below a derived threshold rather
             // than overflowing: the search card has a 120px floor and the
             // actions are fixed, and layouts do not clip, so a narrow column
-            // pushed the actions (including Classic's only Discover entry) off
+            // pushed the actions (including the + menu, Classic's only Discover entry) off
             // the panel. The actions keep their right edge in both
             // arrangements. The threshold uses the card's floor and the
             // actions' implicit width, neither of which depends on this row's
@@ -372,20 +372,73 @@ Rectangle {
                             y: sortBtn.height + 4
                         }
                     }
-                    // Start a DM or create a room (the controller reports
-                    // unsupported backends).
+                    // Everything that adds to the list, as one labelled menu
+                    // (Element's "+"): a message, a room, a Space, and the
+                    // public directory, which used to be an unlabelled
+                    // compass beside it. One icon fewer gives the search field
+                    // its width back. Each row is gated on its own backend
+                    // support.
                     IconButton {
                         id: newConversationBtn
-                        visible: app.loggedIn && app.conversations.supported
+                        objectName: "roomListAddButton"
+                        visible: app.loggedIn
+                                 && (app.conversations.supported
+                                     || app.discovery.supported)
                         implicitWidth: 30; implicitHeight: 30
                         radius: AppTheme.radiusMd
                         iconName: "add"
                         iconSize: 18
-                        Accessible.name: qsTr("Start a new conversation")
-                        ToolTip.text: qsTr("New conversation")
-                        ToolTip.visible: hovered
+                        active: roomListAddMenu.opened
+                        Accessible.name: qsTr("Start or join a conversation")
+                        ToolTip.text: qsTr("New message, room or Space")
+                        ToolTip.visible: hovered && !roomListAddMenu.opened
                         ToolTip.delay: 500
-                        onClicked: newConversationDialog.openDialog()
+                        onClicked: roomListAddMenu.popup(
+                            newConversationBtn, 0,
+                            newConversationBtn.height + AppTheme.spacing4)
+                        AppMenu {
+                            id: roomListAddMenu
+                            objectName: "roomListAddMenu"
+                            AppMenuItem {
+                                objectName: "roomListAddMessage"
+                                visible: app.conversations.supported
+                                iconName: "chat_bubble"
+                                text: qsTr("New message")
+                                onTriggered: newConversationDialog.openDialog("dm")
+                            }
+                            AppMenuItem {
+                                objectName: "roomListAddRoom"
+                                visible: app.conversations.supported
+                                iconName: "group_add"
+                                text: qsTr("New room")
+                                onTriggered: newConversationDialog.openDialog("room")
+                            }
+                            AppMenuItem {
+                                objectName: "roomListAddSpace"
+                                visible: app.conversations.supported
+                                iconName: "workspaces"
+                                text: qsTr("New Space")
+                                onTriggered: newConversationDialog.openDialog("space")
+                            }
+                            AppMenuSeparator {
+                                visible: app.conversations.supported
+                                         && app.discovery.supported
+                            }
+                            AppMenuItem {
+                                objectName: "roomListAddExplore"
+                                visible: app.discovery.supported
+                                iconName: "explore"
+                                text: qsTr("Explore public rooms")
+                                onTriggered: discoverJoinDialog.openDialog("browse")
+                            }
+                            AppMenuItem {
+                                objectName: "roomListAddJoin"
+                                visible: app.discovery.supported
+                                iconName: "tag"
+                                text: qsTr("Join by address…")
+                                onTriggered: discoverJoinDialog.openDialog("address")
+                            }
+                        }
                     }
                     // The Activity Center: everything addressed to you, across
                     // rooms.
@@ -428,22 +481,6 @@ Rectangle {
                                 font.weight: AppTheme.weightBold
                             }
                         }
-                    }
-                    // Discover / Join: browse the public directory or join by
-                    // address or link.
-                    IconButton {
-                        id: discoverBtn
-                        objectName: "discoverJoinButton"
-                        visible: app.loggedIn && app.discovery.supported
-                        implicitWidth: 30; implicitHeight: 30
-                        radius: AppTheme.radiusMd
-                        iconName: "explore"
-                        iconSize: 18
-                        Accessible.name: qsTr("Discover rooms")
-                        ToolTip.text: qsTr("Discover rooms")
-                        ToolTip.visible: hovered
-                        ToolTip.delay: 500
-                        onClicked: discoverJoinDialog.openDialog()
                     }
                 }
             }
@@ -555,6 +592,12 @@ Rectangle {
         }
 
         ActivityCenterPanel { id: activityPanel }
+        // The row menu's "Chat background…" (RoomActionsMenu), for whichever
+        // room was right-clicked.
+        ChatBackgroundDialog {
+            id: roomChatBackgroundDialog
+            objectName: "roomListChatBackgroundDialog"
+        }
         DiscoverJoinDialog {
             id: discoverJoinDialog
             parent: Overlay.overlay
@@ -733,6 +776,8 @@ Rectangle {
                     }
                     onLeaveRoomRequested: (roomId, roomName) =>
                         leaveRoomConfirm.openFor(roomId, roomName)
+                    onChatBackgroundRequested: (roomId, roomName) =>
+                        roomChatBackgroundDialog.openForRoom(roomId, roomName)
                 }
             }
 
@@ -767,6 +812,8 @@ Rectangle {
                     }
                     onLeaveRoomRequested: (roomId, roomName) =>
                         leaveRoomConfirm.openFor(roomId, roomName)
+                    onChatBackgroundRequested: (roomId, roomName) =>
+                        roomChatBackgroundDialog.openForRoom(roomId, roomName)
                 }
             }
         }

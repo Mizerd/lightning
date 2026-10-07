@@ -43,6 +43,8 @@ Rectangle {
     // The find bar found nothing in this room and the reader asked for every
     // room instead; MainScreen opens the global search with this query.
     signal searchAllRoomsRequested(string query)
+    // Home's "Explore rooms"; MainScreen opens the room list's Discover dialog.
+    signal discoverRoomsRequested()
 
     property var currentRoom: ({})
     property bool infoOpen: false
@@ -200,6 +202,17 @@ Rectangle {
             return
         }
         infoPanel.openForRoom(app.currentRoomId)
+        infoOpen = true
+        rememberMemberPanel()
+    }
+
+    // Room information on its overview section, opened (never toggled shut):
+    // the header's "Room settings" row.
+    function openRoomOverview() {
+        if (app.currentRoomId === "" || !app.roomInfo.supported)
+            return
+        infoPanel.openForRoom(app.currentRoomId)
+        infoPanel.section = "overview"
         infoOpen = true
         rememberMemberPanel()
     }
@@ -1087,11 +1100,11 @@ Rectangle {
                         for (var i = 0; i < actionButtons.length; ++i)
                             if (actionButtons[i].available)
                                 live.push(actionButtons[i].objectName)
-                        var slots = header.actionSlots
-                        if (live.length <= slots)
+                        // One slot is always the More button (it carries
+                        // the room's own options as well as folded icons).
+                        var keep = Math.max(0, header.actionSlots - 1)
+                        if (live.length <= keep)
                             return []
-                        // One slot is the overflow button.
-                        var keep = Math.max(0, slots - 1)
                         var folded = []
                         for (var j = 0;
                              j < foldOrder.length
@@ -1229,20 +1242,30 @@ Rectangle {
                         ToolTip.delay: 500
                         onClicked: root.toggleRoomInfo()
                     }
-                    // Overflow button: carries every action that did not fit.
-                    // Drawn last so the remaining icons keep their positions.
+                    // The More button: the room's own options (chat
+                    // background, room settings) and every action that did
+                    // not fit. Always there for an open room, so those options
+                    // are found in the same place at every width. Drawn last
+                    // so the remaining icons keep their positions.
                     IconButton {
                         id: roomHeaderOverflowButton
                         objectName: "roomHeaderOverflowButton"
-                        visible: roomHeaderActions.foldedActions.length > 0
+                        visible: app.currentRoomId !== ""
                         iconName: "more_vert"
                         active: roomHeaderOverflowMenu.opened
                         Accessible.name: qsTr("More room actions")
                         ToolTip.text: qsTr("More room actions")
-                        ToolTip.visible: hovered
+                        // Not over its own open menu (GUI check 2026-10-07:
+                        // the tip covered the first row).
+                        ToolTip.visible: hovered && !roomHeaderOverflowMenu.opened
                         ToolTip.delay: 500
+                        // Right edges aligned: the button sits at the window's
+                        // right edge, so a left-aligned menu was pushed back by
+                        // the window and ended flush against its border.
                         onClicked: roomHeaderOverflowMenu.popup(
-                            roomHeaderOverflowButton, 0,
+                            roomHeaderOverflowButton,
+                            roomHeaderOverflowButton.width
+                            - roomHeaderOverflowMenu.width,
                             roomHeaderOverflowButton.height + AppTheme.spacing4)
                     }
                     // A Popup is not an Item, so it costs the row no width.
@@ -1293,6 +1316,31 @@ Rectangle {
                             text: roomInfoButton.actionLabel
                             onTriggered: roomInfoButton.clicked()
                         }
+                        AppMenuSeparator {
+                            visible: roomHeaderActions.foldedActions.length > 0
+                        }
+                        // The room's own options, at every width.
+                        AppMenuItem {
+                            objectName: "roomHeaderChatBackground"
+                            visible: !!app.backdrops
+                            iconName: "image"
+                            text: qsTr("Chat background…")
+                            onTriggered: roomChatBackgroundDialog.openForRoom(
+                                             app.currentRoomId,
+                                             root.currentRoom.name || "")
+                        }
+                        AppMenuItem {
+                            objectName: "roomHeaderRoomSettings"
+                            visible: app.roomInfo.supported
+                            iconName: "settings"
+                            text: qsTr("Room settings")
+                            onTriggered: root.openRoomOverview()
+                        }
+                    }
+                    // Hosted here; a Popup costs the row no width.
+                    ChatBackgroundDialog {
+                        id: roomChatBackgroundDialog
+                        objectName: "roomChatBackgroundDialog"
                     }
                 }
             }
@@ -4684,6 +4732,7 @@ Rectangle {
                 onNewMessageRequested: root.newConversationRequested("dm", undefined)
                 onCreateRoomRequested: root.newConversationRequested("room", undefined)
                 onCreateSpaceRequested: root.newConversationRequested("space", undefined)
+                onDiscoverRequested: root.discoverRoomsRequested()
             }
 
             // Middle-click autoscroll. A sibling of the rotated Flickable (a

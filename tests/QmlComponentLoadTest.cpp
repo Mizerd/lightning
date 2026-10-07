@@ -118,6 +118,9 @@ constexpr const char *kComponents[] = {
     "ChatBackgroundEditor",
     "ChatBackgroundSettings",
     "GradientEditor",
+    // The "Chat background…" dialog the room header, the room menu and Home
+    // open; hosts ChatBackgroundEditor behind a Loader.
+    "ChatBackgroundDialog",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

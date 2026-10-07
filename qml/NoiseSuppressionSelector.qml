@@ -24,11 +24,14 @@ ColumnLayout {
 
     signal chosen(string key)
 
+    // What each engine does first, its name second; the same titles as the
+    // call's microphone menu (CallDeviceMenu.noiseTitle), so the Labs list,
+    // the Sound & video summary row and the menu name a mode one way.
     function titleFor(key) {
         if (key === "off") return qsTr("Off")
-        if (key === "webrtc") return qsTr("WebRTC")
-        if (key === "rnnoise") return qsTr("RNNoise")
-        if (key === "deepfilternet") return qsTr("DeepFilterNet")
+        if (key === "webrtc") return qsTr("Standard (WebRTC)")
+        if (key === "rnnoise") return qsTr("Strong (RNNoise)")
+        if (key === "deepfilternet") return qsTr("Advanced (DeepFilterNet)")
         return key
     }
     function descriptionFor(key) {

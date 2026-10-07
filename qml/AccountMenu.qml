@@ -18,7 +18,10 @@ Popup {
     id: root
     objectName: "accountSwitcherPopover"
     modal: true
-    width: 320
+    // Wide enough for a full Matrix ID in the row's mono line (a 34-character
+    // id is ~225 px at 11 px); at 320 the server half was elided away, and the
+    // id is the only thing separating two accounts with one display name.
+    width: 352
     padding: AppTheme.spacing12
     // `CloseOnEscape` needs `focus: true`: QQuickPopup only handles Escape with
     // active focus, and a Popup's focus defaults to false. The same applies to
@@ -55,6 +58,10 @@ Popup {
         return n
     }
     readonly property int activeTrustTotal: 3
+    // Which check is missing decides the chip's words: this device first.
+    readonly property bool activeDeviceVerified:
+        root.cryptoKnown && app.cryptoHealth.cryptoSupported
+        && app.cryptoHealth.currentDeviceVerified === CryptoHealthModel.Yes
 
     // The strip describes the active account; with none attached it is hidden.
     readonly property bool hasActiveAccount:
@@ -169,10 +176,59 @@ Popup {
         }
     }
 
+    // A full-width row for the account's own things (status, look, profile,
+    // security): one click from the avatar, where Discord and Slack keep them,
+    // instead of behind a "Manage" link.
+    component QuickRow: AbstractButton {
+        id: quickRow
+        property string iconName: ""
+        Layout.fillWidth: true
+        implicitHeight: AppTheme.scaled(32)
+        hoverEnabled: true
+        focusPolicy: Qt.TabFocus
+        Accessible.role: Accessible.Button
+        Accessible.name: quickRow.text
+        leftPadding: AppTheme.spacing8
+        rightPadding: AppTheme.spacing8
+        contentItem: RowLayout {
+            spacing: AppTheme.spacing10
+            Icon {
+                name: quickRow.iconName
+                size: 17
+                color: quickRow.enabled ? AppTheme.stormTextSecondary
+                                        : AppTheme.stormTextMuted
+            }
+            Label {
+                Layout.fillWidth: true
+                text: quickRow.text
+                color: quickRow.enabled ? AppTheme.stormText
+                                        : AppTheme.stormTextMuted
+                font.family: AppTheme.menuFont
+                font.pixelSize: AppTheme.scaled(AppTheme.textBody)
+                font.weight: AppTheme.weightMedium
+                elide: Label.ElideRight
+            }
+        }
+        background: Rectangle {
+            radius: AppTheme.radiusTile
+            color: quickRow.enabled && (quickRow.down || quickRow.hovered)
+                   ? AppTheme.stormSelection : "transparent"
+            Rectangle {
+                anchors.fill: parent
+                anchors.margins: -2
+                radius: AppTheme.radiusTile + 2
+                color: "transparent"
+                border.width: 2
+                border.color: AppTheme.bolt
+                visible: quickRow.visualFocus
+            }
+        }
+    }
+
     contentItem: ColumnLayout {
         spacing: AppTheme.spacing10
 
-        // Header: bolt icon, "Accounts" label and the Manage link.
+        // Header: bolt icon and the "Accounts" label.
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
@@ -183,45 +239,6 @@ Popup {
             }
             // Reuse MenuSectionLabel so section headers restyle together.
             MenuSectionLabel { text: qsTr("Accounts") }
-            Item { Layout.fillWidth: true }
-            AbstractButton {
-                id: manageLabel
-                objectName: "accountManageLink"
-                text: qsTr("Manage")
-                implicitWidth: manageInk.implicitWidth + AppTheme.spacing4
-                implicitHeight: manageInk.implicitHeight + AppTheme.spacing4
-                hoverEnabled: true
-                focusPolicy: Qt.TabFocus
-                Accessible.role: Accessible.Button
-                Accessible.name: qsTr("Manage account settings")
-                onClicked: manageMenu.popup(manageLabel, 0,
-                                            manageLabel.height
-                                            + AppTheme.spacing4)
-                contentItem: Label {
-                    id: manageInk
-                    text: manageLabel.text
-                    // stormLink rather than bolt: this popover already uses
-                    // bolt for the active chip, avatar ring and presence dot.
-                    color: AppTheme.stormLink
-                    font.family: AppTheme.menuFont
-                    // Meta size, matching the labels beside it.
-                    font.pixelSize: AppTheme.textMeta
-                    font.weight: AppTheme.weightStrong
-                    font.underline: manageLabel.hovered
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                background: Item { }
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.margins: -2
-                    radius: AppTheme.radiusSm
-                    color: "transparent"
-                    border.color: AppTheme.bolt
-                    border.width: 2
-                    visible: manageLabel.visualFocus
-                }
-            }
         }
 
         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.stormBorder }
@@ -345,10 +362,27 @@ Popup {
                 hoverEnabled: true
                 focusPolicy: Qt.TabFocus
                 Accessible.role: Accessible.Button
+                // What the chip says, in words: "E2EE 0/3" told nobody what
+                // the three were or what to do about the missing ones.
+                readonly property string word:
+                    root.activeTrustCompleted < 0 ? qsTr("Encrypted")
+                    : trustChip.full ? qsTr("Verified")
+                    : !root.activeDeviceVerified ? qsTr("Verify this device")
+                    : qsTr("Finish security setup")
                 Accessible.name: root.activeTrustCompleted >= 0
-                    ? qsTr("Encryption trust %1 of %2. Open Security and Recovery.")
+                    ? qsTr("%1: %2 of %3 trust checks done. Open Security and Recovery.")
+                      .arg(trustChip.word)
                       .arg(root.activeTrustCompleted).arg(root.activeTrustTotal)
                     : qsTr("Encryption ready. Open Security and Recovery.")
+                ToolTip.text: root.activeTrustCompleted < 0 || trustChip.full
+                    ? qsTr("Security and recovery")
+                    : !root.activeDeviceVerified
+                      ? qsTr("This device isn't verified yet. Verify it so "
+                             + "your other sessions trust it.")
+                      : qsTr("Some security steps are not done yet. Open "
+                             + "Security and recovery to finish them.")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
                 onClicked: { root.close(); app.showSettingsSection("security") }
 
                 background: Rectangle {
@@ -365,20 +399,12 @@ Popup {
                         color: trustChip.ink
                     }
                     Label {
-                        text: qsTr("E2EE")
+                        objectName: "accountTrustWord"
+                        text: trustChip.word
                         color: trustChip.ink
-                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
-                        font.weight: AppTheme.weightBold
-                    }
-                    Label {
-                        objectName: "accountTrustCount"
-                        visible: root.activeTrustCompleted >= 0
-                        text: "%1/%2".arg(root.activeTrustCompleted)
-                                     .arg(root.activeTrustTotal)
-                        color: trustChip.ink
-                        font.family: AppTheme.monoFont
-                        font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
-                        font.weight: AppTheme.weightBold
+                        font.family: AppTheme.menuFont
+                        font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                        font.weight: AppTheme.weightStrong
                     }
                 }
                 Rectangle {
@@ -390,6 +416,51 @@ Popup {
                     border.width: 2
                     visible: trustChip.visualFocus
                 }
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: 1
+            color: AppTheme.stormBorder
+            visible: root.hasActiveAccount
+        }
+
+        // The look of the app needs no account, so its row stays when none is
+        // attached (seen on the mock, 2026-10-07: the menu was header, Add,
+        // Settings, Sign out and nothing else). The account's own rows need one.
+        ColumnLayout {
+            objectName: "accountQuickRows"
+            Layout.fillWidth: true
+            spacing: 0
+            QuickRow {
+                objectName: "accountSetStatusItem"
+                visible: root.hasActiveAccount
+                iconName: "mood"
+                text: app.presence && app.presence.ownStatusText.length > 0
+                      ? qsTr("Edit status…") : qsTr("Set a status…")
+                enabled: !!(app.presence && app.presence.supported)
+                onClicked: { root.close(); statusDialog.openForEdit() }
+            }
+            QuickRow {
+                objectName: "accountAppearanceItem"
+                iconName: "palette"
+                text: qsTr("Theme, colours and background")
+                onClicked: { root.close(); app.showSettingsSection("appearance") }
+            }
+            QuickRow {
+                objectName: "accountProfileItem"
+                visible: root.hasActiveAccount
+                iconName: "account_circle"
+                text: qsTr("Name and picture")
+                onClicked: { root.close(); app.showSettingsSection("account") }
+            }
+            QuickRow {
+                objectName: "accountSecurityItem"
+                visible: root.hasActiveAccount
+                iconName: "verified_user"
+                text: qsTr("Security and recovery")
+                onClicked: { root.close(); app.showSettingsSection("security") }
             }
         }
 
@@ -422,37 +493,10 @@ Popup {
         }
     }
 
-    // "Manage" deep links, using SettingsScreen.qml's section aliases
-    // (mapLegacySection). The status editor is hosted here so every entry
-    // point opens the same instance.
+    // The status editor is hosted here so every entry point opens the same
+    // instance. The rows above deep-link with SettingsScreen.qml's section
+    // aliases (mapLegacySection).
     StatusDialog { id: statusDialog }
-    AppMenu {
-        id: manageMenu
-        objectName: "accountManageMenu"
-        AppMenuItem {
-            objectName: "accountSetStatusItem"
-            text: app.presence && app.presence.ownStatusText.length > 0
-                  ? qsTr("Edit status…") : qsTr("Set a status…")
-            iconName: "mood"
-            enabled: app.presence && app.presence.supported
-            onTriggered: { root.close(); statusDialog.openForEdit() }
-        }
-        AppMenuItem {
-            text: qsTr("Settings")
-            iconName: "settings"
-            onTriggered: { root.close(); app.showSettingsSection("general") }
-        }
-        AppMenuItem {
-            text: qsTr("Security & Recovery")
-            iconName: "verified_user"
-            onTriggered: { root.close(); app.showSettingsSection("security") }
-        }
-        AppMenuItem {
-            text: qsTr("About Lightning")
-            iconName: "info"
-            onTriggered: { root.close(); app.showSettingsSection("about") }
-        }
-    }
 
     // Remove-account confirmation: names the exact account, Cancel is the
     // focused default. Only that account's local session, store and token are

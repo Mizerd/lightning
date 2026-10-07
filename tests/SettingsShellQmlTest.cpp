@@ -20,6 +20,7 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlExpression>
+#include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSignalSpy>
@@ -2820,6 +2821,358 @@ private slots:
                      "has started deriving its height from its own text: %1")
                          .arg(ragged.join(QStringLiteral(", ")))));
         QVERIFY2(cut.isEmpty(), qPrintable(cut.join(QStringLiteral("\n  "))));
+    }
+
+    // The words people type for the settings Rokas could not find each land
+    // on the control itself. Before 2026-10-07 "gradient" found only Depth
+    // (the automatic gradient, not the way to make one), "microphone test"
+    // found nothing (the query was matched as one phrase), "noise" led only
+    // to Labs and "downloads" to a checkbox rather than the folder.
+    void everyFindabilityQueryLandsOnItsControl()
+    {
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *screen = item("settingsScreenRoot");
+        auto *search = item("settingsSearchField");
+        auto *flick = item("settingsContentFlick");
+        QVERIFY(screen && search && flick);
+        auto *pane = flick->property("contentItem").value<QQuickItem *>();
+        QVERIFY(pane);
+
+        struct Case {
+            const char *query;
+            const char *anchor;
+        };
+        static const Case cases[] = {
+            { "background", "chatBackgroundSettingsSection" },
+            { "wallpaper", "chatBackgroundSettingsSection" },
+            { "gradient", "customThemeGradientButton" },
+            { "depth", "surfaceDepthControl" },
+            { "noise", "soundNoiseSuppressionRow" },
+            { "microphone test", "microphoneTestSection" },
+            // Word order is the reader's, not the index's.
+            { "test microphone", "microphoneTestSection" },
+            { "downloads", "downloadFolderLabel" },
+            { "recovery key", "recoveryInputField" },
+        };
+        QStringList missing;
+        int checked = 0;
+        for (const Case &c : cases) {
+            search->setProperty("text", QString::fromLatin1(c.query));
+            QCoreApplication::processEvents();
+            const QVariantList hits =
+                screen->property("matchedSearchResults").toList();
+            bool found = false;
+            for (const QVariant &hit : hits) {
+                found = found
+                    || hit.toMap().value(QStringLiteral("anchor")).toString()
+                           == QLatin1String(c.anchor);
+            }
+            // The anchor must also be a real control in the content pane, or
+            // the result would land nowhere.
+            QQuickItem *target = findItem(pane, QLatin1String(c.anchor));
+            if (!found || !target)
+                missing.append(QStringLiteral("\"%1\" -> %2 (%3 results%4)")
+                                   .arg(QLatin1String(c.query),
+                                        QLatin1String(c.anchor))
+                                   .arg(hits.size())
+                                   .arg(target ? QString()
+                                               : QStringLiteral(", no such "
+                                                                "control")));
+            ++checked;
+        }
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+
+        QCOMPARE(checked, int(sizeof(cases) / sizeof(cases[0])));
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral("settings search does not lead to: %1")
+                                .arg(missing.join(QStringLiteral("; ")))));
+    }
+
+    // Appearance is about twenty groups long; its contents chips take the
+    // reader to each group from the top of the page, in page order.
+    void theAppearanceContentsChipsReachEveryGroup()
+    {
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *screen = item("settingsScreenRoot");
+        auto *flick = item("settingsContentFlick");
+        auto *bar = item("appearanceJumpBar");
+        QVERIFY2(bar, "Appearance has no contents chips");
+        QVERIFY(screen && flick);
+        auto *content = flick->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+
+        const QVariantList entries = bar->property("entries").toList();
+        QVERIFY2(entries.size() >= 9,
+                 qPrintable(QStringLiteral("only %1 contents chips")
+                                .arg(entries.size())));
+
+        QStringList wrong;
+        qreal lastTop = -1.0;
+        int reached = 0;
+        for (int i = 0; i < entries.size(); ++i) {
+            flick->setProperty("contentY", 0.0);
+            QCoreApplication::processEvents();
+            auto *chip = item(qPrintable(QStringLiteral("appearanceJumpBar_%1")
+                                             .arg(i)));
+            QVERIFY2(chip, qPrintable(QStringLiteral("chip %1 is not live").arg(i)));
+            const QStringList anchors =
+                entries.at(i).toMap().value(QStringLiteral("anchors")).toStringList();
+            QVERIFY(!anchors.isEmpty());
+            QQuickItem *target = findItem(content, anchors.first());
+            QVERIFY2(target, qPrintable(anchors.first()));
+            const qreal top = target->mapToItem(content, QPointF(0, 0)).y();
+
+            clickItem(chip);
+            for (int t = 0; t < 50; ++t) {
+                const qreal y = flick->property("contentY").toReal();
+                if (top >= y && top <= y + flick->height())
+                    break;
+                QTest::qWait(10);
+            }
+            const qreal y = flick->property("contentY").toReal();
+            if (screen->property("searchRevealAnchor").toString() != anchors.first()
+                || top < y || top > y + flick->height())
+                wrong.append(QStringLiteral("%1 -> %2 at %3, viewport %4..%5")
+                                 .arg(entries.at(i).toMap()
+                                          .value(QStringLiteral("label")).toString(),
+                                      anchors.first())
+                                 .arg(top).arg(y).arg(y + flick->height()));
+            // Page order, so the chips read as the page's contents.
+            if (top < lastTop)
+                wrong.append(QStringLiteral("%1 comes before the chip ahead of it "
+                                            "on the page")
+                                 .arg(anchors.first()));
+            lastTop = top;
+            ++reached;
+        }
+        flick->setProperty("contentY", 0.0);
+        QCoreApplication::processEvents();
+
+        QCOMPARE(reached, entries.size());
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join(QStringLiteral("\n  "))));
+    }
+
+    // The chat background belongs with the theme, not a screen and a half
+    // down below the layout pickers where nobody found it.
+    void theChatBackgroundFollowsTheThemeAndPrecedesTheLayoutPickers()
+    {
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *custom = item("customThemeRow");
+        auto *background = item("chatBackgroundSettingsSection");
+        auto *layouts = item("roomNavigationLayoutCards");
+        QVERIFY(custom && background && layouts);
+        const qreal customTop = contentPosY(custom);
+        const qreal backgroundTop = contentPosY(background);
+        const qreal layoutsTop = contentPosY(layouts);
+        QVERIFY2(backgroundTop > customTop && backgroundTop < layoutsTop,
+                 qPrintable(QStringLiteral(
+                     "custom theme at %1, chat background at %2, layout "
+                     "pickers at %3")
+                         .arg(customTop).arg(backgroundTop).arg(layoutsTop)));
+    }
+
+    // The Settings copy of the background editor is framed against the page
+    // on every theme. It used the panel `border`, which on Moss Light is the
+    // page's own colour: the preview had no edge and its button no outline.
+    void theChatBackgroundPreviewIsFramedOnEveryTheme()
+    {
+        const int restore = m_controller->settings()->theme();
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *editor = item("chatBackgroundDefaultEditor");
+        auto *ground = item("settingsPageGround");
+        QVERIFY(editor && ground);
+        QQuickItem *frame = findItem(editor, QStringLiteral("chatBackgroundPreview"));
+        QVERIFY2(frame, "the Settings background editor has no preview frame");
+
+        const int themes[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 };
+        QStringList faint;
+        double worst = 1000.0;
+        int checked = 0;
+        for (int id : themes) {
+            m_controller->settings()->setTheme(
+                static_cast<SettingsManager::Theme>(id));
+            QCoreApplication::processEvents();
+            const QColor edge = QQmlProperty(frame, QStringLiteral("border.color"))
+                                    .read().value<QColor>();
+            const QColor page = ground->property("color").value<QColor>();
+            QVERIFY(edge.isValid() && page.isValid());
+            const double sep = qAbs(lstarOf(edge) - lstarOf(page));
+            worst = qMin(worst, sep);
+            ++checked;
+            // The editor's frame: borderStrong clears 15 dL* on every
+            // palette; the panel border it replaced managed 0.8 on Moss
+            // Light, 4.6 on Warm and 5.2 on Lightning Light.
+            if (sep < 10.0)
+                faint.append(QStringLiteral("theme %1: edge %2 on a page of %3, "
+                                            "%4 dL*")
+                                 .arg(id)
+                                 .arg(edge.name(), page.name())
+                                 .arg(sep, 0, 'f', 1));
+        }
+        m_controller->settings()->setTheme(
+            static_cast<SettingsManager::Theme>(restore));
+        QCoreApplication::processEvents();
+
+        QCOMPARE(checked, 11);
+        qInfo("chat background preview edge vs page: worst %.1f dL*", worst);
+        QVERIFY2(faint.isEmpty(), qPrintable(faint.join(QStringLiteral("\n  "))));
+    }
+
+    // "Add a gradient" opens the editor on a large surface with its Fill
+    // choice ABOVE the colour picker; one click makes a gradient that can be
+    // seen, and a gradient colour is edited with the picker itself.
+    //
+    // Fails on the old tree three ways: no customThemeGradientButton; the
+    // gradient controls sat below the picker; and the seed was
+    // Qt.darker(base, 1.12), which on Storm's #02051D is #02041A — the same
+    // colour to the eye, so turning a gradient on visibly did nothing.
+    void addAGradientOpensTheFillChoiceAndMakesAVisibleGradient()
+    {
+        const int w = m_window->width();
+        const int h = m_window->height();
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        store->resetAll();
+        store->resetGradient(QStringLiteral("background"));
+        // A near-black ground: where a timid seed is invisible.
+        store->setBaseTheme(11);
+        QCoreApplication::processEvents();
+
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *button = item("customThemeGradientButton");
+        auto *loader = item("themeEditorLoader");
+        QVERIFY2(button, "Appearance offers no way to add a gradient");
+        QVERIFY(loader);
+        clickItem(button);
+        QTRY_VERIFY(popup("themeEditorDialog"));
+        QObject *dialog = popup("themeEditorDialog");
+        QTRY_VERIFY(dialog->property("opened").toBool());
+
+        QString role, seedA, seedB, stopAfterPick, flatAfterPick, caption;
+        qreal fillY = -1.0, pickerFieldY = -1.0;
+        double seedSep = -1.0;
+        int stopWhileSelected = -2, stopAfterDeselect = -2;
+        bool fillVisible = false;
+
+        role = dialog->property("editingRole").toString();
+        auto *fillHeading = item("gradientFillHeading");
+        auto *picker = item("themeColorPicker");
+        QQuickItem *hexField = picker
+            ? findItem(picker, QStringLiteral("colorHexField")) : nullptr;
+        if (fillHeading && hexField) {
+            fillVisible = fillHeading->isVisible();
+            fillY = fillHeading->mapToScene(QPointF(0, 0)).y();
+            pickerFieldY = hexField->mapToScene(QPointF(0, 0)).y();
+        }
+
+        if (auto *linear = item("gradientLinearButton")) {
+            clickItem(linear);
+            const QVariantMap spec = store->gradients()
+                .value(QStringLiteral("background")).toMap();
+            const QStringList stops =
+                spec.value(QStringLiteral("stops")).toStringList();
+            if (stops.size() >= 2) {
+                seedA = stops.first();
+                seedB = stops.last();
+                seedSep = qAbs(store->lightness(seedA) - store->lightness(seedB));
+            }
+        }
+
+        // Pick the end colour, then drive the picker as a drag would.
+        if (auto *swatch = item("gradientStopSwatch_1")) {
+            clickItem(swatch);
+            stopWhileSelected = dialog->property("editingStop").toInt();
+            if (auto *capLabel = item("colorPickerBodyCaption"))
+                caption = capLabel->property("text").toString();
+            if (picker)
+                QMetaObject::invokeMethod(
+                    picker, "applyColor",
+                    Q_ARG(QVariant, QVariant::fromValue(QColor(QStringLiteral("#FF0000")))));
+            QCoreApplication::processEvents();
+            const QStringList stops = store->gradients()
+                .value(QStringLiteral("background")).toMap()
+                .value(QStringLiteral("stops")).toStringList();
+            stopAfterPick = stops.value(1);
+            flatAfterPick = store->colors()
+                .value(QStringLiteral("background")).toString();
+            // Clicking it again hands the picker back to the solid colour.
+            clickItem(swatch);
+            stopAfterDeselect = dialog->property("editingStop").toInt();
+        }
+
+        // Restore before asserting.
+        store->resetGradient(QStringLiteral("background"));
+        store->resetAll();
+        store->setBaseTheme(restoreBase);
+        loader->setProperty("active", false);
+        QCoreApplication::processEvents();
+        m_window->setWidth(w);
+        m_window->setHeight(h);
+        QCoreApplication::processEvents();
+
+        QCOMPARE(role, QStringLiteral("background"));
+        QVERIFY2(fillVisible, "the Fill choice is not shown for the background");
+        QVERIFY2(fillY >= 0.0 && fillY < pickerFieldY,
+                 qPrintable(QStringLiteral("the Fill choice is at y=%1, below "
+                                           "the picker's hex field at y=%2")
+                                .arg(fillY).arg(pickerFieldY)));
+        QVERIFY2(seedSep >= 5.0,
+                 qPrintable(QStringLiteral("turning a gradient on made %1 -> %2, "
+                                           "%3 dL* apart: nothing visible changes")
+                                .arg(seedA, seedB).arg(seedSep, 0, 'f', 1)));
+        QCOMPARE(stopWhileSelected, 1);
+        QVERIFY2(!caption.isEmpty(),
+                 "the picker does not say it is changing a gradient colour");
+        QCOMPARE(stopAfterPick, QStringLiteral("#FF0000"));
+        QVERIFY2(flatAfterPick.isEmpty(),
+                 qPrintable(QStringLiteral("editing a gradient colour also "
+                                           "recoloured the solid background "
+                                           "(%1)").arg(flatAfterPick)));
+        QCOMPARE(stopAfterDeselect, -1);
+    }
+
+    // "grad" in the editor's role filter lists exactly the surfaces that can
+    // take a gradient.
+    void theThemeEditorFilterFindsTheGradientSurfaces()
+    {
+        auto *store = m_controller->customTheme();
+        auto *loader = item("themeEditorLoader");
+        QVERIFY(store && loader);
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        loader->setProperty("active", true);
+        QTRY_VERIFY(popup("themeEditorDialog"));
+        QObject *dialog = popup("themeEditorDialog");
+        QTRY_VERIFY(dialog->property("opened").toBool());
+
+        dialog->setProperty("roleFilter", QStringLiteral("grad"));
+        QCoreApplication::processEvents();
+        QSet<QString> listed;
+        for (const QVariant &g : dialog->property("roleGroups").toList()) {
+            for (const QVariant &r : g.toMap().value(QStringLiteral("items")).toList())
+                listed.insert(r.toMap().value(QStringLiteral("key")).toString());
+        }
+        QSet<QString> expected;
+        for (const QVariant &r : store->roles()) {
+            const QString key = r.toMap().value(QStringLiteral("key")).toString();
+            if (store->isGradientRole(key))
+                expected.insert(key);
+        }
+        dialog->setProperty("roleFilter", QString());
+        loader->setProperty("active", false);
+        QCoreApplication::processEvents();
+
+        QVERIFY2(expected.size() >= 4,
+                 qPrintable(QStringLiteral("only %1 gradient roles to look for")
+                                .arg(expected.size())));
+        QCOMPARE(listed, expected);
     }
 
     void noQmlWarnings()

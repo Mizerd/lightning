@@ -646,7 +646,11 @@ Rectangle {
             // Collapse/expand: the panel's size, owned by the host.
             CallControlButton {
                 objectName: "callCollapseButton"
-                iconName: root.collapsed ? "open_in_full" : "close_fullscreen"
+                // A chevron: the panel folds up into a strip and back down. It
+                // used close_fullscreen, the glyph the dock's pop-out button
+                // beside it also uses, so two identical icons sat side by side
+                // doing different things.
+                iconName: root.collapsed ? "expand_more" : "expand_less"
                 diameter: 30
                 glyphSize: 16
                 tooltip: root.collapsed ? qsTr("Expand the call")

@@ -123,8 +123,10 @@ Rectangle {
             if (app.thread.state === ThreadController.Ready) {
                 panel.restoreThreadScrollPosition()
                 Qt.callLater(function() {
+                    // The editor of the current mode: in rich mode the
+                    // markdown field is hidden and cannot take focus.
                     if (app.thread.active)
-                        threadComposerInput.forceActiveFocus()
+                        panel.activeThreadEditor().forceActiveFocus()
                 })
             }
         }
@@ -134,6 +136,18 @@ Rectangle {
         function onCountChanged() {
             panel.refreshRoot()
             replyList.scrollToEndDeferredIfFollowing()
+        }
+    }
+    // Replying to a message inside the thread gives the thread composer the
+    // keyboard, as Reply does for the room composer. Thread reply targets are
+    // only ever set by the user (no draft restores one).
+    Connections {
+        target: app.thread
+        function onReplyStateChanged() {
+            if (app.thread.active && app.thread.inReply)
+                Qt.callLater(function () {
+                    panel.activeThreadEditor().forceActiveFocus()
+                })
         }
     }
     Connections {
@@ -513,7 +527,13 @@ Rectangle {
                         // overflow the card.
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
-                        Layout.maximumWidth: implicitWidth
+                        // Whole pixels above the text's own width: the layout
+                        // snaps sizes to pixels, so a cap of exactly the
+                        // fractional implicitWidth could land a pixel short
+                        // and elide a name that fits ("Car…" for "Carol" with
+                        // 48 px free beside it, 2026-10-07).
+                        Layout.maximumWidth: Math.ceil(implicitWidth) + 1
+                        objectName: "threadRootSenderName"
                         elide: Text.ElideRight
                         text: panel.rootData.senderDisplayName || ""
                         // Same per-user identity ink as the timeline rows.
@@ -2031,7 +2051,9 @@ Rectangle {
             threadComposerInput.insert(threadComposerInput.cursorPosition,
                                        emoji)
         }
-        onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
+        onClosed: Qt.callLater(function () {
+            panel.activeThreadEditor().forceActiveFocus()
+        })
     }
 
     // Outgoing @-mentions, as in the room composer: current-room members, input
@@ -2400,7 +2422,9 @@ Rectangle {
         offerKindTabs: panel.mediaPickerBothKinds
         onKindRequested: (kind) => panel.swapThreadMediaPicker(kind)
         onGifChosen: (result) => panel.onThreadGifPicked(result)
-        onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
+        onClosed: Qt.callLater(function () {
+            panel.activeThreadEditor().forceActiveFocus()
+        })
     }
 
     // Download, validate and send into this thread (captured room + root); the
@@ -2417,7 +2441,9 @@ Rectangle {
         offerKindTabs: panel.mediaPickerBothKinds
         onKindRequested: (kind) => panel.swapThreadMediaPicker(kind)
         onStickerChosen: (image) => panel.onThreadStickerPicked(image)
-        onClosed: Qt.callLater(threadComposerInput.forceActiveFocus)
+        onClosed: Qt.callLater(function () {
+            panel.activeThreadEditor().forceActiveFocus()
+        })
     }
 
     // Send the chosen pack sticker into this thread. No room-send fallback

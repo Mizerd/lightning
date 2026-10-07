@@ -1,5 +1,5 @@
 // Account switcher (AccountMenu + IdentityCard): a vertical card stack, the
-// fixed 320px popover width, the live active-account guard, the
+// fixed 352px popover width, the live active-account guard, the
 // accountSwitching lockout, both destructive confirmations reachable with
 // Cancel focused, and no fabricated meta text (no per-account unread count).
 // Drives a real AppController on the mock backend with two saved accounts,
@@ -252,11 +252,11 @@ private slots:
         delete m_controller;
     }
 
-    void popoverIsFixed320WideWithNoCarouselArtifacts()
+    void popoverIsFixedWidthWithNoCarouselArtifacts()
     {
         openMenu();
         auto *menu = find(QStringLiteral("menu"));
-        QCOMPARE(menu->property("width").toInt(), 320);
+        QCOMPARE(menu->property("width").toInt(), 352);
 
         QFile file(QStringLiteral(QML_DIR "/AccountMenu.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
@@ -681,7 +681,7 @@ Item {
     }
 
     // Two accounts can share a display name, so the id beneath it is the only
-    // disambiguator and must fit the 320 px popover.
+    // disambiguator and must fit the 352 px popover.
     void theIdentityLineSurvivesThePopoverWidth()
     {
         QQmlComponent c(m_engine);
@@ -704,8 +704,8 @@ Item {
         QVERIFY2(scene, qPrintable(c.errorString()));
         auto *row = qvariant_cast<QQuickItem *>(scene->property("row"));
         QVERIFY(row);
-        // 320 popover - 2 x 12 padding.
-        row->setWidth(296);
+        // 352 popover - 2 x 12 padding.
+        row->setWidth(328);
         QCoreApplication::processEvents();
         auto *label = qvariant_cast<QQuickItem *>(
             row->property("identityLabel"));
@@ -715,6 +715,57 @@ Item {
                  qPrintable(QStringLiteral(
                      "'@mizerd:matrix.smetonis.net' is elided at %1 px "
                      "(needs %2)").arg(label->width())
+                        .arg(label->property("contentWidth").toReal())));
+    }
+
+    // A long but ordinary Matrix ID (34 characters: a full name on a
+    // subdomain) fits the rows the REAL popover lays out. At the old 320 px
+    // popover the row's id line was ~213 px, so the server half of an id
+    // like this was middle-elided away ("@lightningtest3…ix.smetonis.net",
+    // seen live 2026-10-07). The width is read from a real card, not
+    // restated, so this fails if the popover narrows again.
+    void aLongMatrixIdFitsTheRowsTheRealPopoverLaysOut()
+    {
+        openMenu();
+        auto *card = qobject_cast<QQuickItem *>(findCard(kAlice));
+        QVERIFY(card);
+        QTRY_VERIFY(card->width() > 0);
+        const qreal realRowWidth = card->width();
+        auto *menu = find(QStringLiteral("menu"));
+        QMetaObject::invokeMethod(menu, "close");
+        QTRY_VERIFY(!menu->property("opened").toBool());
+
+        QQmlComponent c(m_engine);
+        c.setData(QByteArray(R"QML(
+import QtQuick
+import MatrixClient
+Item {
+    width: 600; height: 200
+    property alias row: row
+    IdentityCard {
+        id: row
+        rowHeight: 44
+        active: true
+        displayName: "Alexandra"
+        userId: "@alexandra.morgan:chat.example.org"
+    }
+}
+)QML"), QUrl(QStringLiteral("idwidthlong.qml")));
+        QScopedPointer<QObject> scene(c.create());
+        QVERIFY2(scene, qPrintable(c.errorString()));
+        auto *row = qvariant_cast<QQuickItem *>(scene->property("row"));
+        QVERIFY(row);
+        row->setWidth(realRowWidth);
+        QCoreApplication::processEvents();
+        auto *label = qvariant_cast<QQuickItem *>(
+            row->property("identityLabel"));
+        QVERIFY(label);
+        QTRY_VERIFY(label->width() > 0);
+        QVERIFY2(!label->property("truncated").toBool(),
+                 qPrintable(QStringLiteral(
+                     "'@alexandra.morgan:chat.example.org' is elided at %1 px "
+                     "in a %2 px row of the real popover (needs %3)")
+                        .arg(label->width()).arg(realRowWidth)
                         .arg(label->property("contentWidth").toReal())));
     }
 
@@ -793,7 +844,7 @@ Item {
         QVERIFY2(scene, qPrintable(c.errorString()));
         auto *row = qvariant_cast<QQuickItem *>(scene->property("row"));
         QVERIFY(row);
-        row->setWidth(296); // 320 popover - 2 x 12 padding
+        row->setWidth(328); // 352 popover - 2 x 12 padding
         QCoreApplication::processEvents();
         auto *label = qvariant_cast<QQuickItem *>(
             row->property("identityLabel"));

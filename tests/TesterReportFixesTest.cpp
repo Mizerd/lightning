@@ -153,6 +153,87 @@ private Q_SLOTS:
         QTest::qWait(60);
     }
 
+    // Personalisation is one click from Home (Rokas, 2026-10-06: "I don't
+    // know how to make gradients or set the custom background"). The Make it
+    // yours row exists, every button in it is drawn inside the Home card
+    // (a Flow that is not given a width paints past its column), and Chat
+    // background opens the background dialog on this account's own default.
+    // Fails on the old tree: the row and its buttons do not exist.
+    void homeOffersThemeAndBackgroundInsideItsCard()
+    {
+        m_controller->setCurrentRoomId(QString());
+        QTest::qWait(80);
+        auto *row = item("homePersonalise");
+        QVERIFY2(row && row->isVisible(),
+                 "Home has no Make it yours row: themes and chat backgrounds "
+                 "are only reachable three screens deep");
+        const QRectF rowRect(row->mapToScene(QPointF(0, 0)),
+                             QSizeF(row->width(), row->height()));
+        const char *names[] = { "homeThemeButton", "homeChatBackgroundButton",
+                                "homeProfileButton", "homeSettingsButton" };
+        QStringList outside;
+        for (const char *name : names) {
+            auto *button = item(name);
+            QVERIFY2(button, name);
+            if (!button->isVisible())
+                continue;
+            const QRectF r(button->mapToScene(QPointF(0, 0)),
+                           QSizeF(button->width(), button->height()));
+            if (!rowRect.adjusted(-0.5, -0.5, 0.5, 0.5).contains(r))
+                outside << QStringLiteral("%1 at %2,%3 %4x%5 outside %6,%7 %8x%9")
+                               .arg(QLatin1String(name)).arg(r.x()).arg(r.y())
+                               .arg(r.width()).arg(r.height())
+                               .arg(rowRect.x()).arg(rowRect.y())
+                               .arg(rowRect.width()).arg(rowRect.height());
+        }
+        QVERIFY2(outside.isEmpty(), qPrintable(outside.join(QLatin1Char('\n'))));
+
+        auto *dialog = m_root->findChild<QObject *>(
+            QStringLiteral("homeChatBackgroundDialog"));
+        QVERIFY(dialog);
+        auto *bgButton = item("homeChatBackgroundButton");
+        QVERIFY(bgButton);
+        QVERIFY2(bgButton->isVisible(),
+                 "the mock controller has backdrops, so the button must show");
+        QMetaObject::invokeMethod(bgButton, "clicked");
+        QTRY_VERIFY2(dialog->property("opened").toBool(),
+                     "Chat background on Home opened nothing");
+        QCOMPARE(dialog->property("scopeKind").toString(),
+                 QStringLiteral("default"));
+        QMetaObject::invokeMethod(dialog, "close");
+        QTRY_VERIFY(!dialog->property("visible").toBool());
+    }
+
+    // The room list's "+" is a labelled menu that also carries the public
+    // directory (formerly an unlabelled compass beside it), and each row opens
+    // the right dialog in the right mode. Fails on the old tree: "+" opened
+    // the dialog directly and there was no menu.
+    void theRoomListAddMenuOpensEachWayToStartOrJoin()
+    {
+        auto *menu = m_root->findChild<QObject *>(
+            QStringLiteral("roomListAddMenu"));
+        QVERIFY2(menu, "the room list's + has no menu");
+        auto *dialog = m_root->findChild<QObject *>(
+            QStringLiteral("newConversationDialog"));
+        QVERIFY(dialog);
+        struct Row { const char *name; const char *mode; };
+        const Row rows[] = { { "roomListAddMessage", "dm" },
+                             { "roomListAddRoom", "room" },
+                             { "roomListAddSpace", "space" } };
+        for (const Row &r : rows) {
+            auto *menuRow = menu->findChild<QObject *>(QLatin1String(r.name));
+            QVERIFY2(menuRow, r.name);
+            QMetaObject::invokeMethod(menuRow, "triggered");
+            QTRY_VERIFY2(dialog->property("visible").toBool(), r.name);
+            QCOMPARE(dialog->property("mode").toString(), QLatin1String(r.mode));
+            QMetaObject::invokeMethod(dialog, "close");
+            QTRY_VERIFY(!dialog->property("visible").toBool());
+        }
+        auto *explore = menu->findChild<QObject *>(
+            QStringLiteral("roomListAddExplore"));
+        QVERIFY2(explore, "the + menu does not offer the public directory");
+    }
+
     // Thirty reactions on one message wrap inside the row instead of running
     // past its right edge (a Flow needs a width to wrap within).
     void manyReactionsWrapInsteadOfLeavingTheRow()

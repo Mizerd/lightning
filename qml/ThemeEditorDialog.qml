@@ -36,8 +36,20 @@ Popup {
                                         : Popup.CloseOnEscape
 
     // Create the theme on open so there is something to edit; a theme with no
-    // overrides simply follows its base.
-    onOpened: if (!root.store.exists) root.store.createTheme("")
+    // overrides simply follows its base. A host that opened the editor for one
+    // job ("Add a gradient" in Settings) names the role to open with.
+    property string initialRole: ""
+    onOpened: {
+        if (!root.store.exists)
+            root.store.createTheme("")
+        if (root.initialRole.length > 0) {
+            root.beginEdit(root.initialRole, root.labelForRole(root.initialRole))
+            // The row's own reveal ran before the list was laid out and
+            // scrolled it off the top; the role it opens with is in the first
+            // group, so the top of the list shows it.
+            Qt.callLater(function() { roleScroll.contentY = 0 })
+        }
+    }
 
     readonly property var store: app.customTheme
 
@@ -75,6 +87,9 @@ Popup {
     }
     function afterHistoryMove() {
         root.confirmingReset = false
+        // Undo moves colours, not gradients: the picker goes back to the
+        // role's own colour.
+        root.editingStop = -1
         if (root.editingRole.length > 0)
             picker.show(root.effectiveColor(root.editingRole))
     }
@@ -161,6 +176,15 @@ Popup {
     // destroyed while the picker is open.
     property string editingRole: ""
     property string editingLabel: ""
+    // The gradient colour (stop index) the picker is changing instead of the
+    // role's own colour, or -1. Chosen in GradientEditor.
+    property int editingStop: -1
+    readonly property bool editingTakesGradient:
+        root.editingRole.length > 0 && root.store.isGradientRole(root.editingRole)
+    // The stored gradients, read once per change (a QVariantMap by value).
+    readonly property var storeGradients: root.store.gradients
+    readonly property int gradientCount:
+        root.storeGradients ? Object.keys(root.storeGradients).length : 0
     // The role under the pointer (or the keyboard) in the list, outlined in the
     // preview so it can be traced to where it paints.
     property string hoverRole: ""
@@ -401,6 +425,7 @@ Popup {
         if (root.spotRoles.indexOf(key) < 0)
             root.spotRoles = []
         root.ownColoursAtOpen = root.overrideColors
+        root.editingStop = -1
         root.editingRole = key
         root.editingLabel = label
         // The panel holds one thing at a time; opening a colour takes it.
@@ -457,6 +482,8 @@ Popup {
         return ""
     }
 
+    readonly property string gradientWord: qsTr("gradient").toLowerCase()
+
     // Groups narrowed by the filter; empty groups are dropped.
     readonly property var roleGroups: {
         var out = []
@@ -475,6 +502,11 @@ Popup {
                 || list[i].group.toLowerCase().indexOf(needle) >= 0
                 || list[i].hint.toLowerCase().indexOf(needle) >= 0
                 || list[i].key.toLowerCase().indexOf(needle) >= 0
+            // "grad…" lists the surfaces that can be a gradient.
+            if (!hit && needle.length >= 3
+                    && root.gradientWord.indexOf(needle) === 0
+                    && root.store.isGradientRole(list[i].key))
+                hit = true
             if (!hit && hexNeedle.length > 0) {
                 var hex = root.toHex(Qt.color(String(
                               root.effectiveColor(list[i].key))))
@@ -683,14 +715,25 @@ Popup {
                         Layout.minimumWidth: 0
                         spacing: AppTheme.spacing8
                         Label {
+                            objectName: "themeEditorSubtitle"
+                            textFormat: Text.PlainText
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
-                            text: root.store.overrideCount === 0
-                                  ? qsTr("Click any part of the sample window, or a role on the left.")
-                                  : qsTr("%n colour(s) changed.",
-                                         "custom theme, count of edited roles",
-                                         root.store.overrideCount)
-                            color: AppTheme.editorTextMuted
+                            // Said first when it matters: the app keeps its
+                            // current theme until "Use this theme".
+                            readonly property bool previewOnly:
+                                app.settings.theme !== 12
+                                && (root.store.overrideCount > 0
+                                    || root.gradientCount > 0)
+                            text: previewOnly
+                                  ? qsTr("Preview only: choose Use this theme to see it everywhere.")
+                                  : root.store.overrideCount === 0
+                                    ? qsTr("Click any part of the sample window, or a role on the left.")
+                                    : qsTr("%n colour(s) changed.",
+                                           "custom theme, count of edited roles",
+                                           root.store.overrideCount)
+                            color: previewOnly ? AppTheme.editorText
+                                               : AppTheme.editorTextMuted
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
                             elide: Label.ElideRight
@@ -1399,6 +1442,21 @@ Popup {
                         color: AppTheme.editorBorder
                     }
 
+                    // Gradients belong to six large surfaces and were found
+                    // only by opening one of them and reading below its
+                    // picker. One button opens the largest, where the Fill
+                    // choice is the first control.
+                    EditorButton {
+                        objectName: "themeMakeGradientButton"
+                        Layout.fillWidth: true
+                        text: qsTr("Make a gradient")
+                        Accessible.description: qsTr("Opens the conversation "
+                            + "background with its fill choices: a solid colour "
+                            + "or a gradient")
+                        onClicked: root.beginEdit("background",
+                                                  root.labelForRole("background"))
+                    }
+
                     // Filter field: with 26 roles, typing beats scrolling,
                     // especially on small windows.
                     Rectangle {
@@ -1533,6 +1591,14 @@ Popup {
                                             // flag lets the row explain that.
                                             readonly property bool seeThrough:
                                                 resolved.a < 0.999
+                                            // The role's gradient, or null: painted
+                                            // in the swatch and named on the row,
+                                            // so a gradient is visible in the list.
+                                            readonly property var gradientSpec: {
+                                                var g = root.storeGradients
+                                                return g && g[modelData.key]
+                                                       ? g[modelData.key] : null
+                                            }
                                             // The role this one is riding on
                                             // right now ("" if it has its own
                                             // colour), named on the row.
@@ -1656,6 +1722,16 @@ Popup {
                                                         border.width: 1
                                                         border.color:
                                                             AppTheme.editorBorderStrong
+                                                        ThemedSurface {
+                                                            objectName: "themeSwatchGradient_"
+                                                                + roleRow.modelData.key
+                                                            anchors.fill: parent
+                                                            anchors.margins: 2
+                                                            visible: roleRow.gradientSpec !== null
+                                                            role: roleRow.modelData.key
+                                                            flatFill: false
+                                                            specOverride: roleRow.gradientSpec
+                                                        }
                                                     }
                                                     Rectangle {
                                                         objectName: "themeRoleChangedDot_"
@@ -1704,13 +1780,19 @@ Popup {
                                                             // A follower's parent row
                                                             // already says when it is
                                                             // see-through.
-                                                            text: roleRow.seeThrough
-                                                                  && roleRow.followsKey.length === 0
-                                                                  ? qsTr("%1 · see-through")
-                                                                    .arg(roleRow.hex)
-                                                                  : roleRow.hex
+                                                            text: roleRow.gradientSpec !== null
+                                                                  ? (roleRow.gradientSpec.type === "radial"
+                                                                     ? qsTr("Radial gradient")
+                                                                     : qsTr("Linear gradient"))
+                                                                  : roleRow.seeThrough
+                                                                    && roleRow.followsKey.length === 0
+                                                                    ? qsTr("%1 · see-through")
+                                                                      .arg(roleRow.hex)
+                                                                    : roleRow.hex
                                                             color: AppTheme.editorTextMuted
-                                                            font.family: AppTheme.monoFont
+                                                            font.family: roleRow.gradientSpec !== null
+                                                                         ? AppTheme.uiFont
+                                                                         : AppTheme.monoFont
                                                             font.pixelSize: AppTheme.menuSectionSize
                                                         }
                                                         // Editing the parent
@@ -1976,7 +2058,11 @@ Popup {
                         visible: root.editingRole.length > 0
                         title: root.editingLabel
                         subtitle: root.hintForRole(root.editingRole)
+                        // The reset button resets the role's own colour, so it
+                        // is not offered while the picker is on a gradient
+                        // colour.
                         canReset: root.editingRole.length > 0
+                                  && root.editingStop < 0
                                   && root.isOverridden(root.editingRole)
                         // A role with a parent goes back to following it.
                         resetLabel: root.editingFollowsDeclared.length > 0
@@ -1985,8 +2071,44 @@ Popup {
                                           root.editingFollowsDeclared))
                                     : qsTr("Reset to the base theme")
                         suggestions: root.paletteSwatches
+                        // Surface roles: the Fill choice (solid or gradient)
+                        // first, then the picker for whichever colour is
+                        // being changed.
+                        accessoryVisible: root.editingTakesGradient
+                        bodyCaption: {
+                            if (!root.editingTakesGradient || !gradientEditor.hasGradient)
+                                return ""
+                            if (root.editingStop >= 0)
+                                return qsTr("Gradient colour: %1")
+                                       .arg(gradientEditor.stopName(root.editingStop))
+                            return qsTr("Solid colour underneath the gradient, "
+                                        + "also used by what follows this one")
+                        }
+                        accessory: GradientEditor {
+                            id: gradientEditor
+                            objectName: "themeGradientEditor"
+                            Layout.fillWidth: true
+                            role: root.editingTakesGradient ? root.editingRole
+                                                            : "background"
+                            baseColor: root.editingRole.length > 0
+                                       ? root.effectiveColor(root.editingRole)
+                                       : AppTheme.editorCanvas
+                            gradedPalette: root.auditPalette
+                            selectedStop: root.editingStop
+                            onStopSelected: (index) => {
+                                root.editingStop = index
+                                picker.load(index >= 0
+                                            ? gradientEditor.stopAt(index)
+                                            : root.effectiveColor(root.editingRole))
+                            }
+                        }
                         onPicked: (value) => {
-                            if (root.editingRole.length > 0)
+                            if (root.editingRole.length === 0)
+                                return
+                            if (root.editingStop >= 0 && gradientEditor.hasGradient)
+                                gradientEditor.setStop(root.editingStop,
+                                                       root.toHex(value))
+                            else
                                 root.store.setColor(root.editingRole,
                                                     root.toHex(value))
                         }
@@ -2001,22 +2123,6 @@ Popup {
                             }
                         }
                         onClosed: root.editingRole = ""
-                    }
-
-                    // Surface roles may also carry a gradient (graded at its
-                    // worst stop; see GradientEditor).
-                    GradientEditor {
-                        objectName: "themeGradientEditor"
-                        Layout.fillWidth: true
-                        visible: root.editingRole.length > 0
-                                 && root.store.isGradientRole(root.editingRole)
-                        role: root.editingRole.length > 0
-                              && root.store.isGradientRole(root.editingRole)
-                              ? root.editingRole : "background"
-                        baseColor: root.editingRole.length > 0
-                                   ? root.effectiveColor(root.editingRole)
-                                   : AppTheme.editorCanvas
-                        gradedPalette: root.auditPalette
                     }
 
                     // How the open role is tied to others: what it follows,
@@ -2277,6 +2383,50 @@ Popup {
                     color: AppTheme.editorTextMuted
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
+                }
+
+                // Where a newcomer looks first: gradients exist, and which
+                // surfaces take one, each a click away. Not shown over a list
+                // of readability problems, which matter more.
+                ColumnLayout {
+                    objectName: "themeGradientTip"
+                    Layout.fillWidth: true
+                    Layout.topMargin: AppTheme.spacing8
+                    visible: root.readabilityProblems === 0
+                    spacing: AppTheme.spacing6
+                    Label {
+                        Layout.fillWidth: true
+                        text: qsTr("Gradients")
+                        color: AppTheme.editorTextMuted
+                        font.family: AppTheme.menuSectionFont
+                        font.pixelSize: AppTheme.menuSectionSize
+                        font.weight: AppTheme.menuSectionWeight
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        textFormat: Text.PlainText
+                        text: qsTr("The large areas can be a gradient instead of "
+                                   + "one colour. Open one, then choose Linear or "
+                                   + "Radial under Fill, or start from a preset.")
+                        color: AppTheme.editorTextSecondary
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                    }
+                    Flow {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing4
+                        Repeater {
+                            model: ["background", "sidebar", "rail", "surface"]
+                                   .filter(function(k) {
+                                       return root.store.isGradientRole(k)
+                                   })
+                            delegate: RoleChip {
+                                required property string modelData
+                                roleKey: modelData
+                            }
+                        }
+                    }
                 }
 
                 // What was not checked, stated, so "all passed" is not confused

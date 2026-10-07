@@ -43,6 +43,7 @@ Item {
     /// The search field belongs to the host; it is not in this file's scope.
     signal clearSearchRequested
     signal leaveRoomRequested(string roomId, string roomName)
+    signal chatBackgroundRequested(string roomId, string roomName)
     signal inviteRejectRequested(string roomId, string roomName)
 
     ListView {
@@ -122,6 +123,7 @@ Item {
             // host.
             onCopyRoomLink: root.roomLinkCopyRequested(model.roomId)
             onLeaveRoomRequested: root.leaveRoomRequested(model.roomId, model.name)
+            onChatBackgroundRequested: root.chatBackgroundRequested(model.roomId, model.name)
         }
     }
 

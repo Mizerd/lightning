@@ -342,11 +342,15 @@ AppMenu {
     onAboutToShow: if (root.isMicrophone && app.groupCall)
                        root._noiseChoices = app.groupCall.noiseSuppressionChoices()
 
+    // What each engine does first, its name second: mid-call, "RNNoise" and
+    // "DeepFilterNet" say nothing about which one removes more, and this menu
+    // has no room for Settings' descriptions. The words follow those
+    // descriptions (NoiseSuppressionSelector.qml): standard, more, advanced.
     function noiseTitle(key) {
         if (key === "off") return qsTr("Off")
-        if (key === "webrtc") return qsTr("WebRTC")
-        if (key === "rnnoise") return qsTr("RNNoise")
-        if (key === "deepfilternet") return qsTr("DeepFilterNet")
+        if (key === "webrtc") return qsTr("Standard (WebRTC)")
+        if (key === "rnnoise") return qsTr("Strong (RNNoise)")
+        if (key === "deepfilternet") return qsTr("Advanced (DeepFilterNet)")
         return key
     }
 

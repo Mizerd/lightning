@@ -6,14 +6,21 @@ import MatrixClient
 // Settings -> Appearance: chat backgrounds and surface depth.
 //
 //   * Your own background for every room (ChatBackgroundEditor, "default").
+//   * Where the other kinds live: one room's own picture, and a picture shared
+//     with everyone in a room or Space, are set from Room information.
 //   * "Show backgrounds set by others" (app.backdrops.showShared, default on).
 //     Off hides every room's and Space's shared picture; your own still show.
 //   * Depth: flat surfaces, or a gentle light-from-above gradient on the
-//     window's large grounds that only ever raises text contrast.
+//     window's large grounds that only ever raises text contrast; and the way
+//     to a gradient of your own, which is a custom theme's (Fill in the theme
+//     editor), so the two kinds of gradient point at each other.
 ColumnLayout {
     id: section
     objectName: "chatBackgroundSettings"
     spacing: AppTheme.spacing8
+
+    // "Make your own gradient": the host opens the theme editor on a surface.
+    signal makeGradientRequested()
 
     readonly property bool available: typeof app !== "undefined" && app
                                       && !!app.backdrops
@@ -37,24 +44,32 @@ ColumnLayout {
         font.pixelSize: AppTheme.textMeta
     }
 
-    GroupLabel { text: qsTr("Chat background") }
+    GroupLabel {
+        objectName: "chatBackgroundHeading"
+        text: qsTr("Chat background")
+    }
+    Hint {
+        text: qsTr("A picture behind every conversation. Only you see it.")
+    }
     ChatBackgroundEditor {
         objectName: "chatBackgroundDefaultEditor"
         Layout.fillWidth: true
         Layout.maximumWidth: 520
         scopeKind: "default"
         showTitle: false
+        storm: true
         visible: section.available
     }
     Hint {
-        text: qsTr("Your own picture behind every conversation. Only you see "
-                   + "it. A room or space can set a background everyone in it "
-                   + "sees, and you can choose your own for a single room from "
-                   + "Room information.")
+        objectName: "chatBackgroundPerRoomHint"
+        text: qsTr("For one room only, or a picture everyone in a room or space "
+                   + "sees: choose Chat background… from the room's ⋮ menu or "
+                   + "right-click the room in the list.")
     }
 
     RowLayout {
         Layout.fillWidth: true
+        Layout.topMargin: AppTheme.spacing4
         spacing: AppTheme.spacing12
         visible: section.available
         AppSwitch {
@@ -80,7 +95,10 @@ ColumnLayout {
                    + "Turn this off to see only your own.")
     }
 
-    GroupLabel { text: qsTr("Depth") }
+    GroupLabel {
+        objectName: "surfaceDepthHeading"
+        text: qsTr("Depth")
+    }
     SegmentedControl {
         objectName: "surfaceDepthControl"
         storm: true
@@ -96,5 +114,24 @@ ColumnLayout {
         text: qsTr("Depth gives the conversation, the room list and the spaces "
                    + "rail a soft light-from-above shading. Text never gets "
                    + "harder to read: the shading always moves away from it.")
+    }
+    // Depth is the automatic gradient; this is the way to one you choose.
+    ColumnLayout {
+        Layout.fillWidth: true
+        spacing: AppTheme.spacing6
+        Hint {
+            objectName: "surfaceDepthGradientHint"
+            Layout.fillWidth: true
+            text: qsTr("Want your own colours? A custom theme can give each of "
+                       + "these areas a gradient.")
+        }
+        AppButton {
+            objectName: "surfaceDepthMakeGradientButton"
+            Layout.leftMargin: AppTheme.spacing4
+            storm: true
+            size: "sm"
+            text: qsTr("Make a gradient…")
+            onClicked: section.makeGradientRequested()
+        }
     }
 }

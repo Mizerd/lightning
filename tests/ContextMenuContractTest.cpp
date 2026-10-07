@@ -179,9 +179,10 @@ private Q_SLOTS:
         const QString block = delegate.mid(start, end - start);
         QVERIFY(block.contains(QStringLiteral("radius: AppTheme.radiusTile")));
         QVERIFY(block.contains(QStringLiteral("border.color: AppTheme.borderStrong")));
-        // Five buttons: Hide (image and sticker rows only, leading, as in
-        // Element), React, Reply, Edit (own editable messages only), More.
-        QCOMPARE(block.count(QStringLiteral("radius: AppTheme.radiusControl")), 5);
+        // Six buttons: Hide (image and sticker rows only, leading, as in
+        // Element), React, Reply, Reply in thread (not inside the thread
+        // panel), Edit (own editable messages only), More.
+        QCOMPARE(block.count(QStringLiteral("radius: AppTheme.radiusControl")), 6);
         QVERIFY2(block.contains(QStringLiteral("objectName: \"messageEditButton\"")),
                  "the Edit control is not on the action bar");
         QVERIFY2(block.contains(QStringLiteral("objectName: \"messageHideMediaButton\"")),
@@ -383,8 +384,8 @@ private Q_SLOTS:
             "settings (server push rules).")));
         QVERIFY(settings.contains(QStringLiteral("apply to")));
         QVERIFY(settings.contains(QStringLiteral("this device only")));
-        QVERIFY(settings.contains(QStringLiteral("Push registration for")));
-        QVERIFY(settings.contains(QStringLiteral("implemented.")));
+        QVERIFY(settings.contains(QStringLiteral("Lightning does not register for")));
+        QVERIFY(settings.contains(QStringLiteral("only while it is running")));
         // Storm skin: the flyout disclaimer rides the faint storm mono ink.
         QVERIFY(block.contains(QStringLiteral("color: AppTheme.stormTextFaint")));
         QVERIFY(block.contains(QStringLiteral("font.pixelSize: AppTheme.fontMicro")));

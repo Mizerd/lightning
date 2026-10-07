@@ -23,6 +23,8 @@ AppMenu {
     signal setNotificationMode(int mode)
     signal copyRoomLink()
     signal leaveRoomRequested()
+    // The host opens ChatBackgroundDialog for this room.
+    signal chatBackgroundRequested()
     // Mono room-address header: the canonical alias when there is one,
     // otherwise the display name without a fabricated "#".
     contextLabel: root.isDirect
@@ -154,6 +156,14 @@ AppMenu {
         }
     }
     AppMenuSeparator {}
+    // Where people look for it: the room they want to change.
+    AppMenuItem {
+        objectName: "roomChatBackgroundItem"
+        visible: !!app.backdrops
+        iconName: "image"
+        text: qsTr("Chat background…")
+        onTriggered: root.chatBackgroundRequested()
+    }
     AppMenuItem {
         iconName: "link"
         text: qsTr("Copy room link")

@@ -33,6 +33,15 @@ Item {
     // "#RRGGBB" one-click choices from the base theme's palette, since themes
     // mostly reuse existing tones.
     property var suggestions: []
+    // Host controls shown between the heading and the picker: the theme
+    // editor puts a surface role's Fill choice (solid or gradient) here, so
+    // it is the first thing that role offers rather than something found
+    // below the swatches. Shown only while `accessoryVisible`.
+    property alias accessory: accessorySlot.data
+    property bool accessoryVisible: false
+    // One line naming what the picker below is changing, when that is not
+    // simply the role in the heading (a gradient's colour, say).
+    property string bodyCaption: ""
 
     signal picked(color value)
     signal resetRequested()
@@ -177,6 +186,28 @@ Item {
             color: AppTheme.editorTextMuted
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textMeta
+        }
+
+        ColumnLayout {
+            id: accessorySlot
+            objectName: "colorPickerAccessory"
+            Layout.fillWidth: true
+            Layout.topMargin: AppTheme.spacing4
+            visible: root.accessoryVisible
+            spacing: AppTheme.spacing8
+        }
+
+        Label {
+            objectName: "colorPickerBodyCaption"
+            Layout.fillWidth: true
+            visible: root.bodyCaption.length > 0
+            text: root.bodyCaption
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            color: AppTheme.editorText
+            font.family: AppTheme.uiFont
+            font.pixelSize: AppTheme.textMeta
+            font.weight: AppTheme.weightStrong
         }
 
         // Saturation (x) against value (y), over the current hue.

@@ -389,13 +389,17 @@ Item {
                     }
                 }
 
-                // Brand mark.
+                // Brand mark: the same bolt the room list's wordmark carries,
+                // so the first screen and the app look like one product.
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: AppTheme.spacingS
-                    Rectangle {
-                        width: 10; height: 10; radius: 3
-                        color: AppTheme.accent
+                    spacing: AppTheme.spacingXS
+                    Icon {
+                        objectName: "loginBrandBolt"
+                        name: "bolt"
+                        size: 18
+                        color: AppTheme.wordmarkBolt
+                        Accessible.ignored: true
                     }
                     Label {
                         text: "Lightning"
@@ -754,29 +758,30 @@ Item {
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textMeta
                     }
-                    // Password field + reveal toggle share one row.
-                    RowLayout {
+                    // The reveal toggle sits inside the field, at its end, so
+                    // the password field is as wide as the username above it.
+                    AppTextField {
+                        id: passField
+                        objectName: "passField"
                         Layout.fillWidth: true
-                        spacing: AppTheme.spacingXS
-                        AppTextField {
-                            id: passField
-                            objectName: "passField"
-                            Layout.fillWidth: true
-                            Accessible.name: qsTr("Password")
-                            echoMode: passReveal.checked ? TextInput.Normal
-                                                         : TextInput.Password
-                            // Enter submits from the password field.
-                            onAccepted: root.submit()
-                        }
+                        Accessible.name: qsTr("Password")
+                        echoMode: passReveal.checked ? TextInput.Normal
+                                                     : TextInput.Password
+                        // Room for the toggle; the text never runs under it.
+                        rightPadding: passReveal.width + AppTheme.spacingXS * 2
+                        // Enter submits from the password field.
+                        onAccepted: root.submit()
                         IconButton {
                             id: passReveal
                             objectName: "passwordRevealToggle"
+                            anchors.right: parent.right
+                            anchors.rightMargin: AppTheme.spacingXS
+                            anchors.verticalCenter: parent.verticalCenter
                             checkable: true
-                            implicitWidth: 34; implicitHeight: 34
-                            radius: AppTheme.radiusMd
+                            size: "md"
                             iconName: passReveal.checked ? "visibility_off"
                                                          : "visibility"
-                            iconSize: 18
+                            iconSize: 17
                             Accessible.name: checked ? qsTr("Hide password")
                                                      : qsTr("Show password")
                             ToolTip.text: Accessible.name

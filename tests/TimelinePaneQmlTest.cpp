@@ -4838,13 +4838,41 @@ private Q_SLOTS:
         QTest::qWait(60);
         QCoreApplication::processEvents();
 
-        // Wide: nothing folds and the overflow button costs nothing.
+        // Wide: nothing folds, and the More button is still there, because it
+        // carries the room's own options (chat background, room settings) and
+        // those must be in one place at every width.
         root->setSize(QSizeF(1200, 700));
         QTest::qWait(60);
         QCoreApplication::processEvents();
         QCOMPARE(actions->property("foldedActions").toStringList().size(), 0);
-        QVERIFY2(!overflow->isVisible(),
-                 "the overflow button is drawn on a header with room to spare");
+        QVERIFY2(overflow->isVisible(),
+                 "an open room has no More button on a wide header, so its "
+                 "chat background and settings are unreachable from the header");
+        {
+            auto *wideMenu = root->findChild<QObject *>(
+                QStringLiteral("roomHeaderOverflowMenu"));
+            QVERIFY(wideMenu);
+            QMetaObject::invokeMethod(wideMenu, "open");
+            QTRY_VERIFY(wideMenu->property("opened").toBool());
+            QCoreApplication::processEvents();
+            auto *bgRow = wideMenu->findChild<QObject *>(
+                QStringLiteral("roomHeaderChatBackground"));
+            QVERIFY2(bgRow, "the More menu has no Chat background row");
+            QVERIFY2(bgRow->property("visible").toBool(),
+                     "the Chat background row is hidden in the More menu");
+            auto *dialog = root->findChild<QObject *>(
+                QStringLiteral("roomChatBackgroundDialog"));
+            QVERIFY(dialog);
+            QMetaObject::invokeMethod(bgRow, "triggered");
+            QTRY_VERIFY2(dialog->property("opened").toBool(),
+                         "Chat background… did not open the background dialog");
+            QCOMPARE(dialog->property("scopeKind").toString(),
+                     QStringLiteral("room"));
+            QVERIFY(!dialog->property("roomId").toString().isEmpty());
+            QMetaObject::invokeMethod(dialog, "close");
+            QMetaObject::invokeMethod(wideMenu, "close");
+            QCoreApplication::processEvents();
+        }
 
         // Narrowest supported pane: every folded action has a menu row, and no
         // menu row duplicates a visible icon.

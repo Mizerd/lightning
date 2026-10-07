@@ -692,8 +692,68 @@ Rectangle {
 
                 Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
 
+                // Chat background: the room's shared picture (if this account
+                // may set it), this account's own picture for the room, and
+                // the per-room opt-out. OUTSIDE roomAdminBlock: every member
+                // needs "Only me" and the hide toggle, and inside it they were
+                // shown only to people who can change the join rule.
+                //
+                // Directly under the room's identity, as its own titled group:
+                // it is the one part of this page every member can change, and
+                // as the fifth group (below notifications, identity, Edit room
+                // and your room profile, with its heading scrolled away) nobody
+                // found it — "I don't know how to set the custom background"
+                // (2026-10-06).
+                ColumnLayout {
+                    id: chatBackgroundSection
+                    objectName: "roomChatBackgroundSection"
+                    Layout.fillWidth: true
+                    Layout.margins: AppTheme.spacing12
+                    spacing: AppTheme.spacing8
+                    visible: !!app.backdrops && app.currentRoomId !== ""
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: AppTheme.spacing6
+                        Icon {
+                            name: "image"
+                            size: 16
+                            color: AppTheme.textSecondary
+                        }
+                        Label {
+                            objectName: "roomChatBackgroundTitle"
+                            Layout.fillWidth: true
+                            text: qsTr("Chat background")
+                            color: AppTheme.textSecondary
+                            font.pixelSize: AppTheme.textBody
+                            font.weight: AppTheme.weightStrong
+                            elide: Label.ElideRight
+                        }
+                    }
+                    ChatBackgroundEditor {
+                        objectName: "roomChatBackgroundEditor"
+                        Layout.fillWidth: true
+                        // The group above carries the title.
+                        showTitle: false
+                        scopeKind: "room"
+                        scopeId: app.currentRoomId
+                    }
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 1
+                    color: AppTheme.border
+                    // Only before "Edit room": otherwise the room-profile
+                    // group's own rule follows at once and the two read as a
+                    // double line.
+                    visible: chatBackgroundSection.visible
+                             && editRoomGroup.visible
+                }
+
                 // Permission-gated editing (name / topic).
                 ColumnLayout {
+                    id: editRoomGroup
+                    objectName: "roomEditSection"
                     Layout.fillWidth: true
                     Layout.margins: AppTheme.spacing12
                     spacing: AppTheme.spacing8
@@ -892,26 +952,6 @@ Rectangle {
                         color: AppTheme.danger
                         font.pixelSize: AppTheme.textMeta
                     }
-                }
-
-                // Chat background: the room's shared picture (if this account
-                // may set it), this account's own picture for the room, and
-                // the per-room opt-out. OUTSIDE roomAdminBlock: every member
-                // needs "Only me" and the hide toggle, and inside it they were
-                // shown only to people who can change the join rule.
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: 1
-                    color: AppTheme.border
-                    visible: !!app.backdrops
-                }
-                ChatBackgroundEditor {
-                    objectName: "roomChatBackgroundEditor"
-                    Layout.fillWidth: true
-                    Layout.margins: AppTheme.spacing12
-                    visible: !!app.backdrops && app.currentRoomId !== ""
-                    scopeKind: "room"
-                    scopeId: app.currentRoomId
                 }
 
                 // Room administration: join rule and published address. Both

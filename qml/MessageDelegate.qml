@@ -724,6 +724,28 @@ Item {
                                 (previewText || "").substring(0, 80),
                                 root.timelineModel.mediaKeyForEvent(eventId))
     }
+    // The hovered row's tint: the theme's own ink at a low alpha, so every
+    // palette lifts a row by about the same amount. It was AppTheme.hover, a
+    // CONTROL hover token that each palette tunes against its control surface,
+    // not against the timeline. Against AppTheme.background it moved a row by
+    // +0.4 / +1.0 / +0.4 L* on the three light presets (invisible: Moss Light
+    // screenshotted (212,230,216) on (210,229,214)) and by +15 to +27 L* on the
+    // dark ones (a slab: Indigo Night (72,68,85) on (31,29,38)). This moves
+    // every preset by 3-7 L*. The pinned row and the receipt chips (which
+    // composite this tint) follow.
+    readonly property color rowHoverTint:
+        Qt.alpha(AppTheme.textPrimary, AppTheme.dark ? 0.06 : 0.055)
+    // Opens the event's thread in the thread panel, whose composer sends SDK
+    // m.thread replies: the thread it is already in, or a new one rooted at
+    // it. One path for the hover bar and the context menu.
+    function replyInThread(eventId) {
+        if (!eventId)
+            return
+        var details = root.timelineModel.messageDetails(eventId)
+        var rootId = (details.threadRootId || "").length > 0
+                     ? details.threadRootId : eventId
+        app.thread.openThread(app.currentRoomId, rootId)
+    }
     // Double-click on a message starts a reply to it, from the part of the row
     // that does nothing else. A double-click on text selects a word, and one on
     // a link, a picture, a reaction, a button or the quote opens or toggles
@@ -1244,7 +1266,7 @@ Item {
         y: layout.y
         width: root.width + AppTheme.spacingXS * 2
         height: layout.height
-        color: navigationLanded ? AppTheme.messageHighlight : AppTheme.hover
+        color: navigationLanded ? AppTheme.messageHighlight : root.rowHoverTint
         // Soft theme tint at an 8px radius, no border or elevation.
         radius: AppTheme.radiusMd
         z: 0
@@ -1848,7 +1870,10 @@ Item {
                                     ? qsTr("%n message(s) deleted",
                                            "collapsed run of redactions",
                                            model.deletedGroupCount)
-                                    : qsTr("[message deleted]")
+                                    // The wording the thread root card and
+                                    // Pinned already use; brackets read as
+                                    // raw markup.
+                                    : qsTr("Message deleted")
                             }
                             // The poll card shows the question; the body is the
                             // MSC1767 fallback.
@@ -2332,7 +2357,10 @@ Item {
                                     }
                                     if (model.isOwn && model.status === 2)
                                         return qsTr("%1 • failed").arg(ts)
-                                    if (model.edited) return qsTr("edited")
+                                    // Parenthesised, as Element and Discord
+                                    // write it: a bare underlined "edited"
+                                    // read as a link of its own.
+                                    if (model.edited) return qsTr("(edited)")
                                     return ""
                                 }
                                 color: root.bubbleMode
@@ -2341,11 +2369,19 @@ Item {
                                        : AppTheme.textMuted
                                 font.pixelSize: AppTheme.scaled(10)
                                 // The "edited" marker opens the edit history;
-                                // underlined only then.
-                                font.underline: model.edited === true
+                                // underlined while pointed at, like a link
+                                // that does not shout.
+                                font.underline: editedHover.hovered
+                                                && model.edited === true
                                                 && !(model.isOwn && model.status !== 1
                                                      && model.status !== undefined
                                                      && model.status === 2)
+                                HoverHandler {
+                                    id: editedHover
+                                    enabled: model.edited === true
+                                             && root.rowActionsEnabled
+                                    cursorShape: Qt.PointingHandCursor
+                                }
                                 Accessible.name: model.edited === true
                                                  ? qsTr("edited — show edit history")
                                                  : text
@@ -2614,6 +2650,35 @@ Item {
                             root.beginReply(root.eventIdForActions())
                         }
                     }
+                    // Reply in thread, beside Reply as in Element, Slack and
+                    // Discord. It lived only in the overflow menu (and its T
+                    // key), so threads were found only by people who already
+                    // knew. Not in the thread panel, whose composer already
+                    // replies in the thread.
+                    IconButton {
+                        id: threadStartButton
+                        objectName: "messageThreadReplyButton"
+                        visible: !root.inThreadPanel && !!app.thread
+                                 && app.thread.supported
+                        implicitWidth: 28; implicitHeight: 28
+                        radius: AppTheme.radiusControl
+                        iconName: "forum"
+                        iconSize: 18
+                        // Same gate as Reply.
+                        enabled: !model.redacted
+                                 && (model.eventId || "").length > 0
+                                 && model.eventId.indexOf("local:") !== 0
+                        Accessible.name: qsTr("Reply in thread")
+                        ToolTip {
+                            visible: threadStartButton.hovered
+                            delay: 500
+                            text: qsTr("Reply in thread")
+                            y: messageActionBar.tooltipsBelow
+                               ? threadStartButton.height + AppTheme.spacingXS
+                               : -implicitHeight - AppTheme.spacingXS
+                        }
+                        onClicked: root.replyInThread(root.eventIdForActions())
+                    }
                     IconButton {
                         id: threadEditButton
                         objectName: "messageEditButton"
@@ -2758,10 +2823,19 @@ Item {
                            : reactionHover.hovered ? hoverFill : baseFill
                     Behavior on color { ColorAnimation { duration: 80 } }
                     radius: AppTheme.radiusPill
+                    // On light palettes the chip's fill and AppTheme.border sit
+                    // within a few L* of the canvas (Moss Light: fill -0.7,
+                    // border -0.8; Light -5.2; Warm -4.6), so a chip drew as
+                    // bare text and did not read as something to press; there
+                    // the outline is borderStrong. Dark palettes' border is
+                    // already 12-33 L* off the canvas and stays.
                     border.color: modelData.byMe
                                   ? AppTheme.accent
                                   : reactionHover.hovered
-                                    ? AppTheme.borderStrong : AppTheme.border
+                                    ? (AppTheme.dark ? AppTheme.borderStrong
+                                                     : AppTheme.textMuted)
+                                    : (AppTheme.dark ? AppTheme.border
+                                                     : AppTheme.borderStrong)
                     // Whole pixels only: a fractional border blurs at DPR 1.
                     border.width: modelData.byMe ? 2 : 1
                     // A focus stop, so Tab reaches the chip (not in the
@@ -3000,8 +3074,13 @@ Item {
                 // Outlined at rest so it reads as "add", not as someone's
                 // reaction.
                 border.width: 1
-                border.color: addChipHover.hovered ? AppTheme.borderStrong
-                                                   : AppTheme.border
+                // Same rest ink as the reaction chips (see reactionChip):
+                // AppTheme.border is the canvas colour in light palettes.
+                border.color: addChipHover.hovered
+                              ? (AppTheme.dark ? AppTheme.borderStrong
+                                               : AppTheme.textMuted)
+                              : (AppTheme.dark ? AppTheme.border
+                                               : AppTheme.borderStrong)
                 activeFocusOnTab: !root.readOnlyView
                 function activate() {
                     if (root.readOnlyView)
@@ -3509,17 +3588,7 @@ Item {
                              root.menuEventId).length > 0
                          && !root.timelineModel.messageDetails(
                              root.menuEventId).redacted
-                onTriggered: {
-                    var details = root.timelineModel.messageDetails(
-                                      root.menuEventId)
-                    var rootId = (details.threadRootId || "").length > 0
-                                 ? details.threadRootId
-                                 : root.menuEventId
-                    // Opens the thread panel; its composer sends SDK m.thread
-                    // replies.
-                    app.thread.openThread(app.currentRoomId,
-                                          rootId)
-                }
+                onTriggered: root.replyInThread(root.menuEventId)
             }
             // From a thread reply, locate the event in the room timeline. Uses
             // app.pagination on purpose: this action is about the room, not the
@@ -5336,7 +5405,7 @@ Item {
                 wrapMode: Text.WordWrap
                 text: imageBox.bridgeFailed
                       ? qsTr("Image failed to load — click to retry")
-                      : qsTr("(image unavailable)")
+                      : qsTr("Image unavailable")
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 visible: !root.mediaHidden

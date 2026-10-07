@@ -37,6 +37,7 @@ Item {
     // Classic list.
     signal roomLinkCopyRequested(string roomId)
     signal leaveRoomRequested(string roomId, string roomName)
+    signal chatBackgroundRequested(string roomId, string roomName)
 
     // Empty state, only when the account has nothing; a filter or search that
     // matched nothing is a different message (below).
@@ -197,6 +198,7 @@ Item {
                     onSetNotificationMode: mode => app.setRoomNotificationMode(rowLoader.model.roomId, mode)
                     onCopyRoomLink: root.roomLinkCopyRequested(rowLoader.model.roomId)
                     onLeaveRoomRequested: root.leaveRoomRequested(rowLoader.model.roomId, rowLoader.model.name)
+                    onChatBackgroundRequested: root.chatBackgroundRequested(rowLoader.model.roomId, rowLoader.model.name)
                 }
             }
 

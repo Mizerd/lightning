@@ -887,6 +887,9 @@ Popup {
                     implicitWidth: 32; implicitHeight: 32
                     iconColorOverride: AppTheme.scrimInk
                     Accessible.name: qsTr("Zoom out")
+                    ToolTip.text: qsTr("Zoom out (−)")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
                     onClicked: viewer.zoomStep(1 / 1.2)
                 }
                 Label {
@@ -905,6 +908,10 @@ Popup {
                     implicitWidth: 32; implicitHeight: 32
                     iconColorOverride: AppTheme.scrimInk
                     Accessible.name: qsTr("Zoom in")
+                    // Named with its key, like Fit and Actual size beside it.
+                    ToolTip.text: qsTr("Zoom in (+)")
+                    ToolTip.visible: hovered
+                    ToolTip.delay: 600
                     onClicked: viewer.zoomStep(1.2)
                 }
                 Rectangle {

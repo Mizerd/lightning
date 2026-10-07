@@ -16,8 +16,9 @@ Popup {
     // Discover / Join is hosted elsewhere (the dialog lives in RoomsPanel); the
     // switcher only announces the intent.
     signal discoverRequested(string startMode)
-    // Global message search (dialog hosted by MainScreen).
-    signal globalSearchRequested()
+    // Global message search (dialog hosted by MainScreen), optionally seeded
+    // with what was typed.
+    signal globalSearchRequested(string query)
     parent: Overlay.overlay
     modal: true
     dim: true
@@ -128,9 +129,46 @@ Popup {
                 iconName: "search",
                 keywords: "search messages history find global",
                 enabled: true,
-                run: function() { switcher.globalSearchRequested() }
+                run: function() { switcher.globalSearchRequested("") }
             })
         }
+        // Looks: where people type "background" or "gradient" and expect to
+        // land somewhere.
+        if (app.backdrops) {
+            actions.push({
+                kind: "action", id: "chat-background",
+                label: qsTr("Chat background…"),
+                subtitle: qsTr("Your own picture behind every room"),
+                iconName: "image",
+                keywords: "chat background wallpaper picture image backdrop",
+                enabled: true,
+                run: function() { switcherBackgroundDialog.openForDefault() }
+            })
+            if (app.currentRoomId !== "") {
+                actions.push({
+                    kind: "action", id: "room-chat-background",
+                    label: qsTr("Chat background for this room…"),
+                    subtitle: qsTr("Only the room you have open"),
+                    iconName: "image",
+                    keywords: "room chat background wallpaper picture image",
+                    enabled: true,
+                    run: function() {
+                        var row = app.roomList.findRoom(app.currentRoomId)
+                        switcherBackgroundDialog.openForRoom(
+                            app.currentRoomId, (row && row.name) || "")
+                    }
+                })
+            }
+        }
+        actions.push({
+            kind: "action", id: "custom-theme",
+            label: qsTr("Create your own theme…"),
+            subtitle: qsTr("Colours and gradients, in Appearance"),
+            iconName: "palette",
+            keywords: "custom theme colour color gradient editor create",
+            enabled: true,
+            run: function() { app.showSettingsSection("appearance") }
+        })
         // Every section SettingsScreen has a nav row for, with matching titles
         // and glyphs; SettingsShellQmlTest asserts the two lists agree.
         var sectionDefs = [
@@ -198,6 +236,12 @@ Popup {
         return actions
     }
     readonly property var commandActions: buildCommandActions()
+    // The "Chat background…" actions' dialog; a Popup of its own, so it
+    // outlives the switcher closing behind it.
+    ChatBackgroundDialog {
+        id: switcherBackgroundDialog
+        objectName: "switcherChatBackgroundDialog"
+    }
     readonly property string commandQueryLower: queryField.text.toLowerCase()
     function actionMatches(a) {
         if (commandQueryLower.length === 0) return true
@@ -521,17 +565,60 @@ Popup {
             color: AppTheme.stormBorder
         }
 
-        // Navigate-mode empty states
-        Label {
+        // Navigate-mode empty states. Nothing matched is not a dead end: the
+        // words may be in a message, in a public room, or be a command.
+        ColumnLayout {
+            objectName: "quickSwitcherEmptyState"
             visible: !switcher.commandMode && app.quickSwitcher.count === 0
             Layout.fillWidth: true
             Layout.margins: AppTheme.spacing16
-            horizontalAlignment: Text.AlignHCenter
-            text: queryField.text.length > 0
-                  ? qsTr("No matching rooms")
-                  : qsTr("Type to search your rooms")
-            color: AppTheme.stormTextMuted
-            font.pixelSize: AppTheme.textBody
+            spacing: AppTheme.spacing8
+            Label {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                text: queryField.text.length > 0
+                      ? qsTr("No matching rooms")
+                      : qsTr("Type to search your rooms")
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.textBody
+            }
+            AppButton {
+                objectName: "quickSwitcherSearchMessages"
+                Layout.alignment: Qt.AlignHCenter
+                visible: queryField.text.length > 0
+                         && !!(app.messageSearch && app.messageSearch.supported)
+                storm: true
+                kind: "ghost"
+                size: "sm"
+                iconName: "search"
+                // The user's own query, capped (an AppButton does not elide)
+                // and with no "<" so the label can never read as markup.
+                readonly property string shownQuery: {
+                    var q = queryField.text.replace(/</g, "‹")
+                    return q.length > 32 ? q.substring(0, 31) + "…" : q
+                }
+                text: qsTr("Search messages for “%1”").arg(shownQuery)
+                onClicked: {
+                    var q = queryField.text
+                    switcher.close()
+                    switcher.globalSearchRequested(q)
+                }
+            }
+            AppButton {
+                objectName: "quickSwitcherExploreRooms"
+                Layout.alignment: Qt.AlignHCenter
+                visible: queryField.text.length > 0
+                         && !!(app.discovery && app.discovery.supported)
+                storm: true
+                kind: "ghost"
+                size: "sm"
+                iconName: "explore"
+                text: qsTr("Look for public rooms")
+                onClicked: {
+                    switcher.close()
+                    switcher.discoverRequested("browse")
+                }
+            }
         }
         Label {
             visible: switcher.commandMode && switcher.commandRows.length === 0
@@ -831,17 +918,20 @@ Popup {
                         font.pixelSize: AppTheme.textMeta
                     }
                 }
+                // ESC already has a keycap in the header; this slot names
+                // the command mode, which nothing else on screen mentions.
                 Row {
+                    objectName: "quickSwitcherCommandHint"
                     spacing: AppTheme.spacing4
                     Text {
-                        text: "ESC"
+                        text: ">"
                         color: AppTheme.stormTextMuted
                         font.family: AppTheme.monoFont
                         font.pixelSize: AppTheme.textMeta
                         font.weight: AppTheme.weightBold
                     }
                     Label {
-                        text: qsTr("dismiss")
+                        text: qsTr("commands")
                         color: AppTheme.stormTextMuted
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textMeta

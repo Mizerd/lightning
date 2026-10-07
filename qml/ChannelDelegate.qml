@@ -45,6 +45,7 @@ ItemDelegate {
     signal setNotificationMode(int mode)
     signal copyRoomLink()
     signal leaveRoomRequested()
+    signal chatBackgroundRequested()
 
     // roomNotificationMode is Q_INVOKABLE, not bindable, so it's re-queried
     // when the id changes (delegate reuse) and when settings announce a write,
@@ -356,6 +357,7 @@ ItemDelegate {
             onSetNotificationMode: mode => root.setNotificationMode(mode)
             onCopyRoomLink: root.copyRoomLink()
             onLeaveRoomRequested: root.leaveRoomRequested()
+            onChatBackgroundRequested: root.chatBackgroundRequested()
         }
     }
 }

@@ -178,7 +178,7 @@ Item {
     QuickSwitcher {
         id: quickSwitcher
         onDiscoverRequested: (startMode) => roomsPanel.openDiscover(startMode)
-        onGlobalSearchRequested: messageSearchDialog.openDialog()
+        onGlobalSearchRequested: (query) => messageSearchDialog.openDialog(query)
     }
 
     // Global server-side message search (Ctrl+Shift+F).
@@ -478,6 +478,7 @@ Item {
                 (mode, options) => roomsPanel.startConversation(mode, options)
             onSearchAllRoomsRequested:
                 (query) => messageSearchDialog.openDialog(query)
+            onDiscoverRoomsRequested: roomsPanel.openDiscover("browse")
         }
     }
 

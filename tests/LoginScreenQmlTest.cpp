@@ -704,6 +704,54 @@ private slots:
         QCOMPARE(m_client->discoveries, QStringList{ lastUsed });
     }
 
+    // The password field is as wide as the username field above it, and its
+    // show/hide toggle is drawn inside it, with the typed text kept clear of
+    // it. Until 2026-10-07 the toggle sat beside the field, so the password
+    // field was ~38 px narrower than the one above it: two fields of one form
+    // that did not line up. Measured on placed geometry.
+    void thePasswordFieldLinesUpWithTheUsernameAndHoldsItsToggle()
+    {
+        m_client->answer(kServer, true, false, false, true,
+                         QStringLiteral("https://example.org/"));
+        QTRY_VERIFY(shown(QStringLiteral("passwordForm")));
+        QQuickItem *user = find(QStringLiteral("userField"));
+        QQuickItem *pass = find(QStringLiteral("passField"));
+        QQuickItem *toggle = find(QStringLiteral("passwordRevealToggle"));
+        QVERIFY(user);
+        QVERIFY(pass);
+        QVERIFY(toggle);
+        QVERIFY(toggle->isVisible());
+
+        const QPointF userAt = placed(user);
+        const QPointF passAt = placed(pass);
+        QVERIFY2(qAbs(userAt.x() - passAt.x()) < 0.5
+                     && qAbs(user->width() - pass->width()) < 0.5,
+                 qPrintable(QStringLiteral(
+                     "username %1+%2 vs password %3+%4: the two fields of the "
+                     "form do not line up")
+                     .arg(userAt.x()).arg(user->width())
+                     .arg(passAt.x()).arg(pass->width())));
+
+        const QRectF fieldRect(passAt, QSizeF(pass->width(), pass->height()));
+        const QRectF toggleRect(toggle->mapToScene(QPointF(0, 0)),
+                                QSizeF(toggle->width(), toggle->height()));
+        QVERIFY2(fieldRect.contains(toggleRect),
+                 qPrintable(QStringLiteral(
+                     "the show-password toggle (%1,%2 %3x%4) is not inside the "
+                     "password field (%5,%6 %7x%8)")
+                     .arg(toggleRect.x()).arg(toggleRect.y())
+                     .arg(toggleRect.width()).arg(toggleRect.height())
+                     .arg(fieldRect.x()).arg(fieldRect.y())
+                     .arg(fieldRect.width()).arg(fieldRect.height())));
+        // The text area ends before the toggle starts.
+        const qreal textRight = passAt.x() + pass->width()
+                                - pass->property("rightPadding").toReal();
+        QVERIFY2(textRight <= toggleRect.left() + 0.5,
+                 qPrintable(QStringLiteral(
+                     "typed text runs to x=%1, under the toggle at x=%2")
+                     .arg(textRight).arg(toggleRect.left())));
+    }
+
     void noQmlWarnings()
     {
         m_client->answer(kServer, true, true, true, true, QStringLiteral("https://example.org/"), true,

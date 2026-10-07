@@ -131,8 +131,9 @@ Rectangle {
         // A Layout lays out children by their own `visible`, not their
         // ancestors', so with no live call this row is still 199 px wide inside
         // a zero-width cell, and centerIn would hang it off both sides. When
-        // the content doesn't fit it spills left, so the camera button leaves
-        // the panel first, never Leave (see CallStage.qml).
+        // the content doesn't fit it spills left, so the leading control
+        // leaves the panel first, never Leave (see CallStage.qml, which
+        // compacts the bar long before that happens).
         anchors.verticalCenter: parent.verticalCenter
         x: Math.min(Math.round((parent.width - width) / 2),
                     parent.width - width)
@@ -157,6 +158,74 @@ Rectangle {
                 color: AppTheme.stormText
                 font.pixelSize: 13
                 font.weight: Font.Medium
+            }
+        }
+
+        // Audio first, as in Discord, Element Call, Meet and Teams: the
+        // microphone is the control a call is driven by, and it sat
+        // seventh of nine, after the camera, share, hand, reactions,
+        // people and pop-out. The bar spills left only after the stage
+        // has compacted it (CallStage `cramped`), so leading with Mute
+        // costs nothing at any width a panel reaches.
+        // ── Microphone + device chooser ──
+        RowLayout {
+            spacing: 0
+            CallControlButton {
+                objectName: "callBarMicButton"
+                // The icon shows the current state (struck-through = muted).
+                iconName: root.micMuted ? "mic_off" : "mic"
+                role: root.micMuted ? "active" : "neutral"
+                diameter: root.controlDiameter
+                glyphSize: root.controlGlyph
+                tooltip: root.micMuted ? qsTr("Unmute microphone")
+                                       : qsTr("Mute microphone")
+                enabled: root.audioControlAvailable
+                onClicked: {
+                    if (root.groupLive)
+                        app.groupCall.toggleMicrophoneMuted()
+                    else
+                        app.calls.toggleMicrophoneMuted()
+                }
+            }
+            CallDeviceChevron {
+                objectName: "callBarMicChevron"
+                visible: !root.compact
+                Layout.preferredWidth: visible ? implicitWidth : 0
+                kind: "microphone"
+                accessibleName: qsTr("Choose microphone")
+                Layout.alignment: Qt.AlignVCenter
+                Layout.leftMargin: 2
+                // Flags a missing chosen device here as well as in Settings.
+                warn: app.callDevices.preferredMicrophoneMissing
+            }
+        }
+
+        // ── Deafen + output chooser ──
+        RowLayout {
+            spacing: 0
+            CallControlButton {
+                objectName: "callBarDeafenButton"
+                iconName: root.deafened ? "headset_off" : "headset_mic"
+                role: root.deafened ? "active" : "neutral"
+                diameter: root.controlDiameter
+                glyphSize: root.controlGlyph
+                tooltip: root.deafened ? qsTr("Undeafen") : qsTr("Deafen")
+                enabled: root.audioControlAvailable
+                onClicked: {
+                    if (root.groupLive)
+                        app.groupCall.toggleDeafened()
+                    else
+                        app.calls.toggleDeafened()
+                }
+            }
+            CallDeviceChevron {
+                objectName: "callBarSpeakerChevron"
+                visible: !root.compact
+                Layout.preferredWidth: visible ? implicitWidth : 0
+                kind: "speaker"
+                accessibleName: qsTr("Choose output device")
+                Layout.alignment: Qt.AlignVCenter
+                Layout.leftMargin: 2
             }
         }
 
@@ -257,8 +326,34 @@ Rectangle {
                                      || shareChevron.activeFocus
                     ToolTip.delay: 400
                     ToolTip.text: qsTr("Sound, resolution and frame rate")
-                    onClicked: shareOptions.popup()
-                    CallShareOptionsMenu { id: shareOptions }
+                    // Against the chevron, as the device chevrons do
+                    // (CallDeviceChevron.openMenu): at the pointer it covered
+                    // the bar.
+                    onClicked: {
+                        var gap = AppTheme.spacing4
+                        var win = shareChevron.Window.window
+                        var below = true
+                        if (win) {
+                            var at = shareChevron.mapToItem(null, 0, 0)
+                            below = at.y + shareChevron.height / 2
+                                    <= win.height / 2
+                        }
+                        shareOptions.flipsUp = !below
+                        shareOptions.popup(shareChevron, 0, below
+                                           ? shareChevron.height + gap
+                                           : -Math.max(shareOptions.height,
+                                                       shareOptions.implicitHeight)
+                                             - gap)
+                    }
+                    // Re-anchored on open and growth: see
+                    // CallDeviceChevron.openMenu.
+                    CallShareOptionsMenu {
+                        id: shareOptions
+                        property bool flipsUp: false
+                        onOpened: if (flipsUp) y = -height - AppTheme.spacing4
+                        onHeightChanged: if (visible && flipsUp)
+                                             y = -height - AppTheme.spacing4
+                    }
                 }
             }
         }
@@ -440,68 +535,6 @@ Rectangle {
                     if (app.groupCall && app.groupCall.stageState)
                         app.groupCall.stageState.setPictureInPicture(true)
                 }
-            }
-        }
-
-        // ── Microphone + device chooser ──
-        RowLayout {
-            spacing: 0
-            CallControlButton {
-                objectName: "callBarMicButton"
-                // The icon shows the current state (struck-through = muted).
-                iconName: root.micMuted ? "mic_off" : "mic"
-                role: root.micMuted ? "active" : "neutral"
-                diameter: root.controlDiameter
-                glyphSize: root.controlGlyph
-                tooltip: root.micMuted ? qsTr("Unmute microphone")
-                                       : qsTr("Mute microphone")
-                enabled: root.audioControlAvailable
-                onClicked: {
-                    if (root.groupLive)
-                        app.groupCall.toggleMicrophoneMuted()
-                    else
-                        app.calls.toggleMicrophoneMuted()
-                }
-            }
-            CallDeviceChevron {
-                objectName: "callBarMicChevron"
-                visible: !root.compact
-                Layout.preferredWidth: visible ? implicitWidth : 0
-                kind: "microphone"
-                accessibleName: qsTr("Choose microphone")
-                Layout.alignment: Qt.AlignVCenter
-                Layout.leftMargin: 2
-                // Flags a missing chosen device here as well as in Settings.
-                warn: app.callDevices.preferredMicrophoneMissing
-            }
-        }
-
-        // ── Deafen + output chooser ──
-        RowLayout {
-            spacing: 0
-            CallControlButton {
-                objectName: "callBarDeafenButton"
-                iconName: root.deafened ? "headset_off" : "headset_mic"
-                role: root.deafened ? "active" : "neutral"
-                diameter: root.controlDiameter
-                glyphSize: root.controlGlyph
-                tooltip: root.deafened ? qsTr("Undeafen") : qsTr("Deafen")
-                enabled: root.audioControlAvailable
-                onClicked: {
-                    if (root.groupLive)
-                        app.groupCall.toggleDeafened()
-                    else
-                        app.calls.toggleDeafened()
-                }
-            }
-            CallDeviceChevron {
-                objectName: "callBarSpeakerChevron"
-                visible: !root.compact
-                Layout.preferredWidth: visible ? implicitWidth : 0
-                kind: "speaker"
-                accessibleName: qsTr("Choose output device")
-                Layout.alignment: Qt.AlignVCenter
-                Layout.leftMargin: 2
             }
         }
 

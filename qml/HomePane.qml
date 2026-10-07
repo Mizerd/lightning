@@ -15,6 +15,8 @@ Item {
     signal newMessageRequested()
     signal createRoomRequested()
     signal createSpaceRequested()
+    // Discover / Join (the room list's dialog), browse mode.
+    signal discoverRequested()
 
     // `account()` is a Q_INVOKABLE, so a binding on it would miss renames and
     // avatar changes. Both fields are refreshed by one function driven by the
@@ -37,6 +39,12 @@ Item {
         function onAccountsChanged() { root.refreshActiveAccount() }
         function onActiveUserIdChanged() { root.refreshActiveAccount() }
     }
+    // Something to greet: an account id or a name. Without one (a mock or a
+    // half-restored session) the greeting is plain "Welcome back" with no
+    // avatar, never a placeholder word drawn as somebody's initials.
+    readonly property bool hasIdentity:
+        activeUserId.length > 0
+        || !!(activeAccount && activeAccount.displayName)
     readonly property string displayName: {
         var n = activeAccount && activeAccount.displayName
                 ? activeAccount.displayName : ""
@@ -112,6 +120,13 @@ Item {
                           + "your rooms stay available.")
                    : "")
 
+    // "Chat background" in Make it yours: this account's own picture behind
+    // every room.
+    ChatBackgroundDialog {
+        id: homeBackgroundDialog
+        objectName: "homeChatBackgroundDialog"
+    }
+
     Flickable {
         anchors.fill: parent
         contentWidth: width
@@ -134,6 +149,8 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
                 spacing: AppTheme.spacing12
                 Avatar {
+                    objectName: "homeWelcomeAvatar"
+                    visible: root.hasIdentity
                     size: 56
                     circle: true
                     name: root.displayName
@@ -143,6 +160,7 @@ Item {
                 ColumnLayout {
                     spacing: 2
                     Label {
+                        visible: root.hasIdentity
                         text: qsTr("Welcome back")
                         color: AppTheme.textMuted
                         font.family: AppTheme.uiFont
@@ -151,7 +169,8 @@ Item {
                     }
                     Label {
                         objectName: "homeWelcomeName"
-                        text: root.displayName
+                        text: root.hasIdentity ? root.displayName
+                                               : qsTr("Welcome back")
                         textFormat: Text.PlainText
                         color: AppTheme.text
                         font.family: AppTheme.uiFont
@@ -282,9 +301,11 @@ Item {
                     onClicked: root.createSpaceRequested()
                 }
                 AppButton {
-                    objectName: "homeSettingsButton"
-                    text: qsTr("Settings")
-                    onClicked: app.showSettings()
+                    objectName: "homeExploreButton"
+                    iconName: "explore"
+                    text: qsTr("Explore rooms")
+                    visible: app.discovery && app.discovery.supported
+                    onClicked: root.discoverRequested()
                 }
             }
 
@@ -554,6 +575,65 @@ Item {
                 }
             }
 
+            // Make it yours: themes (colours, gradients), the chat background
+            // and the profile, one click from Home instead of three screens
+            // deep. "All settings" keeps the general entry the old Settings
+            // button gave.
+            ColumnLayout {
+                objectName: "homePersonalise"
+                Layout.fillWidth: true
+                Layout.topMargin: AppTheme.spacingS
+                spacing: AppTheme.spacingXS
+                Label {
+                    text: qsTr("Make it yours")
+                    color: AppTheme.sectionLabelColor
+                    font.family: AppTheme.menuSectionFont
+                    font.pixelSize: AppTheme.menuSectionSize
+                    font.weight: AppTheme.menuSectionWeight
+                    font.letterSpacing: AppTheme.menuSectionTracking
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: AppTheme.spacingXS
+                    AppButton {
+                        objectName: "homeThemeButton"
+                        size: "sm"
+                        iconName: "palette"
+                        text: qsTr("Theme and colours")
+                        Accessible.description:
+                            qsTr("Themes, custom colours and gradients")
+                        // Where gradients live is the question this answers.
+                        ToolTip.text: qsTr("Themes, custom colours and gradients")
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        onClicked: app.showSettingsSection("appearance")
+                    }
+                    AppButton {
+                        objectName: "homeChatBackgroundButton"
+                        visible: !!app.backdrops
+                        size: "sm"
+                        iconName: "image"
+                        text: qsTr("Chat background")
+                        onClicked: homeBackgroundDialog.openForDefault()
+                    }
+                    AppButton {
+                        objectName: "homeProfileButton"
+                        size: "sm"
+                        iconName: "account_circle"
+                        text: qsTr("Name and picture")
+                        onClicked: app.showSettingsSection("account")
+                    }
+                    AppButton {
+                        objectName: "homeSettingsButton"
+                        size: "sm"
+                        kind: "ghost"
+                        iconName: "settings"
+                        text: qsTr("All settings")
+                        onClicked: app.showSettings()
+                    }
+                }
+            }
+
             // Empty-account onboarding, explaining the primary actions above.
             Rectangle {
                 objectName: "homeOnboarding"
@@ -580,11 +660,10 @@ Item {
                     }
                     Label {
                         Layout.fillWidth: true
-                        // No join-by-address flow exists, so the copy mustn't
-                        // promise one.
                         text: qsTr("Start a direct message to talk to someone, "
                                    + "create a room for a group, or organise "
-                                   + "rooms into a Space. Invitations you "
+                                   + "rooms into a Space. Explore rooms finds "
+                                   + "public ones to join. Invitations you "
                                    + "receive appear in the room list.")
                         color: AppTheme.textSecondary
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)

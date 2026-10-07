@@ -85,19 +85,37 @@ Item {
           control: "messageLayout",
           anchor: "messageLayoutControl" },
         { title: qsTr("Chat background"),
-          keywords: qsTr("chat background wallpaper picture image backdrop "
-                         + "others shared hide"),
-          section: "appearance", breadcrumb: qsTr("Appearance"),
+          keywords: qsTr("chat background wallpaper picture image photo backdrop "
+                         + "room conversation own set custom others shared hide"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Background and depth"),
           anchor: "chatBackgroundSettingsSection" },
+        // Gradients are made in the custom theme editor; "gradient" used to
+        // find only Depth, which is the automatic one.
+        { title: qsTr("Gradients"),
+          keywords: qsTr("gradient gradients linear radial fade glow two-tone "
+                         + "colour color custom theme background room list "
+                         + "rail surface"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Custom colours and gradients"),
+          anchor: "customThemeGradientButton" },
+        { title: qsTr("Custom theme"),
+          keywords: qsTr("custom theme own colours colors palette editor "
+                         + "create make build accent"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Custom colours and gradients"),
+          anchor: "customThemeRow" },
         { title: qsTr("Depth"),
-          keywords: qsTr("depth gradient shading shadow flat surfaces"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Chat background"),
+          keywords: qsTr("depth gradient shading shadow flat surfaces 3d"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Background and depth"),
           anchor: "surfaceDepthControl" },
         // Indexed under words people use for the rail, including "space bar".
         { title: qsTr("Spaces rail depth"),
           keywords: qsTr("spaces rail depth space bar sidebar nesting regions "
                          + "classic old style flat tint indent"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Spaces rail and room list"),
           control: "spacesRailDepth",
           anchor: "spacesRailDepthControl" },
         { title: qsTr("Text size"), keywords: qsTr("text size font scale"),
@@ -167,18 +185,18 @@ Item {
           anchor: "clockFormatCombo" },
         { title: qsTr("Show Space banners"),
           keywords: qsTr("space banner header image hide show"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
           control: "spaceBannersVisible",
           anchor: "spaceBannersVisibleCheck" },
         { title: qsTr("Conversation list width"),
           keywords: qsTr("room list width panel size sidebar"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
           anchor: "roomListWidthSlider" },
         { title: qsTr("Keep the room list still while I use it"),
           keywords: qsTr("room list order sort reorder jump move still hold "
                          + "freeze stable recent activity conversation list "
                          + "sidebar channels new message"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
           control: "keepRoomListOrderStill",
           anchor: "keepRoomListOrderStillCheck" },
         { title: qsTr("Keep running in the tray"),
@@ -192,7 +210,7 @@ Item {
           anchor: "startInTrayCheck" },
         { title: qsTr("Side panel width"),
           keywords: qsTr("side panel width members threads size"),
-          section: "appearance", breadcrumb: qsTr("Appearance · Panels"),
+          section: "appearance", breadcrumb: qsTr("Appearance · Banners and panel widths"),
           anchor: "sidePanelWidthSlider" },
         { title: qsTr("Enter starts a new line"),
           keywords: qsTr("enter newline send composer message box return"),
@@ -250,6 +268,20 @@ Item {
           section: "sound",
           breadcrumb: qsTr("Sound & video · Microphone"),
           anchor: "microphoneGainSlider" },
+        { title: qsTr("Microphone test"),
+          keywords: qsTr("microphone mic test check try level meter hear "
+                         + "myself yourself echo loopback working"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Microphone"),
+          anchor: "microphoneTestSection" },
+        // The control itself is in Labs; Sound & video has a row pointing at
+        // it, which is where people look.
+        { title: qsTr("Noise suppression"),
+          keywords: qsTr("noise suppression cancellation denoise background "
+                         + "microphone mic fan keyboard"),
+          section: "sound",
+          breadcrumb: qsTr("Sound & video · Microphone"),
+          anchor: "soundNoiseSuppressionRow" },
         { title: qsTr("Output device"),
           keywords: qsTr("speaker output headphones headset device voice call audio sound"),
           section: "sound",
@@ -325,6 +357,12 @@ Item {
           breadcrumb: qsTr("Privacy & security · Media kept on this device"),
           anchor: "keepMediaOnDeviceCheck" },
 
+        { title: qsTr("Download folder"),
+          keywords: qsTr("download downloads folder save saved files location "
+                         + "directory where"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Downloads"),
+          anchor: "downloadFolderLabel" },
         { title: qsTr("Always ask where to save files"),
           keywords: qsTr("download downloads save folder location directory "
                          + "ask where file"),
@@ -470,10 +508,16 @@ Item {
           anchor: "updatesSection" },
     ]
     readonly property var matchedSearchResults: {
-        var q = root.settingsSearchQuery.trim().toLowerCase()
-        if (q.length === 0) return []
+        var words = root.settingsSearchQuery.trim().toLowerCase().split(/\s+/)
+                        .filter(function(w) { return w.length > 0 })
+        if (words.length === 0) return []
         return root.searchIndex.filter(function(e) {
-            return (e.title + " " + e.keywords).toLowerCase().indexOf(q) !== -1
+            var hay = (e.title + " " + e.keywords + " " + e.breadcrumb).toLowerCase()
+            for (var i = 0; i < words.length; ++i) {
+                if (hay.indexOf(words[i]) === -1)
+                    return false
+            }
+            return true
         })
     }
     readonly property var matchedSearchSections: {
@@ -494,6 +538,16 @@ Item {
         var lowerSafe = safe.toLowerCase()
         var lowerQ = escapeHtml(q).toLowerCase()
         var idx = lowerSafe.indexOf(lowerQ)
+        if (idx === -1) {
+            var words = lowerQ.split(/\s+/)
+            for (var w = 0; w < words.length && idx === -1; ++w) {
+                if (words[w].length > 0) {
+                    idx = lowerSafe.indexOf(words[w])
+                    if (idx !== -1)
+                        lowerQ = words[w]
+                }
+            }
+        }
         if (idx === -1) return safe
         return safe.slice(0, idx) + "<font color=\"" + AppTheme.bolt + "\">"
              + safe.slice(idx, idx + lowerQ.length) + "</font>"
@@ -557,6 +611,25 @@ Item {
         return top
     }
 
+    // The page-contents chips: scroll to the first of `anchors` that is on
+    // screen (a card can be hidden on this backend or platform) and light the
+    // same halo a search result does. Returns the anchor used, or "".
+    function jumpToFirstShown(anchors) {
+        for (var i = 0; i < anchors.length; ++i) {
+            var target = root.findInPane(contentColumn, anchors[i])
+            if (target && target.visible) {
+                root.revealSearchResult({ section: root.section,
+                                          anchor: anchors[i] })
+                return anchors[i]
+            }
+        }
+        return ""
+    }
+
+    // Where the custom theme editor opens: "" for its overview, or a role
+    // ("background" for "Add a gradient").
+    property string themeEditorStartRole: ""
+
     Timer {
         id: searchRevealSettle
         interval: 16
@@ -611,6 +684,52 @@ Item {
                 to: 360
                 duration: 900
                 loops: Animation.Infinite
+            }
+        }
+    }
+
+    // Contents for a long page: one chip per group, in page order. A click
+    // scrolls to the group (see jumpToFirstShown). Entries are
+    // {label, anchors: [objectName, ...]}.
+    component PageJumpBar: Flow {
+        id: jumpBar
+        property var entries: []
+        Layout.fillWidth: true
+        spacing: AppTheme.spacing6
+        Accessible.role: Accessible.ToolBar
+        Repeater {
+            model: jumpBar.entries
+            delegate: AbstractButton {
+                id: jumpChip
+                required property var modelData
+                required property int index
+                objectName: jumpBar.objectName + "_" + jumpChip.index
+                hoverEnabled: true
+                focusPolicy: Qt.TabFocus
+                implicitWidth: jumpLabel.implicitWidth + AppTheme.spacing12 * 2
+                implicitHeight: jumpLabel.implicitHeight + AppTheme.spacing6 * 2
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Go to %1").arg(jumpChip.modelData.label)
+                onClicked: root.jumpToFirstShown(jumpChip.modelData.anchors)
+                background: Rectangle {
+                    radius: AppTheme.radiusPill
+                    color: jumpChip.down ? AppTheme.stormSelection
+                         : jumpChip.hovered ? Qt.alpha(AppTheme.stormSelection, 0.55)
+                         : "transparent"
+                    border.width: jumpChip.visualFocus ? 2 : 1
+                    border.color: jumpChip.visualFocus ? AppTheme.bolt
+                                                       : AppTheme.stormBorderStrong
+                }
+                contentItem: Label {
+                    id: jumpLabel
+                    text: jumpChip.modelData.label
+                    textFormat: Text.PlainText
+                    color: AppTheme.stormTextSecondary
+                    font.pixelSize: AppTheme.textMeta
+                    font.weight: AppTheme.weightMedium
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
             }
         }
     }
@@ -735,8 +854,10 @@ Item {
                 z: -1
                 color: "#40000000"
             }
-            border.width: styledSlider.visualFocus ? 2 : 0
-            border.color: AppTheme.bolt
+            // A resting edge: white on a light theme's white card had none.
+            border.width: styledSlider.visualFocus ? 2 : 1
+            border.color: styledSlider.visualFocus ? AppTheme.bolt
+                                                   : AppTheme.stormBorderStrong
         }
     }
 
@@ -1461,8 +1582,9 @@ Item {
                             spacing: AppTheme.spacing4
                             Repeater {
                                 model: [
-                                    qsTr("theme"), qsTr("notifications"),
-                                    qsTr("privacy"), qsTr("sessions"),
+                                    qsTr("theme"), qsTr("background"),
+                                    qsTr("gradient"), qsTr("microphone"),
+                                    qsTr("notifications"), qsTr("privacy"),
                                 ]
                                 delegate: Rectangle {
                                     id: quickChip
@@ -1682,12 +1804,40 @@ Item {
                         Label {
                             Layout.fillWidth: true
                             Layout.topMargin: -AppTheme.spacing8
-                            text: qsTr("Theme, message layout and text size — per account.")
+                            text: qsTr("Theme, colours and gradients, chat background, "
+                                       + "layout, text and fonts — per account.")
                             color: AppTheme.stormTextMuted
                             font.pixelSize: AppTheme.textBody
                             wrapMode: Text.WordWrap
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
+                        }
+
+                        // This page holds about twenty groups; the chips are
+                        // its contents, so a setting further down (the chat
+                        // background, gradients) is one click from the top.
+                        PageJumpBar {
+                            objectName: "appearanceJumpBar"
+                            entries: [
+                                { label: qsTr("Theme"),
+                                  anchors: ["featuredThemeFlow"] },
+                                { label: qsTr("Custom colours and gradients"),
+                                  anchors: ["customThemeRow"] },
+                                { label: qsTr("Chat background and depth"),
+                                  anchors: ["chatBackgroundSettingsSection"] },
+                                { label: qsTr("Layout"),
+                                  anchors: ["roomNavigationLayoutCards"] },
+                                { label: qsTr("Text and fonts"),
+                                  anchors: ["textScaleSlider"] },
+                                { label: qsTr("Spaces rail and room list"),
+                                  anchors: ["showSpacesRailCheck"] },
+                                { label: qsTr("Timeline"),
+                                  anchors: ["showRoomActivityCheck"] },
+                                { label: qsTr("Language and motion"),
+                                  anchors: ["languageCombo", "reducedMotionCheck"] },
+                                { label: qsTr("Message box"),
+                                  anchors: ["enterInsertsNewlineCheck"] },
+                            ]
                         }
 
                         SettingsGroupLabel { text: qsTr("Theme") }
@@ -2033,7 +2183,7 @@ Item {
 
                         // Custom theme: its own row rather than a card, since
                         // there is no palette to preview until one is made.
-                        SettingsGroupLabel { text: qsTr("Custom theme") }
+                        SettingsGroupLabel { text: qsTr("Custom colours and gradients") }
                         Rectangle {
                             id: customThemeRow
                             objectName: "customThemeRow"
@@ -2064,6 +2214,7 @@ Item {
                                                   "surface", "accent"]
                                                : []
                                         delegate: Rectangle {
+                                            id: stripSwatch
                                             required property string modelData
                                             width: 10
                                             height: 28
@@ -2077,6 +2228,19 @@ Item {
                                                 return pal[modelData] !== undefined
                                                        ? pal[modelData]
                                                        : AppTheme.stormTextMuted
+                                            }
+                                            // A region with a gradient shows it.
+                                            readonly property var gradientSpec: {
+                                                var g = app.customTheme.gradients
+                                                return g && g[modelData] ? g[modelData]
+                                                                         : null
+                                            }
+                                            ThemedSurface {
+                                                anchors.fill: parent
+                                                visible: stripSwatch.gradientSpec !== null
+                                                role: stripSwatch.modelData
+                                                flatFill: false
+                                                specOverride: stripSwatch.gradientSpec
                                             }
                                         }
                                     }
@@ -2104,7 +2268,7 @@ Item {
                                         lineHeight: AppTheme.lineHeightBody
                                         lineHeightMode: Text.ProportionalHeight
                                         text: !app.customTheme.exists
-                                              ? qsTr("Pick a colour for any part of the window and watch a sample room repaint.")
+                                              ? qsTr("Pick a colour for any part of the window, or a gradient for its large areas, and watch a sample room repaint.")
                                               : app.customTheme.themes.length > 1
                                                 ? qsTr("%n colour(s) changed. %1 themes saved.",
                                                        "custom theme summary",
@@ -2116,20 +2280,77 @@ Item {
                                         color: AppTheme.stormTextMuted
                                         font.pixelSize: AppTheme.textMeta
                                     }
-                                }
-
-                                AppButton {
-                                    objectName: "customThemeEditButton"
-                                    kind: app.customTheme.exists ? "secondary"
-                                                                 : "primary"
-                                    storm: true
-                                    text: app.customTheme.exists ? qsTr("Edit")
-                                                                 : qsTr("Create")
-                                    // Opening the editor does not select the
-                                    // theme: its preview paints the custom
-                                    // palette by id, and the editor has its own
-                                    // "Use this theme" button.
-                                    onClicked: themeEditorLoader.active = true
+                                    // Which areas carry a gradient: the colour
+                                    // count above does not count them.
+                                    Label {
+                                        objectName: "customThemeGradientSummary"
+                                        Layout.fillWidth: true
+                                        visible: text.length > 0
+                                        elide: Text.ElideRight
+                                        textFormat: Text.PlainText
+                                        color: AppTheme.stormTextSecondary
+                                        font.pixelSize: AppTheme.textMeta
+                                        text: {
+                                            var g = app.customTheme.gradients
+                                            var roles = app.customTheme.roles
+                                            var names = []
+                                            for (var i = 0; g && i < roles.length; ++i) {
+                                                if (g[roles[i].key])
+                                                    names.push(roles[i].label)
+                                            }
+                                            return names.length > 0
+                                                   ? qsTr("Gradients: %1").arg(names.join(", "))
+                                                   : ""
+                                        }
+                                    }
+                                    // Under the text rather than beside it, so
+                                    // three buttons never squeeze the sentence
+                                    // to a column of single words.
+                                    Flow {
+                                        Layout.fillWidth: true
+                                        Layout.topMargin: AppTheme.spacing6
+                                        spacing: AppTheme.spacing8
+                                        AppButton {
+                                            objectName: "customThemeEditButton"
+                                            kind: app.customTheme.exists ? "secondary"
+                                                                         : "primary"
+                                            storm: true
+                                            text: app.customTheme.exists ? qsTr("Edit colours")
+                                                                         : qsTr("Create a theme")
+                                            // Opening the editor does not select
+                                            // the theme: its preview paints the
+                                            // custom palette by id, and the editor
+                                            // has its own "Use this theme" button.
+                                            onClicked: {
+                                                root.themeEditorStartRole = ""
+                                                themeEditorLoader.active = true
+                                            }
+                                        }
+                                        // Straight to a large surface with its
+                                        // Fill choice (solid or gradient) on top.
+                                        AppButton {
+                                            objectName: "customThemeGradientButton"
+                                            storm: true
+                                            iconName: "palette"
+                                            text: qsTr("Add a gradient")
+                                            Accessible.description: qsTr(
+                                                "Opens the theme editor on the "
+                                                + "conversation background, where "
+                                                + "you can choose a gradient")
+                                            onClicked: {
+                                                root.themeEditorStartRole = "background"
+                                                themeEditorLoader.active = true
+                                            }
+                                        }
+                                        AppButton {
+                                            objectName: "customThemeUseButton"
+                                            storm: true
+                                            visible: app.customTheme.exists
+                                                     && !customThemeRow.selectedTheme
+                                            text: qsTr("Use this theme")
+                                            onClicked: app.settings.theme = 12
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2140,7 +2361,9 @@ Item {
                             id: themeEditorLoader
                             objectName: "themeEditorLoader"
                             active: false
-                            sourceComponent: ThemeEditorDialog {}
+                            sourceComponent: ThemeEditorDialog {
+                                initialRole: root.themeEditorStartRole
+                            }
                             onLoaded: item.open()
                             Connections {
                                 target: themeEditorLoader.item
@@ -2246,6 +2469,19 @@ Item {
                                        + "Moss Light in light mode, Indigo Night in dark mode.")
                         }
 
+                        // Chat background (your own, others' on/off) and
+                        // surface Depth, straight after the theme: it is part
+                        // of how the window looks, and below the layout
+                        // pickers it sat a screen and a half down.
+                        ChatBackgroundSettings {
+                            objectName: "chatBackgroundSettingsSection"
+                            Layout.fillWidth: true
+                            onMakeGradientRequested: {
+                                root.themeEditorStartRole = "background"
+                                themeEditorLoader.active = true
+                            }
+                        }
+
                         SettingsGroupLabel { text: qsTr("Conversation list") }
                         RowLayout {
                             objectName: "roomNavigationLayoutCards"
@@ -2313,13 +2549,6 @@ Item {
                                        + "the Modern rows. Compact tightens every timeline.")
                         }
 
-                        // Chat background (your own, others' on/off) and
-                        // surface Depth.
-                        ChatBackgroundSettings {
-                            objectName: "chatBackgroundSettingsSection"
-                            Layout.fillWidth: true
-                        }
-
                         SettingsGroupLabel { text: qsTr("Text size") }
                         RowLayout {
                             Layout.fillWidth: true
@@ -2383,8 +2612,10 @@ Item {
                                         z: -1
                                         color: "#40000000"
                                     }
-                                    border.width: textScaleSlider.visualFocus ? 2 : 0
-                                    border.color: AppTheme.bolt
+                                    border.width: textScaleSlider.visualFocus ? 2 : 1
+                                    border.color: textScaleSlider.visualFocus
+                                                  ? AppTheme.bolt
+                                                  : AppTheme.stormBorderStrong
                                 }
                             }
                             Label {
@@ -2466,8 +2697,10 @@ Item {
                                         color: "#40000000"
                                     }
                                     border.width: interfaceZoomSlider.visualFocus
-                                                  ? 2 : 0
-                                    border.color: AppTheme.bolt
+                                                  ? 2 : 1
+                                    border.color: interfaceZoomSlider.visualFocus
+                                                  ? AppTheme.bolt
+                                                  : AppTheme.stormBorderStrong
                                 }
                             }
                             Label {
@@ -2838,7 +3071,7 @@ Item {
 
                         // Panel visibility, mirroring Ctrl+B / Ctrl+Shift+B so
                         // a panel hidden by shortcut can be found again here.
-                        SettingsGroupLabel { text: qsTr("Panels") }
+                        SettingsGroupLabel { text: qsTr("Spaces rail and room list") }
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width
@@ -3363,7 +3596,7 @@ Item {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
                                 Label {
-                                    text: qsTr("Panels")
+                                    text: qsTr("Banners and panel widths")
                                     color: AppTheme.stormTextSecondary
                                     font.pixelSize: AppTheme.textBody
                                     font.weight: AppTheme.weightStrong
@@ -3858,6 +4091,33 @@ Item {
                             wrapMode: Text.WordWrap
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
+                        }
+                        // The longest page in Settings, with encryption and the
+                        // recovery key at its very end: its contents, in page
+                        // order. A chip whose cards this backend does not show
+                        // falls back to the next anchor it names.
+                        PageJumpBar {
+                            objectName: "privacyJumpBar"
+                            entries: [
+                                { label: qsTr("Device trust"),
+                                  anchors: ["strictDeviceTrustCheck"] },
+                                { label: qsTr("Receipts and typing"),
+                                  anchors: ["readReceiptModeCombo"] },
+                                { label: qsTr("Ignored users"),
+                                  anchors: ["ignoredUsersCard"] },
+                                { label: qsTr("Message search"),
+                                  anchors: ["searchIndexHelpText"] },
+                                { label: qsTr("Link previews and GIFs"),
+                                  anchors: ["autoPreviewCheck"] },
+                                { label: qsTr("Media and downloads"),
+                                  anchors: ["keepMediaOnDeviceCheck"] },
+                                { label: qsTr("Encryption"),
+                                  anchors: ["cryptoHealthSummary",
+                                            "privacyStorageFactsCard"] },
+                                { label: qsTr("Recovery key"),
+                                  anchors: ["recoveryEntry", "crossSigningSetupCard",
+                                            "privacyStorageFactsCard"] },
+                            ]
                         }
 
                         // MSC4153. Under Privacy because it is a choice about
@@ -5213,7 +5473,6 @@ Item {
                                     AppButton {
                                         objectName: "notificationSoundPreviewButton"
                                         storm: true
-                                        kind: "ghost"
                                         size: "sm"
                                         text: qsTr("Test")
                                         Accessible.name:
@@ -5224,7 +5483,6 @@ Item {
                                     AppButton {
                                         objectName: "notificationMentionPreviewButton"
                                         storm: true
-                                        kind: "ghost"
                                         size: "sm"
                                         text: qsTr("Test mention")
                                         Accessible.name:
@@ -5299,9 +5557,10 @@ Item {
                                                   + "from Room information) apply to "
                                                   + "this device only — they are not "
                                                   + "server push rules. "))
-                                          + qsTr("Push registration for "
-                                                 + "mobile-style notifications is not "
-                                                 + "implemented.")
+                                          + qsTr("Lightning does not register for "
+                                                 + "push, so its notifications arrive "
+                                                 + "only while it is running, in the "
+                                                 + "window or the tray.")
                                 }
                             }
                         }
@@ -5334,6 +5593,57 @@ Item {
                                     // which is slow on PipeWire, so wait until
                                     // this section is on screen.
                                     activated: visible
+                                }
+                            }
+                        }
+
+                        // Noise suppression is chosen in Labs (and in the call
+                        // menu during a call), but this page is where people
+                        // look for anything about the microphone, so it says
+                        // what is in use and leads there.
+                        SettingsCard {
+                            objectName: "soundNoiseSuppressionRow"
+                            RowLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing12
+                                Icon {
+                                    name: "science"
+                                    size: 18
+                                    color: AppTheme.stormTextSecondary
+                                    Layout.alignment: Qt.AlignVCenter
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Microphone noise suppression")
+                                        color: AppTheme.stormText
+                                        font.pixelSize: AppTheme.textBody
+                                        font.weight: AppTheme.weightStrong
+                                        elide: Text.ElideRight
+                                    }
+                                    Label {
+                                        objectName: "soundNoiseSuppressionValue"
+                                        Layout.fillWidth: true
+                                        text: qsTr("%1 · an experiment, set in Labs or "
+                                                   + "from the call's microphone menu")
+                                              .arg(noiseSelector.titleFor(
+                                                  app.settings.noiseSuppressionMode))
+                                        textFormat: Text.PlainText
+                                        color: AppTheme.stormTextMuted
+                                        font.pixelSize: AppTheme.textMeta
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                AppButton {
+                                    objectName: "soundNoiseSuppressionOpenLabs"
+                                    storm: true
+                                    size: "sm"
+                                    text: qsTr("Change…")
+                                    Accessible.name: qsTr("Change noise suppression in Labs")
+                                    onClicked: root.revealSearchResult(
+                                        { section: "labs", anchor: "noiseSuppressionCard" })
                                 }
                             }
                         }
@@ -5486,7 +5796,6 @@ Item {
                                     AppButton {
                                         objectName: "callSoundPreviewButton"
                                         storm: true
-                                        kind: "ghost"
                                         size: "sm"
                                         text: qsTr("Test")
                                         Accessible.name:
@@ -5529,7 +5838,6 @@ Item {
                                     AppButton {
                                         objectName: "ringerPreviewButton"
                                         storm: true
-                                        kind: "ghost"
                                         size: "sm"
                                         text: qsTr("Test")
                                         Accessible.name:
@@ -6590,6 +6898,7 @@ Item {
 
                         // Storage / crypto backend facts.
                         SettingsCard {
+                            objectName: "privacyStorageFactsCard"
                             ColumnLayout {
                                 width: parent.width
                                 spacing: AppTheme.spacing8
@@ -6621,7 +6930,9 @@ Item {
                                     // The remedy differs by platform: only Linux
                                     // and BSD depend on an installable Secret
                                     // Service provider.
-                                    text: (Qt.platform.os === "osx"
+                                    text: app.settings.secretsArePortable
+                                          ? qsTr("Portable mode: access tokens are encrypted inside this portable folder, with the key stored beside them, so anyone who copies the folder can use your session. Keep the folder private.")
+                                          : (Qt.platform.os === "osx"
                                            || Qt.platform.os === "windows")
                                           ? qsTr("Insecure fallback active: access tokens are stored in the application's settings file (plaintext) because the system credential store could not be used. Restart to try again.")
                                           : qsTr("Insecure fallback active: access tokens are stored in QSettings (plaintext). Install a Secret Service provider (e.g. gnome-keyring, KWallet with libsecret support) and restart to enable secure storage.")

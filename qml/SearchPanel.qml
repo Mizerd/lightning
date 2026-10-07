@@ -72,7 +72,17 @@ Rectangle {
     // The roster comes from RoomInfoController, which follows the Room
     // Information panel's room; point it at the searched room before reading
     // members.
-    onVisibleChanged: if (visible) { ensureRoster(); applySource() }
+    onVisibleChanged: if (visible) { ensureRoster(); applySource(); focusQuery() }
+    // Opening search means typing a query next: the field takes the keyboard,
+    // as in every chat client. Without it the first keystrokes went nowhere.
+    // Deferred, because the panel becomes visible inside the click that opened
+    // it.
+    function focusQuery() {
+        Qt.callLater(function () {
+            if (root.visible && searchField.visible && searchField.enabled)
+                searchField.forceActiveFocus()
+        })
+    }
     Component.onCompleted: if (visible) { ensureRoster(); applySource() }
 
     // Local first when the index exists (it covers encrypted rooms and needs

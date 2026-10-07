@@ -40,6 +40,7 @@ Item {
     signal setNotificationMode(int mode)
     signal copyRoomLink()
     signal leaveRoomRequested()
+    signal chatBackgroundRequested()
 
     // Meta ink for this row: textMuted is tuned for the list surface, not the
     // selected chip, where it fails contrast.
@@ -482,6 +483,7 @@ Item {
         onSetNotificationMode: mode => root.setNotificationMode(mode)
         onCopyRoomLink: root.copyRoomLink()
         onLeaveRoomRequested: root.leaveRoomRequested()
+        onChatBackgroundRequested: root.chatBackgroundRequested()
     }
 
     // No per-row hairline: rows separate through spacing and tints.
