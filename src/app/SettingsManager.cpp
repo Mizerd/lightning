@@ -3422,6 +3422,15 @@ bool SettingsManager::secretsAreSecure() const
     return m_secretStore && m_secretStore->isSecure() && m_secretStore->isAvailable();
 }
 
+// The portable store (Windows portable zip) encrypts the tokens but keeps its
+// key in the same folder by design, so it is not "secure", and it is not the
+// plaintext fallback either; Settings words the two differently.
+bool SettingsManager::secretsArePortable() const
+{
+    return m_secretStore && m_secretStore->isAvailable()
+        && m_secretStore->backendName().startsWith(QLatin1String("portable file"));
+}
+
 QString SettingsManager::secretBackendName() const
 {
     return m_secretStore ? m_secretStore->backendName()

@@ -371,6 +371,7 @@ class SettingsManager : public QObject
     Q_PROPERTY(QString userId READ userId NOTIFY sessionChanged)
     Q_PROPERTY(QString secretBackendName READ secretBackendName NOTIFY secretBackendChanged)
     Q_PROPERTY(bool secretsAreSecure READ secretsAreSecure NOTIFY secretBackendChanged)
+    Q_PROPERTY(bool secretsArePortable READ secretsArePortable NOTIFY secretBackendChanged)
 
 public:
     // Appearance presets. Ids are stable across releases; AppTheme.qml resolves
@@ -907,6 +908,7 @@ public:
 
     // True iff the process is using a native, secure secret backend.
     bool secretsAreSecure() const;
+    bool secretsArePortable() const;
     QString secretBackendName() const;
 
     // `refreshToken` may be empty. `authType` is "password" or "oauth".

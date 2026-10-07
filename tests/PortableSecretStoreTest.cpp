@@ -30,6 +30,7 @@ class PortableSecretStoreTest : public QObject
 
 private Q_SLOTS:
     void freshDirectoryIsUsableAndReportsNothingStored();
+    void itsNameIsWhatSettingsWordsPortableModeOn();
     void roundTripsIncludingUnicodeAndLargeValues();
     void survivesRestartOverTheSameDirectory();
     void relocatesToADifferentAbsoluteRoot();
@@ -129,6 +130,24 @@ void PortableSecretStoreTest::freshDirectoryIsUsableAndReportsNothingStored()
     QVERIFY(!store.lastReadFailed());
     QVERIFY(!QFile::exists(dataPathIn(dir)));
     QVERIFY(!QFile::exists(keyPathIn(dir)));
+}
+
+// SettingsManager::secretsArePortable() keys on this prefix so Settings can say
+// "encrypted, key beside it" instead of the plaintext-fallback warning, which
+// every portable user saw until 2026-10-07. Not secure, and must stay so.
+void PortableSecretStoreTest::itsNameIsWhatSettingsWordsPortableModeOn()
+{
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    PortableSecretStore store(secretsDirIn(root));
+    QVERIFY(store.backendName().startsWith(QLatin1String("portable file")));
+    QVERIFY(!store.isSecure());
+
+    QFile qml(QStringLiteral(QML_DIR "/SettingsScreen.qml"));
+    QVERIFY(qml.open(QIODevice::ReadOnly));
+    const QString text = QString::fromUtf8(qml.readAll());
+    QVERIFY2(text.contains(QLatin1String("app.settings.secretsArePortable")),
+             "Settings must word the portable store apart from the plaintext fallback");
 }
 
 void PortableSecretStoreTest::roundTripsIncludingUnicodeAndLargeValues()
