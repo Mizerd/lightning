@@ -26,6 +26,7 @@
 #include "media/StagedImageProvider.h"
 #include "app/AsyncLogSink.h"
 #include "app/GuiStallTracer.h"
+#include "app/QmlGcPolicy.h"
 #include "media/VaapiLogGate.h"
 #include "text/SpellChecker.h"
 #include "storage/AppDataPaths.h"
@@ -1702,6 +1703,9 @@ static int printCallMediaStatus()
 
 int main(int argc, char *argv[])
 {
+    // Before any QML engine exists: see QmlGcPolicy.h.
+    lightning::applyQmlGcPolicy();
+
     // Before QGuiApplication, so a platform-plugin abort cannot mask errors.
     const PreflightResult pf = preflightParse(argc, argv);
 

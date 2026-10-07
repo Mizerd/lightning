@@ -230,6 +230,16 @@ private Q_SLOTS:
         qunsetenv("LIGHTNING_MOCK_FAIL_RESTORE");
     }
 
+    // A QML collection that ran in 5 ms slices across Main.qml's build swept
+    // the storage of live popup contents, and the first Connections among
+    // them crashed this suite (src/app/QmlGcPolicy.h). The process collects
+    // to completion, as the application does. Fails if QV4_GC_TIMELIMIT was
+    // set to anything else on purpose.
+    void qmlCollectionsRunToCompletion()
+    {
+        QCOMPARE(qgetenv("QV4_GC_TIMELIMIT"), QByteArray("0"));
+    }
+
     // prepareForShutdown() must quiesce media playback and sync before teardown
     // and be idempotent. The actual Windows "Invalid window handle" race is
     // native-only (NOT TESTED here); this proves the ordering hook runs.
