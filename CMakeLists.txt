@@ -526,6 +526,7 @@ set(APP_SOURCES
     src/calls/CallSoundController.cpp
     src/calls/CallSoundPlayer.h
     src/calls/CallSoundPlayer.cpp
+    src/calls/CallSoundRebuild.h
     src/calls/CallSoundPcm.h
     src/calls/CallSoundPcm.cpp
     src/calls/CallSoundMixer.h
@@ -3475,6 +3476,7 @@ if(BUILD_TESTING)
         tests/CallSoundPlayerTest.cpp
         src/calls/CallSoundPlayer.h
         src/calls/CallSoundPlayer.cpp
+        src/calls/CallSoundRebuild.h
         src/calls/CallSoundPcm.h
         src/calls/CallSoundPcm.cpp
         src/calls/CallSoundMixer.h

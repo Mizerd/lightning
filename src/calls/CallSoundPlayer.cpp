@@ -2,6 +2,7 @@
 
 #include "app/AsyncLogSink.h"
 #include "calls/CallSoundMixer.h"
+#include "calls/CallSoundRebuild.h"
 
 #include <QAudioDevice>
 #include <QAudioSink>
@@ -218,41 +219,34 @@ public:
     }
 
     /// After the output list changed. A QSoundEffect whose output went away
-    /// sits in Error, or stays Ready bound to a dead endpoint, and nothing
-    /// here ever moved it out (setSource() with
-    /// the same URL is a no-op), so canPlay() stayed false for the rest of
-    /// the session. Each such sound is replaced by a new effect, and
-    /// a sound never loaded (no output at startup) is loaded now. A loop that
-    /// was lost resumes. Whether an output exists was asked on the GUI
-    /// thread (it used to be asked here, from the effects' thread, and a
-    /// stale empty answer there would have skipped the reload without a
-    /// word). Returns how many were (re)loaded.
+    /// sits in Error, or stays Ready on an engine whose stream died with the
+    /// endpoint (see CallSoundRebuild.h), and nothing here ever moves it out
+    /// (setSource() with the same URL is a no-op). So every sound gets a new
+    /// effect, and a sound never loaded (no output at startup) is loaded now.
+    /// Every old effect is destroyed before the first new one is created:
+    /// one created beside a surviving old effect is handed the same pooled,
+    /// dead engine. A loop that was audible (or failed) resumes; one that
+    /// stopAll() silenced keeps its name and does not. Whether an output
+    /// exists was asked on the GUI thread. Returns how many were (re)loaded.
     int reloadUnusable() override
     {
-        int reloaded = 0;
         bool loopLost = false;
-        for (const QString &sound : kSounds) {
-            // Every effect is rebuilt, not only those in Error: one still
-            // bound to an endpoint that vanished and came back (an RDP
-            // reconnect) reports Ready and plays into nothing.
-            QSoundEffect *old = m_effects.value(sound);
-            if (old) {
+        if (QSoundEffect *old = m_effects.value(m_loopSound)) {
+            loopLost =
+                old->isPlaying() || old->status() == QSoundEffect::Error;
+        }
+        const int reloaded = callsound::replaceEveryEffect(
+            m_effects, kSounds,
+            [this](QSoundEffect *old) {
                 // Its status must no longer reach the readiness set: the new
                 // effect's does.
-                // A loop that stopAll() silenced keeps its name; only one
-                // that was audible (or failed) is resumed.
-                loopLost = loopLost
-                    || (sound == m_loopSound
-                        && (old->isPlaying()
-                            || old->status() == QSoundEffect::Error));
                 QObject::disconnect(old, nullptr, this, nullptr);
-                m_effects.remove(sound);
                 old->stop();
-                old->deleteLater();
-            }
-            effect(sound);
-            ++reloaded;
-        }
+                // Freed now, never deferred: its reference to the engine must
+                // be gone before the new effects ask the pool for one.
+                delete old;
+            },
+            [this](const QString &sound) { return effect(sound) != nullptr; });
         if (loopLost) {
             if (QSoundEffect *e = m_effects.value(m_loopSound)) {
                 route(e, m_loopDevice);
@@ -303,9 +297,36 @@ private:
 
     static void route(QSoundEffect *e, const QString &wanted)
     {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+        // No speaker chosen, or the chosen one is not connected: no device
+        // at all, which from Qt 6.10 means "the default, followed" -- the
+        // effect moves to whatever the default becomes on every output
+        // change. The default PINNED by its ID (what this did before) is not
+        // followed: such an effect stayed on its engine after the endpoint
+        // died, kept that engine alive in Qt's pool, and so handed it to
+        // effects built later for the same ID.
+        const QAudioDevice target = chosenOutput(wanted);
+        if (e->audioDevice() != target)
+            e->setAudioDevice(target);
+#else
         const QAudioDevice target = resolveOutput(wanted);
         if (!target.isNull() && e->audioDevice() != target)
             e->setAudioDevice(target);
+#endif
+    }
+
+    /// The output `wanted` names, or a null device when none is wanted or
+    /// it is not connected.
+    static QAudioDevice chosenOutput(const QString &wanted)
+    {
+        if (wanted.isEmpty())
+            return {};
+        const QList<QAudioDevice> outputs = QMediaDevices::audioOutputs();
+        for (const QAudioDevice &device : outputs) {
+            if (QString::fromUtf8(device.id()) == wanted)
+                return device;
+        }
+        return {};
     }
 
     std::shared_ptr<CallSoundReadiness> m_readiness;

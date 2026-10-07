@@ -3,6 +3,7 @@
 // (silent) ring over the desktop's call sound. No sound effect is ever
 // created here, so no audio device is needed.
 #include "calls/CallSoundPlayer.h"
+#include "calls/CallSoundRebuild.h"
 
 #include <QElapsedTimer>
 #include <QFile>
@@ -11,7 +12,36 @@
 #include <QSemaphore>
 #include <QtTest/QtTest>
 
+#include <map>
+#include <memory>
+
 Q_LOGGING_CATEGORY(lcCallSound, "lightning.calls.sound")
+
+namespace {
+// A model of Qt 6.10+'s QSoundEffect engine pool
+// (QSoundEffectPrivateWithPlayer::getEngineFor): one engine per output ID,
+// held by weak reference, so a live engine is handed to every effect that
+// asks for that ID, dead or not.
+struct FakeEngine {
+    bool dead = false;
+};
+struct FakeEnginePool {
+    std::map<QString, std::weak_ptr<FakeEngine>> engines;
+    std::shared_ptr<FakeEngine> engineFor(const QString &outputId)
+    {
+        if (std::shared_ptr<FakeEngine> live = engines[outputId].lock())
+            return live;
+        auto fresh = std::make_shared<FakeEngine>();
+        engines[outputId] = fresh;
+        return fresh;
+    }
+};
+// An effect attaches to an engine as soon as it exists (its sample is
+// already decoded: Qt's sample cache answers at once).
+struct FakeEffect {
+    std::shared_ptr<FakeEngine> engine;
+};
+} // namespace
 
 // Stands in for CallDeviceController::audioOutputsChanged.
 class OutputListSource : public QObject
@@ -26,6 +56,107 @@ class CallSoundPlayerTest : public QObject
     Q_OBJECT
 
 private slots:
+    // Windows 2026-10-07 (build 300): an RDP audio endpoint went away for
+    // 28 s and came back under the same ID; the reload rebuilt all 17 cues
+    // ("reloaded= 17") and every one stayed silent until a restart. The
+    // rebuilt effects were handed the engine whose stream had died, because
+    // an old effect still held it in Qt's pool when they asked. The reload
+    // must leave no old effect alive when it creates the first new one.
+    void aReloadNeverHandsANewCueTheEngineThatDied()
+    {
+        const QStringList sounds{QStringLiteral("ring"),
+                                 QStringLiteral("connected"),
+                                 QStringLiteral("hangup")};
+        const QString output = QStringLiteral("rdp-endpoint");
+
+        // The control: the order the reload used before (each old effect
+        // released only after its successor exists, as deleteLater() did).
+        // It must reproduce the fault, or this model proves nothing.
+        {
+            FakeEnginePool pool;
+            QHash<QString, FakeEffect *> effects;
+            for (const QString &sound : sounds)
+                effects.insert(sound, new FakeEffect{pool.engineFor(output)});
+            effects.value(sounds.first())->engine->dead = true;
+            QList<FakeEffect *> later;
+            for (const QString &sound : sounds) {
+                later << effects.take(sound);
+                effects.insert(sound, new FakeEffect{pool.engineFor(output)});
+            }
+            qDeleteAll(later);
+            QVERIFY2(effects.value(sounds.first())->engine->dead,
+                     "the model does not reproduce the pooled dead engine");
+            qDeleteAll(effects);
+        }
+
+        FakeEnginePool pool;
+        QHash<QString, FakeEffect *> effects;
+        for (const QString &sound : sounds)
+            effects.insert(sound, new FakeEffect{pool.engineFor(output)});
+        effects.value(sounds.first())->engine->dead = true;
+        const std::weak_ptr<FakeEngine> watch =
+            effects.value(sounds.first())->engine;
+
+        int destroyed = 0;
+        const int created = callsound::replaceEveryEffect(
+            effects, sounds,
+            [&](FakeEffect *old) {
+                ++destroyed;
+                delete old;
+            },
+            [&](const QString &sound) {
+                effects.insert(sound, new FakeEffect{pool.engineFor(output)});
+                return true;
+            });
+        QCOMPARE(destroyed, sounds.size());
+        QCOMPARE(created, sounds.size());
+        QCOMPARE(effects.size(), sounds.size());
+        QVERIFY2(watch.expired(), "an old effect outlived the reload");
+        for (const QString &sound : sounds) {
+            QVERIFY2(!effects.value(sound)->engine->dead,
+                     qPrintable(sound + QStringLiteral(
+                                    " was handed the engine that died")));
+        }
+        qDeleteAll(effects);
+    }
+
+    // The QSoundEffect cues use that order, free the old effects at once
+    // (deleteLater() keeps them, and their engine, alive past the creates),
+    // and with no speaker chosen leave the device unset so Qt 6.10+ follows
+    // the default instead of pinning the dying endpoint by its ID.
+    void theQSoundEffectCuesReplaceEveryEffectBeforeCreatingAny()
+    {
+        QFile file(QStringLiteral(SOUNDS_DIR "/../../src/calls/CallSoundPlayer.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString code = QString::fromUtf8(file.readAll());
+        const int begin = code.indexOf(QStringLiteral("class QSoundEffectCues"));
+        const int end = code.indexOf(QStringLiteral("\nclass AudioSinkOutput"), begin);
+        QVERIFY2(begin >= 0 && end > begin, "no QSoundEffectCues");
+        const QString cues = code.mid(begin, end - begin);
+        const int reload = cues.indexOf(QStringLiteral("int reloadUnusable() override"));
+        const int stop = cues.indexOf(QStringLiteral("void stopAll() override"), reload);
+        QVERIFY(reload >= 0 && stop > reload);
+        const QString body = cues.mid(reload, stop - reload);
+        QVERIFY2(body.contains(QStringLiteral("callsound::replaceEveryEffect(")),
+                 "the reload does not destroy every old effect first");
+        QVERIFY2(body.contains(QStringLiteral("delete old;")),
+                 "the reload does not free the old effects at once");
+        QVERIFY2(!cues.contains(QStringLiteral("deleteLater")),
+                 "an old effect is kept alive past the reload");
+        const int route = cues.indexOf(QStringLiteral("static void route("));
+        const int routeEnd = cues.indexOf(QStringLiteral("\n    }\n"), route);
+        QVERIFY(route >= 0 && routeEnd > route);
+        const QString routing = cues.mid(route, routeEnd - route);
+        const int modern = routing.indexOf(
+            QStringLiteral("#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)"));
+        const int legacy = routing.indexOf(QStringLiteral("#else"), modern);
+        QVERIFY2(modern >= 0 && legacy > modern,
+                 "the cues pin an output on every Qt");
+        QVERIFY2(!routing.mid(modern, legacy - modern)
+                      .contains(QStringLiteral("resolveOutput(")),
+                 "from Qt 6.10 the cues pin the default output by its ID");
+    }
+
     // Measured 2026-09-25 on Qt 6.8.2: after a sound-server stall the sound
     // thread never comes back. canPlay() must turn false within ~2 s of a job
     // going unanswered, and true again if the thread catches up.
