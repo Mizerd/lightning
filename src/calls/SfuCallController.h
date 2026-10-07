@@ -11,8 +11,10 @@
 //
 // Leaving relies on three mechanisms, each covering what the others cannot:
 //
-//   * The retraction sent on a clean leave; its answer is observed and
-//     transient failures are retried, bounded.
+//   * The retraction sent on a clean leave; its answer is observed and a
+//     transient failure keeps it owed, retried with backoff and sent at once
+//     when the homeserver answers again, until the membership has expired
+//     for every reader anyway.
 //   * The MSC4140 delayed retraction held by the server, the only cleanup
 //     that survives a crash. Restarted on a heartbeat; a failed restart is
 //     repaired by re-publishing.
@@ -514,6 +516,13 @@ public:
     /// An empty delay id (a homeserver without MSC4140, Synapse's default) is
     /// the important case for the leave path and the refresh heartbeat.
     void setMembershipForTest(const QString &roomId, const QString &delayId);
+    /// Shortens how long a transiently failed retraction stays owed.
+    void setRetractionOwedForMsForTest(qint64 ms) { m_retractOwedForMs = ms; }
+    /// Shortens how long an attempt may go unanswered.
+    void setRetractionAnswerTimeoutMsForTest(int ms)
+    {
+        m_retractAnswerTimeoutMs = ms;
+    }
     /// Diagnostic: why no delayed retraction is armed, or empty when one is.
     /// A closed category vocabulary, never server text.
     QString delayedRefusalReason() const { return m_delayedCategory; }
@@ -702,6 +711,9 @@ private Q_SLOTS:
     void reconcileKeyLane();
     /// Re-issue a transiently failed retraction.
     void retryRetraction();
+    /// The homeserver answered again after an outage: send an owed
+    /// retraction now rather than at the next backoff step.
+    void onHomeserverReachable();
 
 private:
     /// Fill `m_screenShareSources` with displays for the Linux no-portal
@@ -791,9 +803,24 @@ private:
     QElapsedTimer m_episodeClock;
     int m_maxReconnectEpisodes = 0;
     qint64 m_reconnectEpisodeWindowMs = 0;
-    /// Ask the server to remove our membership and remember the attempt for
-    /// retries. The room is captured here because teardown() clears m_roomId.
-    void dispatchRetraction(const QString &roomId, const QString &delayId);
+    /// Owe the server the removal of our membership in `roomId` and send it.
+    /// The room is captured here because teardown() clears m_roomId.
+    /// `acceptedAtMs` is when the server last accepted that membership; the
+    /// retraction stays owed until it would have expired anyway.
+    /// `longExpiry`: the membership carries rtc.rs's 4 h `expires` with no
+    /// delayed retraction behind it, so it is owed for that long instead.
+    void startRetraction(const QString &roomId, const QString &delayId,
+                         qint64 acceptedAtMs, bool longExpiry = false);
+    /// Send the owed retraction (one attempt).
+    void dispatchRetraction();
+    /// Whether the owed retraction may still be sent: same account, and not
+    /// past the membership's expiry. Drops it (and says why) otherwise.
+    bool owedRetractionStillDue();
+    /// Forget the owed retraction and stop its retry timer.
+    void clearOwedRetraction();
+    /// Re-joining `roomId`: drop a retraction owed there, keeping the op id
+    /// of an attempt in flight (m_supersededRetractOp).
+    void supersedeOwedRetractionFor(const QString &roomId);
     /// Re-send the membership state event, which also arms a fresh delayed
     /// retraction. The only refresh without MSC4140, and the repair for a
     /// failed delayed-leave restart.
@@ -1071,7 +1098,39 @@ private:
     quint64 m_retractOp = 0;
     QString m_retractRoomId;
     QString m_retractDelayId;
+    /// The account the owed retraction belongs to; it is never sent under
+    /// another one.
+    QString m_retractUserId;
+    /// ...and the device: the state key is per device.
+    QString m_retractDeviceId;
+    /// Local ms after which the membership has expired for every reader, so
+    /// nothing more is sent.
+    qint64 m_retractDeadlineMs = 0;
     int m_retractAttempts = 0;
+    /// The homeserver answered while an attempt was in flight: if that
+    /// attempt fails, retry after the first delay, not the full backoff.
+    bool m_retractRetryPromptly = false;
+    /// How long a transiently failed retraction stays owed, counted from the
+    /// last accepted write. Set from kRetractOwedForMs in the constructor; a
+    /// member only so tests can shorten it.
+    qint64 m_retractOwedForMs = 0;
+    /// The same for a membership written with the 4 h `expires` and nothing
+    /// to retract it server-side (see m_membershipLongExpiryUnguarded).
+    qint64 m_retractOwedLongForMs = 0;
+    /// Counts an attempt as failed when its answer never arrives.
+    QTimer m_retractAnswerTimer;
+    int m_retractAnswerTimeoutMs = 0;
+    /// A retraction attempt in flight when we re-joined its room. Accepted
+    /// after our new publish, it removed the membership we are in.
+    quint64 m_supersededRetractOp = 0;
+    QString m_supersededRetractRoomId;
+    /// When the server last accepted our membership write (join or
+    /// re-publish), local ms; 0 when none in this call.
+    qint64 m_membershipAcceptedMs = 0;
+    /// The last write that landed carried rtc.rs's 4 h `expires` with no
+    /// delayed retraction and no short replacement (a failed answer that
+    /// still names an event).
+    bool m_membershipLongExpiryUnguarded = false;
     /// When the membership was last (re-)published, for the re-publish
     /// cadence, independent of the 5 s delayed-restart tick.
     qint64 m_lastPublishMs = 0;

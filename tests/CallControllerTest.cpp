@@ -50,6 +50,8 @@ public:
                                          : simulatedUserId;
     }
     QString simulatedUserId;
+    QString currentDeviceId() const override { return simulatedDeviceId; }
+    QString simulatedDeviceId;
 
     quint64 callInvite(const QString &roomId, const QString &callId,
                        const QString &partyId, const QString &offerType,
@@ -3860,9 +3862,9 @@ private Q_SLOTS:
                  QStringLiteral("delay-1"));
     }
 
-    // A failed retraction is retried with backoff, then given up on loudly;
-    // otherwise the membership stays in the room.
-    void aFailedRetractionIsRetriedAndThenGivenUpOnLoudly()
+    // A failed retraction is retried with backoff; a burst of failure answers
+    // arms one retry, not one per answer.
+    void aFailedRetractionIsRetriedWithBackoff()
     {
         RecordingCallClient client;
         SfuCallController call;
@@ -3881,14 +3883,404 @@ private Q_SLOTS:
                  QStringLiteral("!room:example.org"));
         QCOMPARE(client.retractions.at(1).second, QStringLiteral("delay-1"));
 
-        // Bounded: leaving must not become an unbounded background sender.
+        // Answers for an op already answered arm nothing more; the next step
+        // of the backoff (4 s) is still ahead.
         for (int i = 0; i < 8; ++i) {
             client.answerMembershipOp(client.lastRetractOp, false,
                                       QStringLiteral("network"));
             QTest::qWait(120);
         }
-        QVERIFY2(client.retractions.size() <= 4,
-                 "the retry must be bounded, not a permanent sender");
+        QCOMPARE(client.retractions.size(), 2);
+        QVERIFY(call.membershipWritesPending());
+    }
+
+    // Live FAIL, Windows, pipeline 292: a 75 s outage (NIC disabled) ended
+    // the call, and the retraction's four quick attempts were all spent
+    // inside the outage, so the membership was never retracted and every
+    // client showed a ghost participant until it expired. A network failure
+    // keeps the retraction owed however many attempts it takes; it is sent
+    // once the network is back, and then nothing more is.
+    void aRetractionStaysOwedThroughANetworkOutageAndIsSentOnceItEnds()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        // No delay id: no MSC4140 (matrix.smetonis.net), so nothing on the
+        // server will retract this membership for us.
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+        call.leave();
+        QCOMPARE(client.retractions.size(), 1);
+
+        // The outage outlasts any short chain. Each retry is the backoff
+        // timer's own slot, invoked directly so the test does not sit out
+        // the delays.
+        for (int i = 0; i < 6; ++i) {
+            client.answerMembershipOp(client.lastRetractOp, false,
+                                      QStringLiteral("network"));
+            QVERIFY2(call.membershipWritesPending(),
+                     "a retraction that failed for network reasons was "
+                     "dropped while the membership is still live");
+            QVERIFY(QMetaObject::invokeMethod(&call, "retryRetraction",
+                                              Qt::DirectConnection));
+            QCOMPARE(client.retractions.size(), i + 2);
+            QCOMPARE(client.retractions.last().first,
+                     QStringLiteral("!room:example.org"));
+        }
+
+        // The network is back and the attempt in flight is accepted.
+        client.answerMembershipOp(client.lastRetractOp, true, QString());
+        QVERIFY(!call.membershipWritesPending());
+        const int sent = client.retractions.size();
+
+        // Exactly once: neither the timer nor the reachability edge sends it
+        // again.
+        QVERIFY(QMetaObject::invokeMethod(&call, "retryRetraction",
+                                          Qt::DirectConnection));
+        Q_EMIT client.homeserverReachable();
+        QTest::qWait(2300);
+        QCOMPARE(client.retractions.size(), sent);
+    }
+
+    // The homeserver answering again sends an owed retraction at once, not
+    // at the next backoff step, and only once.
+    void anOwedRetractionIsSentTheMomentTheHomeserverAnswersAgain()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+        call.leave();
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("network"));
+        QCOMPARE(client.retractions.size(), 1);
+
+        // The sync loop got an answer: the outage is over.
+        Q_EMIT client.homeserverReachable();
+        QCOMPARE(client.retractions.size(), 2);
+        // A repeated edge while that attempt is in flight sends nothing.
+        Q_EMIT client.homeserverReachable();
+        QCOMPARE(client.retractions.size(), 2);
+
+        client.answerMembershipOp(client.lastRetractOp, true, QString());
+        QVERIFY(!call.membershipWritesPending());
+        // Past the first backoff step: the cancelled timer sent nothing.
+        QTest::qWait(2300);
+        Q_EMIT client.homeserverReachable();
+        QCOMPARE(client.retractions.size(), 2);
+    }
+
+    // An attempt sent into the outage may only fail (timeout) after the
+    // homeserver is back; its retry then waits the first delay, not the
+    // grown backoff.
+    void anAttemptThatFailsAfterTheHomeserverReturnedIsRetriedPromptly()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+        call.leave();
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("network"));
+        QVERIFY(QMetaObject::invokeMethod(&call, "retryRetraction",
+                                          Qt::DirectConnection));
+        QCOMPARE(client.retractions.size(), 2);
+
+        // Attempt 2 is in flight when the sync answers; it fails later.
+        Q_EMIT client.homeserverReachable();
+        QCOMPARE(client.retractions.size(), 2);
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("network"));
+        // The grown backoff would be 4 s.
+        QTRY_COMPARE_WITH_TIMEOUT(client.retractions.size(), 3, 3200);
+    }
+
+    // The bound is the membership's own expiry: past it every reader has
+    // dropped the membership, so nothing more is sent.
+    void anOwedRetractionEndsWithTheMembershipsExpiry()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRetractionOwedForMsForTest(150);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+        call.leave();
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("network"));
+        // The last attempt lands at the deadline, not 2 s later.
+        QTRY_COMPARE_WITH_TIMEOUT(client.retractions.size(), 2, 1000);
+
+        QTest::qWait(200);
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("network"));
+        QVERIFY2(!call.membershipWritesPending(),
+                 "a retraction is still owed past the membership's expiry");
+        Q_EMIT client.homeserverReachable();
+        QVERIFY(QMetaObject::invokeMethod(&call, "retryRetraction",
+                                          Qt::DirectConnection));
+        QCOMPARE(client.retractions.size(), 2);
+    }
+
+    // An owed retraction now waits minutes, so the account it belongs to is
+    // checked again when it is sent: never under another account, even if
+    // nothing called abandonOutstandingMembershipWrites().
+    void anOwedRetractionIsNeverSentUnderAnotherAccount()
+    {
+        RecordingCallClient client;
+        client.simulatedUserId = QStringLiteral("@first:example.org");
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+        call.leave();
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("network"));
+        QCOMPARE(client.retractions.size(), 1);
+
+        client.simulatedUserId = QStringLiteral("@second:example.org");
+        Q_EMIT client.homeserverReachable();
+        QCOMPARE(client.retractions.size(), 1);
+        QVERIFY(!call.membershipWritesPending());
+        QVERIFY(QMetaObject::invokeMethod(&call, "retryRetraction",
+                                          Qt::DirectConnection));
+        QCOMPARE(client.retractions.size(), 1);
+    }
+
+    // The state key is per device: a re-login of the same account is a new
+    // device, and the owed retraction is not its to send.
+    void anOwedRetractionIsNeverSentFromAnotherDevice()
+    {
+        RecordingCallClient client;
+        client.simulatedUserId = QStringLiteral("@me:example.org");
+        client.simulatedDeviceId = QStringLiteral("DEVICEONE");
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+        call.leave();
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("network"));
+
+        client.simulatedDeviceId = QStringLiteral("DEVICETWO");
+        Q_EMIT client.homeserverReachable();
+        QCOMPARE(client.retractions.size(), 1);
+        QVERIFY(!call.membershipWritesPending());
+    }
+
+    // rtc.rs writes a 4 h `expires` first. When that write landed but the
+    // delayed retraction and the short replacement did not (an answer with
+    // ok=false that still names an event), the membership lives 4 h, and the
+    // retraction stays owed for that long rather than for 5 minutes.
+    void aLongExpiryWithNoDelayedLeaveKeepsTheRetractionOwedLonger()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        // The short window, cut to almost nothing, must not apply here.
+        call.setRetractionOwedForMsForTest(150);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+        QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
+                                          Qt::DirectConnection));
+        QCOMPARE(client.publishes.size(), 1);
+        // answerPublish names "$event": the 4 h write landed; no delay id.
+        client.answerPublish(client.lastPublishOp, false, QString(),
+                             QStringLiteral("network"));
+
+        call.leave();
+        QCOMPARE(client.retractions.size(), 1);
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("network"));
+        QTest::qWait(400);
+        client.answerMembershipOp(client.lastRetractOp, false,
+                                  QStringLiteral("network"));
+        QVERIFY2(call.membershipWritesPending(),
+                 "a retraction owed to a 4 h membership was dropped after "
+                 "the 5 minute window");
+    }
+
+    // An attempt whose answer is lost (the Rust event queue drops on
+    // overflow) must not hold the slot for ever: it counts as failed.
+    void aRetractionWhoseAnswerNeverArrivesCountsAsFailed()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setRetractionAnswerTimeoutMsForTest(100);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(QStringLiteral("!room:example.org"),
+                                  QString());
+        call.leave();
+        QCOMPARE(client.retractions.size(), 1);
+        // No answer at all. Past the watchdog the slot is free again, so the
+        // homeserver answering sends the next attempt at once.
+        QTest::qWait(300);
+        QVERIFY(call.membershipWritesPending());
+        Q_EMIT client.homeserverReachable();
+        QCOMPARE(client.retractions.size(), 2);
+    }
+
+    // A retraction still in flight when we re-join its room cannot be
+    // recalled. If the server accepts it after our new publish, it removed
+    // the membership of the call we are in, so it is published again; a
+    // refused one changes nothing.
+    void aRetractionLandingAfterARejoinRepublishesTheMembership()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        const QString room = QStringLiteral("!room:example.org");
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(room, QString());
+        call.leave();
+        QCOMPARE(client.retractions.size(), 1);
+        const quint64 oldRetraction = client.lastRetractOp;
+
+        // Back in the same room before that attempt was answered.
+        const quint64 publish = call.beginMembershipPublishForTest(
+            room, QStringLiteral("https://sfu.example.org"));
+        QVERIFY(publish != 0);
+        client.answerPublish(publish, true, QString());
+        QVERIFY(call.active());
+        QVERIFY(!call.membershipWritesPending());
+        const int publishesBefore = client.publishes.size();
+
+        client.answerMembershipOp(oldRetraction, true, QString());
+        QCOMPARE(client.publishes.size(), publishesBefore + 1);
+        QCOMPARE(client.publishes.last(), room);
+        // Nothing retracted again, nothing owed.
+        QCOMPARE(client.retractions.size(), 1);
+        QVERIFY(!call.membershipWritesPending());
+    }
+
+    // With an MSC4140 delayed retraction armed, a re-publish would arm a
+    // second one that nothing cancels; when it fired, its `{}` would remove
+    // the live membership. So the repair above must not run then.
+    void aRetractionLandingAfterARejoinDoesNotRepublishOverADelayedLeave()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        const QString room = QStringLiteral("!room:example.org");
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(room, QStringLiteral("delay-1"));
+        call.leave();
+        const quint64 oldRetraction = client.lastRetractOp;
+
+        const quint64 publish = call.beginMembershipPublishForTest(
+            room, QStringLiteral("https://sfu.example.org"));
+        client.answerPublish(publish, true, QStringLiteral("delay-2"));
+        QVERIFY(call.active());
+        const int publishesBefore = client.publishes.size();
+
+        client.answerMembershipOp(oldRetraction, true, QString());
+        QVERIFY2(client.publishes.size() == publishesBefore,
+                 "a re-publish while a delayed retraction is armed arms an "
+                 "orphan that later removes the live membership");
+        // The armed one is still the one the heartbeat keeps alive.
+        QVERIFY(QMetaObject::invokeMethod(&call, "refreshMembership",
+                                          Qt::DirectConnection));
+        QCOMPARE(client.delayedRestarts.last(), QStringLiteral("delay-2"));
+    }
+
+    // Nor while the join's own publish is in flight: its answer may arm a
+    // delayed retraction too.
+    void aRetractionLandingDuringTheRejoinPublishDoesNotRepublish()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        const QString room = QStringLiteral("!room:example.org");
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(room, QString());
+        call.leave();
+        const quint64 oldRetraction = client.lastRetractOp;
+
+        QVERIFY(call.beginMembershipPublishForTest(
+                    room, QStringLiteral("https://sfu.example.org"))
+                != 0);
+        QVERIFY(call.active());
+        const int publishesBefore = client.publishes.size();
+        client.answerMembershipOp(oldRetraction, true, QString());
+        QCOMPARE(client.publishes.size(), publishesBefore);
+    }
+
+    void aRefusedRetractionFromBeforeARejoinChangesNothing()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        const QString room = QStringLiteral("!room:example.org");
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        call.setMembershipForTest(room, QString());
+        call.leave();
+        const quint64 oldRetraction = client.lastRetractOp;
+        const quint64 publish = call.beginMembershipPublishForTest(
+            room, QStringLiteral("https://sfu.example.org"));
+        client.answerPublish(publish, true, QString());
+        const int publishesBefore = client.publishes.size();
+
+        client.answerMembershipOp(oldRetraction, false,
+                                  QStringLiteral("network"));
+        QCOMPARE(client.publishes.size(), publishesBefore);
+        QCOMPARE(client.retractions.size(), 1);
+    }
+
+    // The owed window mirrors rtc.rs's `expires` constants; if either side
+    // changes alone, the retraction is owed for the wrong length of time.
+    void theOwedWindowsMirrorTheRustExpiryConstants()
+    {
+        const auto product = [](const QByteArray &source,
+                                const QByteArray &name) -> qint64 {
+            const int at = source.indexOf(name);
+            if (at < 0)
+                return -1;
+            const int eq = source.indexOf('=', at);
+            const int end = source.indexOf(';', eq);
+            if (eq < 0 || end < 0)
+                return -1;
+            qint64 value = 1;
+            const QByteArray expr = source.mid(eq + 1, end - eq - 1);
+            for (QByteArray factor : expr.split('*')) {
+                factor = factor.trimmed();
+                if (factor.endsWith("LL"))
+                    factor.chop(2);
+                bool ok = false;
+                const qint64 n = factor.toLongLong(&ok);
+                if (!ok)
+                    return -1;
+                value *= n;
+            }
+            return value;
+        };
+        QFile cpp(QStringLiteral(SOURCE_DIR "/src/calls/SfuCallController.cpp"));
+        QVERIFY(cpp.open(QIODevice::ReadOnly));
+        const QByteArray c = cpp.readAll();
+        QFile rs(QStringLiteral(SOURCE_DIR "/rust/src/rtc.rs"));
+        QVERIFY(rs.open(QIODevice::ReadOnly));
+        const QByteArray r = rs.readAll();
+
+        const qint64 shortCpp =
+            product(c, "constexpr qint64 kMembershipExpiryNoDelayedMs");
+        const qint64 shortRs =
+            product(r, "const MEMBERSHIP_EXPIRY_NO_DELAYED_MS: u64");
+        QVERIFY(shortCpp > 0);
+        QCOMPARE(shortCpp, shortRs);
+        const qint64 longCpp =
+            product(c, "constexpr qint64 kMembershipExpiryLongMs");
+        const qint64 longRs = product(r, "const MEMBERSHIP_EXPIRY_MS: u64");
+        QVERIFY(longCpp > 0);
+        QCOMPARE(longCpp, longRs);
     }
 
     // A permanent refusal (`forbidden`) is not retried.

@@ -88,6 +88,9 @@ public:
 
     virtual bool isLoggedIn() const = 0;
     virtual QString currentUserId() const = 0;
+    /// This session's device id, or empty where the backend has none (mock,
+    /// HTTP). Compared, never displayed.
+    virtual QString currentDeviceId() const { return {}; }
     virtual QString homeserverUrl() const = 0;
 
     // Sync
@@ -1682,6 +1685,12 @@ Q_SIGNALS:
                               const QVariantList &providers);
 
     void connectionStateChanged(ConnectionState state);
+    /// The homeserver answered a sync again after an outage (and on the
+    /// first answer of a session): an edge, never repeated while it keeps
+    /// answering. Unlike connectionStateChanged(Syncing), which a backend may
+    /// also report while it is only RETRYING, this means a request got
+    /// through, so writes owed from the outage can be sent now.
+    void homeserverReachable();
     void initialSyncDoneChanged();
     void syncModeChanged();
     void roomsChanged();

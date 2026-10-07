@@ -1548,6 +1548,7 @@ pub(crate) fn send_notification(
 /// Membership validity when the server can retract it for us (an MSC4140
 /// delayed retraction is armed). 4 h is the reference's
 /// `DEFAULT_EXPIRE_DURATION`; the delayed retraction does the real cleanup.
+/// Mirrored as `kMembershipExpiryLongMs` in SfuCallController.cpp.
 const MEMBERSHIP_EXPIRY_MS: u64 = 4 * 60 * 60 * 1000;
 
 /// Membership validity when nothing server-side will retract it (no
@@ -1555,7 +1556,9 @@ const MEMBERSHIP_EXPIRY_MS: u64 = 4 * 60 * 60 * 1000;
 /// cleanup, so it must run out in minutes, with the client re-publishing
 /// often enough that a live participant never ages out. 5 minutes against
 /// `SfuCallController`'s 60 s re-publish survives five failed refreshes;
-/// shortening it without that cadence would drop people mid-call.
+/// shortening it without that cadence would drop people mid-call. Mirrored
+/// as `kMembershipExpiryNoDelayedMs` in SfuCallController.cpp, which keeps a
+/// retraction that failed for network reasons owed until this has run out.
 const MEMBERSHIP_EXPIRY_NO_DELAYED_MS: u64 = 5 * 60 * 1000;
 
 /// The `expires` duration to write, given the membership's age.

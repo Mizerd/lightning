@@ -122,10 +122,35 @@ constexpr int kRefreshIntervalMs = 5000;
 /// under MEMBERSHIP_EXPIRY_NO_DELAYED_MS in rust/src/rtc.rs (5 min); change
 /// the two together.
 constexpr qint64 kMembershipRepublishIntervalMs = 60 * 1000;
-/// A refused retraction is retried this many times with doubling delay.
-/// Bounded so leaving cannot become an endless background sender.
-constexpr int kMaxRetractAttempts = 4;
+/// The `expires` window rust/src/rtc.rs writes when no MSC4140 delayed
+/// retraction is armed (MEMBERSHIP_EXPIRY_NO_DELAYED_MS; change the two
+/// together). Readers date it from the last accepted write, so that write
+/// plus this is when the membership stops counting for everyone.
+constexpr qint64 kMembershipExpiryNoDelayedMs = 5 * 60 * 1000;
+static_assert(kMembershipRepublishIntervalMs < kMembershipExpiryNoDelayedMs,
+              "the re-publish cadence must beat the membership's expiry");
+/// How long a retraction that failed for transient (network, rate limit)
+/// reasons stays owed, counted from the last write the server accepted: the
+/// membership's own expiry plus slack for clock skew and a slow last
+/// attempt. Past it every reader has dropped the membership, so nothing is
+/// sent. This, not an attempt count, is the bound: a network outage outlasts
+/// any short retry chain, and a dropped retraction is a ghost participant.
+constexpr qint64 kRetractOwedForMs = kMembershipExpiryNoDelayedMs + 60 * 1000;
+/// The `expires` rust/src/rtc.rs writes first, assuming MSC4140 will clean up
+/// (MEMBERSHIP_EXPIRY_MS; change the two together). When that write landed
+/// but neither the delayed retraction nor the short fallback write did, this
+/// is the membership's real lifetime, and the retraction stays owed for it.
+constexpr qint64 kMembershipExpiryLongMs = 4LL * 60 * 60 * 1000;
+constexpr qint64 kRetractOwedLongForMs = kMembershipExpiryLongMs + 60 * 1000;
+/// An attempt whose answer has not arrived after this counts as failed. Rust
+/// bounds the write and the delayed-event cancel at 15 s each, so an answer
+/// later than this was lost (an event-queue overflow), not slow.
+constexpr int kRetractAnswerTimeoutMs = 35 * 1000;
+/// Backoff for an owed retraction: doubling from the first delay up to the
+/// ceiling, so a long outage costs about one attempt a minute. The homeserver
+/// becoming reachable again sends it at once (onHomeserverReachable).
 constexpr int kRetractRetryDelayMs = 2000;
+constexpr int kRetractRetryMaxDelayMs = 60 * 1000;
 /// How long a rotated key is sent ahead of our frames switching to it, so
 /// peers hold it before the first frame they must decrypt with it. Measured:
 /// our to-device keys reached a Lightning peer 0.1-1.6 s after sending
@@ -226,6 +251,19 @@ SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
     m_retractRetryTimer.setSingleShot(true);
     connect(&m_retractRetryTimer, &QTimer::timeout, this,
             &SfuCallController::retryRetraction);
+    m_retractOwedForMs = kRetractOwedForMs;
+    m_retractOwedLongForMs = kRetractOwedLongForMs;
+    m_retractAnswerTimeoutMs = kRetractAnswerTimeoutMs;
+    m_retractAnswerTimer.setSingleShot(true);
+    connect(&m_retractAnswerTimer, &QTimer::timeout, this, [this] {
+        if (m_retractOp == 0)
+            return;
+        // Without this an attempt whose answer was lost would hold the slot
+        // for ever: every later trigger waits on an op in flight.
+        qCWarning(lcSfuCall)
+            << "no answer to a call retraction attempt; counting it as failed";
+        onMembershipRetracted(m_retractOp, false, QStringLiteral("network"));
+    });
     m_useKeyTimer.setSingleShot(true);
     // Precise: a coarse timer may fire up to 5% early, which comes out of the
     // time a peer has to receive the key.
@@ -310,6 +348,10 @@ void SfuCallController::setClient(MatrixClient *client)
     // a leftover membership poisons the call for every other client.
     connect(m_client, &MatrixClient::rtcMembershipRetracted, this,
             &SfuCallController::onMembershipRetracted);
+    // An owed retraction is sent the moment the homeserver answers again,
+    // not at the next backoff step.
+    connect(m_client, &MatrixClient::homeserverReachable, this,
+            &SfuCallController::onHomeserverReachable);
     connect(m_client, &MatrixClient::sfuStateChanged, this,
             &SfuCallController::onSfuState);
     connect(m_client, &MatrixClient::sfuJoined, this,
@@ -1612,19 +1654,11 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
     m_playbackLostAnnounced = false;
     m_candidatesSent = 0;
     m_lastPublishMs = 0;
+    m_membershipAcceptedMs = 0;
+    m_membershipLongExpiryUnguarded = false;
     m_refreshOp = 0;
     m_delayedRestartOp = 0;
-    // A retraction still being retried for this room is moot: we are
-    // re-joining, and the retry would remove the membership about to be
-    // created. An attempt already in flight cannot be recalled; its answer is
-    // ignored, and the refresh cadence covers the race.
-    if (m_retractRoomId == roomId) {
-        m_retractRetryTimer.stop();
-        m_retractRoomId.clear();
-        m_retractDelayId.clear();
-        m_retractAttempts = 0;
-        m_retractOp = 0;
-    }
+    supersedeOwedRetractionFor(roomId);
 
     // Captured once, so a mid-call room change cannot relax the promise.
     // Unknown counts as encrypted.
@@ -1740,10 +1774,11 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
             << "a membership publish landed AFTER we left; retracting it "
                "delayed=" << !delayId.isEmpty()
             << "delayed_reason=" << m_delayedCategory;
-        // Use the delay id from this answer: nothing else holds it.
-        m_retractRetryTimer.stop();
-        m_retractAttempts = 0;
-        dispatchRetraction(room, delayId);
+        // Use the delay id from this answer: nothing else holds it. The write
+        // just landed, so its expiry window starts now. A refused answer that
+        // still names an event is the 4 h write without its short fallback.
+        startRetraction(room, delayId, QDateTime::currentMSecsSinceEpoch(),
+                        !ok && delayId.isEmpty());
         return;
     }
     // A refresh re-publish: do not re-run the join sequence, but adopt the new
@@ -1758,9 +1793,19 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
             // silently drops a participant.
             qCWarning(lcSfuCall)
                 << "membership refresh FAILED category=" << category;
+            // An event id on a failure is rtc.rs's 4 h write that landed
+            // without a delayed retraction or its short replacement: that
+            // membership now lives 4 h unless we retract it.
+            if (!eventId.isEmpty() && delayId.isEmpty()) {
+                m_membershipAcceptedMs = QDateTime::currentMSecsSinceEpoch();
+                m_membershipLongExpiryUnguarded = true;
+            }
             return;
         }
         m_membershipPublished = true;
+        m_membershipAcceptedMs = QDateTime::currentMSecsSinceEpoch();
+        // Whatever this write carried replaced any unguarded 4 h one.
+        m_membershipLongExpiryUnguarded = false;
         m_delayId = delayId;
         qCInfo(lcSfuCall) << "membership refreshed delayed="
                           << !delayId.isEmpty()
@@ -1776,8 +1821,13 @@ void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
                       << "delayed_reason=" << m_delayedCategory;
     // Recorded before the failure branch, whose teardown needs to know
     // whether there is anything to retract; see the event-id note above.
-    if (ok || !eventId.isEmpty())
+    if (ok || !eventId.isEmpty()) {
         m_membershipPublished = true;
+        m_membershipAcceptedMs = QDateTime::currentMSecsSinceEpoch();
+        // See the refresh branch: a failure with an event id is an unguarded
+        // 4 h membership.
+        m_membershipLongExpiryUnguarded = !ok && delayId.isEmpty();
+    }
     if (m_state != State::Preparing)
         return; // a reply for a call we already left
     if (!ok) {
@@ -3617,18 +3667,16 @@ void SfuCallController::abandonOutstandingMembershipWrites()
     // the new account's session, and a stale op id could match an unrelated
     // op of the new one. Warn only if a retry was already armed (an attempt
     // had failed); a retraction just dispatched will probably land.
-    if (m_retractRetryTimer.isActive()) {
+    if (m_retractAttempts > 1 || m_retractRetryTimer.isActive()) {
         qCWarning(lcSfuCall)
             << "a FAILED call retraction is being abandoned because the "
                "account changed; that membership is now the server's to "
                "expire";
     }
     const bool wasPending = membershipWritesPending();
-    m_retractRetryTimer.stop();
-    m_retractOp = 0;
-    m_retractRoomId.clear();
-    m_retractDelayId.clear();
-    m_retractAttempts = 0;
+    clearOwedRetraction();
+    m_supersededRetractOp = 0;
+    m_supersededRetractRoomId.clear();
     // Same for a publish parked by teardown().
     m_abandonedPublishOp = 0;
     m_abandonedPublishRoomId.clear();
@@ -3666,64 +3714,221 @@ void SfuCallController::onMembershipRetracted(quint64 opId, bool ok,
         republishMembership();
         return;
     }
+    if (m_supersededRetractOp != 0 && opId == m_supersededRetractOp) {
+        const QString room = m_supersededRetractRoomId;
+        m_supersededRetractOp = 0;
+        m_supersededRetractRoomId.clear();
+        // The previous call's retraction, still in flight when we rejoined
+        // this room. Landing after our new publish, it removed the membership
+        // of the call we are in (one state key per device); put it back.
+        if (!ok || !active() || room != m_roomId)
+            return;
+        // Only where a publish arms no second delayed retraction. Every
+        // publish may arm one (rtc.rs) and nothing cancels the previous, so
+        // with one armed (m_delayId) or a publish in flight that may arm
+        // one, the orphan would fire `{}` on our state key 8 s later and
+        // remove the membership this was meant to restore. Those cases are
+        // left as before this repair existed; without MSC4140 the 60 s
+        // heartbeat re-publish restores the membership in any case.
+        if (!m_delayId.isEmpty() || m_publishOp != 0 || m_refreshOp != 0) {
+            qCWarning(lcSfuCall)
+                << "a retraction from before the rejoin landed in this "
+                   "room's call; not re-publishing now (delayed="
+                << !m_delayId.isEmpty() << "publish_in_flight="
+                << (m_publishOp != 0 || m_refreshOp != 0) << ")";
+            return;
+        }
+        qCWarning(lcSfuCall)
+            << "a retraction from before the rejoin landed in this room's "
+               "call; re-publishing our membership";
+        republishMembership();
+        return;
+    }
     if (m_retractOp == 0 || opId != m_retractOp)
         return;
     m_retractOp = 0;
+    m_retractAnswerTimer.stop();
     if (ok) {
         qCInfo(lcSfuCall) << "membership retracted attempts="
                           << m_retractAttempts;
-        m_retractRoomId.clear();
-        m_retractDelayId.clear();
-        m_retractAttempts = 0;
-        m_retractRetryTimer.stop();
+        clearOwedRetraction();
         return;
     }
     qCWarning(lcSfuCall) << "membership retraction FAILED category="
                          << category << "attempt=" << m_retractAttempts;
-    // Retry only transient failures.
+    // Retry only transient failures; anything else would fail the same way.
     const bool transient = category == QLatin1String("network")
         || category == QLatin1String("rate_limited");
-    if (!transient || m_retractAttempts >= kMaxRetractAttempts
-        || m_retractRoomId.isEmpty()) {
+    if (!transient || m_retractRoomId.isEmpty()) {
         qCWarning(lcSfuCall)
             << "giving up on the retraction. This device stays in the room's "
                "call membership until the server's delayed retraction fires, "
                "or until the membership expires. Nothing further is sent.";
-        m_retractRoomId.clear();
-        m_retractDelayId.clear();
-        m_retractAttempts = 0;
+        clearOwedRetraction();
         return;
     }
-    m_retractRetryTimer.start(kRetractRetryDelayMs
-                              * (1 << (m_retractAttempts - 1)));
+    // A transient failure keeps the retraction owed until the membership has
+    // expired for every reader. An attempt count is the wrong bound: the
+    // failure is usually the network itself, and it outlasts any short chain
+    // (a 75 s outage outlived the old four attempts by a minute).
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 left = m_retractDeadlineMs - now;
+    if (left <= 0) {
+        qCWarning(lcSfuCall)
+            << "giving up on the retraction: the membership has expired for "
+               "every reader by now. Nothing further is sent.";
+        clearOwedRetraction();
+        return;
+    }
+    qint64 delay = kRetractRetryDelayMs;
+    if (m_retractRetryPromptly) {
+        // The homeserver answered while this attempt was in flight, so the
+        // outage is over; do not sit out the full backoff.
+        m_retractRetryPromptly = false;
+    } else {
+        const int doublings = qBound(0, m_retractAttempts - 1, 10);
+        delay = qMin<qint64>(qint64(kRetractRetryDelayMs) << doublings,
+                             kRetractRetryMaxDelayMs);
+    }
+    // The last attempt lands at the deadline, not after it.
+    delay = qMin(delay, left);
+    qCInfo(lcSfuCall) << "call retraction still owed; next attempt in ms="
+                      << delay << "or as soon as the homeserver answers";
+    m_retractRetryTimer.start(static_cast<int>(delay));
+}
+
+void SfuCallController::onHomeserverReachable()
+{
+    const MembershipSettleGuard settle(this);
+    if (m_retractRoomId.isEmpty())
+        return;
+    if (m_retractOp != 0) {
+        // An attempt is in flight, possibly sent into the outage and still
+        // waiting out its timeout. Its failure retries promptly.
+        m_retractRetryPromptly = true;
+        return;
+    }
+    if (!owedRetractionStillDue())
+        return;
+    qCInfo(lcSfuCall)
+        << "the homeserver is reachable again; sending the owed call "
+           "retraction now";
+    m_retractRetryTimer.stop();
+    dispatchRetraction();
 }
 
 void SfuCallController::retryRetraction()
 {
     const MembershipSettleGuard settle(this);
-    if (m_retractRoomId.isEmpty())
+    if (m_retractRoomId.isEmpty() || m_retractOp != 0)
         return;
-    dispatchRetraction(m_retractRoomId, m_retractDelayId);
+    if (!owedRetractionStillDue())
+        return;
+    dispatchRetraction();
 }
 
-void SfuCallController::dispatchRetraction(const QString &roomId,
-                                           const QString &delayId)
+bool SfuCallController::owedRetractionStillDue()
+{
+    // The account check is the same promise abandonOutstandingMembershipWrites()
+    // keeps, made again at the moment of sending, since an owed retraction
+    // now waits minutes rather than seconds: never under another account.
+    const QString current = m_client ? m_client->currentUserId() : QString();
+    const QString device = m_client ? m_client->currentDeviceId() : QString();
+    // The device too: the state key is per device, and a re-login of the
+    // same account is a new device whose membership this is not.
+    if (current != m_retractUserId || device != m_retractDeviceId) {
+        qCWarning(lcSfuCall)
+            << "an owed call retraction belongs to an account that is no "
+               "longer the client's; dropped, the membership is the server's "
+               "to expire";
+        clearOwedRetraction();
+        return false;
+    }
+    // A timer armed by the failure path fires at the deadline at the latest,
+    // and that final attempt is still sent; only a later trigger is refused.
+    if (QDateTime::currentMSecsSinceEpoch()
+        > m_retractDeadlineMs + kRetractRetryDelayMs) {
+        qCInfo(lcSfuCall)
+            << "an owed call retraction is past the membership's expiry; "
+               "nothing further is sent";
+        clearOwedRetraction();
+        return false;
+    }
+    return true;
+}
+
+void SfuCallController::startRetraction(const QString &roomId,
+                                        const QString &delayId,
+                                        qint64 acceptedAtMs, bool longExpiry)
 {
     if (!m_client || roomId.isEmpty())
         return;
+    // Supersedes a retraction still owed to another room (one slot). That
+    // one was offered to the server at least once, and its membership
+    // expires on its own.
+    if (!m_retractRoomId.isEmpty() && m_retractRoomId != roomId) {
+        qCWarning(lcSfuCall)
+            << "an owed call retraction for another room is superseded by "
+               "this leave; that membership is now the server's to expire";
+    }
+    clearOwedRetraction();
     m_retractRoomId = roomId;
     m_retractDelayId = delayId;
-    ++m_retractAttempts;
-    m_retractOp = m_client->rtcRetractMembership(roomId, delayId);
-    if (m_retractOp != 0)
+    m_retractUserId = m_client->currentUserId();
+    m_retractDeviceId = m_client->currentDeviceId();
+    m_retractDeadlineMs = acceptedAtMs
+        + (longExpiry ? m_retractOwedLongForMs : m_retractOwedForMs);
+    dispatchRetraction();
+}
+
+void SfuCallController::dispatchRetraction()
+{
+    if (!m_client || m_retractRoomId.isEmpty())
         return;
+    // One attempt at a time; its answer arms the next.
+    m_retractRetryTimer.stop();
+    ++m_retractAttempts;
+    m_retractOp =
+        m_client->rtcRetractMembership(m_retractRoomId, m_retractDelayId);
+    if (m_retractOp != 0) {
+        m_retractAnswerTimer.start(m_retractAnswerTimeoutMs);
+        return;
+    }
     // Not dispatched, so no answer will arrive; do not wait for one.
     qCWarning(lcSfuCall)
         << "retraction could not be dispatched — this device will remain in "
            "the room's call membership until it expires";
+    clearOwedRetraction();
+}
+
+void SfuCallController::supersedeOwedRetractionFor(const QString &roomId)
+{
+    // A retraction still owed for this room is moot: we are re-joining, and
+    // a retry would remove the membership about to be created. An attempt
+    // already in flight cannot be recalled, so its op id is kept: if it is
+    // accepted after our new publish, onMembershipRetracted() re-publishes
+    // where no second delayed retraction can be armed.
+    if (roomId.isEmpty() || m_retractRoomId != roomId)
+        return;
+    if (m_retractOp != 0) {
+        m_supersededRetractOp = m_retractOp;
+        m_supersededRetractRoomId = roomId;
+    }
+    clearOwedRetraction();
+}
+
+void SfuCallController::clearOwedRetraction()
+{
+    m_retractRetryTimer.stop();
+    m_retractAnswerTimer.stop();
+    m_retractOp = 0;
     m_retractRoomId.clear();
     m_retractDelayId.clear();
+    m_retractUserId.clear();
+    m_retractDeviceId.clear();
+    m_retractDeadlineMs = 0;
     m_retractAttempts = 0;
+    m_retractRetryPromptly = false;
 }
 
 void SfuCallController::leave()
@@ -3784,11 +3989,14 @@ void SfuCallController::teardown(State finalState, const QString &error)
             // Only when a membership was actually published: retracting after
             // a refused publish would send a second doomed write and a false
             // "stays in the room" warning. The delay id may be empty (no
-            // MSC4140, or leave during Preparing). Tracked, bounded and
-            // retried; a retry from a previous leave is superseded.
-            m_retractRetryTimer.stop();
-            m_retractAttempts = 0;
-            dispatchRetraction(m_roomId, m_delayId);
+            // MSC4140, or leave during Preparing). Tracked and retried until
+            // the membership would have expired anyway, which is counted
+            // from the last write the server accepted.
+            startRetraction(m_roomId, m_delayId,
+                            m_membershipAcceptedMs > 0
+                                ? m_membershipAcceptedMs
+                                : QDateTime::currentMSecsSinceEpoch(),
+                            m_membershipLongExpiryUnguarded);
         }
     }
 
@@ -3796,6 +4004,8 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_focusUrl.clear();
     m_membershipEventId.clear();
     m_membershipPublished = false;
+    m_membershipAcceptedMs = 0;
+    m_membershipLongExpiryUnguarded = false;
     m_delayId.clear();
     // Clear the reason with the id it explains.
     m_delayedCategory.clear();
@@ -5058,6 +5268,7 @@ quint64 SfuCallController::beginMembershipPublishForTest(
     // the answer reaches the production onMembershipPublished().
     if (!m_client)
         return 0;
+    supersedeOwedRetractionFor(roomId);
     m_roomId = roomId;
     m_focusUrl = focusUrl;
     // Tests never announce the call.

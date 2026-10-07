@@ -91,7 +91,7 @@ public:
     // resolved a store path; empty otherwise.
     QString rustStorePath() const;
     bool    rustStorePathIsOverride() const;
-    QString currentDeviceId() const;
+    QString currentDeviceId() const override;
 
     // Testing hook for persistent smoke mismatch recovery. Destroys the Rust
     // handle and deletes only the currently selected account's SDK store path.

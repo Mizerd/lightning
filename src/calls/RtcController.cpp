@@ -18,6 +18,15 @@ Q_LOGGING_CATEGORY(lcRtc, "lightning.calls.rtc")
 constexpr int kMaxPresentedParticipants = 64;
 /// Bound on rooms holding refusal evidence; in practice one or two.
 constexpr int kMaxRefusedRooms = 32;
+/// The expiry re-read waits this long past the deadline, so the Rust read
+/// (which drops a membership once `expires_at_ms <= now`) is sure to see it
+/// expired.
+constexpr qint64 kExpiryRereadGraceMs = 1000;
+/// Shortest wait for an expiry already past, so a burst coalesces.
+constexpr qint64 kExpiryRereadFloorMs = 100;
+/// Expiries further out than this are not watched (the timer is re-armed on
+/// every read anyway); also keeps the interval far inside QTimer's int.
+constexpr qint64 kMaxExpiryWatchMs = 24LL * 60 * 60 * 1000;
 } // namespace
 
 RtcController::RtcController(QObject *parent) : QObject(parent)
@@ -27,6 +36,9 @@ RtcController::RtcController(QObject *parent) : QObject(parent)
     m_permissionRereadTimer.setSingleShot(true);
     connect(&m_permissionRereadTimer, &QTimer::timeout, this,
             &RtcController::rereadCurrentRoomPermission);
+    m_expiryTimer.setSingleShot(true);
+    connect(&m_expiryTimer, &QTimer::timeout, this,
+            &RtcController::rereadExpiredSessions);
 }
 
 void RtcController::setClient(MatrixClient *client)
@@ -77,6 +89,8 @@ void RtcController::clearForNewSession()
     m_lastServerReadMs.clear();
     m_serverReadStreak.clear();
     m_pokeTimer.stop();
+    m_expiryTimer.stop();
+    m_sessionReadAtMs.clear();
     m_discovered = false;
     m_serverAnswered = false;
     m_serviceUrls.clear();
@@ -521,6 +535,9 @@ void RtcController::onSessionReceived(quint64 opId,
 
     const RtcSessionData previous = m_sessions.value(session.roomId);
     m_sessions.insert(session.roomId, session);
+    // What this answer can vouch for: memberships that expired before the
+    // read was dispatched. One that expires later still needs a read.
+    m_sessionReadAtMs.insert(session.roomId, read.dispatchedAtMs);
     // Counts only, never ids: distinguishes "nobody else here" from "nobody
     // addressable".
     qCInfo(lcRtc) << "session read room participants=" << session.participants.size()
@@ -553,6 +570,73 @@ void RtcController::onSessionReceived(quint64 opId,
         m_serverReadStreak.remove(session.roomId);
         Q_EMIT sessionChanged(session.roomId);
     }
+    scheduleExpiryReread();
+}
+
+bool RtcController::expiryReadDue(const QString &roomId, qint64 expiresAtMs,
+                                  qint64 nowMs) const
+{
+    // Due when it has expired and no read was dispatched since. A read
+    // dispatched after the expiry already answered without it (or kept it,
+    // and asking again would spin).
+    return expiresAtMs <= nowMs
+        && expiresAtMs > m_sessionReadAtMs.value(roomId, 0);
+}
+
+void RtcController::scheduleExpiryReread()
+{
+    // A membership leaves the session when it is retracted OR when it
+    // expires, and expiry writes nothing, so no poke follows it. A client
+    // that crashed or lost its network (and so never retracted) then stayed
+    // in the banner until some unrelated write to the room's call state.
+    //
+    // Every expiry not yet covered by a read counts, including one already
+    // past: an unrelated read landing between the expiry and the timer
+    // re-arms the timer, and must not lose it.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    qint64 next = 0;
+    for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it) {
+        const qint64 readAt = m_sessionReadAtMs.value(it.key(), 0);
+        for (const RtcParticipant &p : it->participants) {
+            if (p.expiresAtMs <= readAt
+                || p.expiresAtMs - now > kMaxExpiryWatchMs)
+                continue;
+            if (next == 0 || p.expiresAtMs < next)
+                next = p.expiresAtMs;
+        }
+    }
+    if (next == 0) {
+        m_expiryTimer.stop();
+        return;
+    }
+    const qint64 delay =
+        qMax(next + kExpiryRereadGraceMs - now, kExpiryRereadFloorMs);
+    m_expiryTimer.start(static_cast<int>(delay));
+}
+
+void RtcController::rereadExpiredSessions()
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    QStringList rooms;
+    for (auto it = m_sessions.cbegin(); it != m_sessions.cend(); ++it) {
+        for (const RtcParticipant &p : it->participants) {
+            if (expiryReadDue(it.key(), p.expiresAtMs, now)) {
+                rooms.append(it.key());
+                break;
+            }
+        }
+    }
+    // Raised before the poke, so these expiries count as asked about even
+    // while the read is coalescing; the read's own answer then records its
+    // dispatch time. This is what stops a membership the store keeps from
+    // being asked about again and again.
+    for (const QString &roomId : std::as_const(rooms))
+        m_sessionReadAtMs.insert(roomId, now);
+    // Through the poke path, so a read already in flight is followed rather
+    // than doubled, and a burst of expiries is one read per room.
+    for (const QString &roomId : std::as_const(rooms))
+        onSessionPoked(roomId);
+    scheduleExpiryReread();
 }
 
 void RtcController::onTransportsReceived(quint64 opId, bool serverAnswered,

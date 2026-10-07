@@ -45,6 +45,7 @@
 #include <QUrl>
 
 #include <algorithm>
+#include <limits>
 
 Q_LOGGING_CATEGORY(lcRust, "matrix.rust")
 
@@ -5340,6 +5341,11 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         else if (state == QLatin1String("starting") || state == QLatin1String("retrying"))
             setState(Syncing);
         else if (state == QLatin1String("running")) setState(Syncing);
+        // "retrying" maps to Syncing as well, so the connection state cannot
+        // say the server answered; this edge can (repeats are collapsed
+        // above).
+        if (state == QLatin1String("running"))
+            Q_EMIT homeserverReachable();
         return;
     }
 
@@ -9453,8 +9459,14 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                 row.value(QStringLiteral("avatar_mxc")).toString();
             participant.joinedAtMs = static_cast<qint64>(
                 row.value(QStringLiteral("created_ts")).toDouble());
-            participant.expiresAtMs = static_cast<qint64>(
-                row.value(QStringLiteral("expires_at_ms")).toDouble());
+            // A sticky (MSC4143) membership has no expiry and Rust sends
+            // u64::MAX, which a double rounds above qint64's range; casting
+            // that is undefined. Anything that large means "never".
+            const double expiresAt =
+                row.value(QStringLiteral("expires_at_ms")).toDouble();
+            participant.expiresAtMs = !(expiresAt < 9.2e18)
+                ? std::numeric_limits<qint64>::max()
+                : static_cast<qint64>(qMax(0.0, expiresAt));
             participant.wireFormat = row.value(QStringLiteral("kind")).toString();
             participant.membershipEventId =
                 row.value(QStringLiteral("event_id")).toString();

@@ -265,6 +265,8 @@ private Q_SLOTS:
                                const QVariantMap &snapshot);
     void onRoomMemberEventSeen(const QString &roomId);
     void rereadCurrentRoomPermission();
+    /// Re-read every session holding a membership whose expiry has passed.
+    void rereadExpiredSessions();
 
 private:
     void clearForNewSession();
@@ -273,6 +275,13 @@ private:
     void requestPermissionRead(const QString &roomId);
     void flushPokes();
     void reapStaleReads();
+    /// Arm m_expiryTimer for the earliest membership expiry no read has
+    /// covered yet, or stop it when there is none.
+    void scheduleExpiryReread();
+    /// Whether a membership expiring at `expiresAtMs` has expired by `nowMs`
+    /// with no read of its room dispatched since.
+    bool expiryReadDue(const QString &roomId, qint64 expiresAtMs,
+                       qint64 nowMs) const;
     /// True when some transport is reachable for this room: its session's
     /// focus, the homeserver's answer, or a focus its participants advertise.
     bool transportReachableFor(const QString &roomId) const;
@@ -337,6 +346,14 @@ private:
     // Coalesced pokes.
     QSet<QString> m_pokedRooms;
     QTimer m_pokeTimer;
+    /// Fires just after the earliest observed membership expiry. Expiry
+    /// writes no state, so nothing else would make a vanished client's
+    /// membership leave the banner and the facepile.
+    QTimer m_expiryTimer;
+    /// Per room: when the read behind the stored session was dispatched,
+    /// raised to now when an expiry re-read is requested. An expiry at or
+    /// before it has been asked about.
+    QHash<QString, qint64> m_sessionReadAtMs;
     int m_pokeCoalesceMs = 250;
     /// How long a dispatched read may stay outstanding before its room is
     /// released.

@@ -15,6 +15,7 @@
 #include "calls/RtcController.h"
 #include "matrix/MatrixClient.h"
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -172,6 +173,10 @@ private Q_SLOTS:
     void anExistingSessionsFocusOutranksOurOwnHomeserver();
     void mediaKeyTargetsAddressEveryOtherDeviceAndNotOurOwn();
     void mediaKeyTargetsAreEmptyForARoomWithNoSession();
+    void anExpiredMembershipLeavesTheSessionWithoutAPoke();
+    void anUnrelatedReadInsideTheGraceWindowKeepsTheExpiryReread();
+    void aReadDispatchedBeforeTheExpiryDoesNotCoverIt();
+    void aMembershipTheStoreKeepsIsNotReReadForever();
     void anOrdinaryRefreshTrustsTheLocalStore();
     void aForcedRefreshAsksTheHomeserver();
     void aForcedRefreshIsRateLimitedPerRoom();
@@ -800,6 +805,140 @@ void RtcSessionTest::anEncryptedRoomRefusesWithoutMediaEncryption()
 // Server-backed reads. The SFU only lists participants who authenticated as
 // real Matrix identities, so one that no membership accounts for means our
 // local state is incomplete; a forced /state read is the way back.
+
+// Expiry writes no state event, so nothing pokes the room when a membership
+// runs out. A client that crashed or lost its network (Windows, pipeline 292:
+// the call ended on a 75 s outage and its retraction never landed) must still
+// leave the banner when its membership expires, not at the next unrelated
+// write to the room's call state.
+void RtcSessionTest::anExpiredMembershipLeavesTheSessionWithoutAPoke()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setPokeCoalesceMsForTest(10);
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    RtcParticipant live = person(QStringLiteral("@a:example.org"),
+                                 QStringLiteral("D1"), now);
+    live.expiresAtMs = now + 3600000;
+    RtcParticipant ghost = person(QStringLiteral("@ghost:example.org"),
+                                  QStringLiteral("GHOST"), now - 290000);
+    ghost.expiresAtMs = now + 200;
+
+    controller.refresh(kRoom);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {live, ghost}));
+    QCOMPARE(controller.participantCount(kRoom), 2);
+    QCOMPARE(client.sessionReads.count(), 1);
+
+    // No poke arrives; the controller re-reads once the ghost has expired.
+    QTRY_COMPARE_WITH_TIMEOUT(client.sessionReads.count(), 2, 3000);
+    QCOMPARE(client.sessionReads.last(), kRoom);
+    // The store drops an expired membership, so the re-read answers without it.
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {live}));
+    QCOMPARE(controller.participantCount(kRoom), 1);
+
+    // The remaining expiry is an hour out: nothing more is read meanwhile.
+    QTest::qWait(1500);
+    QCOMPARE(client.sessionReads.count(), 2);
+}
+
+// The expiry re-read must survive another read landing between the expiry
+// and its timer: re-arming on that read once skipped every expiry already
+// past, so the ghost stayed until an unrelated poke.
+void RtcSessionTest::anUnrelatedReadInsideTheGraceWindowKeepsTheExpiryReread()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setPokeCoalesceMsForTest(10);
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    RtcParticipant live = person(QStringLiteral("@a:example.org"),
+                                 QStringLiteral("D1"), now);
+    live.expiresAtMs = now + 3600000;
+    RtcParticipant ghost = person(QStringLiteral("@ghost:example.org"),
+                                  QStringLiteral("GHOST"), now - 290000);
+    ghost.expiresAtMs = now + 200;
+
+    controller.refresh(kRoom);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {live, ghost}));
+    controller.refresh(kOther);
+    const quint64 otherOp = client.lastSessionOp;
+
+    // The ghost has expired; its re-read is due about a second later. The
+    // other room's answer lands in between.
+    QTest::qWait(500);
+    Q_EMIT client.rtcSessionReceived(otherOp, sessionFor(kOther, {live}));
+
+    QTRY_COMPARE_WITH_TIMEOUT(client.sessionReads.count(kRoom), 2, 3000);
+}
+
+// A read dispatched BEFORE a membership expired cannot vouch for it, even
+// when its answer arrives after.
+void RtcSessionTest::aReadDispatchedBeforeTheExpiryDoesNotCoverIt()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setPokeCoalesceMsForTest(10);
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    RtcParticipant live = person(QStringLiteral("@a:example.org"),
+                                 QStringLiteral("D1"), now);
+    live.expiresAtMs = now + 3600000;
+    RtcParticipant ghost = person(QStringLiteral("@ghost:example.org"),
+                                  QStringLiteral("GHOST"), now - 290000);
+    ghost.expiresAtMs = now + 300;
+
+    controller.refresh(kRoom);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {live, ghost}));
+    // A second read goes out while the ghost is live and is answered after
+    // it expired, still naming it.
+    controller.refresh(kRoom);
+    QCOMPARE(client.sessionReads.count(kRoom), 2);
+    QTest::qWait(500);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {live, ghost}));
+    QCOMPARE(controller.participantCount(kRoom), 2);
+
+    QTRY_COMPARE_WITH_TIMEOUT(client.sessionReads.count(kRoom), 3, 3000);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {live}));
+    QCOMPARE(controller.participantCount(kRoom), 1);
+
+    // Answered and nothing else due: no spin.
+    QTest::qWait(1500);
+    QCOMPARE(client.sessionReads.count(kRoom), 3);
+}
+
+// A store that keeps an expired membership (it answered after the expiry
+// and still named it) is not asked again and again.
+void RtcSessionTest::aMembershipTheStoreKeepsIsNotReReadForever()
+{
+    FakeClient client;
+    RtcController controller;
+    controller.setClient(&client);
+    controller.setPokeCoalesceMsForTest(10);
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    RtcParticipant ghost = person(QStringLiteral("@ghost:example.org"),
+                                  QStringLiteral("GHOST"), now - 290000);
+    ghost.expiresAtMs = now + 150;
+
+    controller.refresh(kRoom);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {ghost}));
+    QTRY_COMPARE_WITH_TIMEOUT(client.sessionReads.count(kRoom), 2, 3000);
+    Q_EMIT client.rtcSessionReceived(client.lastSessionOp,
+                                     sessionFor(kRoom, {ghost}));
+    QTest::qWait(1500);
+    QCOMPARE(client.sessionReads.count(kRoom), 2);
+}
 
 void RtcSessionTest::anOrdinaryRefreshTrustsTheLocalStore()
 {
