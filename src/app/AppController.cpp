@@ -4343,8 +4343,46 @@ void AppController::mismatchVerification()
 #endif
 }
 
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+namespace {
+const QString kDemoVerificationFlowId = QStringLiteral("demo-verification");
+} // namespace
+
+void AppController::stageDemoVerification(const QString &otherDevice,
+                                          const QVariantList &emojis)
+{
+    if (!m_screenshotDemoActive)
+        return;
+    if (emojis.isEmpty()) {
+        // Only ever clears the staged flow, never a real one.
+        if (m_verificationFlowId != kDemoVerificationFlowId)
+            return;
+        m_verificationFlowId.clear();
+        m_verificationState.clear();
+        m_verificationEmojis.clear();
+        Q_EMIT verificationStateChanged();
+        return;
+    }
+    m_verificationFlowId = kDemoVerificationFlowId;
+    m_verificationOtherUser = m_client ? m_client->currentUserId() : QString();
+    m_verificationOtherDevice = otherDevice;
+    m_verificationIsSelf = true;
+    m_verificationEmojis = emojis;
+    m_verificationDecimals.clear();
+    m_verificationState = QStringLiteral("sas_ready");
+    Q_EMIT verificationStateChanged();
+}
+#endif
+
 void AppController::cancelVerification()
 {
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // The staged demo flow has no SDK side; Cancel just clears it.
+    if (m_verificationFlowId == kDemoVerificationFlowId) {
+        stageDemoVerification(QString(), {});
+        return;
+    }
+#endif
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (m_backend != RustBackend || !m_client)
         return;

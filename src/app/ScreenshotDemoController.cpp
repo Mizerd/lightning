@@ -1,6 +1,7 @@
 #include "app/ScreenshotDemoController.h"
 
 #include "app/AppController.h"
+#include "app/CustomThemeStore.h"
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "gif/GifFavoritesModel.h"
@@ -11,6 +12,8 @@
 #include "threads/ThreadController.h"
 
 #include <QFile>
+#include <QGuiApplication>
+#include <QStyleHints>
 #include <QTimer>
 
 #include <iterator>
@@ -23,8 +26,8 @@ struct ScreenshotDemoController::Scenario {
     QString account;      // full user id
     QString room;         // room id ("" = none)
     QString space;        // active space id ("" = all rooms)
-    QString page;         // "" | "settings-appearance" | "settings-security"
-                          // | "settings-sessions" | "account-switcher"
+    QString page;         // "" | "settings-<section>" (appearance, security,
+                          // sessions, sound, …) | "account-switcher"
     bool openThread = false;
     int theme = -1;       // SettingsManager::Theme id (-1 = leave as is)
     bool typing = false;
@@ -124,19 +127,55 @@ ScreenshotDemoController::catalogue()
           .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
           .title = QStringLiteral("Find in room — local search"),
           .popup = QStringLiteral("find-in-room"),
-          .query = QStringLiteral("theme") },
+          .query = QStringLiteral("poster") },
         { .id = QStringLiteral("find-in-room-history"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
           .title = QStringLiteral("Find in room — searching history"),
           .popup = QStringLiteral("find-in-room-history"),
-          .query = QStringLiteral("theme") },
+          .query = QStringLiteral("poster") },
         { .id = QStringLiteral("room-widgets"), .account = kAlex,
           .room = QStringLiteral("!design-lounge:lightning.example"),
           .theme = kStormTheme, .size = QStringLiteral("1600x1000"),
           .title = QStringLiteral("Room Information — widgets"),
           // The widget list is on the panel's default "overview" section.
           .popup = QStringLiteral("room-info") },
+
+        // The custom theme editor on its gradient conversation background.
+        { .id = QStringLiteral("theme-editor"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .page = QStringLiteral("settings-appearance"),
+          .theme = 9, .size = QStringLiteral("1600x1000"),
+          .title = QStringLiteral("Custom theme editor — gradient"),
+          .popup = QStringLiteral("theme-editor"),
+          .query = QStringLiteral("background") },
+        // The store/README hero: every room in the Classic list, the default
+        // dark theme, the conversation with its photo, reply and thread.
+        { .id = QStringLiteral("store-hero"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .theme = 9, .typing = true, .size = QStringLiteral("1920x1080"),
+          .title = QStringLiteral("Store hero — Design Lounge"),
+          .navLayout = 0 },
+        // Verifying a new session by comparing emoji (staged; no SDK flow).
+        { .id = QStringLiteral("verification"), .account = kAlex,
+          .room = QStringLiteral("!dm-maya:lightning.example"),
+          .theme = 9, .size = QStringLiteral("1440x900"),
+          .title = QStringLiteral("Session verification — emoji"),
+          .popup = QStringLiteral("verification"),
+          .navLayout = 0 },
+        // Settings → Sound & video: devices, noise suppression, share quality.
+        { .id = QStringLiteral("settings-sound"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .page = QStringLiteral("settings-sound"),
+          .theme = 9, .size = QStringLiteral("1440x900"),
+          .title = QStringLiteral("Settings — Sound & video") },
+        // The hero's room with its poster-copy thread open beside it.
+        { .id = QStringLiteral("store-thread"), .account = kAlex,
+          .room = QStringLiteral("!design-lounge:lightning.example"),
+          .openThread = true, .theme = 9,
+          .size = QStringLiteral("1920x1080"),
+          .title = QStringLiteral("Store — a thread beside its room"),
+          .navLayout = 0 },
 
         // Classic is set explicitly so the shot does not depend on the
         // profile's last layout.
@@ -227,13 +266,6 @@ ScreenshotDemoController::catalogue()
           QString(), false, kStormTheme, false, QStringLiteral("1440x900"), true,
           QStringLiteral("Room context menu"),
           QStringLiteral("room-menu"), QString() },
-        { QStringLiteral("find-in-room"), kAlex,
-          QStringLiteral("!design-lounge:lightning.example"),
-          QStringLiteral("!space-studio:lightning.example"),
-          QString(), false, kStormTheme, false, QStringLiteral("1440x900"), true,
-          // Pre-filled so the match counter and prev/next controls are live.
-          QStringLiteral("Find in loaded messages (in-room search card)"),
-          QStringLiteral("find-in-room"), QStringLiteral("layout") },
         { QStringLiteral("quick-switcher"), kAlex,
           QStringLiteral("!design-lounge:lightning.example"),
           QStringLiteral("!space-studio:lightning.example"),
@@ -654,14 +686,10 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
         }
     }
 
-    if (s.page == QLatin1String("settings-appearance")) {
-        m_app->showSettingsSection(QStringLiteral("appearance"));
-        m_app->showSettings();
-    } else if (s.page == QLatin1String("settings-security")) {
-        m_app->showSettingsSection(QStringLiteral("security"));
-        m_app->showSettings();
-    } else if (s.page == QLatin1String("settings-sessions")) {
-        m_app->showSettingsSection(QStringLiteral("sessions"));
+    if (s.page.startsWith(QLatin1String("settings-"))) {
+        // "settings-<section>": appearance, security, sessions, sound, …
+        m_app->showSettingsSection(
+            s.page.mid(int(qstrlen("settings-"))));
         m_app->showSettings();
     } else if (s.page == QLatin1String("account-switcher")) {
         m_app->showMain();
@@ -683,6 +711,8 @@ void ScreenshotDemoController::applyScenarioNavigation(const Scenario &s)
         seedDemoEmojiRecents();
     else if (s.popup == QLatin1String("gif-picker"))
         seedDemoGifFavorite();
+    else if (s.popup == QLatin1String("theme-editor"))
+        seedDemoCustomTheme();
     dispatchScenarioPopup(s.id, s.popup, s.query);
 
     Q_EMIT stateChanged();
@@ -694,6 +724,9 @@ void ScreenshotDemoController::dispatchScenarioPopup(const QString &scenarioId,
                                                      const QString &popup,
                                                      const QString &query)
 {
+    // A staged verification belongs to its scenario only.
+    if (m_app && popup != QLatin1String("verification"))
+        m_app->stageDemoVerification(QString(), {});
     if (popup.isEmpty())
         return;
     // Deferred one tick so the delegate a popup anchors to exists; dropped
@@ -731,7 +764,57 @@ void ScreenshotDemoController::dispatchScenarioPopup(const QString &scenarioId,
             Q_EMIT demoOpenRoomInfo(query);
         else if (popup == QLatin1String("find-in-room-history"))
             Q_EMIT demoOpenFindBarHistory(query);
+        else if (popup == QLatin1String("theme-editor"))
+            Q_EMIT demoOpenThemeEditor(query);
+        else if (popup == QLatin1String("verification"))
+            stageDemoVerification();
     });
+}
+
+// The emoji step of verifying a second session of the demo account. Seven
+// entries from the SAS emoji table, fixed so the shot reproduces; nothing is
+// computed from any key.
+void ScreenshotDemoController::stageDemoVerification()
+{
+    if (!m_app)
+        return;
+    struct Sas { const char *symbol; const char *description; };
+    static const Sas kEmojis[] = {
+        { "\U0001F436", "Dog" },     { "\U0001F511", "Key" },
+        { "\U0001F335", "Cactus" },  { "\U0001F3B8", "Guitar" },
+        { "\U0001F680", "Rocket" },  { "\U0001F344", "Mushroom" },
+        { "⚓", "Anchor" },
+    };
+    QVariantList emojis;
+    for (const Sas &e : kEmojis) {
+        emojis.append(QVariantMap{
+            { QStringLiteral("symbol"), QString::fromUtf8(e.symbol) },
+            { QStringLiteral("description"), QString::fromLatin1(e.description) },
+        });
+    }
+    m_app->stageDemoVerification(QStringLiteral("LAPTOPDEMO2"), emojis);
+}
+
+// A custom theme on the default dark base with a gradient conversation
+// background, so the editor opens on something worth showing. Written
+// through the store's normal setters into the isolated demo profile.
+void ScreenshotDemoController::seedDemoCustomTheme()
+{
+    if (!m_app || !m_app->customTheme())
+        return;
+    CustomThemeStore *store = m_app->customTheme();
+    if (!store->exists())
+        store->createTheme(QStringLiteral("Lakeside"));
+    store->setName(QStringLiteral("Lakeside"));
+    store->setBaseTheme(SettingsManager::IndigoNightTheme);
+    store->setGradient(QStringLiteral("background"), QVariantMap{
+        { QStringLiteral("type"), QStringLiteral("linear") },
+        { QStringLiteral("angle"), 160 },
+        { QStringLiteral("stops"), QStringList{ QStringLiteral("#0E2A47"),
+                                                QStringLiteral("#2B1B4F"),
+                                                QStringLiteral("#4A1838") } },
+    });
+    store->sealUndoStep();
 }
 
 void ScreenshotDemoController::seedDemoEmojiRecents()
@@ -869,7 +952,14 @@ void ScreenshotDemoController::setThemeByName(const QString &name)
 void ScreenshotDemoController::setAppearance(const QString &mode)
 {
     const QString m = mode.trimmed().toLower();
-    if (m == QLatin1String("system"))
+    if (m == QLatin1String("system-dark")) {
+        // What a fresh install shows on a dark desktop: "Match system" on,
+        // resolving to Indigo Night. Asks Qt for a dark scheme, which a
+        // headless capture's platform does not report by itself.
+        if (auto *hints = QGuiApplication::styleHints())
+            hints->setColorScheme(Qt::ColorScheme::Dark);
+        setTheme(0);
+    } else if (m == QLatin1String("system"))
         setTheme(0);
     else if (m == QLatin1String("light"))
         setTheme(8);   // Moss Light

@@ -26,7 +26,7 @@ directory](https://matrix.org/ecosystem/clients/lightning/), so expect rough
 edges.
 
 <p align="center">
-  <img src="docs/screenshots/flathub/01-conversation.png" width="800" alt="A room conversation with replies, reactions and a thread">
+  <img src="docs/screenshots/readme-hero.png" width="800" alt="Lightning in its default dark theme: a room conversation with a shared picture, replies, reactions and a thread">
 </p>
 
 ## Features

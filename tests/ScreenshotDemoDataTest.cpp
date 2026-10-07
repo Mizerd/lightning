@@ -121,15 +121,24 @@ private Q_SLOTS:
             }
         }
         QVERIFY(!rootId.isEmpty());
+        // Like the Rust backend's live timeline, the room's main timeline
+        // carries no thread reply (CLAUDE.md §8)...
         for (const auto &e : tl)
-            if (e.threadRootId == rootId)
-                ++replyCount;
-        QCOMPARE(replyCount, 4);
+            QVERIFY2(e.threadRootId.isEmpty(),
+                     "a thread reply leaked into the main timeline");
 
-        // The real thread path rebuilds root + replies from the room timeline.
+        // ...and the real thread path rebuilds root + replies.
         QSignalSpy reset(&c, &MockMatrixClient::timelineReset);
         c.openThread(dev, rootId);
         QVERIFY(reset.count() >= 1);
+        const auto thread =
+            c.timeline(MatrixClient::threadTimelineId(dev, rootId));
+        QVERIFY(!thread.isEmpty());
+        QCOMPARE(thread.first().eventId, rootId);
+        for (const auto &e : thread)
+            if (e.threadRootId == rootId)
+                ++replyCount;
+        QCOMPARE(replyCount, 4);
     }
 
     void timestampsAndEventIdsAreDeterministic()

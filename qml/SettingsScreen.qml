@@ -2371,6 +2371,16 @@ Item {
                                     themeEditorLoader.active = false
                                 }
                             }
+                            // Screenshot demo (`theme-editor` scenario);
+                            // inert outside a demo build.
+                            Connections {
+                                target: app.demo
+                                enabled: app.screenshotDemoActive
+                                function onDemoOpenThemeEditor(role) {
+                                    root.themeEditorStartRole = role
+                                    themeEditorLoader.active = true
+                                }
+                            }
                         }
 
                         // Match-system row: 36×20 switch, 16px white thumb,

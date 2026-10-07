@@ -24,8 +24,10 @@ class ScreenshotDemoInteractionsTest : public QObject
             if (e.type != TimelineEvent::Poll)
                 continue;
             for (const PollAnswer &a : e.pollAnswers) {
-                if (a.text == QLatin1String("Midnight") && midnightId) *midnightId = a.id;
-                if (a.text == QLatin1String("Ocean") && oceanId) *oceanId = a.id;
+                // By answer id, not label: the labels are demo copy. a1 is
+                // the seeded vote (4), a2 the runner-up (3).
+                if (a.id == QLatin1String("a1") && midnightId) *midnightId = a.id;
+                if (a.id == QLatin1String("a2") && oceanId) *oceanId = a.id;
             }
             return e.eventId;
         }

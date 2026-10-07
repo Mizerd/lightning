@@ -526,6 +526,13 @@ public:
                                 bool hideControls);
     // Development-only demo controller; null unless demo mode is active.
     QObject *demoController() const { return m_demoController; }
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // Development-only: show the verification dialog at its emoji step with
+    // fixed, fictional presentation state (no SDK flow, no keys, no trust
+    // change), or clear it with an empty `emojis`. Demo mode only.
+    void stageDemoVerification(const QString &otherDevice,
+                               const QVariantList &emojis);
+#endif
     QString backendName() const;
     bool serverRoomNotificationModes() const;
     QString connectionStatus() const { return m_connectionStatus; }

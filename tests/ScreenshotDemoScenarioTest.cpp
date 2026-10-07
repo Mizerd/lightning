@@ -134,6 +134,12 @@ private Q_SLOTS:
             QStringLiteral("channels-home"), QStringLiteral("channels-space"),
             QStringLiteral("channels-people"), QStringLiteral("classic-home"),
             QStringLiteral("call-grid"), QStringLiteral("call-screen-share"),
+            // The store screenshots (docs/screenshot-demo.md).
+            QStringLiteral("theme-editor"), QStringLiteral("store-hero"),
+            QStringLiteral("store-thread"), QStringLiteral("settings-sound"),
+            QStringLiteral("verification"),
+            // Find in history and the room-widget panel.
+            QStringLiteral("find-in-room-history"), QStringLiteral("room-widgets"),
         };
         for (const QString &r : required)
             QVERIFY2(ids.contains(r), qUtf8Printable("missing scenario: " + r));

@@ -25,25 +25,9 @@ MOGRIFY="${IMAGEMAGICK_MOGRIFY:-mogrify}"
 
 mk() { "$CONVERT" -strip "$@"; }
 
-# ── Abstract avatars (square; the provider circle-masks them) ────────────
-# One stable hue per fictional person + a soft radial highlight and an initial.
-avatar() { # name hexA hexB initial
-    local name="$1" a="$2" b="$3" ch="$4"
-    mk -size 224x224 "radial-gradient:${a}-${b}" \
-        -gravity center -pointsize 120 -font DejaVu-Sans-Bold \
-        -fill "#ffffffcc" -annotate 0 "$ch" \
-        "$OUT/avatar-${name}.png"
-}
-avatar alex   "#5b8def" "#2b4a8f" "A"
-avatar taylor "#e0794a" "#a8431f" "T"
-avatar nova   "#7b5bef" "#3d2b8f" "N"
-avatar maya   "#ef5b9c" "#8f2b5a" "M"
-avatar jordan "#4ac0a0" "#1f7a5f" "J"
-avatar sam    "#efc14a" "#a8801f" "S"
-avatar aisha  "#5bcfef" "#1f6f8f" "A"
-avatar noah   "#8fb04a" "#4f6f1f" "N"
-avatar priya  "#ef7b5b" "#a8431f" "P"
-avatar leo    "#5b6bef" "#2b358f" "L"
+# ── Avatars ──────────────────────────────────────────────────────────────
+# Drawn portraits, made by scripts/generate-demo-avatars.py (not here, so this
+# script never overwrites them with initials).
 
 # ── Message images ───────────────────────────────────────────────────────
 # Abstract art: three-corner gradients (`bary`) plus geometric accents, at the

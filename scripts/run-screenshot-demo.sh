@@ -42,7 +42,7 @@ MARKER=".lightning-screenshot-demo"
 
 # The valid screenshot scenarios (kept in sync with ScreenshotDemoController).
 VALID_SCENARIOS="channels-home channels-space channels-people classic-home \
- call-grid call-screen-share \
+ call-grid call-screen-share theme-editor store-hero store-thread settings-sound verification find-in-room-history room-widgets \
 home-overview main-chat direct-message development \
 media-gallery thread-view poll settings-themes account-switching security \
 invite work-overview community-overview responsive-chat \

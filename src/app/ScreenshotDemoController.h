@@ -132,6 +132,9 @@ Q_SIGNALS:
     void demoOpenRoomInfo(const QString &section);
     /// Opens Find in History mode, which renders the local-index coverage row.
     void demoOpenFindBarHistory(const QString &query);
+    /// Opens the custom theme editor (Settings → Appearance) on `role`
+    /// ("" = its overview).
+    void demoOpenThemeEditor(const QString &role);
 
 private:
     struct Scenario;
@@ -144,6 +147,8 @@ private:
     // Idempotent seeds so picker scenarios are not empty.
     void seedDemoEmojiRecents();
     void seedDemoGifFavorite();
+    void seedDemoCustomTheme();
+    void stageDemoVerification();
     void seedDemoGifCatalogue();
     void seedDemoSavedGif();
     void applyLaunchNow();

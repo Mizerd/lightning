@@ -110,11 +110,11 @@ identifier. See [Application updates](updates.md).
 </table>
 
 > Every screenshot above comes from Lightning's development-only
-> [screenshot-demo mode](screenshot-demo.md): fictional `*.example` accounts
-> and locally generated media, never real conversations. The README's own
-> picture is one of the Flathub captures in `screenshots/flathub/`, which are
-> real window captures of throwaway test accounts in a fixture Space with
-> fictional room names (see `screenshot-demo.md`, "AppStream / Flathub
+> [screenshot-demo mode](screenshot-demo.md): fictional `*.example` accounts,
+> drawn avatars and generated pictures, never real conversations. So do the
+> README's own picture (`screenshots/readme-hero.png`, 3840x2160, default dark)
+> and the store set in `screenshots/flathub/` (Plasma window captures in the
+> default light style; see `screenshot-demo.md`, "AppStream / Flathub
 > captures").
 
 ## Status and known limits

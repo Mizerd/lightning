@@ -56,6 +56,12 @@
 
 #include "calls/SfuVideoRouter.h"
 #endif
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+// The staged demo call's shared-screen still (attachScreenSink).
+#include <QImage>
+#include <QVideoFrame>
+#include <QVideoSink>
+#endif
 
 Q_LOGGING_CATEGORY(lcSfuCall, "lightning.calls.group")
 
@@ -1382,17 +1388,22 @@ void SfuCallController::startDemoCall(const QString &roomId,
     struct DemoPerson {
         const char *id;
         const char *name;
+        const char *avatar;
         bool local;
         bool micMuted;
-        bool camera;
         bool hand;
     };
     // Fictional names only; a screenshot must never carry a real account.
+    // The same people as the demo's Design Lounge, with their avatars.
+    // Cameras are off: the demo has no faces to show, so every tile draws
+    // its avatar and only the screen share carries a picture.
     static const DemoPerson kPeople[] = {
-        { "@alex:lightning.example",  "Alex Rivera",  true,  false, true,  false },
-        { "@maya:lightning.example",  "Maya Chen",    false, false, true,  false },
-        { "@jordan:lightning.example","Jordan Blake", false, true,  false, true  },
-        { "@sam:lightning.example",   "Sam Okonkwo",  false, false, false, false },
+        { "@alex:lightning.example",   "Alex Morgan", "mxc://lightning.example/avatar-alex",   true,  false, false },
+        { "@maya:lightning.example",   "Maya Chen",   "mxc://lightning.example/avatar-maya",   false, false, false },
+        { "@jordan:lightning.example", "Jordan Lee",  "mxc://lightning.example/avatar-jordan", false, true,  true  },
+        { "@sam:lightning.example",    "Sam Rivera",  "mxc://lightning.example/avatar-sam",    false, false, false },
+        { "@aisha:lightning.example",  "Aisha Khan",  "mxc://lightning.example/avatar-aisha",  false, true,  false },
+        { "@priya:lightning.example",  "Priya Shah",  "mxc://lightning.example/avatar-priya",  false, false, false },
     };
 
     QVector<CallParticipantRow> rows;
@@ -1404,17 +1415,20 @@ void SfuCallController::startDemoCall(const QString &roomId,
                       .remove(QLatin1Char(' '));
         row.userId = QString::fromLatin1(p.id);
         row.displayName = QString::fromLatin1(p.name);
+        row.avatarMxc = QString::fromLatin1(p.avatar);
         row.local = p.local;
         // Known state, so tiles draw it rather than the unknown placeholder.
         row.micKnown = true;
         row.micMuted = p.micMuted;
         row.cameraKnown = true;
-        row.cameraOn = p.camera;
-        if (p.camera)
-            row.cameraTrackKey = QStringLiteral("TR_demo_cam_") + row.sid;
+        row.cameraOn = false;
         rows.append(row);
     }
     if (withScreenShare) {
+        // Four people: beside a spotlight the speaker strip is capped at
+        // 220 px and scrolls past four bubbles, which a still shows as a
+        // bubble cut in half.
+        rows.resize(4);
         // The share rides on a real participant, as in a live call.
         rows[1].screenSharing = true;
         rows[1].screenTrackKey = QStringLiteral("TR_demo_screen");
@@ -1433,10 +1447,14 @@ void SfuCallController::startDemoCall(const QString &roomId,
         level.insert(rows[1].sid, 0.62);
         m_participantModel->applySpeakers(active, level);
     }
+    // rebuildModels() is skipped for a demo call, and it is what derives the
+    // share rows; without them the stage has nothing to spotlight.
+    rebuildShareModel();
 
     m_micMuted = false;
-    m_cameraOn = true;
-    m_screenSharing = withScreenShare;
+    m_cameraOn = false;
+    // Maya shares, not the local user.
+    m_screenSharing = false;
     setState(State::Connected);
     Q_EMIT mediaStateChanged();
     Q_EMIT participantsChanged();
@@ -1450,6 +1468,7 @@ void SfuCallController::endDemoCall()
     m_demoCall = false;
     if (m_participantModel)
         m_participantModel->applyParticipants({});
+    rebuildShareModel();
     m_screenSharing = false;
     m_cameraOn = false;
     m_roomId.clear();
@@ -3254,6 +3273,19 @@ void SfuCallController::attachVideoSink(const QString &identity,
 void SfuCallController::attachScreenSink(const QString &identity,
                                          QObject *videoSink)
 {
+#ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
+    // A staged demo call has no media engine: show a bundled still as the
+    // shared screen so the stage is not an empty frame.
+    if (m_demoCall) {
+        if (auto *sink = qobject_cast<QVideoSink *>(videoSink)) {
+            const QImage still(QStringLiteral(
+                ":/qt/qml/MatrixClient/resources/screenshot-demo/share-poster.jpg"));
+            if (!still.isNull())
+                sink->setVideoFrame(QVideoFrame(still));
+        }
+        return;
+    }
+#endif
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!m_videoRouter)
         return;

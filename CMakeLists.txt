@@ -1154,6 +1154,14 @@ if(LIGHTNING_ENABLE_SCREENSHOT_DEMO)
         resources/screenshot-demo/shot-timeline.png
         resources/screenshot-demo/palette.png
         resources/screenshot-demo/timelapse.png
+        # Illustrated scenes (scripts/generate-demo-scenes.py).
+        resources/screenshot-demo/lake.png
+        resources/screenshot-demo/forest-trail.png
+        resources/screenshot-demo/fallen-leaf.png
+        # The demo call's shared screen (scripts/generate-demo-share.py).
+        resources/screenshot-demo/share-poster.jpg
+        # Lightning's own icon, as the community Space's avatar.
+        resources/screenshot-demo/lightning-icon.png
         resources/screenshot-demo/loop.gif
         # Animated fixtures for the GIF picker (scripts/generate-demo-gifs.sh);
         # demo mode has no network or provider key.
