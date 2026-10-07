@@ -837,6 +837,136 @@ print the same line — so a share that never finds an application says so
 after about thirty seconds with `no application audio stream has been found
 … this share is carrying silence`.
 
+### Choosing which applications are heard (2026-10-07)
+
+Reported from a Linux Mint user ("my friend's friend hears nothing") and as a
+feature request ("individual window sharing with only that window's audio,
+like Discord"). The audit found three reasons per-application capture had
+**never run on any packaged build**, and the feature behind them did not
+exist:
+
+* **`pipewiresrc on-disconnect` exists only from PipeWire 1.6** (read in the
+  sources of 0.3.48, 1.0.5, 1.2.7, 1.4.2 and 1.6.6). The gate required it, so
+  the AppImage (Debian 13's 1.4.2), every Ubuntu/Mint (1.0.x), and the
+  flatpak runtime all fell back to the output monitor — the echo. It is now
+  used where present and not required; `target-object` (0.3.6x+) is what a
+  branch needs. Without it, a departed application's branch is retired by an
+  EOS sent to its source on the next scan (what `on-disconnect=eos` does from
+  inside). Measured in a standalone mixer with that branch shape and no
+  retirement: 22% of the remaining application's audio became 10 ms gaps (up
+  to 80 ms) once one of two applications quit. End to end through the real
+  engine the same departure showed **no** gaps with or without the EOS
+  (mutant run), so the retirement is defensive there; the measurement is
+  recorded so nobody reads it as a proven live defect.
+* **The PipeWire device provider "starts" without a daemon** (`failed: return
+  TRUE;` in every version through 1.6). On a PulseAudio-only machine with a
+  PipeWire plugin, per-application capture claimed to be available, found
+  nothing, and every share carried the silence floor. The monitor is now the
+  PipeWire provider alone (not an unfiltered device monitor that started
+  every provider on the machine), and it must have seen at least one node.
+  `share-audio-daemon` tests it in a process of its own.
+* **Windows reported the echo it did not have**: `shareAudioExcludesOwnPlayback`
+  read per-application capture, which Windows never has, while the share used
+  `exclude-process-tree`.
+
+**The choice.** `SfuCallController::shareAudioMode`: 0 no sound, 1 the whole
+system (Lightning left out where the system allows; the status line says when
+it cannot be), 2 only chosen applications. Offered on the call bar's share
+options ("No sound / Entire system / Choose apps…", with a status sentence and
+`ShareAudioAppsDialog`) and in `ScreenSharePicker` (a Sound combo and an inline
+list). The list is live (polled while shown or while sharing): every
+application playing, plus chosen ones that are not, keyed by
+`application.name` (then binary, then node name) so a later stream of the same
+application is in the share too. Changes apply to a running share: a
+deselected application's branch is MUTED (`volume name=shareappvol<n>`, never
+unlinked), a newly chosen one gets a branch, a mode the running bin cannot
+express republishes the track. **Chosen applications are never widened to the
+whole system**: if they cannot be captured the share goes silent and says so
+(`share_audio_apps_unavailable`).
+
+**Honesty in the UI.** A `level` meter on the share track (`sharelevel`, where
+the build has the element) drives "Nothing is being heard right now"; "None of
+them is playing right now" when no chosen application has a stream; a
+`sharesrc` that cannot capture (a snap without `audio-record`, a monitor that
+will not open) now ends the share's sound with a notice instead of a log line.
+
+**How a running share keeps up (after the 2026-10-07 review).** Every scan
+(2 s, and at once on a change) is planned by the pure `planScan()` and then
+applied; each application branch is a bin of its own (`shareappbin<n>`).
+A branch whose stream is gone (PipeWire) or whose PROCESS has exited
+(Windows) is sent EOS and, on a later scan, TAKEN OUT once its pad is idle
+(unlinked, mixer pad released, set to NULL, removed), so applications coming
+and going cannot use up the 24-branch limit; reaching it is said in the
+status line. A branch that errors (`shareapp<n>`) is retired, never retried,
+and named in the status. Enumeration runs on a worker
+(`shareaudio::enumerateAsync`), one pass at a time per consumer. The GUI
+thread never connects at all; if the bounded probe timed out, nothing touches
+the provider again (an abandoned start holds its start lock). A pass that has
+not returned after 10 s is logged once.
+
+**Every pass and every capture branch has a PipeWire connection of its own**
+(`shareaudio::privatePipeWireConnection()`, handed over as the element's
+`fd`). The GStreamer PipeWire plugin otherwise shares ONE connection among
+every element and provider in the process (it keys them by fd, and -1 is one
+key). Measured on a private graph: after `restart pipewire` under a running
+share, that shared connection stayed dead while one old branch held it, and
+every later provider `start()` on it waited for ever (its core error had
+fired before it was listening, and there is no timeout) — the share and the
+app list froze. With private connections a restart costs only the
+connections it closed: each scan polls every branch's own fd for a hang-up
+and retires that branch (pipewiresrc says nothing when the daemon goes: its
+stream merely becomes unconnected, and an application that comes back at the
+SAME serial — measured — would otherwise keep the dead branch). Measured
+recovery: about 2 s, in System and in Apps mode, with the receiver's own tone
+played by the sender still more than 85 dB down. A branch's fd is closed only
+once its element is finalized, because a reused fd NUMBER would lead a new
+element into a dead core. The DEVICE PROVIDER is different: it is a
+process-wide singleton (`gst_device_provider_factory_get_by_name` caches it
+on the factory) and is never finalized, so a close tied to its finalization
+never ran and each pass leaked a connected socket and a daemon-side client
+(~30 a minute while a list shows or a share runs: EMFILE for the whole
+process within the hour). Each pass therefore owns its fd: start, list, stop,
+set the provider's `fd` back to -1, close. And because the engine's scans, the
+app list and the probe share that one object from different workers, every
+pass holds one process-wide lock (`shareaudio::pipewireDevices()`).
+
+**Taking a branch out** waits until nothing more can come out of it: its EOS
+SEEN on the branch's src pad (an event probe), or the branch errored, or its
+connection hung up (after a restart pipewiresrc may push a flush-start it
+never ends, so the EOS we send is dropped and never seen — measured). Then an
+IDLE probe unlinks it and releases the mixer pad from inside the probe, and
+the NULL state change and removal run through `gst_element_call_async`, as
+`unpublish()` does. Nothing on the GUI thread waits on a stream lock or on a
+pipewiresrc talking to a stuck daemon. A branch that failed is not retried
+for about 30 s, then forgotten (a restarted daemon reuses serials).
+
+**Windows.** Chosen applications are one `wasapi2src
+loopback-mode=include-process-tree loopback-target-pid=<session pid>` each,
+from `IAudioSessionManager2` sessions on every active render endpoint;
+"the whole system" stays the single exclude-process-tree capture. A branch
+is keyed by pid AND process creation time (pids are reused) and lives as long
+as its PROCESS, not its session: a paused browser's session expires and comes
+back, and process loopback was following the process all along. A process
+Lightning runs INSIDE (explorer.exe, a launcher, a terminal) is listed but
+never captured, since its tree includes the call (the echo); the list says
+so. Only among CHOSEN processes is a child inside another chosen tree left to
+the parent. Sharing a window preselects its application (by executable) only
+when that application has an audio session and is not one Lightning runs
+inside; the choice is undone by Cancel, by going back to a screen, or when
+the share it was made for ends. **Linux has no such mapping**: the portal
+names no process for a window, and the X11 fallback shares displays only.
+
+**LIVE (2026-10-07, two instances, private PipeWire 1.6.9 graph, receiver's
+own PulseAudio, Goertzel at the receiver):** only the chosen app (690 Hz at
+-10.5 dBFS; others ≤ -85 dB relative); entire system (all three at -10.5, the
+receiver's own microphone tone that the sender was playing at -15.9 dBFS came
+back at -88 dB relative: no echo); an application quitting and another
+starting mid-share (gone/added within ~1 s); switching modes mid-share in
+place; the chosen application restarting (new stream re-added); and the
+pre-1.6 path (`LIGHTNING_SHARE_AUDIO_LEGACY_PIPEWIRE=1`). Windows, flatpak (a
+sandboxed client's PipeWire permissions), a real PulseAudio-only Mint desktop
+and the AppImage's bundled 1.4.2 plugin: **NOT TESTED**.
+
 ### NOT TESTED
 
 *(As written, and SUPERSEDED from 2026-08-25 onward. Kept because it is the

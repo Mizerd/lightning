@@ -244,6 +244,11 @@ SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
     m_refreshTimer.setInterval(kRefreshIntervalMs);
     connect(&m_refreshTimer, &QTimer::timeout, this,
             &SfuCallController::refreshMembership);
+    // The share-audio application list, polled only while watched or sharing
+    // (updateShareAudioAppsPolling()).
+    m_shareAudioAppsTimer.setInterval(1500);
+    connect(&m_shareAudioAppsTimer, &QTimer::timeout, this,
+            &SfuCallController::refreshShareAudioApplications);
     // Also reconcile the key lane on each tick; otherwise a failed
     // distribution's retry is only reached by a changed membership read.
     connect(&m_refreshTimer, &QTimer::timeout, this,
@@ -552,6 +557,38 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
                     ok ? QString() : mode,
                     !ok && m_engine
                         && m_engine->noiseSuppressionFellBackToWebrtc());
+            });
+    // What the share's sound is carrying, so "the far end hears nothing" is
+    // visible here instead of only in a log.
+    connect(m_engine, &SfuMediaEngine::shareAudioLevel, this,
+            [this](double peakDb) {
+                // Below -60 dBFS is silence for this purpose: a paused video
+                // or an idle application, not something anyone would hear.
+                constexpr double kAudibleDb = -60.0;
+                if (peakDb > kAudibleDb)
+                    m_shareAudioLastHeard.start();
+                const bool heard = m_shareAudioLastHeard.isValid()
+                    && m_shareAudioLastHeard.elapsed() < 3000;
+                if (heard == m_shareAudioHeard && m_shareAudioLevelKnown)
+                    return;
+                m_shareAudioHeard = heard;
+                m_shareAudioLevelKnown = true;
+                Q_EMIT shareAudioStatusChanged();
+            });
+    // What the share's sound track actually is (it can have fallen back to
+    // the output monitor), so the status line never claims more than that.
+    connect(m_engine, &SfuMediaEngine::shareAudioReport, this,
+            [this](bool live, bool perApplication, bool excludesUs,
+                   const QStringList &carried, const QStringList &failedKeys,
+                   bool limitReached) {
+                m_shareAudioReportLive = live;
+                m_shareAudioReportPerApp = perApplication;
+                m_shareAudioReportExcludesUs = excludesUs;
+                m_shareAudioCarried = carried;
+                m_shareAudioFailed = failedKeys;
+                m_shareAudioLimitReached = limitReached;
+                rebuildShareAudioApplications();
+                Q_EMIT shareAudioStatusChanged();
             });
 #else
     Q_UNUSED(engine);
@@ -1134,9 +1171,19 @@ void SfuCallController::requestScreenShare()
         });
     }
     // Windows, via Lightning's own capture element (WindowCaptureSrc.h).
-    // Empty off Windows.
-    for (const lightning::wincap::WindowInfo &window :
-         lightning::wincap::enumerateWindows()) {
+    // Empty off Windows. A window owned by a process Lightning runs inside
+    // (explorer.exe, a launcher, a terminal) must not lend its sound: that
+    // process's tree includes our own playback, the echo.
+    const QList<lightning::wincap::WindowInfo> windows =
+        lightning::wincap::enumerateWindows();
+    const QSet<qint64> ourAncestors = windows.isEmpty()
+        ? QSet<qint64>()
+        : lightning::shareaudio::ancestorsOf(
+              QCoreApplication::applicationPid(),
+              lightning::shareaudio::processParents());
+    for (const lightning::wincap::WindowInfo &window : windows) {
+        const bool containsUs =
+            ourAncestors.contains(static_cast<qint64>(window.pid));
         m_screenShareSources.append(QVariantMap{
             { QStringLiteral("index"), -1 },
             { QStringLiteral("windowHandle"), window.handle },
@@ -1148,6 +1195,12 @@ void SfuCallController::requestScreenShare()
               QStringLiteral("%1 x %2").arg(window.width).arg(window.height) },
             { QStringLiteral("primary"), false },
             { QStringLiteral("current"), false },
+            // The share-audio key of the window's application (its
+            // executable, as ShareAudioSources keys Windows sessions), so the
+            // picker can offer "this window's sound". Empty when unreadable.
+            { QStringLiteral("audioAppKey"),
+              containsUs ? QString() : window.executable },
+            { QStringLiteral("audioAppContainsUs"), containsUs },
         });
     }
 
@@ -1482,6 +1535,10 @@ QString SfuCallController::userFacingError(const QString &category) const
     if (category == QLatin1String("share_audio_unavailable"))
         return tr("Your screen is being shared without its sound — this "
                   "system has no way to capture what it is playing.");
+    // Chosen applications are never widened to the whole system.
+    if (category == QLatin1String("share_audio_apps_unavailable"))
+        return tr("Your screen is being shared without its sound — the "
+                  "apps you chose can't be captured on this system.");
     // The focus resolved to a private address, which is refused by policy:
     // the request carries the user's OpenID token and the host is chosen by
     // another participant (docs/matrixrtc.md). Element has no such policy, so
@@ -2249,6 +2306,7 @@ void SfuCallController::suspendSfuSession()
     m_cameraCid.clear();
     m_screenCid.clear();
     m_shareAudioCid.clear();
+    resetShareAudioLevel();
     m_publishedTrackIds.clear();
     m_publishedTrackSids.clear();
     m_candidatesSent = 0;
@@ -2261,6 +2319,7 @@ void SfuCallController::suspendSfuSession()
         qCInfo(lcSfuCall) << "screen share ended by the reconnect (a portal "
                              "share cannot be resumed)";
         m_screenSharing = false;
+        shareAudioShareEnded();
         if (m_portal)
             m_portal->cancel();
 #ifdef HAVE_LIGHTNING_WEBRTC
@@ -2868,7 +2927,8 @@ void SfuCallController::onEngineLocalCandidate(int target,
 bool SfuCallController::categoryIsShareAudioOnly(const QString &category)
 {
     return category == QLatin1String("share_audio_failed")
-        || category == QLatin1String("share_audio_unavailable");
+        || category == QLatin1String("share_audio_unavailable")
+        || category == QLatin1String("share_audio_apps_unavailable");
 }
 
 void SfuCallController::onEngineFailed(const QString &category)
@@ -2885,6 +2945,7 @@ void SfuCallController::onEngineFailed(const QString &category)
             unpublishTrack(m_shareAudioCid);
             m_shareAudioCid.clear();
         }
+        resetShareAudioLevel();
         Q_EMIT mediaStateChanged();
         // callFailed reports a failure in plain wording; the call stays
         // active.
@@ -2971,6 +3032,11 @@ void SfuCallController::onEnginePublishFailed(const QString &cid,
     } else if (cid == m_screenCid) {
         m_screenSharing = false;
         unpublishTrack(m_screenCid);
+        // The sound goes with the picture, as in stopScreenShare(): a share
+        // that failed must not keep broadcasting the desktop's audio.
+        if (!m_shareAudioCid.isEmpty())
+            unpublishTrack(m_shareAudioCid);
+        shareAudioShareEnded();
         if (m_portal)
             m_portal->cancel();
 #ifdef HAVE_LIGHTNING_WEBRTC
@@ -4205,10 +4271,14 @@ void SfuCallController::teardown(State finalState, const QString &error)
     m_audioCid.clear();
     m_cameraCid.clear();
     m_screenCid.clear();
+    // The engine and its share bin are gone; a stale id would stop the next
+    // call's share from publishing its sound (publishShareAudioTrack()).
+    m_shareAudioCid.clear();
     m_cameraOn = false;
     // Per call: the next call must not skip the portal on this one's account.
     m_cameraFellBack = false;
     m_screenSharing = false;
+    shareAudioShareEnded();
     m_handRaised = false;
     m_handReactionId.clear();
     m_handOp = 0;
@@ -4567,24 +4637,10 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
     m_screenSharing = true;
 
     // Share audio is a separate track (LiveKit SCREEN_SHARE_AUDIO), which is
-    // how Element renders it and lets it mute and stop independently. kind=0
-    // (audio) with screen_share=true maps to SCREEN_SHARE_AUDIO. Only
-    // published when a loopback capture is actually available.
-    if (m_shareAudioEnabled && SfuMediaEngine::shareAudioAvailable()) {
-        const QString audioCid =
-            QUuid::createUuid().toString(QUuid::WithoutBraces);
-        qCInfo(lcSfuCall) << "screen share audio publishing encrypted="
-                          << m_roomEncrypted;
-        m_client->sfuAddTrack(audioCid, QStringLiteral("screenaudio"),
-                              /*kind=*/0, 0, 0,
-                              /*screenShare=*/true, m_roomEncrypted);
-        // Record the cid before publishing: publishShareAudio() can emit
-        // failed() synchronously, re-entering onEngineFailed, whose cleanup
-        // keys on this cid.
-        m_shareAudioCid = audioCid;
-        m_publishedTrackIds.append(audioCid);
-        m_engine->publishShareAudio(audioCid);
-    }
+    // how Element renders it and lets it mute and stop independently. Only
+    // published when something is chosen and a capture is available.
+    publishShareAudioTrack();
+    updateShareAudioAppsPolling();
     // A new share gets a new stage identity (see m_localShareEpoch), so a
     // viewer who dismissed the previous one is offered this one.
     ++m_localShareEpoch;
@@ -4598,14 +4654,209 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
 #endif
 }
 
+void SfuCallController::publishShareAudioTrack()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_screenSharing || !m_shareAudioCid.isEmpty() || m_engine.isNull()
+        || !m_client || !sfuSessionLive())
+        return;
+    if (m_shareAudioMode == 0 || !SfuMediaEngine::shareAudioAvailable())
+        return;
+    lightning::shareaudio::Selection selection;
+    selection.mode = lightning::shareaudio::modeFromInt(m_shareAudioMode);
+    selection.keys = m_shareAudioApps;
+    if (!selection.capturesAnything()) {
+        // Applications mode with none chosen: no track at all, and the status
+        // line says so. A track that can only ever carry silence would show
+        // the far end a share with sound that has none.
+        qCInfo(lcSfuCall) << "screen share audio not published: no "
+                             "application chosen";
+        return;
+    }
+    const QString audioCid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    qCInfo(lcSfuCall) << "screen share audio publishing encrypted="
+                      << m_roomEncrypted << "mode=" << m_shareAudioMode
+                      << "chosen=" << m_shareAudioApps.size();
+    // kind=0 (audio) with screen_share=true maps to SCREEN_SHARE_AUDIO.
+    m_client->sfuAddTrack(audioCid, QStringLiteral("screenaudio"),
+                          /*kind=*/0, 0, 0,
+                          /*screenShare=*/true, m_roomEncrypted);
+    // Record the cid before publishing: publishShareAudio() can emit
+    // failed() synchronously, re-entering onEngineFailed, whose cleanup
+    // keys on this cid.
+    m_shareAudioCid = audioCid;
+    m_publishedTrackIds.append(audioCid);
+    resetShareAudioLevel();
+    m_engine->publishShareAudio(audioCid, selection);
+    Q_EMIT shareAudioStatusChanged();
+#endif
+}
+
+void SfuCallController::applyShareAudioToRunningShare()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!m_screenSharing || m_engine.isNull() || !m_client)
+        return;
+    // While reconnecting there is no session; the resumed share reads the
+    // current choice when it publishes.
+    if (!sfuSessionLive())
+        return;
+    lightning::shareaudio::Selection selection;
+    selection.mode = lightning::shareaudio::modeFromInt(m_shareAudioMode);
+    selection.keys = m_shareAudioApps;
+    if (!selection.capturesAnything()
+        || !SfuMediaEngine::shareAudioAvailable()) {
+        if (!m_shareAudioCid.isEmpty()) {
+            qCInfo(lcSfuCall) << "screen share audio withdrawn mid-share";
+            unpublishTrack(m_shareAudioCid);
+            resetShareAudioLevel();
+        }
+        return;
+    }
+    if (m_shareAudioCid.isEmpty()) {
+        publishShareAudioTrack();
+        return;
+    }
+    if (m_engine->applyShareAudioSelection(selection))
+        return;
+    // The running capture cannot express the new choice (one loopback asked
+    // for single applications, or the reverse): a new track replaces it.
+    qCInfo(lcSfuCall) << "screen share audio republished for a new choice";
+    unpublishTrack(m_shareAudioCid);
+    publishShareAudioTrack();
+#endif
+}
+
+void SfuCallController::resetShareAudioLevel()
+{
+    const bool changed = m_shareAudioLevelKnown || m_shareAudioHeard
+        || !m_shareAudioCarried.isEmpty() || m_shareAudioReportLive;
+    m_shareAudioLevelKnown = false;
+    m_shareAudioHeard = false;
+    m_shareAudioLastHeard.invalidate();
+    // The engine reports a new track's state; until then there is none.
+    m_shareAudioCarried.clear();
+    m_shareAudioFailed.clear();
+    m_shareAudioLimitReached = false;
+    m_shareAudioReportLive = false;
+    m_shareAudioReportPerApp = false;
+    m_shareAudioReportExcludesUs = false;
+    if (changed)
+        Q_EMIT shareAudioStatusChanged();
+}
+
+void SfuCallController::shareAudioShareEnded()
+{
+    resetShareAudioLevel();
+    if (m_shareAudioRestorePending) {
+        // The picker chose this window's application for the share that just
+        // ended; the choice the user had before comes back.
+        m_shareAudioRestorePending = false;
+        restoreShareAudioChoice(m_shareAudioRestoreMode,
+                                m_shareAudioRestoreApps);
+    }
+    updateShareAudioAppsPolling();
+}
+
+void SfuCallController::restoreShareAudioChoiceAfterShare(
+    int mode, const QStringList &keys)
+{
+    m_shareAudioRestorePending = true;
+    m_shareAudioRestoreMode = mode;
+    m_shareAudioRestoreApps = keys;
+}
+
 void SfuCallController::setShareAudioEnabled(bool on)
 {
-    if (m_shareAudioEnabled == on)
+    // "On" returns to whatever was chosen before "off".
+    setShareAudioMode(on ? (m_shareAudioLastOnMode != 0 ? m_shareAudioLastOnMode
+                                                         : 1)
+                         : 0);
+}
+
+void SfuCallController::setShareAudioMode(int mode)
+{
+    // An enum, not a quantity: anything unknown is Off (see modeFromInt), and
+    // "applications" where none can be chosen is refused rather than widened.
+    if (mode != 0 && mode != 1 && mode != 2)
+        mode = 0;
+    if (mode == 2 && !shareAudioCanChooseApps())
         return;
-    m_shareAudioEnabled = on;
-    // Not retroactive: read when a share starts; changing tracks mid-share
-    // would need a renegotiation.
+    if (m_shareAudioMode == mode)
+        return;
+    m_shareAudioMode = mode;
+    if (mode != 0)
+        m_shareAudioLastOnMode = mode;
+    applyShareAudioToRunningShare();
+    updateShareAudioAppsPolling();
     Q_EMIT mediaStateChanged();
+    Q_EMIT shareAudioStatusChanged();
+    rebuildShareAudioApplications();
+}
+
+void SfuCallController::setShareAudioAppChosen(const QString &key,
+                                               const QString &label,
+                                               bool chosen)
+{
+    const QString k = key.trimmed().toLower();
+    if (k.isEmpty() || !shareAudioCanChooseApps())
+        return;
+    if (!label.trimmed().isEmpty())
+        m_shareAudioAppLabels.insert(k, label.trimmed());
+    const bool has = m_shareAudioApps.contains(k);
+    if (chosen == has && (!chosen || m_shareAudioMode == 2))
+        return;
+    if (chosen && !has)
+        m_shareAudioApps.append(k);
+    else if (!chosen)
+        m_shareAudioApps.removeAll(k);
+    if (chosen && m_shareAudioMode != 2) {
+        // Choosing an application is choosing "only these applications".
+        m_shareAudioMode = 2;
+        m_shareAudioLastOnMode = 2;
+    }
+    applyShareAudioToRunningShare();
+    updateShareAudioAppsPolling();
+    Q_EMIT mediaStateChanged();
+    Q_EMIT shareAudioStatusChanged();
+    rebuildShareAudioApplications();
+}
+
+void SfuCallController::chooseOnlyShareAudioApp(const QString &key,
+                                                const QString &label)
+{
+    const QString k = key.trimmed().toLower();
+    if (k.isEmpty() || !shareAudioCanChooseApps())
+        return;
+    if (!label.trimmed().isEmpty())
+        m_shareAudioAppLabels.insert(k, label.trimmed());
+    restoreShareAudioChoice(2, QStringList{ k });
+}
+
+void SfuCallController::restoreShareAudioChoice(int mode,
+                                                const QStringList &keys)
+{
+    if (mode != 0 && mode != 1 && mode != 2)
+        mode = 0;
+    if (mode == 2 && !shareAudioCanChooseApps())
+        mode = 1;
+    QStringList normalised;
+    for (const QString &key : keys) {
+        const QString k = key.trimmed().toLower();
+        if (!k.isEmpty() && !normalised.contains(k))
+            normalised.append(k);
+    }
+    if (m_shareAudioMode == mode && m_shareAudioApps == normalised)
+        return;
+    m_shareAudioMode = mode;
+    if (mode != 0)
+        m_shareAudioLastOnMode = mode;
+    m_shareAudioApps = normalised;
+    applyShareAudioToRunningShare();
+    updateShareAudioAppsPolling();
+    Q_EMIT mediaStateChanged();
+    Q_EMIT shareAudioStatusChanged();
+    rebuildShareAudioApplications();
 }
 
 bool SfuCallController::shareAudioSupported() const
@@ -4621,10 +4872,221 @@ bool SfuCallController::shareAudioExcludesOwnPlayback() const
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
     // Guarded: without the media engine ShareAudioSources.cpp is not built.
+    // Windows excludes our process tree with a single loopback; it used to
+    // read per-application capture here, which is never available there, so
+    // the picker told Windows users the call would echo when it would not.
+    return SfuMediaEngine::shareAudioSystemExcludesUs();
+#else
+    return false;
+#endif
+}
+
+bool SfuCallController::shareAudioCanChooseApps() const
+{
+    if (m_shareAudioCanChooseForTest >= 0)
+        return m_shareAudioCanChooseForTest == 1;
+#ifdef HAVE_LIGHTNING_WEBRTC
     return lightning::shareaudio::perApplicationCaptureAvailable();
 #else
     return false;
 #endif
+}
+
+void SfuCallController::watchShareAudioApplications(bool on)
+{
+    m_shareAudioAppsWatchers = qMax(0, m_shareAudioAppsWatchers + (on ? 1 : -1));
+    updateShareAudioAppsPolling();
+    if (on)
+        refreshShareAudioApplications();
+}
+
+void SfuCallController::updateShareAudioAppsPolling()
+{
+    // Live while a surface shows the list, or while a share carries chosen
+    // applications (their "in the share" marks). Not for the whole system:
+    // nothing on screen reads the list then, and on Windows a pass is a COM
+    // walk over every endpoint plus a process snapshot.
+    const bool wanted = m_shareAudioAppsWatchers > 0
+        || (m_screenSharing && m_shareAudioMode == 2);
+    if (wanted && shareAudioCanChooseApps()) {
+        if (!m_shareAudioAppsTimer.isActive())
+            m_shareAudioAppsTimer.start();
+    } else {
+        m_shareAudioAppsTimer.stop();
+    }
+}
+
+void SfuCallController::refreshShareAudioApplications()
+{
+#ifdef HAVE_LIGHTNING_WEBRTC
+    if (!shareAudioCanChooseApps()) {
+        rebuildShareAudioApplications();
+        return;
+    }
+    // On a worker: the GUI thread never waits on PipeWire or COM. One pass at
+    // a time; one that hangs is said once.
+    if (m_shareAudioListInFlight) {
+        if (!m_shareAudioListHangLogged && m_shareAudioListStarted.isValid()
+            && m_shareAudioListStarted.elapsed() > 10000) {
+            m_shareAudioListHangLogged = true;
+            qCWarning(lcSfuCall)
+                << "share audio: listing the applications has not returned for"
+                << m_shareAudioListStarted.elapsed() / 1000
+                << "s (a stuck audio daemon?)";
+        }
+        return;
+    }
+    m_shareAudioListInFlight = true;
+    m_shareAudioListStarted.start();
+    lightning::shareaudio::enumerateAsync(
+        this, QCoreApplication::applicationPid(),
+        SfuMediaEngine::ownAudioClientNames(), {},
+        [this](const lightning::shareaudio::Enumeration &e) {
+            m_shareAudioListInFlight = false;
+            m_shareAudioListHangLogged = false;
+            QVariantList apps;
+            for (const lightning::shareaudio::Application &a :
+                 lightning::shareaudio::groupByApplication(e.streams)) {
+                if (a.key.isEmpty())
+                    continue;
+                m_shareAudioAppLabels.insert(a.key, a.label);
+                apps.append(QVariantMap{
+                    { QStringLiteral("key"), a.key },
+                    { QStringLiteral("label"), a.label },
+                    { QStringLiteral("iconName"), a.iconName },
+                    { QStringLiteral("active"), a.active },
+                    { QStringLiteral("containsUs"), a.containsUs },
+                });
+            }
+            m_shareAudioLastApps = apps;
+            rebuildShareAudioApplications();
+        });
+#else
+    rebuildShareAudioApplications();
+#endif
+}
+
+void SfuCallController::rebuildShareAudioApplications()
+{
+    QVariantList rows;
+    QSet<QString> listed;
+    for (const QVariant &v : std::as_const(m_shareAudioLastApps)) {
+        const QVariantMap a = v.toMap();
+        const QString key = a.value(QStringLiteral("key")).toString();
+        if (key.isEmpty() || listed.contains(key))
+            continue;
+        listed.insert(key);
+        rows.append(QVariantMap{
+            { QStringLiteral("key"), key },
+            { QStringLiteral("label"), a.value(QStringLiteral("label")) },
+            { QStringLiteral("iconName"), a.value(QStringLiteral("iconName")) },
+            { QStringLiteral("playing"), a.value(QStringLiteral("active")) },
+            // Listed by the audio server (a placeholder for a chosen app is not).
+            { QStringLiteral("session"), true },
+            { QStringLiteral("chosen"), m_shareAudioApps.contains(key) },
+            { QStringLiteral("carried"), m_shareAudioCarried.contains(key) },
+            { QStringLiteral("failed"), m_shareAudioFailed.contains(key) },
+            // Lightning runs inside it (Windows: an ancestor process such
+            // as explorer.exe): capturing its tree would capture the call.
+            { QStringLiteral("containsUs"),
+              a.value(QStringLiteral("containsUs")) },
+        });
+    }
+    // A chosen application that is not playing stays listed (and chosen), so
+    // a choice never silently disappears from the list.
+    for (const QString &key : std::as_const(m_shareAudioApps)) {
+        if (listed.contains(key))
+            continue;
+        listed.insert(key);
+        rows.append(QVariantMap{
+            { QStringLiteral("key"), key },
+            { QStringLiteral("label"), m_shareAudioAppLabels.value(key, key) },
+            { QStringLiteral("iconName"), QString() },
+            { QStringLiteral("playing"), false },
+            { QStringLiteral("session"), false },
+            { QStringLiteral("chosen"), true },
+            { QStringLiteral("carried"), false },
+            { QStringLiteral("failed"), m_shareAudioFailed.contains(key) },
+            { QStringLiteral("containsUs"), false },
+        });
+    }
+    if (rows == m_shareAudioApplications)
+        return;
+    m_shareAudioApplications = rows;
+    Q_EMIT shareAudioApplicationsChanged();
+    Q_EMIT shareAudioStatusChanged();
+}
+
+QVariantList SfuCallController::shareAudioApplications() const
+{
+    return m_shareAudioApplications;
+}
+
+QString SfuCallController::shareAudioStatus() const
+{
+    ShareAudioStatusInput in;
+    in.supported = shareAudioSupported();
+    in.mode = m_shareAudioMode;
+    for (const QString &key : m_shareAudioApps)
+        in.chosenLabels.append(m_shareAudioAppLabels.value(key, key));
+    // During a share, what the running track ACTUALLY does: it can have
+    // fallen back to the output monitor (the echo) while the capability says
+    // otherwise. Before one, what the whole system would do here.
+    in.trackLive = m_screenSharing && !m_shareAudioCid.isEmpty()
+        && m_shareAudioReportLive;
+    in.systemExcludesUs = in.trackLive ? m_shareAudioReportExcludesUs
+                                       : shareAudioExcludesOwnPlayback();
+    in.perApplication = in.trackLive && m_shareAudioReportPerApp;
+    in.carriedAny = !m_shareAudioCarried.isEmpty();
+    in.levelKnown = m_shareAudioLevelKnown;
+    in.heard = m_shareAudioHeard;
+    for (const QString &key : m_shareAudioFailed)
+        in.failedLabels.append(m_shareAudioAppLabels.value(key, key));
+    in.limitReached = m_shareAudioLimitReached;
+    return shareAudioStatusText(in);
+}
+
+QString SfuCallController::shareAudioStatusText(const ShareAudioStatusInput &in)
+{
+    if (!in.supported)
+        return tr("This system can't capture the sound it plays.");
+    QString what;
+    switch (in.mode) {
+    case 1:
+        what = in.systemExcludesUs
+            ? tr("Sound: everything this computer plays, except Lightning.")
+            : tr("Sound: everything this computer plays, including this call, "
+                 "so others may hear themselves.");
+        break;
+    case 2:
+        if (in.chosenLabels.isEmpty())
+            return tr("No apps chosen, so the share has no sound.");
+        what = tr("Sound: only %1.").arg(in.chosenLabels.join(
+            QStringLiteral(", ")));
+        break;
+    default:
+        return tr("The share has no sound.");
+    }
+    if (!in.trackLive)
+        return what;
+    // While sharing: say when something is not reaching the far end, which
+    // is what a person on the other side would otherwise have to report.
+    QStringList notes;
+    if (!in.failedLabels.isEmpty()) {
+        notes << tr("%1 couldn't be captured.")
+                     .arg(in.failedLabels.join(QStringLiteral(", ")));
+    }
+    if (in.limitReached)
+        notes << tr("Too many apps to capture at once; some are left out.");
+    if (in.perApplication && !in.carriedAny) {
+        notes << (in.mode == 2 ? tr("None of them is playing right now.")
+                               : tr("No app is playing right now."));
+    } else if (in.levelKnown && !in.heard) {
+        notes << tr("Nothing is being heard right now.");
+    }
+    if (notes.isEmpty())
+        return what;
+    return what + QLatin1Char(' ') + notes.join(QLatin1Char(' '));
 }
 
 void SfuCallController::stopScreenShare()
@@ -4640,6 +5102,7 @@ void SfuCallController::stopScreenShare()
         m_shareAudioCid.clear();
     }
     m_screenSharing = false;
+    shareAudioShareEnded();
     // Close the portal session so the compositor stops capturing.
     if (m_portal)
         m_portal->cancel();

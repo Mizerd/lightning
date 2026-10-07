@@ -36,6 +36,7 @@
 #include <QRect>
 #include <QString>
 #include <QStringList>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QVariantList>
 
@@ -273,11 +274,32 @@ public:
 
     /// Publish what the computer is playing as a separate track, so it
     /// starts, mutes and stops independently of the microphone and the video.
-    void publishShareAudio(const QString &cid);
+    /// `selection` says which applications (or the whole system, minus us);
+    /// Mode::Apps never falls back to the whole system: if the chosen
+    /// applications cannot be captured it fails with
+    /// `share_audio_apps_unavailable` rather than send more than was chosen.
+    void publishShareAudio(const QString &cid,
+                           const lightning::shareaudio::Selection &selection =
+                               lightning::shareaudio::Selection{});
+    /// Changes which applications a running share carries, in place: a
+    /// deselected application's branch is muted (never unlinked) and a newly
+    /// chosen one gets a branch. False when the running bin cannot express
+    /// the change (a single loopback capture asked for applications, or the
+    /// reverse); the caller then republishes the track.
+    bool applyShareAudioSelection(
+        const lightning::shareaudio::Selection &selection);
 
     /// Whether this build can capture what is playing (platform, element and
     /// property all checked at runtime). The UI asks before offering it.
     static bool shareAudioAvailable();
+    /// Whether "everything except Lightning" really leaves Lightning out
+    /// here: per-application capture, or Windows process-tree exclusion.
+    /// False means the only whole-system capture is the output monitor, which
+    /// carries this call back to the call.
+    static bool shareAudioSystemExcludesUs();
+    /// Every name an audio server may record this process under: PipeWire
+    /// uses the binary name, which differs from applicationName().
+    static QStringList ownAudioClientNames();
     /// Publish the camera, or a screen share when `screenShare` is true.
     ///
     /// Capture targets, mutually exclusive:
@@ -607,6 +629,44 @@ public:
     /// Test-only: make the next publish's link to webrtcbin fail once, to
     /// reach the link-failure cleanup path.
     void failNextPublishLinkForTest() { m_failNextPublishLink = true; }
+    /// Per-application share audio from a scripted listing: `enumerate` is
+    /// called synchronously on every scan with the records whose process is
+    /// to be checked; branches are audiotestsrc. `options` sets the retire
+    /// policy under test (followsProcess = Windows).
+    void setShareAudioSourceForTest(
+        std::function<lightning::shareaudio::Enumeration(
+            const QList<lightning::shareaudio::Stream> &)> enumerate,
+        const lightning::shareaudio::BranchOptions &options);
+    void rescanShareAudioSourcesForTest() { rescanShareAudioSources(); }
+    void setShareAudioBranchCapForTest(int cap) { m_shareAudioCap = cap; }
+    /// A retired branch is NOT sent EOS: it goes on producing, as a source
+    /// still mid-push would, so a test can prove nothing is taken out
+    /// before its EOS has passed.
+    void setShareAudioSuppressRetireEosForTest(bool on)
+    {
+        m_shareAudioSuppressRetireEosForTest = on;
+    }
+    bool shareAudioEosSeenForTest(const QString &id) const
+    {
+        const auto it = m_shareAudioEosSeen.constFind(id);
+        return it != m_shareAudioEosSeen.cend() && (*it)->load();
+    }
+    /// Sends EOS to a retired branch's source now (after a suppressed one).
+    void sendShareAudioEosForTest(const QString &id);
+    /// Watches `fd` as a branch's PipeWire connection (test sources have
+    /// none); the caller owns it.
+    void setShareAudioConnectionForTest(const QString &id, int fd)
+    {
+        m_shareAudioConnections.insert(id, fd);
+    }
+    /// Branches built and not yet taken out (what the cap counts).
+    int shareAudioBranchCountForTest() const { return m_shareAudioBranches; }
+    /// `shareappbin*` bins actually in the share bin.
+    int shareAudioBranchBinsForTest() const;
+    bool shareAudioBranchMutedForTest(const QString &id) const;
+    /// The branch index recorded for a stream id; -1 never built or taken
+    /// out but remembered as failed, -2 no record at all.
+    int shareAudioBranchIndexForTest(const QString &id) const;
 
     /// Test-only: receive bins held by the subscriber pipeline.
     int receiveBinsForTest() const
@@ -822,6 +882,17 @@ Q_SIGNALS:
     /// and the microphone passes through unsuppressed (`ok` false). `mode` is
     /// the setting's key ("off", "webrtc", "rnnoise", "deepfilternet").
     void noiseSuppressionStatus(const QString &mode, bool ok);
+    /// What the share's sound track is sending, once a second (peak dBFS,
+    /// loudest channel; -350 for digital silence). A level, never audio.
+    void shareAudioLevel(double peakDb);
+    /// What the share's sound track ACTUALLY is, after every change: whether
+    /// one is live, whether it captures per application, whether it leaves
+    /// Lightning out (false = the output monitor, the echo), the application
+    /// keys it is carrying, the ones whose capture failed, and whether the
+    /// per-share branch limit kept an application out.
+    void shareAudioReport(bool live, bool perApplication, bool excludesUs,
+                          const QStringList &carried,
+                          const QStringList &failed, bool limitReached);
 
 private:
     struct Peer {
@@ -905,6 +976,15 @@ public Q_SLOTS:
     /// A peak from `miclevel`, what is SENT (after suppression and gain), on
     /// the GUI thread: the in-call meter (localAudioLevel) only.
     void handleMeterLevel(double peakDb);
+    /// A peak from the share-audio track's `level`, on the GUI thread.
+    void handleShareAudioLevel(double peakDb);
+    /// The share's single loopback capture (`sharesrc`) reported that it
+    /// cannot capture, on the GUI thread. Ends the share's sound, never the
+    /// call, and says so (`share_audio_failed`).
+    void handleShareAudioSourceError();
+    /// An ERROR from application branch `index` (`shareapp<index>`), on the
+    /// GUI thread: retired, never retried, reported in shareAudioReport.
+    void handleShareAudioBranchError(int index);
     /// lightningdenoise reported a mode taking effect, on the GUI thread.
     void handleDenoiseStatus(const QString &requested, const QString &active,
                              bool ok, int latencySamples);
@@ -1375,11 +1455,26 @@ private:
     int m_statsReports = 0;
 
     // Per-application share audio; see ShareAudioSources.h. A plain poll, not
-    // a bus watch (which would need a GLib main loop). Only additions are
-    // handled: departing apps retire their branch via
-    // `pipewiresrc on-disconnect=eos`, so no pad is unlinked on a live
-    // pipeline.
+    // a bus watch (which would need a GLib main loop). Only additions change
+    // the topology: departing apps retire their branch via
+    // `pipewiresrc on-disconnect=eos` where the plugin has it (else the live
+    // mixer stops waiting on the silent pad), and a deselected app's branch
+    // is muted, so no pad is unlinked on a live pipeline.
     void rescanShareAudioSources();
+    /// Adds a branch for `stream` to the running share bin; false when it
+    /// could not be built or linked.
+    bool addShareAudioBranch(GstElement *bin, GstElement *mixer,
+                             const lightning::shareaudio::Stream &stream);
+    /// Applies one enumeration pass: plan (shareaudio::planScan), retire,
+    /// mute, add, report.
+    void applyShareAudioScan(const lightning::shareaudio::Enumeration &e);
+    /// Takes a finished branch out of the share: an IDLE probe unlinks it and
+    /// releases its mixer pad, and gst_element_call_async sets it to NULL and
+    /// removes it. Never blocks the calling (GUI) thread.
+    void takeOutShareAudioBranch(GstElement *bin, GstElement *mixer, int index);
+    void emitShareAudioReport();
+    /// Clears the per-application bookkeeping; the bin is the caller's.
+    void resetShareAudioState();
 
     // Supplies the second buffer `videorate` needs while the screen is still.
     // One timer for all shares; never armed for cameras, which deliver on a
@@ -1392,13 +1487,50 @@ private:
     void updateShareKeepAliveTimer();
     QTimer m_shareKeepAliveTimer;
 
-    lightning::shareaudio::SourceMonitor m_shareAudioSources;
     QTimer m_shareAudioScanTimer;
     QString m_shareAudioCid;
-    QSet<QString> m_shareAudioSerials;   // already given a branch
-    int m_shareAudioBranches = 0;        // bounds a share that outlives many apps
+    /// The cid of the share-audio bin whatever its kind, so a `sharesrc`
+    /// error can be told apart from a stale one.
+    QString m_shareAudioAnyCid;
+    /// Stream::id() -> what was built for it (see planScan()).
+    QHash<QString, lightning::shareaudio::BranchRecord> m_shareAudioRecords;
+    /// Stream::id() -> the scan that retired it; taken out once its EOS has
+    /// passed (m_shareAudioEosSeen) or it errored.
+    QHash<QString, int> m_shareAudioRetiredAt;
+    /// Stream::id() -> set by an event probe when EOS passes the branch's src.
+    QHash<QString, std::shared_ptr<std::atomic<bool>>> m_shareAudioEosSeen;
+    /// Stream::id() -> the branch's own PipeWire connection (fd), watched each
+    /// scan for the daemon hanging up. Not owned: closed with the element.
+    QHash<QString, int> m_shareAudioConnections;
+    /// Stream::id() -> the scan a failed branch was taken out on (cool-down).
+    QHash<QString, int> m_shareAudioFailedAt;
+    QElapsedTimer m_shareAudioScanStarted;
+    bool m_shareAudioHangLogged = false;
+    bool m_shareAudioSuppressRetireEosForTest = false;
+    lightning::shareaudio::Selection m_shareAudioSelection;
+    lightning::shareaudio::BranchOptions m_shareAudioOptions;
+    /// What shareAudioReport last said.
+    QStringList m_shareAudioCarried;
+    QStringList m_shareAudioFailedKeys;
+    bool m_shareAudioLimitReached = false;
+    bool m_shareAudioPerApplication = false;
+    bool m_shareAudioExcludesUs = false;
+    int m_shareAudioBranches = 0;        // built and not yet taken out
+    int m_shareAudioCap = 24;            // bounds a share that outlives many apps
     int m_shareAudioNextIndex = 0;       // element names; never reused
-    int m_shareAudioScans = 0;           // polls since the share started
+    int m_shareAudioScans = 0;           // scans since the share started
+    int m_shareAudioLevelReports = 0;    // throttles the level log line
+    bool m_shareAudioSourceErrorReported = false;
+    /// An enumeration runs on a worker; one at a time, and its answer is
+    /// dropped if the share it was for has gone (generation).
+    bool m_shareAudioScanInFlight = false;
+    quint64 m_shareAudioGeneration = 0;
+    /// Test seam: a scripted listing instead of PipeWire/WASAPI, enumerated
+    /// synchronously, with audiotestsrc branches.
+    std::function<lightning::shareaudio::Enumeration(
+        const QList<lightning::shareaudio::Stream> &)>
+        m_shareAudioEnumerateForTest;
+    lightning::shareaudio::BranchOptions m_shareAudioOptionsForTest;
 
     QStringList m_iceUris;
     QString m_iceUsername;

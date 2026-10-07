@@ -6577,6 +6577,194 @@ private Q_SLOTS:
         QCOMPARE(fatal.state(), SfuCallController::State::Failed);
     }
 
+    // Chosen applications that cannot be captured cost the sound, never the
+    // call, and are never widened to the whole system.
+    void chosenAppsThatCannotBeCapturedCostOnlyTheSound()
+    {
+        QVERIFY(SfuCallController::categoryIsShareAudioOnly(
+            QStringLiteral("share_audio_apps_unavailable")));
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failures(&call, &SfuCallController::callFailed);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEngineFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("share_audio_apps_unavailable"))));
+        QVERIFY(call.active());
+        QCOMPARE(failures.count(), 1);
+        QVERIFY2(failures.at(0).at(0).toString().contains(
+                     QStringLiteral("apps"), Qt::CaseInsensitive),
+                 qPrintable(failures.at(0).at(0).toString()));
+    }
+
+    // The sound choice is three-way and an enum: anything unknown is "no
+    // sound", "on" returns to the choice made before "off", and "only these
+    // apps" is refused where single applications cannot be captured rather
+    // than quietly becoming "everything".
+    void theShareSoundChoiceIsAnEnumThatNeverWidens()
+    {
+        SfuCallController call;
+        QCOMPARE(call.shareAudioMode(), 1);   // the whole system by default
+        QVERIFY(call.shareAudioEnabled());
+
+        call.setShareAudioMode(7);
+        QCOMPARE(call.shareAudioMode(), 0);
+        QVERIFY(!call.shareAudioEnabled());
+        call.setShareAudioEnabled(true);
+        QCOMPARE(call.shareAudioMode(), 1);
+
+        // Where single applications cannot be captured, "only these apps" is
+        // refused, never widened.
+        call.setShareAudioCanChooseAppsForTest(false);
+        call.setShareAudioMode(2);
+        QCOMPARE(call.shareAudioMode(), 1);
+        call.setShareAudioAppChosen(QStringLiteral("firefox"),
+                                    QStringLiteral("Firefox"), true);
+        QCOMPARE(call.shareAudioMode(), 1);
+        QVERIFY(call.shareAudioApps().isEmpty());
+
+        // Where they can, the choosing half.
+        call.setShareAudioCanChooseAppsForTest(true);
+        // Ticking an application chooses "only these apps"; it is listed
+        // (named) even while it is not playing.
+        call.setShareAudioAppChosen(QStringLiteral("Firefox"),
+                                    QStringLiteral("Firefox"), true);
+        QCOMPARE(call.shareAudioMode(), 2);
+        QCOMPARE(call.shareAudioApps(), QStringList{ QStringLiteral("firefox") });
+        bool listed = false;
+        for (const QVariant &row : call.shareAudioApplications()) {
+            const QVariantMap m = row.toMap();
+            if (m.value(QStringLiteral("key")).toString()
+                == QLatin1String("firefox")) {
+                listed = m.value(QStringLiteral("chosen")).toBool()
+                    && m.value(QStringLiteral("label")).toString()
+                        == QLatin1String("Firefox");
+            }
+        }
+        QVERIFY2(listed, "a chosen application vanished from the list");
+        // Off and back on keeps the choice.
+        call.setShareAudioEnabled(false);
+        QCOMPARE(call.shareAudioMode(), 0);
+        call.setShareAudioEnabled(true);
+        QCOMPARE(call.shareAudioMode(), 2);
+        QCOMPARE(call.shareAudioApps().size(), 1);
+        // A window's application replaces the choice, and restoring brings
+        // the earlier one back (the picker's preselection, undone on cancel).
+        call.chooseOnlyShareAudioApp(QStringLiteral("mpv.exe"),
+                                     QStringLiteral("mpv"));
+        QCOMPARE(call.shareAudioApps(), QStringList{ QStringLiteral("mpv.exe") });
+        call.restoreShareAudioChoice(1, {});
+        QCOMPARE(call.shareAudioMode(), 1);
+        QVERIFY(call.shareAudioApps().isEmpty());
+    }
+
+    // L1: a window's application chosen by the picker for one share is put
+    // back to the earlier choice when that share ends, not left behind.
+    void aWindowPreselectedSoundChoiceEndsWithItsShare()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setShareAudioCanChooseAppsForTest(true);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QCOMPARE(call.shareAudioMode(), 1);
+        // The picker: preselect the window's app, then confirm the share.
+        call.chooseOnlyShareAudioApp(QStringLiteral("vlc.exe"),
+                                     QStringLiteral("VLC"));
+        call.restoreShareAudioChoiceAfterShare(1, {});
+        QCOMPARE(call.shareAudioMode(), 2);
+        // The share (and here the call) ends.
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEngineFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("connection_lost"))));
+        QCOMPARE(call.shareAudioMode(), 1);
+        QVERIFY2(call.shareAudioApps().isEmpty(),
+                 "the next share would silently carry only the last shared "
+                 "window's application");
+    }
+
+    // What the status line says is a pure function of the choice and of what
+    // the running share is doing; the cases that matter are the ones a person
+    // on the other end would otherwise have to report.
+    void theShareSoundStatusSaysWhatIsActuallySent()
+    {
+        using In = SfuCallController::ShareAudioStatusInput;
+        In in;
+        in.supported = false;
+        QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
+            QStringLiteral("can't capture")));
+
+        in.supported = true;
+        in.mode = 0;
+        QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
+            QStringLiteral("no sound")));
+
+        // The whole system: whether this call is in it must be said.
+        in.mode = 1;
+        in.systemExcludesUs = true;
+        const QString excluded = SfuCallController::shareAudioStatusText(in);
+        QVERIFY2(excluded.contains(QStringLiteral("except Lightning")),
+                 qPrintable(excluded));
+        in.systemExcludesUs = false;
+        const QString echoing = SfuCallController::shareAudioStatusText(in);
+        QVERIFY2(echoing.contains(QStringLiteral("including this call")),
+                 qPrintable(echoing));
+
+        // Chosen applications, named; none chosen means no sound.
+        in.mode = 2;
+        in.chosenLabels = {};
+        QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
+            QStringLiteral("No apps chosen")));
+        in.chosenLabels = { QStringLiteral("Firefox"), QStringLiteral("mpv") };
+        const QString named = SfuCallController::shareAudioStatusText(in);
+        QVERIFY2(named.contains(QStringLiteral("Firefox, mpv")),
+                 qPrintable(named));
+
+        // During a share: none of the chosen playing, or nothing heard.
+        in.trackLive = true;
+        in.perApplication = true;
+        in.carriedAny = false;
+        QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
+            QStringLiteral("None of them is playing")));
+        in.carriedAny = true;
+        in.levelKnown = true;
+        in.heard = false;
+        QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
+            QStringLiteral("Nothing is being heard")));
+        in.heard = true;
+        QCOMPARE(SfuCallController::shareAudioStatusText(in), named);
+
+        // A monitor capture (not per application) that hears nothing says so
+        // too: the Mint report's "the other side hears nothing".
+        in.mode = 1;
+        in.perApplication = false;
+        in.heard = false;
+        QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
+            QStringLiteral("Nothing is being heard")));
+
+        // M4: during a share the sentence follows what the track ACTUALLY
+        // is: a share that fell back to the output monitor says it carries
+        // the call, whatever the machine could otherwise do.
+        in.heard = true;
+        in.systemExcludesUs = false;
+        QVERIFY(SfuCallController::shareAudioStatusText(in).contains(
+            QStringLiteral("including this call")));
+
+        // A failed application and the branch limit are said, not silent.
+        in.mode = 2;
+        in.chosenLabels = { QStringLiteral("VLC") };
+        in.perApplication = true;
+        in.carriedAny = true;
+        in.failedLabels = { QStringLiteral("VLC") };
+        in.limitReached = true;
+        const QString troubles = SfuCallController::shareAudioStatusText(in);
+        QVERIFY2(troubles.contains(QStringLiteral("VLC couldn't be captured")),
+                 qPrintable(troubles));
+        QVERIFY2(troubles.contains(QStringLiteral("Too many apps")),
+                 qPrintable(troubles));
+    }
+
     // ── Reconnecting after a transient network loss ──
     //
     // Live FAIL 2026-10-07 (Windows, UDP blocked for 26 s): the SFU timed

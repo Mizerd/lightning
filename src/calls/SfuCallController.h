@@ -86,10 +86,40 @@ class SfuCallController : public QObject
                    WRITE setShareAudioEnabled NOTIFY mediaStateChanged)
     Q_PROPERTY(bool shareAudioSupported READ shareAudioSupported CONSTANT)
     /// Whether share audio excludes this call's own playback: true with
-    /// per-application capture (Linux with PipeWire), false where only the
-    /// output mix is available. The picker tells the user which they get.
+    /// per-application capture (Linux with PipeWire) or Windows process-tree
+    /// exclusion, false where only the output mix is available. The picker
+    /// tells the user which they get.
     Q_PROPERTY(bool shareAudioExcludesOwnPlayback
                    READ shareAudioExcludesOwnPlayback CONSTANT)
+    /// What a share's sound carries (shareaudio::Mode): 0 no sound, 1 the whole
+    /// system (minus Lightning where shareAudioExcludesOwnPlayback), 2 only
+    /// the applications in shareAudioApps. Changing it during a share applies
+    /// at once (the track is added, removed or re-pointed).
+    Q_PROPERTY(int shareAudioMode READ shareAudioMode WRITE setShareAudioMode
+                   NOTIFY mediaStateChanged)
+    /// The chosen applications' keys (see ShareAudioSources.h), for mode 2.
+    Q_PROPERTY(QStringList shareAudioApps READ shareAudioApps
+                   NOTIFY mediaStateChanged)
+    /// Whether single applications can be chosen here: PipeWire reachable on
+    /// Linux, process loopback on Windows (10 2004+).
+    Q_PROPERTY(bool shareAudioCanChooseApps READ shareAudioCanChooseApps
+                   CONSTANT)
+    /// The applications that can be chosen, live while something watches
+    /// (watchShareAudioApplications) or a share is running. Each entry:
+    /// {key, label, iconName, playing, chosen, carried}; `carried` is true
+    /// while the running share is actually capturing it. Chosen applications
+    /// that are not playing are listed too, so a choice never disappears.
+    Q_PROPERTY(QVariantList shareAudioApplications
+                   READ shareAudioApplications
+                   NOTIFY shareAudioApplicationsChanged)
+    /// One plain sentence saying what the share's sound is (or is not)
+    /// carrying, including "nothing is being heard" while a share runs.
+    Q_PROPERTY(QString shareAudioStatus READ shareAudioStatus
+                   NOTIFY shareAudioStatusChanged)
+    /// Whether the running share's sound track is carrying audible sound now
+    /// (its level meter, the last few seconds).
+    Q_PROPERTY(bool shareAudioHeard READ shareAudioHeard
+                   NOTIFY shareAudioStatusChanged)
     Q_PROPERTY(bool handRaised READ handRaised NOTIFY mediaStateChanged)
     Q_PROPERTY(bool mediaEncrypted READ mediaEncrypted NOTIFY mediaStateChanged)
     /// Whether any remote participant's frames are arriving undecryptable.
@@ -217,10 +247,54 @@ public:
     bool deafened() const { return m_deafened; }
     bool cameraOn() const { return m_cameraOn; }
     bool screenSharing() const { return m_screenSharing; }
-    bool shareAudioEnabled() const { return m_shareAudioEnabled; }
+    bool shareAudioEnabled() const { return m_shareAudioMode != 0; }
     void setShareAudioEnabled(bool on);
     bool shareAudioSupported() const;
     bool shareAudioExcludesOwnPlayback() const;
+    int shareAudioMode() const { return m_shareAudioMode; }
+    void setShareAudioMode(int mode);
+    QStringList shareAudioApps() const { return m_shareAudioApps; }
+    bool shareAudioCanChooseApps() const;
+    QVariantList shareAudioApplications() const;
+    QString shareAudioStatus() const;
+    bool shareAudioHeard() const { return m_shareAudioHeard; }
+    /// Adds or removes one application from the choice (and switches to
+    /// mode 2 when adding). `label` names it while it is not playing.
+    Q_INVOKABLE void setShareAudioAppChosen(const QString &key,
+                                            const QString &label, bool chosen);
+    /// Mode 2 with exactly this application: what sharing a window does with
+    /// the window's own application (Windows).
+    Q_INVOKABLE void chooseOnlyShareAudioApp(const QString &key,
+                                             const QString &label);
+    /// Restores a mode and choice saved earlier (the picker undoing its own
+    /// window preselection).
+    Q_INVOKABLE void restoreShareAudioChoice(int mode, const QStringList &keys);
+    /// The picker's window preselection outlives the picker into the share it
+    /// started; this choice is restored when THAT share ends.
+    Q_INVOKABLE void restoreShareAudioChoiceAfterShare(int mode,
+                                                       const QStringList &keys);
+    /// Keeps shareAudioApplications live while a surface shows it; counted,
+    /// so every `true` needs its `false`.
+    Q_INVOKABLE void watchShareAudioApplications(bool on);
+
+    /// What shareAudioStatus says, as a pure function for tests.
+    struct ShareAudioStatusInput {
+        bool supported = false;
+        int mode = 1;
+        /// Before a share: what "the whole system" would do here. During one:
+        /// what the running track ACTUALLY does (it can have fallen back to
+        /// the output monitor).
+        bool systemExcludesUs = false;
+        QStringList chosenLabels;
+        bool trackLive = false;      // a share is running with a sound track
+        bool perApplication = false; // that track captures per application
+        bool carriedAny = false;     // ... and is carrying at least one app
+        bool levelKnown = false;     // the track has a level meter reading
+        bool heard = true;           // ... which heard sound recently
+        QStringList failedLabels;    // applications whose capture failed
+        bool limitReached = false;   // the per-share branch limit left one out
+    };
+    static QString shareAudioStatusText(const ShareAudioStatusInput &in);
 
     // Whether an engine failure concerns only the share's sound. Such a
     // failure must never end the session (see onEngineFailed).
@@ -572,6 +646,12 @@ public:
     /// Diagnostic: why no delayed retraction is armed, or empty when one is.
     /// A closed category vocabulary, never server text.
     QString delayedRefusalReason() const { return m_delayedCategory; }
+    /// Pretend single applications can (or cannot) be captured, so the
+    /// choosing logic runs in a build without the media engine.
+    void setShareAudioCanChooseAppsForTest(bool on)
+    {
+        m_shareAudioCanChooseForTest = on ? 1 : 0;
+    }
     /// Arm the share-audio cid a running share would hold, so the cleanup in
     /// onEngineFailed can be tested without a portal, engine or SFU.
     void setShareAudioCidForTest(const QString &cid)
@@ -705,6 +785,8 @@ Q_SIGNALS:
     void shareVolumeChanged(const QString &shareId, int percent);
     /// The picker has something to show. Only where there is no portal.
     void screenShareSourcesChanged();
+    void shareAudioApplicationsChanged();
+    void shareAudioStatusChanged();
     void screenShareSourcesAvailable();
     /// A user-facing failure in plain wording. An empty message withdraws the
     /// previous one (a later attempt got past the gate that refused), the same
@@ -1103,9 +1185,52 @@ private:
     bool m_micMutedBeforeDeafen = false;
     bool m_cameraOn = false;
     bool m_screenSharing = false;
-    /// Whether a new share carries the computer's audio. Defaults on: a
-    /// silent video share is the surprising outcome.
-    bool m_shareAudioEnabled = true;
+    /// What a share's sound carries (shareaudio::Mode). Defaults to the whole
+    /// system: a silent video share is the surprising outcome.
+    int m_shareAudioMode = 1;
+    /// The mode "on" returns to after "off" (setShareAudioEnabled).
+    int m_shareAudioLastOnMode = 1;
+    QStringList m_shareAudioApps;
+    /// Key -> label, so a chosen application is still named while silent.
+    QHash<QString, QString> m_shareAudioAppLabels;
+    /// The live list (shareAudioApplications), refreshed by a poll.
+    QVariantList m_shareAudioApplications;
+    QTimer m_shareAudioAppsTimer;
+    int m_shareAudioAppsWatchers = 0;
+    int m_shareAudioCanChooseForTest = -1;   // -1: ask the machine
+    /// One enumeration at a time (it runs on a worker), and the streams it
+    /// last returned, so a refresh that only changes marks needs no new pass.
+    bool m_shareAudioListInFlight = false;
+    bool m_shareAudioListHangLogged = false;
+    QElapsedTimer m_shareAudioListStarted;
+    QVariantList m_shareAudioLastApps;   // [{key,label,iconName,active,containsUs}]
+    /// What the running share ACTUALLY is (engine report) and is hearing.
+    bool m_shareAudioReportLive = false;
+    bool m_shareAudioReportPerApp = false;
+    bool m_shareAudioReportExcludesUs = false;
+    QStringList m_shareAudioCarried;
+    QStringList m_shareAudioFailed;
+    bool m_shareAudioLimitReached = false;
+    bool m_shareAudioHeard = false;
+    bool m_shareAudioLevelKnown = false;
+    QElapsedTimer m_shareAudioLastHeard;
+    /// A window-preselected choice to put back when the share ends.
+    bool m_shareAudioRestorePending = false;
+    int m_shareAudioRestoreMode = 1;
+    QStringList m_shareAudioRestoreApps;
+    void refreshShareAudioApplications();
+    /// Rebuilds the list from the last enumeration plus the choice.
+    void rebuildShareAudioApplications();
+    void updateShareAudioAppsPolling();
+    /// The share has ended: drop the level state and put back a choice the
+    /// picker made for it (restoreShareAudioChoiceAfterShare()).
+    void shareAudioShareEnded();
+    /// Publishes, removes or re-points the running share's sound to match the
+    /// current mode and choice.
+    void applyShareAudioToRunningShare();
+    /// Declares and publishes the share-audio track for the running share.
+    void publishShareAudioTrack();
+    void resetShareAudioLevel();
     bool m_handRaised = false;
     /// The `m.reaction` our raise produced; lowering redacts exactly this.
     QString m_handReactionId;

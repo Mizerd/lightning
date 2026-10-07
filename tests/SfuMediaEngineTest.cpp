@@ -650,6 +650,45 @@ QByteArray roomTrailer()
     return QByteArray("k3P9dQ2mZ7xW4vB8nT1cY6hJ0fL5sG2aE9rU3oKqXiR");
 }
 
+/// A scripted per-application listing for the engine's share-audio seam.
+struct ScriptedListing {
+    QList<lightning::shareaudio::Stream> live;
+    QSet<QString> running;   // ids whose process runs (Windows policy)
+};
+
+static lightning::shareaudio::Stream scriptedStream(const QString &serial,
+                                                    const QString &key,
+                                                    qint64 start = 0)
+{
+    lightning::shareaudio::Stream s;
+    s.serial = serial;
+    s.appKey = key;
+    s.appName = key;
+    s.pid = serial.toLongLong();
+    s.startTime = start;
+    return s;
+}
+
+static void installListing(SfuMediaEngine &engine,
+                           const std::shared_ptr<ScriptedListing> &listing,
+                           bool followsProcess)
+{
+    lightning::shareaudio::BranchOptions options;
+    options.followsProcess = followsProcess;
+    options.retireOnDisconnect = false;
+    engine.setShareAudioSourceForTest(
+        [listing](const QList<lightning::shareaudio::Stream> &check) {
+            lightning::shareaudio::Enumeration e;
+            e.streams = listing->live;
+            for (const lightning::shareaudio::Stream &c : check) {
+                if (listing->running.contains(c.id()))
+                    e.running.insert(c.id());
+            }
+            return e;
+        },
+        options);
+}
+
 class SfuMediaEngineTest : public QObject
 {
     Q_OBJECT
@@ -5109,23 +5148,49 @@ private slots:
             gst_object_unref(mix);
             haveMixer = true;
         }
-        bool canRetire = false;
+        // `target-object` is what a branch needs; `on-disconnect` is NOT
+        // required (it exists only from PipeWire 1.6, and requiring it
+        // switched per-application capture off in every package).
+        bool canTarget = false;
         if (GstElementFactory *pw = gst_element_factory_find("pipewiresrc")) {
             if (GstElement *probe = gst_element_factory_create(pw, nullptr)) {
-                canRetire = g_object_class_find_property(
-                                G_OBJECT_GET_CLASS(probe), "on-disconnect")
+                canTarget = g_object_class_find_property(
+                                G_OBJECT_GET_CLASS(probe), "target-object")
                             != nullptr;
                 gst_object_unref(probe);
             }
             gst_object_unref(pw);
         }
-        if (haveProvider && haveMixer && canRetire) {
+        // And a daemon the provider actually reached: its start() says yes
+        // without one.
+        bool reached = false;
+        if (haveProvider) {
+            if (GstDeviceProvider *provider =
+                    gst_device_provider_factory_get_by_name(
+                        "pipewiredeviceprovider")) {
+                if (gst_device_provider_start(provider)) {
+                    GList *devices = gst_device_provider_get_devices(provider);
+                    reached = devices != nullptr;
+                    g_list_free_full(devices, gst_object_unref);
+                    gst_device_provider_stop(provider);
+                }
+                gst_object_unref(provider);
+            }
+        }
+        if (haveProvider && haveMixer && canTarget && reached) {
             QVERIFY2(perApplication,
-                     "this machine has the PipeWire device provider, "
-                     "audiomixer and pipewiresrc on-disconnect, so "
-                     "per-application share audio must be available — if it "
-                     "is not, every share is silently taking the sink-monitor "
-                     "path and sending the call back to the call");
+                     "this machine has the PipeWire device provider, a "
+                     "PipeWire daemon it reaches, audiomixer and pipewiresrc "
+                     "target-object, so per-application share audio must be "
+                     "available — if it is not, every share is silently "
+                     "taking the sink-monitor path and sending the call back "
+                     "to the call");
+        }
+        if (haveProvider && !reached) {
+            QVERIFY2(!perApplication,
+                     "no PipeWire daemon is reachable, yet per-application "
+                     "capture claims to be available: every share would "
+                     "carry nothing but the silence floor");
         }
         QVERIFY2(available == (anyPresent || perApplication),
                  qPrintable(QStringLiteral(
@@ -5381,6 +5446,405 @@ private slots:
                          "a share-audio capture candidate no longer names "
                          "itself `sharesrc`: %1").arg(element)));
         }
+    }
+
+    // The per-application track in every shape production now composes:
+    // with the level meter, with branches built for a pipewiresrc that has no
+    // `on-disconnect` (PipeWire < 1.6), and with a muted branch. Parsed for
+    // real (§16: a lookalike composition proved nothing once already).
+    void theChosenApplicationsTrackParsesInEveryShape()
+    {
+        for (const char *needed : { "audiomixer", "audiotestsrc", "audioconvert",
+                                    "audioresample", "capsfilter", "valve",
+                                    "opusenc", "rtpopuspay", "pipewiresrc",
+                                    "volume", "level" }) {
+            GstElementFactory *factory = gst_element_factory_find(needed);
+            if (!factory)
+                QSKIP(qPrintable(QStringLiteral("no %1 in this build")
+                                     .arg(QLatin1String(needed))));
+            gst_object_unref(factory);
+        }
+        const auto parseFailure = [](const QString &description) {
+            GError *error = nullptr;
+            GstElement *bin = gst_parse_bin_from_description(
+                description.toUtf8().constData(), TRUE, &error);
+            QString message =
+                error && error->message ? QString::fromUtf8(error->message)
+                                        : QString();
+            if (error)
+                g_error_free(error);
+            // The level meter and every branch's volume must be findable by
+            // the names the engine looks them up by.
+            if (message.isEmpty() && bin) {
+                GstElement *level = gst_bin_get_by_name(
+                    GST_BIN(bin), "sharelevel");
+                if (!level)
+                    message = QStringLiteral("no element named sharelevel");
+                else
+                    gst_object_unref(level);
+            }
+            if (bin)
+                gst_object_unref(bin);
+            return message;
+        };
+        lightning::shareaudio::Stream a;
+        a.serial = QStringLiteral("9551");
+        lightning::shareaudio::Stream b;
+        b.serial = QStringLiteral("307");
+        for (bool retire : { true, false }) {
+            lightning::shareaudio::BranchOptions options;
+            options.retireOnDisconnect = retire;
+            const QString whole = lightning::shareaudio::encodedTrackDescription(
+                lightning::shareaudio::mixedSourceDescription({ a, b }, options),
+                0x1234u, /*withLevel=*/true);
+            const QString message = parseFailure(whole);
+            QVERIFY2(message.isEmpty(),
+                     qPrintable(QStringLiteral(
+                         "the chosen-applications track (on-disconnect=%1) "
+                         "does not parse: %2").arg(retire).arg(message)));
+            QVERIFY(whole.contains(QStringLiteral("shareappvol1")));
+        }
+
+        // A branch added mid-share (rescan), muted from birth, parses alone.
+        lightning::shareaudio::BranchOptions legacy;
+        legacy.retireOnDisconnect = false;
+        GError *error = nullptr;
+        GstElement *branch = gst_parse_bin_from_description(
+            lightning::shareaudio::applicationBranchDescription(a, 5, legacy,
+                                                                true)
+                .toUtf8()
+                .constData(),
+            TRUE, &error);
+        const QString branchMessage =
+            error && error->message ? QString::fromUtf8(error->message)
+                                    : QString();
+        if (error)
+            g_error_free(error);
+        QVERIFY2(branchMessage.isEmpty(), qPrintable(branchMessage));
+        QVERIFY(branch);
+        GstElement *volume = gst_bin_get_by_name(GST_BIN(branch), "shareappvol5");
+        QVERIFY2(volume, "the branch's volume is not where a mute looks for it");
+        gboolean mute = FALSE;
+        g_object_get(volume, "mute", &mute, nullptr);
+        QVERIFY(mute);
+        gst_object_unref(volume);
+        gst_object_unref(branch);
+    }
+
+    // Nothing running: a new choice is recorded for the next publish.
+    void aShareAudioSelectionWithoutARunningShareIsOnlyRecorded()
+    {
+        SfuMediaEngine engine;
+        lightning::shareaudio::Selection apps;
+        apps.mode = lightning::shareaudio::Mode::Apps;
+        apps.keys = { QStringLiteral("firefox") };
+        QVERIFY(engine.applyShareAudioSelection(apps));
+        // With nothing chosen and no peer, publishing adds no bin.
+        lightning::shareaudio::Selection none;
+        none.mode = lightning::shareaudio::Mode::Apps;
+        engine.publishShareAudio(QStringLiteral("cid-none"), none);
+        QVERIFY(!engine.hasPublishedBinForTest(QStringLiteral("cid-none")));
+    }
+
+    // ── A running per-application share, through the test seam ──
+    //
+    // The listing is scripted and the branches are audiotestsrc, so mutes,
+    // retirements, the taking-out of a gone branch, re-adds and the cap run
+    // on a real publisher pipeline without PipeWire or WASAPI (helpers:
+    // ScriptedListing, above the class).
+
+    // PipeWire policy: chosen apps get branches, a deselected one is muted,
+    // a gone one is retired and then TAKEN OUT (so churn cannot use up the
+    // cap), and the report says what is carried.
+    void aPerApplicationShareFollowsTheChoiceAndTheStreams()
+    {
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        auto listing = std::make_shared<ScriptedListing>();
+        listing->live = { scriptedStream(QStringLiteral("11"), QStringLiteral("a")),
+                          scriptedStream(QStringLiteral("12"), QStringLiteral("b")) };
+        installListing(engine, listing, /*followsProcess=*/false);
+        QSignalSpy reports(&engine, &SfuMediaEngine::shareAudioReport);
+        engine.start();
+        lightning::shareaudio::Selection apps;
+        apps.mode = Mode::Apps;
+        apps.keys = { QStringLiteral("a") };
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"), apps);
+        QTest::qWait(300);
+        QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-share-audio")));
+        QCOMPARE(engine.shareAudioBranchBinsForTest(), 1);
+        QVERIFY(engine.shareAudioBranchIndexForTest(QStringLiteral("11")) >= 0);
+        QCOMPARE(engine.shareAudioBranchIndexForTest(QStringLiteral("12")), -2);
+        QVERIFY(!reports.isEmpty());
+        QCOMPARE(reports.last().at(3).toStringList(),
+                 QStringList{ QStringLiteral("a") });
+        QVERIFY(reports.last().at(1).toBool());   // per application
+
+        // The whole system, in place: b gets a branch, a stays audible.
+        lightning::shareaudio::Selection system;
+        system.mode = Mode::System;
+        QVERIFY(engine.applyShareAudioSelection(system));
+        QTest::qWait(200);
+        QCOMPARE(engine.shareAudioBranchBinsForTest(), 2);
+        QVERIFY(!engine.shareAudioBranchMutedForTest(QStringLiteral("11")));
+
+        // Only b: a is muted, never unlinked.
+        lightning::shareaudio::Selection onlyB;
+        onlyB.mode = Mode::Apps;
+        onlyB.keys = { QStringLiteral("b") };
+        QVERIFY(engine.applyShareAudioSelection(onlyB));
+        QVERIFY(engine.shareAudioBranchMutedForTest(QStringLiteral("11")));
+        QVERIFY(!engine.shareAudioBranchMutedForTest(QStringLiteral("12")));
+        QCOMPARE(engine.shareAudioBranchBinsForTest(), 2);
+
+        // a's stream ends: retired on this scan, taken out on the next.
+        listing->live = { scriptedStream(QStringLiteral("12"), QStringLiteral("b")) };
+        engine.rescanShareAudioSourcesForTest();
+        QVERIFY(engine.shareAudioBranchIndexForTest(QStringLiteral("11")) >= 0);
+        QTest::qWait(300);
+        engine.rescanShareAudioSourcesForTest();
+        QCOMPARE(engine.shareAudioBranchIndexForTest(QStringLiteral("11")), -2);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.shareAudioBranchBinsForTest(), 1, 3000);
+        QCOMPARE(engine.shareAudioBranchCountForTest(), 1);
+        QTest::qWait(200);
+        // The track still runs: the live publisher kept its share bin.
+        QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-share-audio")));
+        engine.stop();
+    }
+
+    // H1: with the Windows policy a branch follows its PROCESS. A session
+    // that expires keeps its branch; the process exiting retires it; a
+    // process that comes back is captured again.
+    void aWindowsStyleBranchSurvivesItsSessionAndIsReAddedAfterItsProcess()
+    {
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        auto listing = std::make_shared<ScriptedListing>();
+        const auto browser =
+            scriptedStream(QStringLiteral("21"), QStringLiteral("chrome.exe"), 5);
+        listing->live = { browser };
+        listing->running = { browser.id() };
+        installListing(engine, listing, /*followsProcess=*/true);
+        engine.start();
+        lightning::shareaudio::Selection apps;
+        apps.mode = Mode::Apps;
+        apps.keys = { QStringLiteral("chrome.exe") };
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"), apps);
+        QTest::qWait(300);
+        const int first = engine.shareAudioBranchIndexForTest(browser.id());
+        QVERIFY(first >= 0);
+
+        // Paused: the session is gone from the listing, the process runs.
+        listing->live = {};
+        engine.rescanShareAudioSourcesForTest();
+        QTest::qWait(200);
+        engine.rescanShareAudioSourcesForTest();
+        QVERIFY2(engine.shareAudioBranchIndexForTest(browser.id()) == first,
+                 "an expired session cost its process the capture; it would "
+                 "never be captured again");
+        QCOMPARE(engine.shareAudioBranchBinsForTest(), 1);
+
+        // Playing again: the same branch, no second one.
+        listing->live = { browser };
+        engine.rescanShareAudioSourcesForTest();
+        QCOMPARE(engine.shareAudioBranchIndexForTest(browser.id()), first);
+        QCOMPARE(engine.shareAudioBranchBinsForTest(), 1);
+
+        // The process exits: retired, then taken out and forgotten.
+        listing->live = {};
+        listing->running = {};
+        engine.rescanShareAudioSourcesForTest();
+        QTest::qWait(300);
+        engine.rescanShareAudioSourcesForTest();
+        QCOMPARE(engine.shareAudioBranchIndexForTest(browser.id()), -2);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.shareAudioBranchBinsForTest(), 0, 3000);
+
+        // It comes back: captured again, as a new branch.
+        listing->live = { browser };
+        listing->running = { browser.id() };
+        engine.rescanShareAudioSourcesForTest();
+        const int again = engine.shareAudioBranchIndexForTest(browser.id());
+        QVERIFY2(again >= 0 && again != first,
+                 "a returning application was never captured again");
+        QCOMPARE(engine.shareAudioBranchBinsForTest(), 1);
+        engine.stop();
+    }
+
+    // M3: the cap counts what stands; a reclaimed branch frees its place and
+    // the limit is reported, not silent.
+    void theBranchCapIsReportedAndFreedByReclaiming()
+    {
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setShareAudioBranchCapForTest(2);
+        auto listing = std::make_shared<ScriptedListing>();
+        listing->live = { scriptedStream(QStringLiteral("31"), QStringLiteral("a")),
+                          scriptedStream(QStringLiteral("32"), QStringLiteral("b")),
+                          scriptedStream(QStringLiteral("33"), QStringLiteral("c")) };
+        installListing(engine, listing, /*followsProcess=*/false);
+        QSignalSpy reports(&engine, &SfuMediaEngine::shareAudioReport);
+        engine.start();
+        lightning::shareaudio::Selection system;
+        system.mode = Mode::System;
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"), system);
+        QTest::qWait(300);
+        QCOMPARE(engine.shareAudioBranchBinsForTest(), 2);
+        QVERIFY(!reports.isEmpty());
+        QVERIFY2(reports.last().at(5).toBool(),
+                 "the branch limit left an application out silently");
+
+        listing->live.removeFirst();   // a leaves
+        engine.rescanShareAudioSourcesForTest();
+        QTest::qWait(300);
+        engine.rescanShareAudioSourcesForTest();   // taken out; c added
+        QTRY_COMPARE_WITH_TIMEOUT(engine.shareAudioBranchBinsForTest(), 2, 3000);
+        QVERIFY(engine.shareAudioBranchIndexForTest(QStringLiteral("33")) >= 0);
+        QVERIFY(!reports.last().at(5).toBool());
+        engine.stop();
+    }
+
+    // A branch that ends by itself (pipewiresrc 1.6's on-disconnect=eos when
+    // the daemon restarts) is retired even while the listing still shows its
+    // id: a restarted daemon can give the SAME serial to the same
+    // application's new stream, and keeping the ended branch for it carried
+    // nothing for the rest of the share. It is taken out and the stream
+    // captured again.
+    void aBranchThatEndsByItselfIsReplacedEvenIfItsIdComesBack()
+    {
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        auto listing = std::make_shared<ScriptedListing>();
+        listing->live = { scriptedStream(QStringLiteral("37"), QStringLiteral("toneb")) };
+        installListing(engine, listing, /*followsProcess=*/false);
+        engine.start();
+        lightning::shareaudio::Selection system;
+        system.mode = Mode::System;
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"), system);
+        QTest::qWait(300);
+        const int first = engine.shareAudioBranchIndexForTest(QStringLiteral("37"));
+        QVERIFY(first >= 0);
+
+        // The source ends on its own; the listing is unchanged.
+        engine.sendShareAudioEosForTest(QStringLiteral("37"));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            engine.shareAudioEosSeenForTest(QStringLiteral("37")), 3000);
+        engine.rescanShareAudioSourcesForTest();   // retired, taken out
+        engine.rescanShareAudioSourcesForTest();   // captured again
+        const int again = engine.shareAudioBranchIndexForTest(QStringLiteral("37"));
+        QVERIFY2(again >= 0 && again != first,
+                 "an ended branch was kept for a live stream: silence");
+        QTRY_COMPARE_WITH_TIMEOUT(engine.shareAudioBranchBinsForTest(), 1, 3000);
+        engine.stop();
+    }
+
+    // N2, measured live: after `restart pipewire` under a running share, an
+    // application came back at the SAME serial, and its old branch, whose
+    // connection the daemon had closed, was kept for it. pipewiresrc neither
+    // errors nor sends EOS when the daemon goes (its stream merely becomes
+    // unconnected), so it carried silence for the rest of the share. A
+    // branch whose own connection hung up is retired and the stream captured
+    // again.
+    void aBranchWhoseDaemonHungUpIsReplaced()
+    {
+#if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        auto listing = std::make_shared<ScriptedListing>();
+        listing->live = { scriptedStream(QStringLiteral("37"), QStringLiteral("toneb")) };
+        installListing(engine, listing, /*followsProcess=*/false);
+        engine.start();
+        lightning::shareaudio::Selection system;
+        system.mode = Mode::System;
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"), system);
+        QTest::qWait(300);
+        const int first = engine.shareAudioBranchIndexForTest(QStringLiteral("37"));
+        QVERIFY(first >= 0);
+        int pair[2] = { -1, -1 };
+        QCOMPARE(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair), 0);
+        engine.setShareAudioConnectionForTest(QStringLiteral("37"), pair[0]);
+
+        // Connection open: nothing changes, however many scans.
+        engine.rescanShareAudioSourcesForTest();
+        engine.rescanShareAudioSourcesForTest();
+        QCOMPARE(engine.shareAudioBranchIndexForTest(QStringLiteral("37")), first);
+
+        // The daemon hangs up; the listing still shows serial 37.
+        ::close(pair[1]);
+        // Retired and taken out at once: its source can produce nothing more,
+        // and after a real restart its EOS is never seen (a flush-start
+        // pipewiresrc never ended drops it), so none is let through here.
+        engine.setShareAudioSuppressRetireEosForTest(true);
+        engine.rescanShareAudioSourcesForTest();
+        // ...and in the same scan the stream is captured again.
+        const int again = engine.shareAudioBranchIndexForTest(QStringLiteral("37"));
+        QVERIFY2(again >= 0 && again != first,
+                 "a branch whose daemon hung up was kept for the stream that "
+                 "came back at its serial: silence");
+        QTRY_COMPARE_WITH_TIMEOUT(engine.shareAudioBranchBinsForTest(), 1, 3000);
+        engine.stop();
+        ::close(pair[0]);
+#else
+        QSKIP("PipeWire is Linux-only");
+#endif
+    }
+
+    // N1: a retired branch is taken out only once its EOS has actually
+    // passed its src pad. "Retired a scan ago" was the old rule, and a
+    // selection change rescans at once: two quick changes took a branch out
+    // milliseconds after its EOS was sent, while it was still pushing, with a
+    // synchronous NULL on the GUI thread. Here the EOS is withheld, so the
+    // branch goes on producing exactly as a source mid-push would.
+    void aRetiredBranchIsNotTakenOutUntilItsEosHasPassed()
+    {
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        auto listing = std::make_shared<ScriptedListing>();
+        listing->live = { scriptedStream(QStringLiteral("41"), QStringLiteral("a")),
+                          scriptedStream(QStringLiteral("42"), QStringLiteral("b")) };
+        installListing(engine, listing, /*followsProcess=*/false);
+        engine.start();
+        lightning::shareaudio::Selection system;
+        system.mode = Mode::System;
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"), system);
+        QTest::qWait(300);
+        QCOMPARE(engine.shareAudioBranchBinsForTest(), 2);
+
+        engine.setShareAudioSuppressRetireEosForTest(true);
+        listing->live = { scriptedStream(QStringLiteral("42"), QStringLiteral("b")) };
+        engine.rescanShareAudioSourcesForTest();          // retires a
+        // Quick selection changes and scans, back to back, while a produces.
+        lightning::shareaudio::Selection onlyB;
+        onlyB.mode = Mode::Apps;
+        onlyB.keys = { QStringLiteral("b") };
+        QVERIFY(engine.applyShareAudioSelection(onlyB));
+        QVERIFY(engine.applyShareAudioSelection(system));
+        for (int i = 0; i < 5; ++i)
+            engine.rescanShareAudioSourcesForTest();
+        QTest::qWait(300);
+        engine.rescanShareAudioSourcesForTest();
+        QVERIFY(!engine.shareAudioEosSeenForTest(QStringLiteral("41")));
+        QVERIFY2(engine.shareAudioBranchIndexForTest(QStringLiteral("41")) >= 0,
+                 "a branch was taken out before its EOS had passed — while it "
+                 "could still be pushing");
+        QCOMPARE(engine.shareAudioBranchBinsForTest(), 2);
+
+        // Its EOS passes: now it is taken out (asynchronously), and the share
+        // runs on.
+        engine.setShareAudioSuppressRetireEosForTest(false);
+        engine.sendShareAudioEosForTest(QStringLiteral("41"));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            engine.shareAudioEosSeenForTest(QStringLiteral("41")), 3000);
+        engine.rescanShareAudioSourcesForTest();
+        QCOMPARE(engine.shareAudioBranchIndexForTest(QStringLiteral("41")), -2);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.shareAudioBranchBinsForTest(), 1, 3000);
+        QVERIFY(engine.hasPublishedBinForTest(QStringLiteral("cid-share-audio")));
+        engine.stop();
     }
 
     /// A key that reached nobody is installed but not adopted for encryption;

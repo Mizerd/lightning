@@ -2395,6 +2395,24 @@ of them driven against the thing that reported them. Full account in
   exercised on any machine — it could not parse, so every observation of
   "share audio works" to date is the sink-monitor fallback. Do not read the
   2026-09-13 flatpak sweep's share-audio PASS as covering it.
+  **Superseded in part 2026-10-07** (docs/voice-calls.md, "Choosing which
+  applications are heard"): per-application capture is LIVE-VALIDATED PASS on
+  a dev build against a private PipeWire 1.6.9 graph, two Lightning instances,
+  measured at the receiver. It had never run in a package because the gate
+  required `on-disconnect` (PipeWire 1.6 only). A PipeWire restart (pipewire +
+  wireplumber + pipewire-pulse) before a share and DURING one, in System and in
+  Apps mode, is also LIVE PASS there: recovered in about 2 s, an application
+  back at the same serial included, the receiver's own tone played by the
+  sender more than 85 dB down. Still **NOT TESTED**: the
+  AppImage's bundled 1.4.2 plugin, the flatpak (sandboxed PipeWire
+  permissions), a real PulseAudio-only desktop, Windows process loopback
+  (per-application and window preselection), and Element receiving the
+  per-application track.
+- **Share options are unreachable from a cramped call bar.** The share
+  chevron (sound, resolution, frame rate) is hidden whenever the call bar is
+  `compact` (a narrow window, or the in-room collapsed bar). On X11, Windows
+  and macOS the picker carries the sound choice; on Wayland (portal) there is
+  no other route. Found 2026-10-07 while testing; not changed.
 - **Share-audio MUTE is a seam, not a feature.** The share's Opus chain
   carries `valve name=sharevalve drop=false` and its comment used to read as
   though muting the share independently of the microphone were implemented.

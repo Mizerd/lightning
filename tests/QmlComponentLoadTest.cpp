@@ -52,6 +52,13 @@ constexpr const char *kComponents[] = {
     "AudioLevelBar",
     // Settings → Labs: the microphone noise suppression selector (#20).
     "NoiseSuppressionSelector",
+    // Screen share sound: the live application list (IconImage from
+    // QtQuick.Controls.impl), the call bar's dialog around it, and both
+    // share surfaces that host the choice.
+    "ShareAudioAppList",
+    "ShareAudioAppsDialog",
+    "CallShareOptionsMenu",
+    "ScreenSharePicker",
     "MediaBrowser",          // room media/files/links over all history
     "ContextView",           // read-only message context (app.eventContext)
     "ForwardSelectionDialog",

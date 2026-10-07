@@ -811,9 +811,8 @@ QString fileDescriptionUncached(const QString &executable)
     return {};
 }
 
-/// Which application a window belongs to, best effort. Empty is a valid
-/// answer; a wrong name would be worse than none.
-QString applicationNameFor(HWND window)
+/// The full path of a process's executable, or empty.
+QString executablePathFor(DWORD pid)
 {
     static QueryFullProcessImageNameWFn imageNameFn = nullptr;
     static std::once_flag once;
@@ -825,12 +824,7 @@ QString applicationNameFor(HWND window)
                     GetProcAddress(kernel, "QueryFullProcessImageNameW")));
         }
     });
-    if (!imageNameFn)
-        return {};
-
-    DWORD pid = 0;
-    GetWindowThreadProcessId(window, &pid);
-    if (!pid)
+    if (!imageNameFn || !pid)
         return {};
     HANDLE process =
         OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
@@ -842,9 +836,15 @@ QString applicationNameFor(HWND window)
     CloseHandle(process);
     if (!got || length == 0)
         return {};
+    return QString::fromWCharArray(path, static_cast<int>(length));
+}
 
-    const QString executable =
-        QString::fromWCharArray(path, static_cast<int>(length));
+/// Which application an executable is, best effort. Empty is a valid answer;
+/// a wrong name would be worse than none.
+QString applicationNameForExecutable(const QString &executable)
+{
+    if (executable.isEmpty())
+        return {};
     const QString described = fileDescription(executable);
     if (!described.isEmpty())
         return described;
@@ -905,7 +905,12 @@ BOOL CALLBACK enumProc(HWND window, LPARAM param)
     lightning::wincap::WindowInfo info;
     info.handle = static_cast<quint64>(reinterpret_cast<uintptr_t>(window));
     info.title = QString::fromWCharArray(title, length);
-    info.application = applicationNameFor(window);
+    // The owning process too, so the share's sound can follow the window:
+    // ShareAudioSources keys a Windows application by its executable's name.
+    const QString executable = executablePathFor(pid);
+    info.pid = pid;
+    info.executable = executable.section(QLatin1Char('\\'), -1).toLower();
+    info.application = applicationNameForExecutable(executable);
     info.width = geo.cropWidth;
     info.height = geo.cropHeight;
     ctx->out->append(info);
@@ -917,6 +922,49 @@ BOOL CALLBACK enumProc(HWND window, LPARAM param)
 namespace lightning::wincap {
 
 bool available() { return true; }
+
+ProcessInfo processInfo(quint64 pid)
+{
+    static QueryFullProcessImageNameWFn imageNameFn = nullptr;
+    static std::once_flag once;
+    std::call_once(once, [] {
+        HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+        if (kernel) {
+            imageNameFn = reinterpret_cast<QueryFullProcessImageNameWFn>(
+                reinterpret_cast<void *>(
+                    GetProcAddress(kernel, "QueryFullProcessImageNameW")));
+        }
+    });
+    ProcessInfo info;
+    if (!pid)
+        return info;
+    HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
+                                 static_cast<DWORD>(pid));
+    if (!process)
+        return info;
+    FILETIME created{}, exited{}, kernelTime{}, userTime{};
+    if (GetProcessTimes(process, &created, &exited, &kernelTime, &userTime)) {
+        info.startTime = (static_cast<qint64>(created.dwHighDateTime) << 32)
+            | static_cast<qint64>(created.dwLowDateTime);
+    }
+    DWORD exitCode = 0;
+    info.running = GetExitCodeProcess(process, &exitCode)
+        && exitCode == STILL_ACTIVE;
+    if (imageNameFn) {
+        wchar_t path[MAX_PATH];
+        DWORD length = MAX_PATH;
+        if (imageNameFn(process, 0, path, &length) && length > 0)
+            info.executablePath =
+                QString::fromWCharArray(path, static_cast<int>(length));
+    }
+    CloseHandle(process);
+    return info;
+}
+
+QString applicationNameForExecutablePath(const QString &path)
+{
+    return applicationNameForExecutable(path);
+}
 
 namespace {
 
@@ -1084,6 +1132,8 @@ namespace lightning::wincap {
 // Off Windows this is not the mechanism: Linux uses the xdg portal and macOS
 // captures displays through avfvideosrc.
 bool available() { return false; }
+ProcessInfo processInfo(quint64) { return {}; }
+QString applicationNameForExecutablePath(const QString &) { return {}; }
 QList<WindowInfo> enumerateWindows() { return {}; }
 bool displayForDeviceName(const QString &, int *, int *, int *)
 {

@@ -190,6 +190,75 @@ AppDialog {
 
     onTabChanged: root.selectionIntoView()
 
+    // ── Sound that follows a window (Discord-like) ──
+    // Choosing a window preselects that window's application as the share's
+    // only sound, unless the user has set the sound by hand in this opening.
+    // Going back to a screen, or cancelling, restores what was set before.
+    // Only where single applications can be captured (Windows process
+    // loopback); a window whose application cannot be read says so instead.
+    readonly property bool canChooseApps:
+        !!app.groupCall && app.groupCall.shareAudioCanChooseApps
+        && app.groupCall.shareAudioSupported
+    property bool soundTouched: false
+    property bool soundAutoChosen: false
+    property int soundSavedMode: 1
+    property var soundSavedApps: []
+    readonly property var selectedRow:
+        (root.selected >= 0 && root.selected < root.sources.length)
+            ? root.sources[root.selected] : null
+    readonly property string selectedWindowAudioKey:
+        (root.selectedRow && root.isWindowRow(root.selectedRow)
+         && root.selectedRow.audioAppKey !== undefined)
+            ? String(root.selectedRow.audioAppKey) : ""
+    function restoreAutoSound() {
+        if (!root.soundAutoChosen || !app.groupCall)
+            return;
+        root.soundAutoChosen = false;
+        app.groupCall.restoreShareAudioChoice(root.soundSavedMode,
+                                              root.soundSavedApps);
+    }
+    /// The window's owner is a process Lightning runs inside (explorer.exe):
+    /// its tree includes this call, so its sound is never chosen for it.
+    readonly property bool selectedWindowContainsUs:
+        !!root.selectedRow && root.isWindowRow(root.selectedRow)
+        && root.selectedRow.audioAppContainsUs === true
+    /// Whether the window's application has an audio session right now. A
+    /// window whose owner never plays (a UWP frame host) must not silence the
+    /// share by choosing it.
+    readonly property bool selectedWindowHasSession: {
+        var key = root.selectedWindowAudioKey;
+        if (key.length === 0 || !app.groupCall)
+            return false;
+        var rows = app.groupCall.shareAudioApplications;
+        for (var i = 0; i < rows.length; ++i) {
+            if (rows[i].key === key && rows[i].session === true
+                    && rows[i].containsUs !== true)
+                return true;
+        }
+        return false;
+    }
+    function followSelectionWithSound() {
+        if (!root.visible || root.soundTouched || !root.canChooseApps
+                || !app.groupCall)
+            return;
+        var row = root.selectedRow;
+        if (row && root.isWindowRow(row) && root.selectedWindowAudioKey.length > 0
+                && !root.selectedWindowContainsUs && root.selectedWindowHasSession
+                && app.groupCall.shareAudioMode !== 0) {
+            if (!root.soundAutoChosen) {
+                root.soundSavedMode = app.groupCall.shareAudioMode;
+                root.soundSavedApps = app.groupCall.shareAudioApps.slice();
+                root.soundAutoChosen = true;
+            }
+            app.groupCall.chooseOnlyShareAudioApp(
+                root.selectedWindowAudioKey,
+                row.application !== undefined ? String(row.application) : "");
+        } else {
+            root.restoreAutoSound();
+        }
+    }
+    onSelectedChanged: root.followSelectionWithSound()
+
     // Opened by the controller, which starts immediately when there is only one
     // display.
     Connections {
@@ -215,6 +284,7 @@ AppDialog {
             return;
         }
         root.normalize();
+        root.followSelectionWithSound();
     }
 
     /// Set for the frame between pressing Share and the controller clearing the
@@ -236,29 +306,68 @@ AppDialog {
         var chosen = root.selected;
         root.confirmed = true;
         root.accepting = true;
+        // A window's application chosen for this share is put back when the
+        // share ends, not now (the share needs it) and not never.
+        if (root.soundAutoChosen && app.groupCall) {
+            app.groupCall.restoreShareAudioChoiceAfterShare(
+                root.soundSavedMode, root.soundSavedApps);
+            root.soundAutoChosen = false;
+        }
         root.close();
         if (app.groupCall)
             app.groupCall.chooseScreenShareSource(chosen);
     }
 
+    // The application list is live while the picker is open, so a window's
+    // application can be matched to a session (Windows).
+    property bool watchingApps: false
+    function setWatchingApps(on) {
+        if (!app.groupCall || on === root.watchingApps)
+            return;
+        root.watchingApps = on;
+        app.groupCall.watchShareAudioApplications(on);
+    }
+    Connections {
+        target: app.groupCall
+        function onShareAudioApplicationsChanged() {
+            root.followSelectionWithSound();
+        }
+    }
+    Component.onDestruction: {
+        if (root.watchingApps && app.groupCall)
+            app.groupCall.watchShareAudioApplications(false);
+        root.watchingApps = false;
+    }
+
     onAboutToShow: {
         root.accepting = false;
         root.confirmed = false;
+        root.soundTouched = false;
+        root.soundAutoChosen = false;
         // Clear a stale Accepted from the previous opening.
         root.result = Dialog.Rejected;
     }
-    onOpened: grid.forceActiveFocus()
+    onOpened: {
+        grid.forceActiveFocus();
+        root.setWatchingApps(root.canChooseApps && root.windowCaptureSupported);
+        root.followSelectionWithSound();
+    }
     onAccepted: root.confirmShare()
     onRejected: {
+        // A window's sound chosen for the user is undone with the share.
+        root.restoreAutoSound();
         if (app.groupCall)
             app.groupCall.cancelScreenShareSelection();
     }
     onClosed: {
+        root.setWatchingApps(false);
         // `result` covers QQuickDialog's own accept path: Return closes before
         // accepted() is emitted, so `accepting` is still false here.
-        if (!root.accepting && root.result !== Dialog.Accepted
-                && root.sources.length > 0 && app.groupCall)
-            app.groupCall.cancelScreenShareSelection();
+        if (!root.accepting && root.result !== Dialog.Accepted) {
+            root.restoreAutoSound();
+            if (root.sources.length > 0 && app.groupCall)
+                app.groupCall.cancelScreenShareSelection();
+        }
         root.accepting = false;
     }
 
@@ -291,8 +400,9 @@ AppDialog {
         Math.max(1, Math.ceil(root.shownRows.length / root.gridColumns))
     readonly property int maxGridHeight: {
         var available = root.parent ? root.parent.height : 800;
-        // Room for the title, hint, tabs and buttons.
-        return Math.max(root.cellH, available - AppTheme.scaled(260));
+        // Room for the title, hint, tabs, buttons and the sound section.
+        return Math.max(root.cellH, available - AppTheme.scaled(260)
+                                    - Math.ceil(soundSection.implicitHeight));
     }
 
     contentItem: ColumnLayout {
@@ -557,12 +667,134 @@ AppDialog {
             }
         }
 
+        // ── Sound ──
+        // What the share's sound carries: nothing, the whole system (minus
+        // Lightning where the system allows), or chosen apps, listed live
+        // below. Absent, not disabled, where the build cannot capture
+        // playback (answered by GStreamer at runtime, since the plugins
+        // shipped are a packaging fact). The status line says in words what
+        // will be sent, including when Lightning cannot leave itself out.
+        ColumnLayout {
+            id: soundSection
+            objectName: "shareAudioSection"
+            Layout.fillWidth: true
+            spacing: AppTheme.spacing6
+            visible: !!app.groupCall && app.groupCall.shareAudioSupported
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing8
+                Label {
+                    text: qsTr("Sound")
+                    color: AppTheme.stormTextSecondary
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                }
+                AppComboBox {
+                    id: shareAudioCombo
+                    objectName: "shareAudioCombo"
+                    storm: root.storm
+                    implicitWidth: 190
+                    textRole: "label"
+                    valueRole: "value"
+                    model: root.canChooseApps
+                        ? [
+                            { label: qsTr("No sound"), value: 0 },
+                            { label: qsTr("Entire system"), value: 1 },
+                            { label: qsTr("Only chosen apps"), value: 2 }
+                          ]
+                        : [
+                            { label: qsTr("No sound"), value: 0 },
+                            { label: qsTr("Entire system"), value: 1 }
+                          ]
+                    Accessible.name: qsTr("Screen share sound")
+                    // Never bind currentIndex: indexOfValue() is -1 at
+                    // creation. Synced from the controller, the one owner of
+                    // the choice (the call bar's menu writes it too).
+                    Component.onCompleted: syncToValue(
+                        app.groupCall ? app.groupCall.shareAudioMode : 0)
+                    onModelChanged: syncToValue(
+                        app.groupCall ? app.groupCall.shareAudioMode : 0)
+                    onActivated: {
+                        root.soundTouched = true;
+                        root.soundAutoChosen = false;
+                        if (app.groupCall)
+                            app.groupCall.shareAudioMode = currentValue;
+                        syncToValue(app.groupCall
+                                    ? app.groupCall.shareAudioMode : 0);
+                    }
+                    Connections {
+                        target: app.groupCall
+                        function onMediaStateChanged() {
+                            shareAudioCombo.syncToValue(
+                                app.groupCall.shareAudioMode);
+                        }
+                    }
+                }
+                Label {
+                    objectName: "shareAudioStatus"
+                    Layout.fillWidth: true
+                    Layout.preferredWidth: 1
+                    wrapMode: Text.WordWrap
+                    // Application names reach this sentence: never markup.
+                    textFormat: Text.PlainText
+                    text: app.groupCall ? app.groupCall.shareAudioStatus : ""
+                    color: AppTheme.stormTextMuted
+                    font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                }
+            }
+
+            // A window whose application cannot be read: its sound cannot
+            // follow it, and saying so beats a silent guess.
+            Label {
+                objectName: "shareAudioWindowUnmatched"
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                visible: root.canChooseApps && !!root.selectedRow
+                         && root.isWindowRow(root.selectedRow)
+                         && !root.soundTouched
+                         && (root.selectedWindowContainsUs
+                             || root.selectedWindowAudioKey.length === 0
+                             || !root.selectedWindowHasSession)
+                wrapMode: Text.WordWrap
+                text: root.selectedWindowContainsUs
+                    ? qsTr("Lightning runs inside this window's app, so its "
+                           + "sound can't be shared on its own without "
+                           + "sending the call back. Its sound isn't chosen "
+                           + "automatically.")
+                    : root.selectedWindowAudioKey.length === 0
+                      ? qsTr("Lightning can't tell which app this window "
+                             + "belongs to, so its sound isn't chosen "
+                             + "automatically. Choose the app below.")
+                      : qsTr("This window's app isn't playing any sound right "
+                             + "now, so its sound isn't chosen automatically.")
+                color: AppTheme.stormTextMuted
+                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+            }
+
+            ScrollView {
+                objectName: "shareAudioAppsScroll"
+                Layout.fillWidth: true
+                visible: root.canChooseApps && !!app.groupCall
+                         && app.groupCall.shareAudioMode === 2
+                Layout.preferredHeight: visible
+                    ? Math.min(pickerAppList.implicitHeight,
+                               AppTheme.scaled(132))
+                    : 0
+                clip: true
+                contentWidth: availableWidth
+                ShareAudioAppList {
+                    id: pickerAppList
+                    width: parent ? parent.width : implicitWidth
+                    visible: root.visible && !!app.groupCall
+                             && app.groupCall.shareAudioMode === 2
+                }
+            }
+        }
+
         RowLayout {
             Layout.fillWidth: true
             spacing: AppTheme.spacing8
-            // Share audio is absent, not disabled, where the build cannot
-            // capture playback (answered by GStreamer at runtime, since the
-            // plugins shipped are a packaging fact). Quality settings live
+            // Quality settings live
             // here, where you share: both drive encoder cost (CPU downscale
             // plus VP8 encode competing with what is being shared).
             Label {
@@ -632,43 +864,7 @@ AppDialog {
                 color: AppTheme.warning
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
             }
-            CheckBox {
-                objectName: "shareAudioCheck"
-                visible: app.groupCall && app.groupCall.shareAudioSupported
-                text: qsTr("Share audio")
-                checked: app.groupCall ? app.groupCall.shareAudioEnabled
-                                       : false
-                onToggled: {
-                    if (app.groupCall)
-                        app.groupCall.shareAudioEnabled = checked;
-                    // Restore the binding: a click writes `checked` and
-                    // destroys it, and this must stay in sync with the call
-                    // bar's menu.
-                    checked = Qt.binding(function () {
-                        return app.groupCall ? app.groupCall.shareAudioEnabled
-                                             : false;
-                    });
-                }
-                ToolTip.visible: hovered
-                // Says what is actually captured. With per-application capture
-                // (Linux with PipeWire) Lightning's own playback is excluded;
-                // phrased as intent because a daemon restart can still send the
-                // share down the monitor fallback. With only the output monitor
-                // (post-mix), the call's audio cannot be subtracted (see
-                // docs/voice-calls.md); routing Lightning to another output
-                // device is the workaround.
-                ToolTip.text: (app.groupCall
-                               && app.groupCall.shareAudioExcludesOwnPlayback)
-                    ? qsTr("Send what this computer is playing, alongside "
-                           + "the picture. Where this system allows it, "
-                           + "Lightning's own audio is left out so the "
-                           + "others do not hear themselves.")
-                    : qsTr("Send what this computer is playing, alongside "
-                           + "the picture. On this system that includes the "
-                           + "call itself, so others hear themselves unless "
-                           + "Lightning's audio plays on a different output "
-                           + "device.")
-            }
+
             Item { Layout.fillWidth: true }
             AppButton {
                 storm: root.storm

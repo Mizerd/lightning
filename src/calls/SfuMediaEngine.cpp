@@ -1127,13 +1127,7 @@ void SfuMediaEngine::teardown(bool endOfCall)
         QMutexLocker lock(&m_recvHealthMutex);
         m_recvHealth.clear();
     }
-    m_shareAudioScanTimer.stop();
-    m_shareAudioCid.clear();
-    m_shareAudioSerials.clear();
-    m_shareAudioBranches = 0;
-    m_shareAudioNextIndex = 0;
-    m_shareAudioScans = 0;
-    m_shareAudioSources.stop();
+    resetShareAudioState();
     destroyPeer(m_publisher);
     destroyPeer(m_subscriber);
     {
@@ -1230,6 +1224,16 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
                             [engine, peak] { engine->handleMeterLevel(peak); });
                 }
             }
+        } else if (fields && srcName
+                   && g_strcmp0(srcName, "sharelevel") == 0
+                   && gst_structure_has_name(fields, "level")) {
+            // What the share's sound track is sending (shareaudio::
+            // levelElementName()), so a share carrying silence is visible.
+            double peak = -350.0;
+            if (SfuMediaEngine::readLevelPeak(fields, &peak)) {
+                marshal(engine,
+                        [engine, peak] { engine->handleShareAudioLevel(peak); });
+            }
         }
         gst_message_unref(message);
         return GST_BUS_DROP;
@@ -1249,6 +1253,27 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
     const QString element = QString::fromUtf8(rawName ? rawName : "?");
     const QString reason =
         QString::fromUtf8(error && error->message ? error->message : "?");
+    // The share's single loopback capture (pulsesrc on the output monitor,
+    // wasapi2src loopback) cannot capture: a snap without the audio-record
+    // plug, a monitor that will not open. Until now that was a log line and
+    // the far end heard nothing; it ends the share's sound and says so.
+    // `sharesrc-actual-src-*` too, should an auto element ever wrap it.
+    if (engine && element.startsWith(QLatin1String("sharesrc"))
+        && (type == GST_MESSAGE_ERROR
+            || (error && error->domain == GST_RESOURCE_ERROR))) {
+        marshal(engine, [engine] { engine->handleShareAudioSourceError(); });
+    }
+    // One application's capture (`shareapp<n>`) failed: that branch is
+    // retired and reported, the rest of the share carries on.
+    if (engine && type == GST_MESSAGE_ERROR) {
+        const int branch =
+            lightning::shareaudio::branchIndexFromElementName(element);
+        if (branch >= 0) {
+            marshal(engine, [engine, branch] {
+                engine->handleShareAudioBranchError(branch);
+            });
+        }
+    }
     if (type == GST_MESSAGE_ERROR) {
         qCWarning(lcSfuMedia) << "pipeline error element=" << element
                               << "code=" << (error ? error->code : 0)
@@ -1561,9 +1586,12 @@ void SfuMediaEngine::setIceServers(const QVariantList &servers)
     applyIceTo(m_subscriber);
 }
 
-/// Every name an audio server may record this process under: PipeWire uses
-/// the binary name, which differs from applicationName().
 static QStringList ourAudioClientNames()
+{
+    return SfuMediaEngine::ownAudioClientNames();
+}
+
+QStringList SfuMediaEngine::ownAudioClientNames()
 {
     QStringList names{ QCoreApplication::applicationName() };
     const QString binary =
@@ -1587,7 +1615,7 @@ struct ShareAudioSource {
 /// Chosen at runtime, and the property is checked as well as the element:
 /// `gst_parse_launch` fails on an unknown property, and which version a
 /// package ships is not visible at compile time.
-static ShareAudioSource shareAudioSourceDescription()
+static ShareAudioSource computeShareAudioSource()
 {
     struct Candidate {
         const char *element;
@@ -1652,12 +1680,32 @@ static ShareAudioSource shareAudioSourceDescription()
     return ShareAudioSource{};
 }
 
+/// Cached: the answer depends only on the loaded plugins, and computing it
+/// instantiates elements (wasapi2src opens nothing, but it is not free), while
+/// status bindings ask on every evaluation.
+static const ShareAudioSource &shareAudioSourceDescription()
+{
+    static const ShareAudioSource source = computeShareAudioSource();
+    return source;
+}
+
 bool SfuMediaEngine::shareAudioAvailable()
 {
     // Either capture counts; per-application capture does not go through
     // shareAudioSourceDescription().
     return lightning::shareaudio::perApplicationCaptureAvailable()
         || !shareAudioSourceDescription().description.isEmpty();
+}
+
+bool SfuMediaEngine::shareAudioSystemExcludesUs()
+{
+#if defined(Q_OS_WIN)
+    // "The whole system" is the single loopback candidate on Windows, which
+    // excludes our process tree only on the process-loopback entry.
+    return shareAudioSourceDescription().excludesUs;
+#else
+    return lightning::shareaudio::perApplicationCaptureAvailable();
+#endif
 }
 
 namespace {
@@ -2183,43 +2231,66 @@ void SfuMediaEngine::setShareQuality(int maxHeight, int fps)
     m_shareFps = (fps <= 22) ? 15 : (fps <= 45) ? 30 : 60;
 }
 
-void SfuMediaEngine::publishShareAudio(const QString &cid)
+void SfuMediaEngine::publishShareAudio(
+    const QString &cid, const lightning::shareaudio::Selection &selection)
 {
+    using lightning::shareaudio::Mode;
     if (!ensurePeer(Target::Publisher) || cid.isEmpty())
         return;
     if (m_publishedBins.contains(cid))
         return;
+    if (!selection.capturesAnything()) {
+        // The controller publishes no track for Off or for no chosen app; the
+        // SFU may already have been told one is coming, so say it failed.
+        qCWarning(lcSfuMedia)
+            << "share audio: asked to publish with nothing chosen to capture";
+        Q_EMIT failed(QStringLiteral("share_audio_apps_unavailable"));
+        return;
+    }
 
-    // Per-application capture (one pipewiresrc per playing app, summed, ours
+    // Per-application capture (one capture per chosen app, summed, ours
     // excluded) avoids echoing the call back; the sink monitor fallback is
     // post-mix and cannot exclude us. The choice is logged.
+#if defined(Q_OS_WIN)
+    // The whole system is one exclude-process-tree loopback on Windows;
+    // branches are only for chosen applications.
+    const bool wantPerApplication = selection.mode == Mode::Apps;
+#else
+    const bool wantPerApplication = true;
+#endif
+    const bool testSeam = static_cast<bool>(m_shareAudioEnumerateForTest);
     bool perApplication = false;
+    bool excludesUs = false;
     QString source;
-    // Enumerated once and reused for the bookkeeping below; a second
-    // enumeration could record an app with no branch built for it.
-    QList<lightning::shareaudio::Stream> streams;
-    if (m_testSources) {
+    if (testSeam) {
+        // Engine tests: branches of audiotestsrc from a scripted listing.
+        perApplication = true;
+        excludesUs = true;
+        m_shareAudioOptions = m_shareAudioOptionsForTest;
+    } else if (m_testSources) {
         source = QStringLiteral(
             "audiotestsrc name=sharesrc is-live=true wave=sine freq=220 "
             "volume=0.05");
-    } else if (m_shareAudioSources.start()) {
-        streams = m_shareAudioSources.streams(
-            QCoreApplication::applicationPid(), ourAudioClientNames());
-        source = lightning::shareaudio::mixedSourceDescription(streams);
+        excludesUs = true;
+    } else if (wantPerApplication
+               // The bounded, cached probe; every later PipeWire connection
+               // is made on a worker (enumerateAsync), never here.
+               && lightning::shareaudio::perApplicationCaptureAvailable()) {
         perApplication = true;
-        // An empty list is not a reason to fall back: nothing playing yet is
-        // normal, and the monitor would reintroduce the echo.
-        qCInfo(lcSfuMedia) << "share audio: capturing" << streams.size()
-                           << "application stream(s), this process excluded";
-        for (const lightning::shareaudio::Stream &s : streams) {
-            qCInfo(lcSfuMedia)
-                << "share audio source app="
-                << (s.appName.isEmpty() ? s.nodeName : s.appName)
-                << "serial=" << s.serial;
-        }
+        excludesUs = true;
+        m_shareAudioOptions = lightning::shareaudio::branchOptions();
+    } else if (selection.mode == Mode::Apps) {
+        // Never widen a choice of applications to the whole system.
+        qCWarning(lcSfuMedia)
+            << "share audio: the chosen applications cannot be captured on "
+               "this system (no per-application capture); sending no sound "
+               "rather than everything";
+        Q_EMIT failed(QStringLiteral("share_audio_apps_unavailable"));
+        return;
     } else {
-        const ShareAudioSource loopback = shareAudioSourceDescription();
+        const ShareAudioSource &loopback = shareAudioSourceDescription();
         source = loopback.description;
+        excludesUs = loopback.excludesUs;
         // The two outcomes must read differently in the log: only one echoes.
         if (loopback.excludesUs) {
             qCInfo(lcSfuMedia)
@@ -2234,6 +2305,13 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
                    "their own voices.";
         }
     }
+    if (perApplication) {
+        // The mixer and its silence floor only: every application branch is
+        // added by the scan, as a bin of its own that can be taken out again
+        // once its application has gone.
+        source = lightning::shareaudio::mixedSourceDescription(
+            {}, m_shareAudioOptions);
+    }
     if (source.isEmpty()) {
         // The SFU was already told a track is coming, so report the failure.
         qCWarning(lcSfuMedia)
@@ -2245,9 +2323,10 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
     // Built by one function so tests parse the exact string.
     // mixedSourceDescription() ends in a pad reference, which accepts no
     // further assignments, so each capture element names itself `sharesrc`.
-    const QString description =
-        lightning::shareaudio::encodedTrackDescription(source,
-                                                       nextPublishSsrc());
+    // The level meter only where the build has the element: naming a missing
+    // one fails the whole parse.
+    const QString description = lightning::shareaudio::encodedTrackDescription(
+        source, nextPublishSsrc(), elementAvailable("level"));
 
     GError *error = nullptr;
     GstElement *bin =
@@ -2259,16 +2338,12 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
         g_error_free(error);
         if (bin)
             gst_object_unref(bin);
-        // Stop the device monitor: m_shareAudioCid is not set yet, so no
-        // other path would release it.
-        m_shareAudioSources.stop();
         Q_EMIT failed(QStringLiteral("share_audio_failed"));
         return;
     }
     gst_element_set_name(bin, cid.toUtf8().constData());
     if (!gst_bin_add(GST_BIN(m_publisher.pipeline), bin)) {
         gst_object_unref(bin);
-        m_shareAudioSources.stop();   // see the parse failure above
         Q_EMIT failed(QStringLiteral("share_audio_failed"));
         return;
     }
@@ -2299,7 +2374,6 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
         m_publishedBins.remove(cid);
         gst_element_set_state(bin, GST_STATE_NULL);
         gst_bin_remove(GST_BIN(m_publisher.pipeline), bin);
-        m_shareAudioSources.stop();   // see the parse failure above
         Q_EMIT failed(QStringLiteral("share_audio_failed"));
         return;
     }
@@ -2310,17 +2384,27 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
     // cid, and a zero count defers offers.
     ++m_publishedMedia;
     m_publisherEverPublished = true;
+    m_shareAudioAnyCid = cid;
+    m_shareAudioSelection = selection;
+    m_shareAudioSourceErrorReported = false;
+    m_shareAudioLevelReports = 0;
+    m_shareAudioPerApplication = perApplication;
+    m_shareAudioExcludesUs = excludesUs;
+    m_shareAudioCarried.clear();
+    m_shareAudioFailedKeys.clear();
+    m_shareAudioLimitReached = false;
     if (perApplication) {
         m_shareAudioCid = cid;
-        m_shareAudioSerials.clear();
+        m_shareAudioRecords.clear();
+        m_shareAudioRetiredAt.clear();
+        m_shareAudioEosSeen.clear();
+        m_shareAudioConnections.clear();
+        m_shareAudioFailedAt.clear();
         m_shareAudioBranches = 0;
         m_shareAudioNextIndex = 0;
         m_shareAudioScans = 0;
-        for (const lightning::shareaudio::Stream &s : streams) {
-            m_shareAudioSerials.insert(s.serial);
-            ++m_shareAudioBranches;
-            ++m_shareAudioNextIndex;
-        }
+        ++m_shareAudioGeneration;
+        m_shareAudioScanInFlight = false;
         if (!m_shareAudioScanTimer.isActive()) {
             m_shareAudioScanTimer.setInterval(2000);
             m_shareAudioScanTimer.setSingleShot(false);
@@ -2329,9 +2413,18 @@ void SfuMediaEngine::publishShareAudio(const QString &cid)
                     Qt::UniqueConnection);
             m_shareAudioScanTimer.start();
         }
+        qCInfo(lcSfuMedia)
+            << "share audio: per-application capture, mode="
+            << (selection.mode == Mode::Apps ? "apps" : "system")
+            << "chosen=" << selection.keys.size()
+            << "retire-on-disconnect=" << m_shareAudioOptions.retireOnDisconnect
+            << "follows-process=" << m_shareAudioOptions.followsProcess;
+        // The first scan now rather than in two seconds.
+        rescanShareAudioSources();
     }
+    emitShareAudioReport();
     qCInfo(lcSfuMedia) << "share audio published perApplication="
-                       << perApplication;
+                       << perApplication << "excludesUs=" << excludesUs;
 }
 
 SfuMediaEngine::PublishProbeState::~PublishProbeState()
@@ -2505,139 +2598,727 @@ void SfuMediaEngine::tickShareKeepAlive()
     }
 }
 
-/// Adds a branch for an application that started playing during a share.
-/// Addition only: ended branches retire themselves via `on-disconnect=eos`,
-/// so no pad is unlinked on a live pipeline.
+void SfuMediaEngine::resetShareAudioState()
+{
+    const bool wasLive = !m_shareAudioAnyCid.isEmpty();
+    m_shareAudioScanTimer.stop();
+    m_shareAudioCid.clear();
+    m_shareAudioAnyCid.clear();
+    m_shareAudioRecords.clear();
+    m_shareAudioRetiredAt.clear();
+    m_shareAudioEosSeen.clear();
+    m_shareAudioConnections.clear();
+    m_shareAudioFailedAt.clear();
+    m_shareAudioHangLogged = false;
+    m_shareAudioCarried.clear();
+    m_shareAudioFailedKeys.clear();
+    m_shareAudioLimitReached = false;
+    m_shareAudioPerApplication = false;
+    m_shareAudioExcludesUs = false;
+    m_shareAudioBranches = 0;
+    m_shareAudioNextIndex = 0;
+    m_shareAudioScans = 0;
+    m_shareAudioLevelReports = 0;
+    m_shareAudioSourceErrorReported = false;
+    // An enumeration still running on a worker answers for a share that no
+    // longer exists; the generation makes it a no-op.
+    ++m_shareAudioGeneration;
+    m_shareAudioScanInFlight = false;
+    if (wasLive)
+        emitShareAudioReport();
+}
+
+void SfuMediaEngine::emitShareAudioReport()
+{
+    Q_EMIT shareAudioReport(!m_shareAudioAnyCid.isEmpty(),
+                            m_shareAudioPerApplication, m_shareAudioExcludesUs,
+                            m_shareAudioCarried, m_shareAudioFailedKeys,
+                            m_shareAudioLimitReached);
+}
+
+bool SfuMediaEngine::applyShareAudioSelection(
+    const lightning::shareaudio::Selection &selection)
+{
+    using lightning::shareaudio::Mode;
+    const bool running = !m_shareAudioAnyCid.isEmpty()
+        && m_publishedBins.contains(m_shareAudioAnyCid);
+    if (!running) {
+        // Nothing to change; the next publish reads it.
+        m_shareAudioSelection = selection;
+        return true;
+    }
+    // Off, or no chosen application: the caller unpublishes the track.
+    if (!selection.capturesAnything())
+        return false;
+    if (m_shareAudioCid.isEmpty()) {
+        // A single loopback capture (or the test source) is running. It can
+        // only ever be "the whole system"; anything narrower needs branches,
+        // so the caller republishes.
+        if (selection.mode != Mode::System)
+            return false;
+        m_shareAudioSelection = selection;
+        return true;
+    }
+#if defined(Q_OS_WIN)
+    // Branches are only for chosen applications on Windows; the whole system
+    // is the exclude-process-tree loopback, a different bin.
+    if (selection.mode == Mode::System && !m_shareAudioEnumerateForTest)
+        return false;
+#endif
+    m_shareAudioSelection = selection;
+    qCInfo(lcSfuMedia) << "share audio: selection changed in place mode="
+                       << (selection.mode == Mode::Apps ? "apps" : "system")
+                       << "chosen=" << selection.keys.size();
+    // Mutes, retirements and new branches all come from one scan.
+    rescanShareAudioSources();
+    return true;
+}
+
+namespace {
+GstPadProbeReturn noteBranchEos(GstPad *, GstPadProbeInfo *info, gpointer data);
+void freeBranchEosFlag(gpointer data);
+} // namespace
+
+bool SfuMediaEngine::addShareAudioBranch(
+    GstElement *bin, GstElement *mixer,
+    const lightning::shareaudio::Stream &s)
+{
+    // Recorded first, as failed until it is proven: a branch that cannot be
+    // built is not retried every scan.
+    lightning::shareaudio::BranchRecord record;
+    record.appKey = s.appKey;
+    record.pid = s.pid;
+    record.startTime = s.startTime;
+    record.failed = true;
+    m_shareAudioRecords.insert(s.id(), record);
+    // A separate monotonic index, not the branch count, so element names
+    // are never reused within the bin.
+    const int index = m_shareAudioNextIndex;
+    const QString description = lightning::shareaudio::
+        applicationBranchDescription(s, index, m_shareAudioOptions);
+    if (description.isEmpty())
+        return false;
+    GError *error = nullptr;
+    GstElement *branch = gst_parse_bin_from_description(
+        description.toUtf8().constData(), TRUE, &error);
+    if (error) {
+        qCWarning(lcSfuMedia)
+            << "share audio: could not build a branch for an application:"
+            << (error->message ? error->message : "?");
+        g_error_free(error);
+        if (branch)
+            gst_object_unref(branch);
+        return false;
+    }
+    if (!branch)
+        return false;
+    // Each PipeWire capture on a connection of its own: on the plugin's
+    // shared one, a daemon restart left every later capture (and every
+    // enumeration) on a dead connection for as long as one old branch held
+    // it. A restart now costs only the branches it ended.
+    int connection = -1;
+    if (m_shareAudioOptions.capture == lightning::shareaudio::Capture::PipeWire) {
+        if (GstElement *source = gst_bin_get_by_name(
+                GST_BIN(branch), lightning::shareaudio::branchSourceName(index)
+                                     .toUtf8()
+                                     .constData())) {
+            connection = lightning::shareaudio::givePrivatePipeWireConnection(
+                G_OBJECT(source));
+            gst_object_unref(source);
+        }
+    }
+    // Named, so takeOutShareAudioBranch() can find and remove it as a whole.
+    gst_element_set_name(branch, lightning::shareaudio::branchBinName(index)
+                                     .toUtf8()
+                                     .constData());
+    if (!gst_bin_add(GST_BIN(bin), branch)) {
+        gst_object_unref(branch);
+        return false;
+    }
+    GstPad *srcPad = gst_element_get_static_pad(branch, "src");
+    GstPad *sinkPad = gst_element_request_pad_simple(mixer, "sink_%u");
+    GstPadLinkReturn linked = GST_PAD_LINK_REFUSED;
+    if (srcPad && sinkPad)
+        linked = gst_pad_link(srcPad, sinkPad);
+    if (srcPad)
+        gst_object_unref(srcPad);
+    if (linked != GST_PAD_LINK_OK) {
+        // Release the request pad: an unfed audiomixer sink pad makes the
+        // aggregator wait out its latency on every buffer. Safe only
+        // because the link failed, so no streaming thread is inside the
+        // pad.
+        if (sinkPad) {
+            gst_element_release_request_pad(mixer, sinkPad);
+            gst_object_unref(sinkPad);
+        }
+        qCWarning(lcSfuMedia)
+            << "share audio: an application's branch would not link,"
+            << "code=" << linked;
+        gst_bin_remove(GST_BIN(bin), branch);
+        return false;
+    }
+    if (sinkPad)
+        gst_object_unref(sinkPad);
+    // Watch for the EOS that ends this branch's streaming: only after it has
+    // passed is the branch taken out (takeOutShareAudioBranch()).
+    auto eosSeen = std::make_shared<std::atomic<bool>>(false);
+    if (GstPad *ghost = gst_element_get_static_pad(branch, "src")) {
+        gst_pad_add_probe(ghost, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
+                          noteBranchEos,
+                          new std::shared_ptr<std::atomic<bool>>(eosSeen),
+                          freeBranchEosFlag);
+        gst_object_unref(ghost);
+    }
+    m_shareAudioEosSeen.insert(s.id(), eosSeen);
+    if (!gst_element_sync_state_with_parent(branch)) {
+        // A branch stuck in NULL with a linked mixer pad neither produces
+        // nor EOSes and stalls the aggregator; retire it.
+        m_shareAudioEosSeen.remove(s.id());
+        qCWarning(lcSfuMedia)
+            << "share audio: an application's branch would not start;"
+            << "retiring it rather than leaving a silent pad";
+        GstPad *stuck = gst_element_get_static_pad(branch, "src");
+        GstPad *peer = stuck ? gst_pad_get_peer(stuck) : nullptr;
+        if (stuck && peer)
+            gst_pad_unlink(stuck, peer);
+        if (peer) {
+            gst_element_release_request_pad(mixer, peer);
+            gst_object_unref(peer);
+        }
+        if (stuck)
+            gst_object_unref(stuck);
+        gst_element_set_state(branch, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(bin), branch);
+        return false;
+    }
+    lightning::shareaudio::BranchRecord &built = m_shareAudioRecords[s.id()];
+    built.failed = false;
+    built.index = index;
+    // Watched each scan; the fd itself is closed with its element.
+    if (connection >= 0)
+        m_shareAudioConnections.insert(s.id(), connection);
+    ++m_shareAudioBranches;
+    ++m_shareAudioNextIndex;
+    qCInfo(lcSfuMedia) << "share audio: capturing an application app="
+                       << s.appKey << "branch=" << index;
+    return true;
+}
+
+namespace {
+
+/// Set when an EOS has actually passed a branch's src pad: only then is its
+/// streaming finished and the branch safe to take out.
+GstPadProbeReturn noteBranchEos(GstPad *, GstPadProbeInfo *info, gpointer data)
+{
+    GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
+    if (event && GST_EVENT_TYPE(event) == GST_EVENT_EOS)
+        static_cast<std::shared_ptr<std::atomic<bool>> *>(data)->get()->store(
+            true);
+    return GST_PAD_PROBE_OK;
+}
+
+void freeBranchEosFlag(gpointer data)
+{
+    delete static_cast<std::shared_ptr<std::atomic<bool>> *>(data);
+}
+
+/// What taking one branch out needs, held across the IDLE probe and the async
+/// state change.
+struct BranchTakeOut {
+    GstElement *shareBin = nullptr;   // ref
+    GstElement *mixer = nullptr;      // ref
+    std::shared_ptr<std::atomic<int>> outstanding;
+};
+
+void branchTakeOutFree(gpointer data)
+{
+    auto *ctx = static_cast<BranchTakeOut *>(data);
+    if (ctx->mixer)
+        gst_object_unref(ctx->mixer);
+    if (ctx->shareBin)
+        gst_object_unref(ctx->shareBin);
+    // Last: stop() waits (bounded) for every teardown to finish.
+    if (ctx->outstanding)
+        ctx->outstanding->fetch_sub(1);
+    delete ctx;
+}
+
+/// On a GStreamer thread-pool thread, never a streaming thread and never the
+/// GUI thread: a pipewiresrc going to NULL can wait on its daemon with no
+/// timeout (1.4.x).
+void branchTakeOutAsync(GstElement *branch, gpointer data)
+{
+    auto *ctx = static_cast<BranchTakeOut *>(data);
+    // Unparent first so the branch quiesces with no running parent, as
+    // unpublish() does.
+    gst_bin_remove(GST_BIN(ctx->shareBin), branch);
+    gst_element_set_state(branch, GST_STATE_NULL);
+}
+
+/// The branch's src pad is idle here: nothing is being pushed, so unlinking
+/// it and releasing the mixer pad cannot meet a push holding a stream lock.
+GstPadProbeReturn branchTakeOutProbe(GstPad *pad, GstPadProbeInfo *,
+                                     gpointer data)
+{
+    auto *ctx = static_cast<BranchTakeOut *>(data);
+    if (GstPad *peer = gst_pad_get_peer(pad)) {
+        gst_pad_unlink(pad, peer);
+        gst_element_release_request_pad(ctx->mixer, peer);
+        gst_object_unref(peer);
+    }
+    GstElement *branch = gst_pad_get_parent_element(pad);
+    if (!branch) {
+        // The probe has no destroy notify, so this path owns ctx.
+        branchTakeOutFree(ctx);
+        return GST_PAD_PROBE_REMOVE;
+    }
+    // Ownership of ctx moves to gst_element_call_async.
+    gst_element_call_async(branch, branchTakeOutAsync, ctx, branchTakeOutFree);
+    gst_object_unref(branch);
+    // Fires exactly once.
+    return GST_PAD_PROBE_REMOVE;
+}
+
+} // namespace
+
+void SfuMediaEngine::takeOutShareAudioBranch(GstElement *bin, GstElement *mixer,
+                                             int index)
+{
+    GstElement *branch = gst_bin_get_by_name(
+        GST_BIN(bin),
+        lightning::shareaudio::branchBinName(index).toUtf8().constData());
+    if (!branch)
+        return;   // nothing left to take out
+    GstPad *src = gst_element_get_static_pad(branch, "src");
+    gst_object_unref(branch);
+    if (!src)
+        return;
+    // Never synchronously here (unpublish()'s rule): the unlink and the pad
+    // release wait for an IDLE pad inside the probe, and the NULL state change
+    // and removal run via gst_element_call_async. Called only once the branch
+    // has passed EOS (or errored), so the probe fires at once in practice.
+    m_pendingTeardowns->fetch_add(1);
+    auto *ctx = new BranchTakeOut{
+        GST_ELEMENT(gst_object_ref(bin)), GST_ELEMENT(gst_object_ref(mixer)),
+        m_pendingTeardowns};
+    // No destroy notify: branchTakeOutProbe hands ctx on.
+    gst_pad_add_probe(src, GST_PAD_PROBE_TYPE_IDLE, branchTakeOutProbe, ctx,
+                      nullptr);
+    gst_object_unref(src);
+}
+
+/// One scan of a running per-application share: enumerate (on a worker, or
+/// through the test seam), plan (lightning::shareaudio::planScan) and apply.
 void SfuMediaEngine::rescanShareAudioSources()
 {
-    if (m_shareAudioCid.isEmpty() || !m_shareAudioSources.running()) {
+    if (m_shareAudioCid.isEmpty()) {
         m_shareAudioScanTimer.stop();
         return;
     }
     GstElement *bin = m_publishedBins.value(m_shareAudioCid, nullptr);
     if (!bin) {
         // The share audio track is gone; stop scanning.
-        m_shareAudioScanTimer.stop();
-        m_shareAudioCid.clear();
-        m_shareAudioSerials.clear();
-        m_shareAudioScans = 0;
-        m_shareAudioSources.stop();
+        resetShareAudioState();
         return;
     }
-    // Bounded: every app that plays leaves a parked branch behind. Past the
-    // cap, stop polling altogether.
-    constexpr int kMaxBranches = 24;
-    if (m_shareAudioBranches >= kMaxBranches) {
-        m_shareAudioScanTimer.stop();
-        return;
-    }
-    // Warn once if a long share never found any application: the track is
-    // carrying only the silence floor, which must not look like success.
     ++m_shareAudioScans;
-    constexpr int kScansBeforeDoubt = 15;   // ~30 s at the 2 s interval
-    if (m_shareAudioBranches == 0 && m_shareAudioScans == kScansBeforeDoubt) {
-        qCWarning(lcSfuMedia)
-            << "share audio: no application audio stream has been found in"
-            << (kScansBeforeDoubt * 2)
-            << "seconds — this share is carrying silence. Either nothing on "
-               "this machine is playing, or per-application enumeration is "
-               "not working here.";
+
+    // A branch whose own PipeWire connection the daemon closed is dead (a
+    // restart): pipewiresrc says nothing, its stream just stops. Retired like
+    // a stream that went away; the EOS sent passes at once (basesrc unblocks
+    // the waiting source), and the application's new stream is captured once
+    // the old record is gone, even when it came back at the same serial.
+    for (auto it = m_shareAudioConnections.cbegin();
+         it != m_shareAudioConnections.cend(); ++it) {
+        auto record = m_shareAudioRecords.find(it.key());
+        if (record == m_shareAudioRecords.end() || record->index < 0
+            || record->retired
+            || !lightning::shareaudio::connectionClosed(it.value()))
+            continue;
+        record->retired = true;
+        m_shareAudioRetiredAt.insert(it.key(), m_shareAudioScans);
+        GstElement *source = m_shareAudioSuppressRetireEosForTest
+            ? nullptr
+            : gst_bin_get_by_name(
+                  GST_BIN(bin),
+                  lightning::shareaudio::branchSourceName(record->index)
+                      .toUtf8()
+                      .constData());
+        if (source) {
+            gst_element_send_event(source, gst_event_new_eos());
+            gst_object_unref(source);
+        }
+        qCInfo(lcSfuMedia) << "share audio: the audio daemon closed an "
+                              "application's capture (restarted?) app="
+                           << record->appKey << "branch=" << record->index;
     }
 
+    // A branch that ended by itself (pipewiresrc 1.6 sends EOS when its
+    // stream or the daemon goes away) is retired whatever the listing says: a
+    // restarted daemon can hand its serial to the same application's new
+    // stream, and an ended branch kept for that stream would carry nothing.
+    for (auto it = m_shareAudioEosSeen.cbegin(); it != m_shareAudioEosSeen.cend();
+         ++it) {
+        if (!it.value()->load())
+            continue;
+        auto record = m_shareAudioRecords.find(it.key());
+        if (record == m_shareAudioRecords.end() || record->index < 0
+            || record->retired)
+            continue;
+        record->retired = true;
+        m_shareAudioRetiredAt.insert(it.key(), m_shareAudioScans);
+        qCInfo(lcSfuMedia) << "share audio: an application's capture ended by "
+                              "itself app="
+                           << record->appKey << "branch=" << record->index;
+    }
+
+    // Take out retired branches whose EOS has actually passed their src pad,
+    // or that errored: the cap counts only what stands, so applications
+    // coming and going cannot use it up. "Retired a scan ago" is no such
+    // guarantee (a selection change rescans at once), so the flag decides.
+    if (GstElement *mixer = gst_bin_get_by_name(
+            GST_BIN(bin),
+            lightning::shareaudio::mixerElementName().toUtf8().constData())) {
+        for (auto it = m_shareAudioRetiredAt.begin();
+             it != m_shareAudioRetiredAt.end();) {
+            auto record = m_shareAudioRecords.find(it.key());
+            if (record == m_shareAudioRecords.end() || record->index < 0) {
+                it = m_shareAudioRetiredAt.erase(it);
+                continue;
+            }
+            // Finished means nothing more can come out of it: its EOS has
+            // passed, or it errored, or the daemon closed its connection. The
+            // last needs saying: after a daemon restart pipewiresrc may have
+            // pushed a flush-start it never ends (removed buffers), so the
+            // EOS we send is dropped downstream and never seen (measured).
+            // Its source can produce nothing more, and the IDLE probe still
+            // waits out any push in flight below it.
+            const auto eos = m_shareAudioEosSeen.constFind(it.key());
+            const auto connection = m_shareAudioConnections.constFind(it.key());
+            const bool finished = (eos != m_shareAudioEosSeen.cend()
+                                   && (*eos)->load())
+                || record->failed
+                || (connection != m_shareAudioConnections.cend()
+                    && lightning::shareaudio::connectionClosed(*connection));
+            if (!finished) {
+                ++it;
+                continue;
+            }
+            takeOutShareAudioBranch(bin, mixer, record->index);
+            --m_shareAudioBranches;
+            m_shareAudioEosSeen.remove(it.key());
+            m_shareAudioConnections.remove(it.key());
+            if (record->failed) {
+                // Kept (index -1) for a while so it is not retried at once;
+                // forgotten after a cool-down, since a restarted PipeWire
+                // numbers its nodes again and the id may be a stream again.
+                record->index = -1;
+                m_shareAudioFailedAt.insert(it.key(), m_shareAudioScans);
+            } else {
+                // Forgotten: a returning stream or process gets a new branch.
+                m_shareAudioRecords.erase(record);
+            }
+            it = m_shareAudioRetiredAt.erase(it);
+        }
+        gst_object_unref(mixer);
+    }
+    // Failed records cool down (~30 s), then may be tried again.
+    constexpr int kFailedCoolDownScans = 15;
+    for (auto it = m_shareAudioFailedAt.begin();
+         it != m_shareAudioFailedAt.end();) {
+        if (m_shareAudioScans - it.value() < kFailedCoolDownScans) {
+            ++it;
+            continue;
+        }
+        auto record = m_shareAudioRecords.find(it.key());
+        if (record != m_shareAudioRecords.end() && record->index < 0) {
+            m_shareAudioFailedKeys.removeAll(record->appKey);
+            m_shareAudioRecords.erase(record);
+        }
+        it = m_shareAudioFailedAt.erase(it);
+    }
+
+    // What to check is still running (Windows: a branch follows its process).
+    QList<lightning::shareaudio::Stream> check;
+    for (auto it = m_shareAudioRecords.cbegin();
+         it != m_shareAudioRecords.cend(); ++it) {
+        if (it->index < 0 || it->retired || it->failed)
+            continue;
+        lightning::shareaudio::Stream s;
+        s.serial = QString::number(it->pid);
+        s.pid = it->pid;
+        s.startTime = it->startTime;
+        check << s;
+    }
+
+    if (m_shareAudioEnumerateForTest) {
+        applyShareAudioScan(m_shareAudioEnumerateForTest(check));
+        return;
+    }
+    // One pass at a time: a pass that hangs (COM, a stuck daemon) costs a
+    // worker and stops the scans, never the GUI thread. Said once.
+    if (m_shareAudioScanInFlight) {
+        if (!m_shareAudioHangLogged && m_shareAudioScanStarted.isValid()
+            && m_shareAudioScanStarted.elapsed() > 10000) {
+            m_shareAudioHangLogged = true;
+            qCWarning(lcSfuMedia)
+                << "share audio: an application enumeration has not returned"
+                << "for" << m_shareAudioScanStarted.elapsed() / 1000
+                << "s; the share keeps what it has, and nothing new is added "
+                   "until it does (a stuck audio daemon?)";
+        }
+        return;
+    }
+    m_shareAudioScanInFlight = true;
+    m_shareAudioScanStarted.start();
+    const quint64 generation = m_shareAudioGeneration;
+    lightning::shareaudio::enumerateAsync(
+        this, QCoreApplication::applicationPid(), ourAudioClientNames(), check,
+        [this, generation](const lightning::shareaudio::Enumeration &e) {
+            if (generation != m_shareAudioGeneration)
+                return;
+            m_shareAudioScanInFlight = false;
+            if (m_shareAudioHangLogged) {
+                m_shareAudioHangLogged = false;
+                qCInfo(lcSfuMedia) << "share audio: the enumeration returned";
+            }
+            applyShareAudioScan(e);
+        });
+}
+
+void SfuMediaEngine::applyShareAudioScan(
+    const lightning::shareaudio::Enumeration &e)
+{
+    if (m_shareAudioCid.isEmpty())
+        return;
+    GstElement *bin = m_publishedBins.value(m_shareAudioCid, nullptr);
+    if (!bin)
+        return;
     GstElement *mixer = gst_bin_get_by_name(
         GST_BIN(bin),
         lightning::shareaudio::mixerElementName().toUtf8().constData());
     if (!mixer)
         return;
+    if (e.elapsedMs > 20 && m_shareAudioScans % 30 == 1) {
+        qCInfo(lcSfuMedia) << "share audio: one enumeration pass took"
+                           << e.elapsedMs << "ms streams=" << e.streams.size();
+    }
 
-    const QList<lightning::shareaudio::Stream> streams =
-        m_shareAudioSources.streams(QCoreApplication::applicationPid(),
-                                    ourAudioClientNames());
-    for (const lightning::shareaudio::Stream &s : streams) {
-        if (m_shareAudioSerials.contains(s.serial))
+    lightning::shareaudio::ScanInput in;
+    in.live = e.streams;
+    in.records = m_shareAudioRecords;
+    in.selection = m_shareAudioSelection;
+    in.options = m_shareAudioOptions;
+    in.running = e.running;
+    in.parents = e.parents;
+    in.liveBranches = m_shareAudioBranches;
+    in.cap = m_shareAudioCap;
+    const lightning::shareaudio::ScanPlan plan =
+        lightning::shareaudio::planScan(in);
+
+    // Retire: EOS into the source, which pushes it down its own streaming
+    // thread (basesrc interrupts a blocked create()). `on-disconnect=eos` does
+    // the same from inside pipewiresrc 1.6; older plugins and Windows process
+    // loopback need it from outside. The bin is taken out on a later scan,
+    // once that EOS has actually passed the branch's src pad.
+    for (const QString &id : plan.retire) {
+        auto record = m_shareAudioRecords.find(id);
+        if (record == m_shareAudioRecords.end())
             continue;
-        if (m_shareAudioBranches >= kMaxBranches)
-            break;
-        // Record the serial first so a branch that cannot be built is not
-        // retried every scan.
-        m_shareAudioSerials.insert(s.serial);
-        // A separate monotonic index, not the branch count, so element names
-        // are never reused within the bin.
-        const QString description = lightning::shareaudio::
-            applicationBranchDescription(s, m_shareAudioNextIndex);
-        if (description.isEmpty())
+        record->retired = true;
+        m_shareAudioRetiredAt.insert(id, m_shareAudioScans);
+        if (m_shareAudioSuppressRetireEosForTest)
             continue;
-        GError *error = nullptr;
-        GstElement *branch = gst_parse_bin_from_description(
-            description.toUtf8().constData(), TRUE, &error);
-        if (error) {
-            qCWarning(lcSfuMedia)
-                << "share audio: could not build a branch for a new "
-                   "application:"
-                << (error->message ? error->message : "?");
-            g_error_free(error);
-            if (branch)
-                gst_object_unref(branch);
-            continue;
+        if (GstElement *source = gst_bin_get_by_name(
+                GST_BIN(bin), lightning::shareaudio::branchSourceName(
+                                  record->index)
+                                  .toUtf8()
+                                  .constData())) {
+            gst_element_send_event(source, gst_event_new_eos());
+            gst_object_unref(source);
         }
-        if (!branch)
+        qCInfo(lcSfuMedia) << "share audio: an application stopped, its "
+                              "capture retired app="
+                           << record->appKey << "branch=" << record->index;
+    }
+    for (const auto &change : plan.mute) {
+        auto record = m_shareAudioRecords.find(change.first);
+        if (record == m_shareAudioRecords.end() || record->index < 0)
             continue;
-        if (!gst_bin_add(GST_BIN(bin), branch)) {
-            gst_object_unref(branch);
-            continue;
+        if (GstElement *volume = gst_bin_get_by_name(
+                GST_BIN(bin), lightning::shareaudio::branchVolumeName(
+                                  record->index)
+                                  .toUtf8()
+                                  .constData())) {
+            g_object_set(volume, "mute", change.second ? TRUE : FALSE, nullptr);
+            gst_object_unref(volume);
+            record->muted = change.second;
+            qCInfo(lcSfuMedia) << "share audio:"
+                               << (change.second ? "muted" : "unmuted")
+                               << "app=" << record->appKey
+                               << "branch=" << record->index;
         }
-        GstPad *srcPad = gst_element_get_static_pad(branch, "src");
-        GstPad *sinkPad = gst_element_request_pad_simple(mixer, "sink_%u");
-        GstPadLinkReturn linked = GST_PAD_LINK_REFUSED;
-        if (srcPad && sinkPad)
-            linked = gst_pad_link(srcPad, sinkPad);
-        if (srcPad)
-            gst_object_unref(srcPad);
-        if (linked != GST_PAD_LINK_OK) {
-            // Release the request pad: an unfed audiomixer sink pad makes the
-            // aggregator wait out its latency on every buffer. Safe only
-            // because the link failed, so no streaming thread is inside the
-            // pad; releasing a linked pad on a running pipeline can deadlock.
-            if (sinkPad)
-                gst_element_release_request_pad(mixer, sinkPad);
-            if (sinkPad)
-                gst_object_unref(sinkPad);
-            qCWarning(lcSfuMedia)
-                << "share audio: a new application's branch would not link,"
-                << "code=" << linked;
-            gst_bin_remove(GST_BIN(bin), branch);
-            continue;
-        }
-        if (sinkPad)
-            gst_object_unref(sinkPad);
-        if (!gst_element_sync_state_with_parent(branch)) {
-            // A branch stuck in NULL with a linked mixer pad neither produces
-            // nor EOSes and stalls the aggregator; retire it.
-            qCWarning(lcSfuMedia)
-                << "share audio: a new application's branch would not start;"
-                << "retiring it rather than leaving a silent pad";
-            GstPad *stuck = gst_element_get_static_pad(branch, "src");
-            GstPad *peer = stuck ? gst_pad_get_peer(stuck) : nullptr;
-            if (stuck && peer)
-                gst_pad_unlink(stuck, peer);
-            if (peer) {
-                gst_element_release_request_pad(mixer, peer);
-                gst_object_unref(peer);
-            }
-            if (stuck)
-                gst_object_unref(stuck);
-            gst_element_set_state(branch, GST_STATE_NULL);
-            gst_bin_remove(GST_BIN(bin), branch);
-            continue;
-        }
-        ++m_shareAudioBranches;
-        ++m_shareAudioNextIndex;
-        qCInfo(lcSfuMedia) << "share audio: added an application that started "
-                              "playing mid-share app="
-                           << (s.appName.isEmpty() ? s.nodeName : s.appName)
-                           << "serial=" << s.serial;
+    }
+    QStringList failedKeys = m_shareAudioFailedKeys;
+    for (const lightning::shareaudio::Stream &s : plan.add) {
+        if (!addShareAudioBranch(bin, mixer, s) && !s.appKey.isEmpty()
+            && !failedKeys.contains(s.appKey))
+            failedKeys << s.appKey;
     }
     gst_object_unref(mixer);
+
+    QStringList carried = plan.carried;
+    for (const QString &key : failedKeys)
+        carried.removeAll(key);
+    if (plan.limitReached && !m_shareAudioLimitReached) {
+        qCWarning(lcSfuMedia) << "share audio: the per-share limit of"
+                              << m_shareAudioCap
+                              << "application captures is reached; a newly "
+                                 "chosen or newly playing application is left "
+                                 "out";
+    }
+    const bool changed = carried != m_shareAudioCarried
+        || failedKeys != m_shareAudioFailedKeys
+        || plan.limitReached != m_shareAudioLimitReached;
+    m_shareAudioCarried = carried;
+    m_shareAudioFailedKeys = failedKeys;
+    m_shareAudioLimitReached = plan.limitReached;
+    if (changed)
+        emitShareAudioReport();
+
+    // Warn once if a long share never carried any application: the track is
+    // carrying only the silence floor, which must not look like success.
+    constexpr int kScansBeforeDoubt = 15;   // ~30 s at the 2 s interval
+    if (m_shareAudioCarried.isEmpty() && m_shareAudioScans == kScansBeforeDoubt) {
+        qCWarning(lcSfuMedia)
+            << "share audio: no chosen application audio stream has been "
+               "found in"
+            << (kScansBeforeDoubt * 2)
+            << "seconds — this share is carrying silence. streams-seen="
+            << e.streams.size() << "chosen=" << m_shareAudioSelection.keys.size();
+    }
+}
+
+void SfuMediaEngine::handleShareAudioBranchError(int index)
+{
+    // An application capture that errored (a process loopback that cannot
+    // activate, a node that vanished under an older pipewiresrc): retire it,
+    // never retry it, and say so; the rest of the share carries on.
+    for (auto it = m_shareAudioRecords.begin(); it != m_shareAudioRecords.end();
+         ++it) {
+        if (it->index != index || it->failed)
+            continue;
+        it->failed = true;
+        if (!it->retired) {
+            it->retired = true;
+            m_shareAudioRetiredAt.insert(it.key(), m_shareAudioScans);
+        }
+        qCWarning(lcSfuMedia) << "share audio: an application's capture failed"
+                              << "app=" << it->appKey << "branch=" << index;
+        if (!it->appKey.isEmpty() && !m_shareAudioFailedKeys.contains(it->appKey))
+            m_shareAudioFailedKeys << it->appKey;
+        m_shareAudioCarried.removeAll(it->appKey);
+        emitShareAudioReport();
+        return;
+    }
+}
+
+void SfuMediaEngine::handleShareAudioLevel(double peakDb)
+{
+    if (m_shareAudioAnyCid.isEmpty())
+        return;
+    Q_EMIT shareAudioLevel(peakDb);
+    // Every fifth reading (~5 s), good news or bad, like the microphone's.
+    if (m_shareAudioLevelReports++ % 5 == 0) {
+        qCInfo(lcSfuMedia) << "share audio level peak=" << qRound(peakDb)
+                           << "dBFS carrying=" << m_shareAudioCarried.size()
+                           << "app(s) perApplication="
+                           << m_shareAudioPerApplication;
+    }
+}
+
+void SfuMediaEngine::handleShareAudioSourceError()
+{
+    // Only for a live share-audio bin, once: teardown errors arrive after
+    // unpublish() has forgotten the cid.
+    if (!m_active || m_shareAudioAnyCid.isEmpty()
+        || !m_publishedBins.contains(m_shareAudioAnyCid)
+        || m_shareAudioSourceErrorReported)
+        return;
+    m_shareAudioSourceErrorReported = true;
+    qCWarning(lcSfuMedia)
+        << "share audio: the loopback capture reported it cannot capture; "
+           "the share continues without sound";
+    Q_EMIT failed(QStringLiteral("share_audio_failed"));
+}
+
+void SfuMediaEngine::setShareAudioSourceForTest(
+    std::function<lightning::shareaudio::Enumeration(
+        const QList<lightning::shareaudio::Stream> &)> enumerate,
+    const lightning::shareaudio::BranchOptions &options)
+{
+    m_shareAudioEnumerateForTest = std::move(enumerate);
+    m_shareAudioOptionsForTest = options;
+    m_shareAudioOptionsForTest.capture = lightning::shareaudio::Capture::Test;
+}
+
+bool SfuMediaEngine::shareAudioBranchMutedForTest(const QString &id) const
+{
+    const auto it = m_shareAudioRecords.constFind(id);
+    if (it == m_shareAudioRecords.cend() || it->index < 0)
+        return false;
+    GstElement *bin = m_publishedBins.value(m_shareAudioCid, nullptr);
+    if (!bin)
+        return false;
+    gboolean mute = FALSE;
+    if (GstElement *volume = gst_bin_get_by_name(
+            GST_BIN(bin),
+            lightning::shareaudio::branchVolumeName(it->index).toUtf8().constData())) {
+        g_object_get(volume, "mute", &mute, nullptr);
+        gst_object_unref(volume);
+    }
+    return mute;
+}
+
+int SfuMediaEngine::shareAudioBranchBinsForTest() const
+{
+    GstElement *bin = m_publishedBins.value(m_shareAudioCid, nullptr);
+    if (!bin)
+        return 0;
+    int found = 0;
+    GstIterator *it = gst_bin_iterate_elements(GST_BIN(bin));
+    GValue item = G_VALUE_INIT;
+    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+        GstElement *element = GST_ELEMENT(g_value_get_object(&item));
+        gchar *name = gst_element_get_name(element);
+        if (name && g_str_has_prefix(name, "shareappbin"))
+            ++found;
+        g_free(name);
+        g_value_reset(&item);
+    }
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    return found;
+}
+
+void SfuMediaEngine::sendShareAudioEosForTest(const QString &id)
+{
+    const auto it = m_shareAudioRecords.constFind(id);
+    GstElement *bin = m_publishedBins.value(m_shareAudioCid, nullptr);
+    if (it == m_shareAudioRecords.cend() || it->index < 0 || !bin)
+        return;
+    if (GstElement *source = gst_bin_get_by_name(
+            GST_BIN(bin),
+            lightning::shareaudio::branchSourceName(it->index).toUtf8().constData())) {
+        gst_element_send_event(source, gst_event_new_eos());
+        gst_object_unref(source);
+    }
+}
+
+int SfuMediaEngine::shareAudioBranchIndexForTest(const QString &id) const
+{
+    const auto it = m_shareAudioRecords.constFind(id);
+    return it == m_shareAudioRecords.cend() ? -2 : it->index;
 }
 
 void SfuMediaEngine::publishAudio(const QString &cid)
@@ -4621,15 +5302,9 @@ void SfuMediaEngine::unpublish(const QString &cid)
     updateShareKeepAliveTimer();
     if (cid == m_micCid)
         m_micCid.clear();
-    if (cid == m_shareAudioCid) {
+    if (cid == m_shareAudioCid || cid == m_shareAudioAnyCid) {
         // Stop the device scan and release the monitor's PipeWire connection.
-        m_shareAudioScanTimer.stop();
-        m_shareAudioCid.clear();
-        m_shareAudioSerials.clear();
-        m_shareAudioBranches = 0;
-        m_shareAudioNextIndex = 0;
-        m_shareAudioScans = 0;
-        m_shareAudioSources.stop();
+        resetShareAudioState();
     }
     if (!bin || !m_publisher.pipeline) {
         detachPendingStart(cid, nullptr);

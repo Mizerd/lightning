@@ -1211,6 +1211,12 @@ the first account's client, which is the cross-user claim.
   / FIR counts, and for what this client sends the remote side's round-trip
   time and fraction lost. Numbers and the media kind only, no identifiers.
   Off unless set; stops with the call.
+- `LIGHTNING_SHARE_AUDIO_LEGACY_PIPEWIRE` (any value, 2026-10-07) makes
+  per-application share audio behave as with a PipeWire GStreamer plugin
+  older than 1.6: branches are built without `pipewiresrc on-disconnect`,
+  and the engine retires a departed application's branch itself. For
+  exercising that path on a 1.6 host; see docs/voice-calls.md, "Choosing
+  which applications are heard".
 
 ### The hover action bar and the call popout (2026-09-05)
 

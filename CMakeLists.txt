@@ -1060,6 +1060,10 @@ set(APP_QML_FILES
     qml/CallDeviceChevron.qml
     qml/CallDeviceMenu.qml
     qml/CallShareOptionsMenu.qml
+    # Which applications a screen share's sound comes from (live list, and
+    # the call bar's dialog around it).
+    qml/ShareAudioAppList.qml
+    qml/ShareAudioAppsDialog.qml
     qml/RoomListSortMenu.qml
     qml/CallDeviceSettings.qml
     # The microphone level bar shared by the call's device menu and the
@@ -1295,7 +1299,9 @@ function(_lightning_configure_qml_module target _scope)
         # gdi32/user32 for WindowCaptureSrc.cpp; linked explicitly rather than
         # relying on Qt to pull them in. dwmapi is resolved at runtime with
         # GetProcAddress to avoid a new import.
-        target_link_libraries(${target} ${_scope} advapi32 gdi32 user32)
+        # ole32 for the share-audio session enumeration (CoCreateInstance of
+        # the MMDevice enumerator, ShareAudioSources.cpp).
+        target_link_libraries(${target} ${_scope} advapi32 gdi32 user32 ole32)
         target_compile_definitions(${target} ${_scope} HAVE_WINCRED=1)
     endif()
 
@@ -3778,6 +3784,26 @@ if(BUILD_TESTING)
 
         add_test(NAME sfu-media-engine COMMAND sfu-media-engine-test)
         set_tests_properties(sfu-media-engine PROPERTIES TIMEOUT 300)
+
+        # Per-application share audio must not believe a PipeWire daemon it
+        # cannot reach. A process of its own: the PipeWire plugin shares one
+        # connection per process, so inside the engine suite another case's
+        # connection would answer for it.
+        qt_add_executable(share-audio-daemon-test
+            tests/ShareAudioDaemonTest.cpp
+            src/calls/GstBootstrap.h
+            src/calls/GstBootstrap.cpp
+            src/calls/ShareAudioSources.h
+            src/calls/ShareAudioSources.cpp
+            src/calls/WindowCaptureSrc.h
+            src/calls/WindowCaptureSrc.cpp
+        )
+        target_include_directories(share-audio-daemon-test PRIVATE src)
+        target_compile_definitions(share-audio-daemon-test PRIVATE
+            HAVE_LIGHTNING_WEBRTC)
+        target_link_libraries(share-audio-daemon-test PRIVATE
+            Qt6::Core Qt6::Gui Qt6::Test PkgConfig::GSTWEBRTC)
+        add_test(NAME share-audio-daemon COMMAND share-audio-daemon-test)
         # A real ICE+DTLS handshake needs a little longer than unit suites.
         set_tests_properties(call-media-loopback PROPERTIES TIMEOUT 120)
     endif()

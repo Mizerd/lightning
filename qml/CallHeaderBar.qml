@@ -353,6 +353,12 @@ Rectangle {
                         onOpened: if (flipsUp) y = -height - AppTheme.spacing4
                         onHeightChanged: if (visible && flipsUp)
                                              y = -height - AppTheme.spacing4
+                        onChooseAppsRequested: shareAudioApps.open()
+                    }
+                    // Which applications the share's sound comes from; in the
+                    // overlay, so the menu closing does not take it along.
+                    ShareAudioAppsDialog {
+                        id: shareAudioApps
                     }
                 }
             }

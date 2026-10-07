@@ -33,6 +33,11 @@ struct WindowInfo {
     /// neither can be read. Needed because browser captions are just the tab
     /// title.
     QString application;
+    /// The owning process and its executable's file name, lower-cased
+    /// ("chrome.exe"): what the share's sound is keyed by, so sharing a window
+    /// can preselect that application's audio. 0 / empty when unreadable.
+    quint64 pid = 0;
+    QString executable;
     /// The window's visible size (the frame DWM paints, excluding the invisible
     /// resize border), computed by the same helper as the capture.
     int width = 0;
@@ -52,6 +57,20 @@ Size fitInto(int srcW, int srcH, int maxW, int maxH);
 
 /// Whether this build can capture a window at all (Windows only).
 bool available();
+
+/// One process, read with a single OpenProcess: its executable's full path,
+/// its creation time (FILETIME ticks, so a reused pid reads as a different
+/// process) and whether it is still running. Empty/false when unreadable, and
+/// always off Windows.
+struct ProcessInfo {
+    QString executablePath;
+    qint64 startTime = 0;
+    bool running = false;
+};
+ProcessInfo processInfo(quint64 pid);
+/// The application an executable is, as Task Manager names it ("Google
+/// Chrome"), else its capitalised file name. Cached by path.
+QString applicationNameForExecutablePath(const QString &path);
 
 /// Top-level windows a person would recognise: visible, not minimised,
 /// titled, on the taskbar, and never Lightning's own.

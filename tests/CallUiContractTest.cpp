@@ -3015,11 +3015,11 @@ ApplicationWindow {
         QTRY_VERIFY_WITH_TIMEOUT(menu->property("visible").toBool(), 3000);
     }
 
-    void theShareAudioCheckboxKeepsFollowingTheControllerAfterAClick()
+    void theShareSoundChoiceKeepsFollowingTheControllerAfterAPick()
     {
-        // A CheckBox writes its own `checked` on click, destroying the
-        // binding; it must be restored so the picker and the call bar's menu
-        // keep agreeing on the shared setting.
+        // The picker's sound combo and the call bar's menu set the same
+        // controller state; a pick in one must not detach the other, and a
+        // change from elsewhere must show here.
         AppController controller(AppController::MockBackend);
         QQmlApplicationEngine engine;
         engine.rootContext()->setContextProperty("app", &controller);
@@ -3030,8 +3030,8 @@ import QtQuick.Controls
 import MatrixClient
 
 ApplicationWindow {
-    width: 700
-    height: 500
+    width: 900
+    height: 700
     property alias picker: pick
     ScreenSharePicker { id: pick; objectName: "sharePicker" }
 }
@@ -3047,36 +3047,183 @@ ApplicationWindow {
         QCoreApplication::processEvents();
         QTRY_VERIFY_WITH_TIMEOUT(picker->property("visible").toBool(), 3000);
 
-        auto *box = picker->findChild<QQuickItem *>(
-            QStringLiteral("shareAudioCheck"));
-        QVERIFY2(box != nullptr, "the share-audio checkbox is gone");
-        if (!box->isVisible())
-            QSKIP("no loopback capture element here, so the box is absent");
+        auto *combo = picker->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioCombo"));
+        QVERIFY2(combo != nullptr, "the share sound choice is gone");
+        auto *section = picker->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioSection"));
+        QVERIFY(section != nullptr);
+        if (!section->isVisible())
+            QSKIP("no loopback capture element here, so the sound choice is "
+                  "absent");
 
         SfuCallController *call = controller.groupCall();
         QVERIFY(call);
 
-        // A JS-side write, because that is what breaks a binding. C++
-        // setProperty()/toggle() do not remove a QML binding, so a test built
-        // on them passes without the fix.
-        {
-            QQmlExpression write(qmlContext(box), box,
-                                 QStringLiteral("checked = !checked"));
-            write.evaluate();
-            QVERIFY2(!write.hasError(),
-                     qPrintable(write.error().toString()));
-        }
-        QMetaObject::invokeMethod(box, "toggled");
+        // A user pick: currentIndex moves and activated() fires, as a click
+        // does. "No sound" is the first entry on every platform.
+        combo->setProperty("currentIndex", 0);
+        QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, 0));
         QCoreApplication::processEvents();
+        QCOMPARE(call->shareAudioMode(), 0);
 
-        // Change the setting from the other surface; the box must follow.
-        const bool now = call->shareAudioEnabled();
-        call->setShareAudioEnabled(!now);
+        // Then the other surface changes it: the combo must follow.
+        call->setShareAudioMode(1);
         QCoreApplication::processEvents();
-        QTRY_COMPARE_WITH_TIMEOUT(box->property("checked").toBool(), !now, 3000);
-        call->setShareAudioEnabled(now);
+        QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 1,
+                                  3000);
+        call->setShareAudioMode(0);
         QCoreApplication::processEvents();
-        QTRY_COMPARE_WITH_TIMEOUT(box->property("checked").toBool(), now, 3000);
+        QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 0,
+                                  3000);
+        call->setShareAudioMode(1);
+
+        // The status line is the controller's sentence, not a literal.
+        auto *status = picker->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioStatus"));
+        QVERIFY(status != nullptr);
+        QCOMPARE(status->property("text").toString(), call->shareAudioStatus());
+    }
+
+    // Three choices on the call bar, the one surface every route shows (on
+    // Wayland the desktop draws the picker): no sound, the whole system, or
+    // chosen apps — the last only where single apps can be captured, and it
+    // opens the chooser rather than switching blind.
+    void theCallBarOffersNoSoundTheSystemOrChosenApps()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 800
+    height: 600
+    property alias menu: m
+    property int asked: 0
+    CallShareOptionsMenu { id: m; onChooseAppsRequested: asked = asked + 1 }
+}
+)"), QUrl(QStringLiteral("qrc:/sharesoundmenutest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        auto *menu = owner->property("menu").value<QObject *>();
+        QVERIFY(menu != nullptr);
+        QMetaObject::invokeMethod(menu, "open");
+        QCoreApplication::processEvents();
+        QTRY_VERIFY_WITH_TIMEOUT(menu->property("visible").toBool(), 3000);
+
+        SfuCallController *call = controller.groupCall();
+        QVERIFY(call);
+        auto *off = menu->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioOffItem"));
+        auto *system = menu->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioMenuItem"));
+        auto *apps = menu->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioAppsItem"));
+        auto *status = menu->findChild<QQuickItem *>(
+            QStringLiteral("shareAudioStatusLabel"));
+        QVERIFY2(off && system && apps && status,
+                 "a sound row or the status line is gone from the menu");
+        if (!system->isVisible())
+            QSKIP("no loopback capture element here, so the sound rows are "
+                  "absent");
+        QVERIFY(off->isVisible());
+        QCOMPARE(apps->isVisible(), call->shareAudioCanChooseApps());
+
+        QMetaObject::invokeMethod(off, "triggered");
+        QCoreApplication::processEvents();
+        QCOMPARE(call->shareAudioMode(), 0);
+        QVERIFY(off->property("radioSelected").toBool());
+        QMetaObject::invokeMethod(system, "triggered");
+        QCoreApplication::processEvents();
+        QCOMPARE(call->shareAudioMode(), 1);
+        QVERIFY(system->property("radioSelected").toBool());
+        QCOMPARE(status->property("text").toString(), call->shareAudioStatus());
+
+        if (call->shareAudioCanChooseApps()) {
+            // Nothing chosen yet: the chooser opens and the mode waits for a
+            // tick, so the share does not go silent behind the dialog.
+            QMetaObject::invokeMethod(apps, "triggered");
+            QCoreApplication::processEvents();
+            QCOMPARE(owner->property("asked").toInt(), 1);
+            QCOMPARE(call->shareAudioMode(), 1);
+        }
+    }
+
+    // The application list: a chosen application is listed and ticked even
+    // while it is not playing, unticking it reaches the controller, and the
+    // controller (not the CheckBox) stays the truth after a click.
+    void theApplicationListTicksWhatIsChosenAndUntickingReachesTheController()
+    {
+        AppController controller(AppController::MockBackend);
+        SfuCallController *call = controller.groupCall();
+        QVERIFY(call);
+        // Runs on any machine: the choosing logic is the controller's, not
+        // the audio server's.
+        call->setShareAudioCanChooseAppsForTest(true);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        component.setData(QByteArrayLiteral(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    width: 500
+    height: 400
+    visible: true
+    property alias list: l
+    ShareAudioAppList { id: l; width: 460 }
+}
+)"), QUrl(QStringLiteral("qrc:/shareaudioapplisttest.qml")));
+        QVERIFY2(component.errors().isEmpty(),
+                 qPrintable(component.errorString()));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY(owner != nullptr);
+        call->setShareAudioAppChosen(QStringLiteral("NotPlayingApp"),
+                                     QStringLiteral("Not Playing App"), true);
+        QCOMPARE(call->shareAudioMode(), 2);
+        // Repeater delegates are visual children, not QObject children, so
+        // walk the item tree.
+        auto *list = owner->property("list").value<QQuickItem *>();
+        QVERIFY(list != nullptr);
+        std::function<QQuickItem *(QQuickItem *)> walk =
+            [&](QQuickItem *at) -> QQuickItem * {
+            if (at->objectName() == QLatin1String("shareAudioAppCheck")
+                && at->property("appKey").toString()
+                       == QLatin1String("notplayingapp"))
+                return at;
+            for (QQuickItem *child : at->childItems()) {
+                if (QQuickItem *hit = walk(child))
+                    return hit;
+            }
+            return nullptr;
+        };
+        auto findTick = [&]() -> QQuickItem * { return walk(list); };
+        QTRY_VERIFY_WITH_TIMEOUT(findTick() != nullptr, 3000);
+        QQuickItem *tick = findTick();
+        QVERIFY(tick->property("checked").toBool());
+        // A click: the CheckBox writes `checked`, then emits toggled().
+        {
+            QQmlExpression write(qmlContext(tick), tick,
+                                 QStringLiteral("checked = false"));
+            write.evaluate();
+            QVERIFY2(!write.hasError(), qPrintable(write.error().toString()));
+        }
+        QMetaObject::invokeMethod(tick, "toggled");
+        QCoreApplication::processEvents();
+        QVERIFY2(!call->shareAudioApps().contains(QStringLiteral("notplayingapp")),
+                 "unticking did not reach the controller");
+        // Unchosen and not playing: it leaves the list.
+        QTRY_VERIFY_WITH_TIMEOUT(findTick() == nullptr, 3000);
+        call->setShareAudioMode(1);
     }
 
     void bothShareSurfacesOfferTheSameRungsAndTheSameWarning()
@@ -3349,24 +3496,35 @@ ApplicationWindow {
             QSKIP("no loopback capture element here, so the sound row is "
                   "absent and its width cannot be measured");
 
-        int checked = 0;
-        for (QQuickItem *label : item->findChildren<QQuickItem *>()) {
-            if (!label->inherits("QQuickLabel")
-                && !label->inherits("QQuickText"))
-                continue;
-            const QString text = label->property("text").toString();
-            if (text.isEmpty())
-                continue;
-            ++checked;
-            QVERIFY2(label->implicitWidth() <= label->width() + 0.5,
-                     qPrintable(QStringLiteral(
-                         "\"%1\" is elided: it wants %2 px and has %3")
-                             .arg(text)
-                             .arg(label->implicitWidth())
-                             .arg(label->width())));
+        // Every sound row: no sound, the whole system, chosen apps.
+        QList<QQuickItem *> rows{ item };
+        for (const char *name : { "shareAudioOffItem", "shareAudioAppsItem" }) {
+            if (auto *row = menu->findChild<QQuickItem *>(
+                    QString::fromLatin1(name));
+                row && row->isVisible())
+                rows << row;
         }
-        QVERIFY2(checked > 0,
-                 "no label was measured, so this case proved nothing");
+        int checked = 0;
+        for (QQuickItem *row : rows) {
+            for (QQuickItem *label : row->findChildren<QQuickItem *>()) {
+                if (!label->inherits("QQuickLabel")
+                    && !label->inherits("QQuickText"))
+                    continue;
+                const QString text = label->property("text").toString();
+                if (text.isEmpty())
+                    continue;
+                ++checked;
+                QVERIFY2(label->implicitWidth() <= label->width() + 0.5,
+                         qPrintable(QStringLiteral(
+                             "\"%1\" is elided: it wants %2 px and has %3")
+                                 .arg(text)
+                                 .arg(label->implicitWidth())
+                                 .arg(label->width())));
+            }
+        }
+        QVERIFY2(checked >= 2,
+                 "fewer than two sound labels were measured, so this case "
+                 "proved little");
     }
 
     void theShareAudioToggleLivesWhereWaylandCanReachIt()
@@ -3395,16 +3553,22 @@ ApplicationWindow {
         const QString picker =
             read(QStringLiteral(QML_DIR "/ScreenSharePicker.qml"));
         QVERIFY(!picker.isEmpty());
-        QVERIFY2(picker.contains(QStringLiteral("shareAudioCheck")),
-                 "the picker lost its share-audio switch, leaving the "
+        QVERIFY2(picker.contains(QStringLiteral("shareAudioCombo")),
+                 "the picker lost its share-sound choice, leaving the "
                  "non-portal platforms without one");
 
         // Neither the menu nor the picker may hold its own copy of the state.
         for (const QString &src : { menu, picker }) {
-            QVERIFY2(src.contains(QStringLiteral("shareAudioEnabled")),
-                     "a share-audio control does not read the controller's "
+            QVERIFY2(src.contains(QStringLiteral("shareAudioMode")),
+                     "a share-sound control does not read the controller's "
                      "state");
         }
+        // Choosing applications is reachable from the call bar too: on
+        // Wayland it is the only surface.
+        QVERIFY2(menu.contains(QStringLiteral("chooseAppsRequested"))
+                     && bar.contains(QStringLiteral("ShareAudioAppsDialog")),
+                 "the call bar cannot open the application chooser, so a "
+                 "Wayland user cannot pick which apps are heard");
 
         // The portal branch enumerates nothing and opens no picker of ours.
         const QString ctrl =
@@ -3449,9 +3613,12 @@ ApplicationWindow {
         QCoreApplication::processEvents();
         QTRY_VERIFY_WITH_TIMEOUT(picker->property("visible").toBool(), 3000);
 
-        auto *check = picker->findChild<QObject *>(
-            QStringLiteral("shareAudioCheck"));
-        QVERIFY2(check != nullptr, "the share-audio switch is gone");
+        auto *section = picker->findChild<QObject *>(
+            QStringLiteral("shareAudioSection"));
+        auto *combo = picker->findChild<QObject *>(
+            QStringLiteral("shareAudioCombo"));
+        QVERIFY2(section != nullptr && combo != nullptr,
+                 "the share-sound choice is gone");
 
         // Absent, not disabled, where there is no loopback element. Asserted
         // against the controller's answer so it holds on any machine.
@@ -3464,16 +3631,24 @@ ApplicationWindow {
             QSKIP("no loopback capture element here, so the visible branch "
                   "of this case cannot be exercised");
         }
-        QCOMPARE(check->property("visible").toBool(), supported);
+        QCOMPARE(section->property("visible").toBool(), supported);
 
-        // The switch reflects the controller rather than a literal.
-        QCOMPARE(check->property("checked").toBool(),
-                 controller.groupCall()->shareAudioEnabled());
+        // The choice reflects the controller rather than a literal, and
+        // "only chosen apps" is offered exactly where it can work.
+        QCOMPARE(combo->property("currentValue").toInt(),
+                 controller.groupCall()->shareAudioMode());
+        QCOMPARE(combo->property("count").toInt(),
+                 controller.groupCall()->shareAudioCanChooseApps() ? 3 : 2);
         controller.groupCall()->setShareAudioEnabled(false);
         QCoreApplication::processEvents();
-        QVERIFY2(!check->property("checked").toBool(),
-                 "the switch did not follow the controller");
+        QTRY_COMPARE_WITH_TIMEOUT(combo->property("currentValue").toInt(), 0,
+                                  3000);
         controller.groupCall()->setShareAudioEnabled(true);
+        // The inline application list shows only for "only chosen apps".
+        auto *list = picker->findChild<QObject *>(
+            QStringLiteral("shareAudioAppsScroll"));
+        QVERIFY(list != nullptr);
+        QVERIFY(!list->property("visible").toBool());
     }
 
     void chromeRetiresWithThePointerParkedOverIt()
