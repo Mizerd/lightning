@@ -488,6 +488,7 @@ set(APP_SOURCES
     src/matrix/MediaHelpers.cpp
     src/matrix/EventPreview.h
     src/matrix/EventPreview.cpp
+    src/matrix/PresentableName.h
     src/matrix/RustTimelineIngest.h
     src/matrix/RustTimelineIngest.cpp
     src/matrix/RustSessionPolicy.h
@@ -965,6 +966,7 @@ set(APP_QML_FILES
     qml/ChatBackdrop.qml
     qml/ChatBackgroundEditor.qml
     qml/ChatBackgroundSettings.qml
+    qml/ChatBackgroundDialog.qml
     qml/ThemedSurface.qml
     qml/GradientEditor.qml
     qml/AnimationFileHold.qml
@@ -1271,6 +1273,10 @@ function(lightning_configure_qml_test target)
         lightning-app-testlib
         lightning-app-testlibplugin
         Qt6::Test)
+    # The application's QML collector policy (src/app/QmlGcPolicy.h), applied
+    # before main() so a test's engines collect the way the app's do.
+    target_sources(${target} PRIVATE
+        ${PROJECT_SOURCE_DIR}/tests/QmlGcPolicyInit.cpp)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /permissive-)
     else()
@@ -1450,6 +1456,10 @@ if(BUILD_TESTING)
     )
     target_include_directories(renderer-notice-test PRIVATE src)
     target_link_libraries(renderer-notice-test PRIVATE Qt6::Core Qt6::Test)
+    # Reads qml/Main.qml as text: the notice's wording must follow the
+    # platform context, not name the NixOS AppImage everywhere.
+    target_compile_definitions(renderer-notice-test PRIVATE
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME renderer-notice COMMAND renderer-notice-test)
 
     # Messages for a refused room action. Pure string mapping; links Core only.
@@ -1498,6 +1508,8 @@ if(BUILD_TESTING)
         src/storage/InsecureFallbackSecretStore.cpp
     )
     target_include_directories(portable-secret-store-test PRIVATE src)
+    target_compile_definitions(portable-secret-store-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
     target_link_libraries(portable-secret-store-test
         PRIVATE Qt6::Core Qt6::Test OpenSSL::Crypto)
     add_test(NAME portable-secret-store COMMAND portable-secret-store-test)
@@ -3795,6 +3807,21 @@ if(BUILD_TESTING)
     target_include_directories(message-rail-collision-test PRIVATE src)
     add_test(NAME message-rail-collision COMMAND message-rail-collision-test)
     set_tests_properties(message-rail-collision PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Conversation-area UX (2026-10-07): the room-info background group and
+    # its empty preview, Reply in thread on the hover bar, the row hover and
+    # reaction outlines on every preset, the call bar's order and device menus
+    # opening against their chevron, and search taking the keyboard.
+    qt_add_executable(convo-ux-qml-test
+        tests/ConvoUxQmlTest.cpp
+    )
+    lightning_configure_qml_test(convo-ux-qml-test)
+    target_include_directories(convo-ux-qml-test PRIVATE src)
+    target_compile_definitions(convo-ux-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME convo-ux-qml COMMAND convo-ux-qml-test)
+    set_tests_properties(convo-ux-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # A restore that cannot reach the homeserver must read as offline, even

@@ -659,11 +659,17 @@ ApplicationWindow {
     // One-time notice (per version) when the GL driver is a CPU rasteriser
     // such as llvmpipe, e.g. the AppImage under appimage-run on NixOS. Not
     // shown when the user asked for software rendering. See
-    // AppController::setGlRenderer.
+    // AppController::setGlRenderer. The explanation follows
+    // app.softwareRendererNoticeContext: NixOS is named only on NixOS and the
+    // AppImage only for an AppImage (it said "the AppImage on NixOS" on every
+    // package, a .deb in a VM included).
     Rectangle {
         id: softwareRendererNotice
         objectName: "softwareRendererNotice"
         visible: !!app && app.softwareRendererNoticeVisible === true
+        readonly property string noticeContext:
+            !!app && typeof app.softwareRendererNoticeContext === "string"
+                ? app.softwareRendererNoticeContext : "generic"
         parent: Overlay.overlay
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
@@ -681,11 +687,23 @@ ApplicationWindow {
             anchors.margins: AppTheme.spacing16
             spacing: AppTheme.spacing8
             Label {
+                objectName: "softwareRendererNoticeText"
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormText
                 font.pixelSize: AppTheme.textBody
-                text: qsTr("Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.")
+                text: {
+                    switch (softwareRendererNotice.noticeContext) {
+                    case "appimage-nixos":
+                        return qsTr("Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.")
+                    case "appimage":
+                        return qsTr("Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This can happen when the AppImage cannot use your system's graphics driver, or in a virtual machine.")
+                    case "nixos":
+                        return qsTr("Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. On NixOS this usually means Lightning cannot reach the system's graphics driver.")
+                    default:
+                        return qsTr("Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This usually means no graphics driver is available to it, for example in a virtual machine or a remote desktop session.")
+                    }
+                }
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -694,6 +712,8 @@ ApplicationWindow {
                 AppButton {
                     storm: true
                     objectName: "softwareRendererNoticeHelpButton"
+                    // The page it opens is the NixOS AppImage fix.
+                    visible: softwareRendererNotice.noticeContext === "appimage-nixos"
                     text: qsTr("How to fix")
                     onClicked: {
                         app.media.openWebUrl("https://github.com/Mizerd/lightning/blob/main/docs/install.md#nixos-appimage-and-gpu-acceleration")
@@ -992,15 +1012,20 @@ ApplicationWindow {
         source: app.screenshotDemoActive ? "DemoControlPanel.qml" : ""
     }
 
-    // Status strip, shown only while something needs attention or on the login
-    // screen.
+    // Status strip, shown only while something needs attention: an error, or
+    // a signed-in session that is not connected. Not on the sign-in page,
+    // where "Not connected" is simply true before anyone has signed in and
+    // the form says what it is doing. The development backends (mock, HTTP)
+    // keep it everywhere, since it is the only place that names them.
     footer: Rectangle {
         color: AppTheme.surface
+        readonly property bool developmentBackend: app.backendName !== "rust"
         // Hidden in the screenshot demo (mock backend).
         visible: !app.screenshotDemoActive
-                 && (app.currentScreen !== 1
-                     || app.connectionStatus !== qsTr("Connected")
-                     || statusBar.lastError !== "")
+                 && (statusBar.lastError !== ""
+                     || developmentBackend
+                     || (app.loggedIn
+                         && app.connectionStatus !== qsTr("Connected")))
         implicitHeight: visible
                         ? statusRow.implicitHeight + AppTheme.spacingS * 2 : 0
         RowLayout {
@@ -1026,12 +1051,13 @@ ApplicationWindow {
                 }
             }
             Label {
+                // The real backend is not news to anyone using it; only the
+                // development backends are named.
                 text: {
-                    var label = qsTr("HTTP backend")
-                    if (app.backendName === "mock")
-                        label = qsTr("Mock backend")
-                    else if (app.backendName === "rust")
-                        label = qsTr("Matrix Rust SDK")
+                    if (app.backendName === "rust")
+                        return app.connectionStatus
+                    var label = app.backendName === "mock" ? qsTr("Mock backend")
+                                                           : qsTr("HTTP backend")
                     return qsTr("%1 • %2").arg(label).arg(app.connectionStatus)
                 }
                 color: AppTheme.textMuted

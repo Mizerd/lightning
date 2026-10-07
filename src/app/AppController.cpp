@@ -7,6 +7,7 @@
 
 #include "app/RichComposerBridge.h"
 #include "app/RendererNotice.h"
+#include "update/InstallType.h"
 #include <QSettings>
 #include <QCoreApplication>
 #include "crypto/BackupController.h"
@@ -3294,6 +3295,20 @@ void AppController::enableCallMediaEngine()
         connect(m_callDevices.get(),
                 &CallDeviceController::activeDevicesChanged, sfu,
                 applySfuDevices);
+        // A received track whose output failed (headset unplugged, RDP audio
+        // dropped) and gave up is rebuilt when an output comes back. The
+        // engine debounces; the notification is Qt's, nothing is polled.
+        connect(m_callDevices.get(),
+                &CallDeviceController::audioOutputsChanged, sfu,
+                [this, sfu] {
+                    // Outside a call there is nothing to re-arm; ask for the
+                    // device list only when one is running (an argument is
+                    // evaluated before the callee's early return).
+                    if (!sfu->active())
+                        return;
+                    sfu->notifyAudioOutputsChanged(
+                        m_callDevices->hasSpeaker());
+                });
         // SDP transport is opt-in at the Rust edge and shared with the 1:1
         // lane. Set it here so this lane does not silently depend on the other
         // engine registering: without it every SFU offer, answer and candidate
@@ -5087,6 +5102,7 @@ void AppController::onLoggedOut()
                                   ? "deleted"
                                   : "absent");
         }
+        signOutAccountResidue(m_lastSessionUserId);
     }
     // Second half of removeAccount() for the active account. Runs before
     // clearActiveUser() and the fallback loop, so the account being removed
@@ -5625,6 +5641,45 @@ void AppController::failAccountSwitch(const QString &message)
     Q_EMIT loggedInChanged();
 }
 
+void AppController::signOutAccountResidue(const QString &userId)
+{
+    // The account's last known avatar. App-level, so no directory sweep
+    // covers it, and sign-out removes the account record the switcher would
+    // draw it for: it outlived every sign-out (VM test, 2026-10-07). Keyed on
+    // the user id, as AccountAvatarStore names its files.
+    if (m_accountAvatars) {
+        const bool existed = m_accountAvatars->hasStored(userId);
+        const bool removed = existed && m_accountAvatars->forget(userId);
+        if (existed && !removed) {
+            qCWarning(lcApp) << "account avatar sign-out cleanup FAILED slug="
+                             << matrix::app_data::safeUserSlug(userId);
+        } else {
+            qCInfo(lcApp) << "account avatar sign-out cleanup"
+                          << "slug=" << matrix::app_data::safeUserSlug(userId)
+                          << "outcome=" << (removed ? "deleted" : "absent");
+        }
+    }
+    // The canonical account directory, which held the starred-GIF store and
+    // bridge badges deleted just above, ONLY if nothing is left in it. The
+    // client already tried the RECORDED store root (finishSignOut); with a
+    // divergent store slug this is the second directory, and with none it is
+    // the same one, now emptied. Never recursive: personal backgrounds or any
+    // other file keep it.
+    const QString root = matrix::app_data::accountRoot(userId);
+    if (root.isEmpty())
+        return;
+    const auto outcome = matrix::app_data::removeAccountRootIfEmpty(root);
+    if (outcome == matrix::app_data::EmptyDirRemoval::Failed) {
+        qCWarning(lcApp) << "account directory sign-out cleanup FAILED slug="
+                         << matrix::app_data::safeUserSlug(userId);
+    } else {
+        qCInfo(lcApp) << "account directory sign-out cleanup"
+                      << "slug=" << matrix::app_data::safeUserSlug(userId)
+                      << "outcome="
+                      << matrix::app_data::emptyDirRemovalName(outcome);
+    }
+}
+
 bool AppController::resolveRemovalIdentity(
     const QString &userId, matrix::app_data::AccountIdentity *identity) const
 {
@@ -5903,6 +5958,18 @@ void AppController::setGlRenderer(const QString &glRenderer)
         qEnvironmentVariable("QSG_RHI_BACKEND"),
         store.value(kSoftwareNoticeDismissedKey).toString(),
         QCoreApplication::applicationVersion());
+    if (show) {
+        // Decided once, when the notice is first shown: which package this
+        // is (the installer's own detection, AppImage only for a real
+        // AppImage) and whether the host is NixOS (os-release ID). The
+        // notice must not name either when it does not apply.
+        const bool appImage = lightning::update::detectInstallType()
+            == lightning::update::InstallType::LinuxAppImage;
+        const bool nixos =
+            lightning::isNixOsProductType(QSysInfo::productType());
+        m_softwareRendererNoticeContext = lightning::softwareRendererContextId(
+            lightning::softwareRendererContext(appImage, nixos));
+    }
     if (m_softwareRendererNoticeVisible == show)
         return;
     m_softwareRendererNoticeVisible = show;

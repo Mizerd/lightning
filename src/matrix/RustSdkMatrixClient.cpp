@@ -128,11 +128,12 @@ TimelineEvent::Type typeFromString(const QString &msgtype)
     return type == TimelineEvent::Unknown ? TimelineEvent::TextMessage : type;
 }
 
-QString previewFor(const TimelineEvent &event)
+QString previewFor(const TimelineEvent &event,
+                   const QString &actorLabel = QString())
 {
     // Single normalizing choke point: multi-line bodies (poll fallbacks,
     // mention permalinks) must never reach the room list verbatim.
-    return matrix::preview::oneLineSummary(event);
+    return matrix::preview::oneLineSummary(event, actorLabel);
 }
 
 } // namespace
@@ -632,16 +633,27 @@ void RustSdkMatrixClient::retireRustHandleAsync(void *handle,
             }
         }
         teardown.restart();
-        // Drops the tokio runtime, blocking until every in-flight
-        // spawn_blocking (including SQLite closes) finishes.
-        mx_rust_destroy(handle);
+        // Drops the client inside its runtime, shuts the runtime down and
+        // then waits, bounded, until every SQLite store the account opened
+        // has really been dropped. Returning is not that signal on its own:
+        // a leaked Client once kept the whole store open until the process
+        // exited, and Windows could not delete it (GitHub #2). The report
+        // says which: "store_closed=true|false ... still_open=<names>
+        // runtime_shutdown=completed|timed_out|shared".
+        const QString released = takeRustString(mx_rust_destroy_and_report(handle));
         const qint64 destroyMs = teardown.elapsed();
         qCInfo(lcRust) << "rust client retired off the GUI thread"
                        << shutdown
                        << "shutdown_ms=" << shutdownMs
                        << "destroy_ms=" << destroyMs
                        << "teardown_total_ms=" << (shutdownMs + destroyMs)
-                       << "sign_in_rotated_since_last_write=" << handedBack;
+                       << "sign_in_rotated_since_last_write=" << handedBack
+                       << released;
+        if (!released.startsWith(QLatin1String("store_closed=true")))
+            qCWarning(lcRust) << "rust client retired without confirming its "
+                                 "account store closed; a sign-out or reset that "
+                                 "deletes the store now may not finish on Windows"
+                              << released;
         if (tracked) {
             QMutexLocker lock(&retiredSignIns().mutex);
             auto &retiring = retiredSignIns().retiring;
@@ -4903,6 +4915,14 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
         : matrix::app_data::RemovalSummary{0, 0, 1};
     const bool didSomething = matchedRecord || files.removedAnything();
     const bool ok = sessionOk && files.ok() && didSomething;
+    // The RECORDED directory that held the store, once nothing is left in it
+    // (it outlived every sign-out, named after the account). Never recursive:
+    // anything still in it (the starred-GIF store and bridge badges are
+    // AppController's, deleted after loggedOut, which tries the canonical
+    // root again) keeps it. Reported, and deliberately not part of `ok`.
+    const auto accountDir = identity.isValid()
+        ? matrix::app_data::removeAccountRootIfEmpty(identity.accountRoot)
+        : matrix::app_data::EmptyDirRemoval::Refused;
 
     qCInfo(lcRust) << "rust local sign-out cleanup"
                    << "slug=" << identity.slug
@@ -4912,7 +4932,9 @@ void RustSdkMatrixClient::finishSignOut(const QString &serverResult,
                    << "store_and_sidecars=" << (files.ok() ? "ok" : "failed")
                    << "deleted=" << files.deleted
                    << "missing=" << files.missing
-                   << "failed=" << files.failed;
+                   << "failed=" << files.failed
+                   << "account_dir="
+                   << matrix::app_data::emptyDirRemovalName(accountDir);
 
     m_storePath.clear();
     m_signOutIdentity = {};
@@ -5442,6 +5464,16 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
                 roomId, userId,
                 event.value(QStringLiteral("avatar_url")).toString());
         }
+        return;
+    }
+
+    if (type == QLatin1String("room_background_changed")) {
+        // org.lightning_matrix.room.background changed in sync (set or
+        // cleared). Sliding sync never delivers this type as state, so this
+        // timeline-observed poke is how an open room learns of it.
+        const QString roomId = event.value(QStringLiteral("room_id")).toString();
+        if (m_rooms.contains(roomId))
+            Q_EMIT roomBackgroundChanged(roomId);
         return;
     }
 
@@ -6385,7 +6417,17 @@ void RustSdkMatrixClient::updateRoomPreviewFrom(
     for (const auto &event : newestFirstCandidates) {
         if (event.isVirtual())
             continue;
-        roomIt->lastMessagePreview = previewFor(event);
+        // A state row names its actor; when the item carried no profile yet,
+        // the member cache may know the name (displayNameFor answers the raw
+        // id when it does not, which oneLineSummary never shows).
+        QString actor;
+        if (event.type == TimelineEvent::StateChange
+            && event.senderDisplayName.isEmpty()) {
+            const QString known = displayNameFor(roomId, event.sender);
+            if (known != event.sender)
+                actor = known;
+        }
+        roomIt->lastMessagePreview = previewFor(event, actor);
         roomIt->raiseActivity(event.timestamp);
         Q_EMIT roomUpdated(roomId);
         return;

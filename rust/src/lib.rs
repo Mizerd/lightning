@@ -112,6 +112,7 @@ mod rooms;
 mod rtc;
 mod serveradmin;
 mod sfu;
+mod storeclose;
 mod timeline;
 
 /// The single HTTP user agent, for the homeserver and any user-invoked
@@ -828,6 +829,9 @@ const SYNC_TASK_JOIN_BUDGET_MS: u64 = 1500;
 //     | TimelineRegistry::shutdown (2 x 250)  |   500 |
 //     | SHUTDOWN_WORST_CASE_MS                | 10500 |
 //     | reserve for mx_rust_destroy           |  3000 |
+//     |   of which retire_bridge's runtime    |       |
+//     |   shutdown (1500) + store release     |       |
+//     |   wait (1000)                         |       |
 //     | total vs kStoreCloseBudgetMs = 15000  | 13500 |
 
 /// After `abort()`, how long a cancelled task may take to reach its next
@@ -868,6 +872,18 @@ const STORE_CLOSE_BUDGET_MS: u64 = 15_000;
 /// `mx_rust_shutdown_tasks` returns (the runtime drop waits for in-flight
 /// `spawn_blocking` SQLite work).
 const SHUTDOWN_DESTROY_RESERVE_MS: u64 = 3_000;
+
+/// `retire_bridge`: how long the shared runtime's shutdown may wait for its
+/// blocking pool (in-flight SQLite closes; a stuck DNS lookup is left behind).
+const RETIRE_RUNTIME_SHUTDOWN_MS: u64 = 1_500;
+
+/// `retire_bridge`: how long it then waits for every store to be dropped.
+const RETIRE_STORE_RELEASE_WAIT_MS: u64 = 1_000;
+
+const _: () = assert!(
+    RETIRE_RUNTIME_SHUTDOWN_MS + RETIRE_STORE_RELEASE_WAIT_MS < SHUTDOWN_DESTROY_RESERVE_MS,
+    "retire_bridge's own waits must fit the reserve kept for mx_rust_destroy"
+);
 
 /// Declared worst case of every sequential wait in `shutdown_managed_tasks`,
 /// including `TimelineRegistry::shutdown`.
@@ -1161,8 +1177,84 @@ pub unsafe extern "C" fn mx_rust_destroy(ptr: *mut c_void) {
         if ptr.is_null() {
             return;
         }
-        drop(unsafe { Box::from_raw(ptr as *mut RustClient) });
+        let released = retire_bridge(unsafe { Box::from_raw(ptr as *mut RustClient) });
+        if !released.closed {
+            // Names and counts only, never the path.
+            eprintln!(
+                "lightning: a retired client left its store open: {}",
+                released.summary()
+            );
+        }
     }));
+}
+
+/// `mx_rust_destroy`, reporting whether the account store was really
+/// released: `store_closed=true|false waited_ms=N builds=N client_alive=…
+/// still_open=<store names>|none runtime_shutdown=completed|timed_out|shared`.
+/// Names and counts only, never a path.
+/// Used by the retirement worker, which logs it: "retired" was taken as
+/// "closed" before, and was not (GitHub #2).
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_destroy_and_report(ptr: *mut c_void) -> *mut c_char {
+    ffi_string(|| {
+        if ptr.is_null() {
+            return Ok(String::new());
+        }
+        // `ffi_string` catches a panic, as `mx_rust_destroy` does.
+        Ok(retire_bridge(unsafe { Box::from_raw(ptr as *mut RustClient) }).summary())
+    })
+}
+
+/// Drop a bridge so that, when this returns, nothing of its account store is
+/// still open in this process (or say honestly that something is).
+///
+/// Three things made `drop(Box<RustClient>)` alone insufficient (GitHub #2):
+///
+/// * Dropping the last `Client` closes its SQLite pools through deadpool,
+///   which hands each connection to `tokio::task::spawn_blocking` and
+///   unwraps: outside a runtime that panics, during cleanup it aborts. The
+///   bridge's fields used to be dropped on the caller's thread, with no
+///   runtime, and only a reference cycle that leaked the Client hid it. So
+///   the bridge is dropped inside its own runtime's context.
+/// * The runtime is then shut down with a bound, which cancels every task
+///   still holding a Client (the SDK's E2EE tasks, the media sweep) and waits
+///   for the blocking closes those drops queued.
+/// * Then the real signal: every store this account's builds opened, and the
+///   Client itself, must fail to upgrade (storeclose.rs). Anything held
+///   elsewhere (a detached sync thread still unwinding) gets a bounded wait.
+///
+/// Only this handle's own builds are waited for (`snapshot` by owner, the
+/// address `mediastore::set_key`/`forget` use), so a handle that never built a
+/// client, such as the one the GUI thread destroys when its session file is
+/// refused, or the in-memory OAuth bootstrap handle, does not wait at all.
+fn retire_bridge(bridge: Box<RustClient>) -> storeclose::Released {
+    let owner = &*bridge as *const RustClient as usize;
+    let probes = storeclose::snapshot(&bridge.store_path, owner);
+    let runtime = Arc::clone(&bridge.runtime);
+    {
+        let _context = runtime.enter();
+        drop(bridge);
+    }
+    let shutdown = match Arc::try_unwrap(runtime) {
+        Ok(runtime) => {
+            let budget = std::time::Duration::from_millis(RETIRE_RUNTIME_SHUTDOWN_MS);
+            let started = std::time::Instant::now();
+            runtime.shutdown_timeout(budget);
+            storeclose::RuntimeShutdown::from_elapsed(started.elapsed(), budget)
+        }
+        // A login or restore thread still inside `run_async_on` holds it; it
+        // drops the runtime when it returns. Until then its blocking jobs can
+        // hold connections, so this is reported, never counted as closed.
+        Err(shared) => {
+            drop(shared);
+            storeclose::RuntimeShutdown::Shared
+        }
+    };
+    storeclose::wait_released(
+        &probes,
+        std::time::Duration::from_millis(RETIRE_STORE_RELEASE_WAIT_MS),
+        shutdown,
+    )
 }
 
 /// `device_id` empty: the server creates a new device. Non-empty: sign in
@@ -1524,7 +1616,13 @@ pub unsafe extern "C" fn mx_rust_logout(ptr: *mut c_void) {
         };
         bridge.abandon_uia();
         bridge.stop_sync_and_wait();
-        let client = bridge.client.lock().ok().and_then(|guard| guard.clone());
+        // Moved out of the slot, not cloned: the slot's reference must not be
+        // dropped here, on the caller's (GUI) thread with no Tokio runtime.
+        // If it were the last one, matrix-sdk's SQLite pool would try to close
+        // its connections through `spawn_blocking`, which panics outside a
+        // runtime (and aborts the process when it happens during cleanup).
+        // The logout thread drops it inside its runtime instead.
+        let client = bridge.client.lock().ok().and_then(|mut guard| guard.take());
         let events = Arc::clone(&bridge.events);
         // Pending verifications are cancelled in `shutdown_managed_tasks`, which
         // every teardown path runs before this FFI; the slots are empty here.
@@ -9941,13 +10039,22 @@ async fn build_client_with(
     // The state, event-cache and crypto stores exactly as
     // `sqlite_store(path, None)` opened them; the media store encrypted with
     // the account's key, or in memory without one (mediastore.rs).
+    let mut store_probe = None;
     if !store_path.as_os_str().is_empty() {
-        builder = builder.store_config(mediastore::open_account_stores(store_path).await?);
+        let (store_config, probe) = mediastore::open_account_stores(store_path).await?;
+        builder = builder.store_config(store_config);
+        store_probe = Some(probe);
     }
     let client = builder
         .build()
         .await
         .map_err(|err| format_matrix_error("failed to build Matrix Rust SDK client", err))?;
+    // Recorded so retirement can wait for these very stores to be dropped,
+    // rather than for its handle to be (storeclose.rs, GitHub #2).
+    if let Some(mut probe) = store_probe {
+        probe.attach_client(&client);
+        storeclose::register(store_path, probe);
+    }
     // Enable upload progress (off by default in the SDK), without which
     // `EventSendState::NotSentYet` carries no progress and the UI's upload bar
     // stays indeterminate.
@@ -10246,14 +10353,17 @@ fn install_event_handlers(
     let verif_slot = Arc::clone(&active_request);
     let verif_sas_slot = Arc::clone(&active_sas);
     let verif_qr_slot = Arc::clone(&active_qr);
-    let client_clone = client.clone();
+    // The Client is an INJECTED argument, never a captured clone: a handler
+    // lives inside the Client it is registered on, so a captured Client is a
+    // reference cycle and the Client (with every SQLite store it holds) is
+    // never dropped. That kept the whole account store open until the process
+    // exited, and on Windows sign-out could not delete it (GitHub #2).
     client.add_event_handler(
-        move |ev: ToDeviceKeyVerificationRequestEvent| {
+        move |ev: ToDeviceKeyVerificationRequestEvent, client: Client| {
             let events = Arc::clone(&verif_events);
             let slot = Arc::clone(&verif_slot);
             let sas_slot = Arc::clone(&verif_sas_slot);
             let qr_slot = Arc::clone(&verif_qr_slot);
-            let client = client_clone.clone();
             async move {
                 let flow_id = ev.content.transaction_id.to_string();
                 let Some(request) = client
@@ -10434,6 +10544,11 @@ fn install_event_handlers(
             }));
         }
     });
+
+    // A shared chat background changed (Lightning's own state event, which
+    // sliding sync never delivers as state). Only the room id crosses; C++
+    // re-reads the scopes it shows. See backdrop::install_change_handler.
+    backdrop::install_change_handler(client, Arc::clone(&events));
 
     // A power-level change invalidates cached permission flags now. Routed
     // through the existing members poke, since the member snapshot carries
@@ -16231,3 +16346,7 @@ mod final_session_tokens_tests {
         assert!(value["refresh_token"].is_null());
     }
 }
+
+// A retired bridge must leave nothing of its account store open (GitHub #2).
+#[cfg(all(test, target_os = "linux"))]
+mod store_close_tests;
