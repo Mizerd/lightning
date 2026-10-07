@@ -2670,7 +2670,22 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     }
 }
 
-AppController::~AppController() = default;
+AppController::~AppController()
+{
+    // Members die in reverse declaration order. ~SfuCallController always
+    // emits stateChanged (Idle -> Ended, even with no call), and our lambdas
+    // on it touch m_messageSearch and m_voicePlayback, already destroyed: a
+    // use-after-free at exit (timeline-pane-qml, 2026-10-07). m_rtc's lambdas
+    // read members destroyed before it too. Cut these senders off first.
+    if (m_groupCall)
+        m_groupCall->disconnect(this);
+    if (m_calls)
+        m_calls->disconnect(this);
+    if (m_timelineScroll)
+        m_timelineScroll->disconnect(this);
+    if (m_rtc)
+        m_rtc->disconnect(this);
+}
 
 bool AppController::notificationActionIsForCurrentAccount(
     const QString &accountUserId)
