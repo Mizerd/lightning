@@ -8095,7 +8095,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1000"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1018"/>
         <source>Today</source>
         <translation>আজ</translation>
     </message>
@@ -8142,18 +8142,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+101"/>
-        <location line="+926"/>
+        <location line="+939"/>
         <location line="+935"/>
         <source>Reply</source>
         <translation>উত্তর</translation>
     </message>
     <message>
-        <location line="-1846"/>
+        <location line="-1859"/>
         <source>(original message not loaded)</source>
         <translation>(মূল বার্তা লোড হয়নি)</translation>
     </message>
     <message numerus="yes">
-        <location line="+137"/>
+        <location line="+142"/>
         <source>%n message(s) deleted</source>
         <comment>collapsed run of redactions</comment>
         <translation>
@@ -8162,12 +8162,12 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+108"/>
         <source>Missing room key. Restore your recovery key in Settings, or wait for another verified device to share the key.</source>
         <translation>রুম কী নেই। সেটিংসে আপনার পুনরুদ্ধার কী ফিরিয়ে আনুন, বা অন্য কোনো যাচাইকৃত ডিভাইস কী ভাগ করার অপেক্ষা করুন।</translation>
     </message>
     <message>
-        <location line="+198"/>
+        <location line="+200"/>
         <source>This session can&apos;t unlock encrypted messages</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8192,7 +8192,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>কীর অপেক্ষায়…</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+10"/>
         <source>Retry decryption</source>
         <translation>ডিক্রিপশন আবার চেষ্টা করুন</translation>
     </message>
@@ -8202,12 +8202,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>নিরাপত্তা সেটিংস</translation>
     </message>
     <message>
-        <location line="-1821"/>
+        <location line="-1852"/>
         <source>Link</source>
         <translation type="unfinished">লিঙ্ক</translation>
     </message>
     <message>
-        <location line="+1910"/>
+        <location line="+1941"/>
         <source>Show the link preview again</source>
         <translation>আবার লিঙ্ক প্রিভিউ দেখান</translation>
     </message>
@@ -8222,7 +8222,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>আপলোড হচ্ছে, %1%</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+28"/>
         <source>%1 • sending… %2%</source>
         <translation>%1 • পাঠানো হচ্ছে… %2%</translation>
     </message>
@@ -8237,7 +8237,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 • ব্যর্থ</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+26"/>
         <source>edited — show edit history</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8501,7 +8501,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>সম্পাদনা</translation>
     </message>
     <message>
-        <location line="-3553"/>
+        <location line="-3584"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8542,12 +8542,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="-544"/>
         <location line="+66"/>
         <location line="+477"/>
-        <location line="+3930"/>
+        <location line="+3961"/>
         <source>Image</source>
         <translation type="unfinished">ছবি</translation>
     </message>
     <message>
-        <location line="-4471"/>
+        <location line="-4502"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8568,17 +8568,17 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+1035"/>
+        <location line="+1058"/>
         <source>Message deleted</source>
         <translation type="unfinished">বার্তা মুছে ফেলা হয়েছে</translation>
     </message>
     <message>
-        <location line="+487"/>
+        <location line="+496"/>
         <source>(edited)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1490"/>
+        <location line="+1489"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>সম্পাদনা সরান</translation>
@@ -8809,10 +8809,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>স্টিকার লোড হয়নি — আবার চেষ্টা করতে ক্লিক করুন</translation>
     </message>
     <message>
-        <location line="-5295"/>
+        <location line="-5326"/>
         <location line="+70"/>
         <location line="+480"/>
-        <location line="+3928"/>
+        <location line="+3959"/>
         <location line="+1022"/>
         <location line="+66"/>
         <source>Video</source>
@@ -8824,9 +8824,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>ভিডিও</translation>
     </message>
     <message>
-        <location line="-5578"/>
+        <location line="-5609"/>
         <location line="+546"/>
-        <location line="+4038"/>
+        <location line="+4069"/>
         <location line="+1136"/>
         <location line="+31"/>
         <source>File</source>
@@ -17323,14 +17323,14 @@ Note: importing keys does not verify this session.</source>
     <name>SfuCallController</name>
     <message>
         <location filename="../src/calls/SfuCallController.cpp" line="+646"/>
-        <location line="+184"/>
+        <location line="+306"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
         <translation>এই ডেস্কটপে স্ক্রিন শেয়ারিং উপলব্ধ নেই৷</translation>
     </message>
     <message>
-        <location line="-313"/>
-        <location line="+793"/>
+        <location line="-435"/>
+        <location line="+915"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>স্ক্রিন শেয়ারিং শুরু করা যায়নি।</translation>
     </message>
@@ -17376,17 +17376,47 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+547"/>
+        <location line="+570"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>এই হোমসার্ভারে কলিং উপলব্ধ নেই৷</translation>
     </message>
     <message>
-        <location line="-532"/>
+        <location line="-555"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>অনেক চেষ্টা. কিছুক্ষণের মধ্যে আবার চেষ্টা করুন।</translation>
     </message>
     <message>
-        <location line="-548"/>
+        <location line="-678"/>
+        <source>Your desktop&apos;s camera portal offered Lightning no camera. If the camera works in other apps, allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Your desktop&apos;s camera portal offered Lightning no camera.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Your desktop&apos;s camera portal sent no picture. To let Lightning open the camera itself, allow it to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Your desktop&apos;s camera portal sent no picture from the camera.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>This desktop has no camera portal. Install xdg-desktop-portal, or allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This desktop has no camera portal, so the camera can&apos;t be used.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+109"/>
         <source>Screen sharing isn&apos;t available in this sandboxed (Flatpak or Snap) build on an X11 session: it can only share through the desktop&apos;s screen-sharing portal, and none is available, and GStreamer plugins installed on your system cannot be used from the sandbox. To share your screen, use the AppImage or a distribution package of Lightning, which capture an X11 screen directly, or log into a Wayland session, where your desktop&apos;s portal provides screen sharing. If your desktop&apos;s xdg-desktop-portal supports screen casting on X11, make sure it is installed and running.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17462,13 +17492,13 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+470"/>
+        <location line="+493"/>
         <location line="+90"/>
         <source>Couldn&apos;t connect to the call.</source>
         <translation>কলে সংযোগ করা যায়নি।</translation>
     </message>
     <message>
-        <location line="-558"/>
+        <location line="-581"/>
         <source>The calling service is having trouble.</source>
         <translation>কলিং সার্ভিসে সমস্যা হচ্ছে।</translation>
     </message>
@@ -17488,12 +17518,27 @@ Note: importing keys does not verify this session.</source>
         <translation>আপনার ক্যামেরা থেমে গেছে।</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+6"/>
+        <source>Your camera isn&apos;t available. Lightning is a snap: run snap connect lightning:camera</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Your camera isn&apos;t available.</source>
         <translation>আপনার ক্যামেরা উপলব্ধ নেই।</translation>
     </message>
     <message>
+        <location line="+4"/>
+        <source>The camera sent no picture. If it&apos;s a virtual camera, make sure something is feeding it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+3"/>
+        <source>Camera access is turned off in your system settings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>The camera you chose isn&apos;t available, so no camera was turned on. Choose a camera in Settings.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17561,7 +17606,7 @@ Note: importing keys does not verify this session.</source>
         <translation>কল করা এখনও প্রস্তুত নয়।</translation>
     </message>
     <message>
-        <location line="+425"/>
+        <location line="+427"/>
         <source>You can share your screen once the call has reconnected.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17571,12 +17616,12 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1290"/>
+        <location line="-1292"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>এই রুমটি এনক্রিপ্ট করা হয়েছে, এবং এনক্রিপ্ট করা কল এখনও এই বিল্ডে উপলব্ধ নেই৷</translation>
     </message>
     <message>
-        <location line="+207"/>
+        <location line="+209"/>
         <source>Couldn&apos;t announce you in the call.</source>
         <translation>কলে আপনাকে ঘোষণা করা যায়নি।</translation>
     </message>
