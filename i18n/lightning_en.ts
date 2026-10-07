@@ -12688,7 +12688,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+206"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+3951"/>
+        <location line="+3957"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -12697,15 +12697,15 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4349"/>
+        <location line="-4355"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+4143"/>
+        <location line="+4149"/>
         <source>Unknown room: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4351"/>
+        <location line="-4357"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
@@ -12713,13 +12713,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+595"/>
-        <location line="+2299"/>
+        <location line="+2305"/>
         <location line="+54"/>
         <source>The sticker could not be sent.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1126"/>
+        <location line="-1132"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12759,7 +12759,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+283"/>
+        <location line="+289"/>
         <location line="+26"/>
         <source>The reaction could not be applied.</source>
         <translation type="unfinished"></translation>
@@ -12801,7 +12801,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5022"/>
+        <location line="-5028"/>
         <source>Enter your username.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12816,7 +12816,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5014"/>
+        <location line="+5020"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -23002,6 +23002,26 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+4"/>
         <source>Could not change this room&apos;s unread mark.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>The server could not be reached. Check your connection and try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>The server is busy or having trouble. Try again in a moment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>The server did not accept this session. Try again, and sign in again if it keeps happening.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>The server refused the change.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
