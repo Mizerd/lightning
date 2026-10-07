@@ -74,9 +74,10 @@ second, exactly like GitLab's slot) and reading both back anonymously. The
 release is a moving pointer by design, created once at the released commit
 and marked `make_latest: false` so it never becomes the repository's "latest
 release" (which the website reads). GitHub decides nothing: the manifest is
-signed on GitLab and the client verifies it. The job is `allow_failure` and
-retried, so a GitHub outage cannot fail a release GitLab has completed, and
-it is idempotent, so a retry converges.
+signed on GitLab and the client verifies it. The job is retried and runs after
+the release exists, so a GitHub outage cannot undo a release GitLab has
+completed; since 2026-10-07 it is NOT `allow_failure`, so that outage turns the
+pipeline red instead of hiding. It is idempotent, so a retry converges.
 
 With the packages already mirrored per release, this makes the whole update
 path — manifest, signature, artifacts — reachable from GitHub alone when

@@ -103,12 +103,15 @@ run_bounded() {
 #                          element failure, or the control queue did not fill)
 #
 # `unmeasurable` dies: "could not measure" must never pass as a warning.
-# `fail` only warns until the check has proven stable everywhere.
+# `fail` is a HARD failure in a release pipeline (PUBLISH_PACKAGES=true; Rokas,
+# 2026-10-07: a release cannot pass with warnings) and only warns in a
+# build-only pipeline until the check has proven stable everywhere.
 #
-# TO PROMOTE IT: once it reports `VERDICT: pass` on every format in one
-# pipeline and the wall-clock thresholds in `runQueueSelfTest` are stable on
-# the CI runners, change the `fail` branch below to `die`. This is the only
-# place to change.
+# TO PROMOTE IT: (build-only pipelines; a release already fails on it) once it
+# reports `VERDICT: pass` on every format in one pipeline and the wall-clock
+# thresholds in `runQueueSelfTest` are stable on the CI runners, drop the
+# PUBLISH_PACKAGES condition in the `fail` branch below. This is the only place
+# to change.
 #
 #   $1  format label for the message
 #   $2  path to the captured combined output
@@ -130,9 +133,13 @@ assert_queue_selftest() {
         return 0
         ;;
     fail)
+        if [[ "${PUBLISH_PACKAGES:-false}" == true ]]; then
+            $complain "$label: voice-delay queue self-test VERDICT: fail (exit $status): a live queue kept a backlog its consumer had caught up from. A release pipeline does not publish on a failing verdict. The transcript is above."
+            return 1
+        fi
         echo "WARNING: $label: voice-delay queue self-test VERDICT: fail (exit $status)." >&2
         echo "WARNING: a live queue kept a backlog its consumer had caught up from." >&2
-        echo "WARNING: this is NOT yet a hard gate -- see assert_queue_selftest in lib.sh." >&2
+        echo "WARNING: not a hard gate in a build-only pipeline; a release fails on it -- see assert_queue_selftest in lib.sh." >&2
         return 0
         ;;
     unmeasurable)

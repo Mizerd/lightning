@@ -464,8 +464,9 @@ else
 fi
 
 # Voice-delay self-test; see assert_queue_selftest in lib.sh. A verdict is
-# required, a failing verdict only warns for now. Bounded so a hung probe
-# cannot hold the Mac until the job timeout.
+# required; a failing one fails a release and only warns in a build-only
+# pipeline. Bounded so a hung probe cannot hold the Mac until the job
+# timeout.
 queue_selftest_status=0
 run_bounded 300 "$CONTENTS/MacOS/$APP_NAME" --call-queue-selftest \
     >"$REPORT_DIR/queue-selftest.txt" 2>&1 || queue_selftest_status=$?

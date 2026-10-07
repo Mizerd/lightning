@@ -73,16 +73,11 @@ validators = sorted(
     and isinstance(doc.get(j), dict)
 )
 check(len(validators) >= 6, f"found the validate-* jobs ({len(validators)})")
-# Canaries validate a package nothing publishes (the COPR spec compiled on
-# openSUSE Leap): allow_failure, and publication does not wait for them. Named
-# here one by one, so a new validator cannot slip out of the gate unnoticed.
-CANARY_VALIDATORS = {"validate-rpm-leap"}
+# No exemptions (Rokas, 2026-10-07): a release publishes only once every
+# validator is green, including the one whose package nothing publishes (the
+# COPR spec compiled on openSUSE Leap).
 for job in validators:
-    if job in CANARY_VALIDATORS:
-        check(doc[job].get("allow_failure") is True and job not in publish_needs,
-              f"{job} is a canary: allow_failure, and publication does not wait for it")
-    else:
-        check(job in publish_needs, f"publish-packages consumes {job}")
+    check(job in publish_needs, f"publish-packages waits for {job}")
 
 # --- one dedicated runner pool per format: every build/validate job selects
 # --- exactly one unique selector tag. Each selector matches a runner on both
@@ -418,6 +413,11 @@ def evaluate(rules, variables):
 
 
 def eval_expr(expr, v):
+    # Top-level `||` of `&&` chains; no expression here uses parentheses, and
+    # no regex literal contains `||`.
+    if "||" in expr:
+        return any(eval_expr(part, v) for part in expr.split("||"))
+
     def sub(tok):
         tok = tok.strip()
         if tok.startswith("$"):
@@ -487,9 +487,11 @@ check(build_included("snap", v) and build_included("appimage", v),
 v = {"PUBLISH_PACKAGES": "true", "BUILD_FORMATS": "deb"}
 check(all(build_included(f, v) for f in all_fmts),
       "publishing pipelines build every format regardless of BUILD_FORMATS")
+def _rule_conditions(job):
+    return [(r.get("if"), r.get("when")) for r in doc[job].get("rules", [])]
 for job in ("validate-rpm-opensuse", "copr-srpm", "build-rpm-opensuse",
             "validate-rpm-leap"):
-    check(doc[job].get("rules") == doc["build-rpm"].get("rules"),
+    check(_rule_conditions(job) == _rule_conditions("build-rpm"),
           f"{job} runs exactly when build-rpm does")
 for fmt in all_fmts:
     check(doc["validate-" + fmt].get("rules") == doc["build-" + fmt].get("rules"),
@@ -604,29 +606,41 @@ for key, value in (("CI_COMMIT_BRANCH", "feature"),
     rejected[key] = value
     check(not evaluate(macos_gate, rejected),
           f"macOS gate rejects unsafe {key}={value}")
+# A release builds macOS without the opt-in and from a tag ref (the commit is
+# pinned through resolve-source), but never off the default branch.
+_release_mac = dict(macos_vars, PUBLISH_PACKAGES="true", BUILD_MACOS_PACKAGES="false",
+                    SOURCE_REF="v0.10.1", BUILD_FORMATS="all")
+check(evaluate(macos_gate, _release_mac),
+      "a release pipeline builds macOS whatever BUILD_MACOS_PACKAGES says")
+check(not evaluate(macos_gate, dict(_release_mac, CI_COMMIT_BRANCH="feature")),
+      "a release-shaped pipeline off the default branch builds no macOS")
+_mac_before = " ".join(str(x) for x in macos.get("before_script", []))
+check('test "$BUILD_MACOS_PACKAGES" = "true" || test "$PUBLISH_PACKAGES" = "true"'
+      in _mac_before,
+      "the macOS job's own guard accepts a release without the opt-in, and nothing else")
 
-# ---- the missing-asset report ------------------------------------------------
+# ---- the post-release asset report -------------------------------------------
 #
-# macOS is optional for publication, so report-optional-assets reports a
-# missing macOS asset after the release without being able to block it.
+# Publication cannot run without a green macOS job; report-optional-assets
+# proves afterwards, from the published release, that the bytes got there.
 report = resolve_extends("report-optional-assets")
 check(report.get("stage") == "update",
-      "the optional-asset report runs in the LAST stage")
+      "the asset report runs in the LAST stage")
 check(report.get("allow_failure", False) is False,
-      "the optional-asset report is NOT allow_failure -- that is its whole point")
+      "the asset report is NOT allow_failure -- that is its whole point")
 check("finalize-release" in needs_names("report-optional-assets"),
-      "the optional-asset report runs after the release is finalized")
-# Nothing may depend on it, or a red report would block publication.
+      "the asset report runs after the release is finalized")
+# Nothing may depend on it: it reads the finished release.
 dependents = [j for j in doc
               if isinstance(doc[j], dict)
               and "report-optional-assets" in needs_names(j)]
 check(not dependents,
-      f"nothing needs the optional-asset report (found {dependents})")
+      f"nothing needs the asset report (found {dependents})")
 check(evaluate(report["rules"],
                dict(macos_vars, PUBLISH_PACKAGES="true", BUILD_FORMATS="all")),
-      "the optional-asset report runs on a publishing pipeline")
+      "the asset report runs on a publishing pipeline")
 check(not evaluate(report["rules"], macos_vars),
-      "the optional-asset report does not run on a non-publishing pipeline")
+      "the asset report does not run on a non-publishing pipeline")
 
 # A macOS-only request (BUILD_FORMATS=none) creates no Linux or Windows build.
 check(not any(build_included(fmt, macos_vars) for fmt in all_fmts),
@@ -680,12 +694,18 @@ check(_publish_inputs <= _mirror_inputs,
 _missing = sorted(_publish_inputs - _mirror_inputs)
 if _missing:
     print("     missing from mirror-release-to-github: %s" % ", ".join(_missing))
-macos_need = next(n for n in doc["publish-packages"]["needs"]
-                  if isinstance(n, dict) and n["job"] == "macos-package-test")
-check(macos_need.get("optional") is True,
-      "the macOS need is optional, so a pipeline without it still publishes")
-check(macos.get("allow_failure") is True,
-      "the macOS job is allow_failure, so a Mac outage cannot block a release")
+# A release depends on the Mac (Rokas, 2026-10-07): the need is not optional,
+# and the job is allow_failure only in a build-only pipeline (per rule).
+for _consumer in ("publish-packages", "mirror-release-to-github"):
+    macos_need = next(n for n in doc[_consumer]["needs"]
+                      if isinstance(n, dict) and n["job"] == "macos-package-test")
+    check(not macos_need.get("optional", False),
+          f"{_consumer}'s macOS need is NOT optional: no release without macOS")
+check("allow_failure" not in doc["macos-package-test"],
+      "the macOS job sets allow_failure per rule, never job-wide")
+check("LIGHTNING_REQUIRE_MACOS_ASSET=true ./packaging-ci/scripts/write-manifest.sh"
+      in doc["publish-packages"].get("script", []),
+      "publish-packages tells write-manifest.sh to refuse a missing macOS bundle")
 check(not any(job.startswith("build-macos") for job in doc),
       "no second macOS build job exists")
 
@@ -1021,8 +1041,8 @@ for script, label in (("stage-windows-runtime.py", "the Windows stage"),
     check("gst-plugins-good-1.0" in src,
           f"{label} ships the gst-plugins-good licence")
 # The macOS JPEG plugin (needed for the MJPG camera chain) is staged as
-# optional first: a missing required plugin fails the allow_failure macOS job
-# and would silently drop the macOS asset. Promote it once it stages.
+# optional first: a missing required plugin fails the macOS job, which since
+# 2026-10-07 blocks the whole release. Promote it once it stages.
 _macos_stage = _strip_shell_comments(_read("scripts", "stage-macos-gstreamer.sh"))
 check("OPTIONAL_PLUGINS=(jpeg)" in _macos_stage,
       "the macOS stage carries the JPEG plugin as OPTIONAL, not required")
@@ -1143,8 +1163,8 @@ check(_copr.get("script") == ["./packaging-ci/scripts/prepare-pinned-source.sh",
       "copr-srpm assembles the COPR source RPM from the pinned source")
 check(_copr.get("image") == doc["build-rpm"].get("image"),
       "copr-srpm uses build-rpm's pinned Fedora image")
-check("copr-srpm" not in needs_names("publish-packages"),
-      "copr-srpm is not a publication gate")
+check("copr-srpm" in needs_names("publish-packages"),
+      "copr-srpm gates publication (a release cannot pass with it red)")
 _copr_check = _strip_shell_comments(_read("scripts", "check-copr-srpm.sh"))
 for needle in ('make -f "$SOURCE_DIR/.copr/Makefile" srpm', "rpmspec -q --requires",
                "diff -u", ">= 15"):
@@ -1162,9 +1182,9 @@ check(_leap_build.get("script") == ["./packaging-ci/scripts/build-rpm-opensuse.s
 check("copr-srpm" in needs_names("build-rpm-opensuse")
       and "resolve-source" in needs_names("build-rpm-opensuse"),
       "build-rpm-opensuse compiles the source RPM copr-srpm assembled")
-check(_leap_build.get("allow_failure") is True
-      and "build-rpm-opensuse" not in needs_names("publish-packages"),
-      "build-rpm-opensuse gates nothing (COPR builds from the tag on its own)")
+check("allow_failure" not in _leap_build
+      and "build-rpm-opensuse" in needs_names("publish-packages"),
+      "build-rpm-opensuse gates publication, allow_failure only per build-only rule")
 check(_leap_build.get("resource_group") == "lightning-package-build-c",
       "build-rpm-opensuse is bounded by resource group c, after the Ubuntu deb")
 check(set(_leap_build.get("tags", [])) & UNIQUE_SELECTORS == {"dnf"},
@@ -1720,11 +1740,11 @@ for _script in ("github-mirror-preflight.sh", "mirror-release-to-github.sh"):
 check("github-mirror-preflight" in needs_names("publish-packages"),
       "publish-packages needs the mirror preflight (a dead token stops the pipeline before publication)")
 _slot = resolve_extends_dict(doc["mirror-update-manifest-to-github"])
-check(_slot.get("stage") == "update" and _slot.get("allow_failure") is True
+check(_slot.get("stage") == "update" and not _slot.get("allow_failure", False)
       and isinstance(_slot.get("retry"), dict) and _slot["retry"].get("max", 0) >= 1
       and isinstance(_slot.get("environment"), dict)
       and _slot["environment"].get("name") == "mirror",
-      "mirror-update-manifest-to-github is allow_failure + retried and holds only the mirror token")
+      "mirror-update-manifest-to-github is retried, NOT allow_failure (a failure turns a release red), and holds only the mirror token")
 check("publish-update-manifest" in needs_names("mirror-update-manifest-to-github"),
       "the GitHub update slot is written only AFTER GitLab's latest promotion")
 _slot_script = _strip_shell_comments(_read("scripts", "mirror-update-manifest-to-github.sh"))
@@ -1740,8 +1760,8 @@ if _client_endpoints:
           "the client's compiled-in fallback names the same update-latest slot this pipeline writes")
 # The Flathub PR job opens a PR after a published release, and nothing more.
 _fh = resolve_extends_dict(doc["flathub-update-pr"])
-check(_fh.get("stage") == "update" and _fh.get("allow_failure") is True,
-      "flathub-update-pr is allow_failure in the update stage: GitHub cannot fail a published release")
+check(_fh.get("stage") == "update" and not _fh.get("allow_failure", False),
+      "flathub-update-pr runs after the tag in the update stage and is NOT allow_failure: a failure turns the release red")
 check(isinstance(_fh.get("environment"), dict)
       and _fh["environment"].get("name") == "flathub",
       "flathub-update-pr declares the `flathub` environment its token is scoped to")
@@ -1848,6 +1868,232 @@ for _name in sorted(os.listdir(_scripts_dir)):
 check(_readers, "at least one packaging script reads RELEASE_TAG")
 for _name, _calls in _readers:
     check(_calls, f"{_name} calls release_contract_env before reading RELEASE_TAG")
+
+# ---------------------------------------------------------------------------
+# A RELEASE CANNOT PASS WITH WARNINGS (Rokas, 2026-10-07).
+#
+# A release pipeline (PUBLISH_PACKAGES=true, either RELEASE_ACTION) must have
+# every job green, and nothing may be published or tagged unless every build
+# and validate job succeeded. Evaluated against the rules GitLab would apply,
+# over a matrix of trigger inputs, so a job-level `allow_failure` hidden behind
+# a rule, an `optional` need, or a new job left out of the gate all fail here.
+# Build-only pipelines are pinned to their pre-2026-10-07 shape.
+_JOBS = sorted(j for j in doc
+               if isinstance(doc[j], dict) and not j.startswith(".")
+               and "script" in resolve_extends(j))
+check(len(_JOBS) >= 30, f"found the pipeline's jobs ({len(_JOBS)})")
+
+
+def _matched_rule(job, variables):
+    """(included, rule) as GitLab decides it; rule is None for a rule-less job."""
+    rules = resolve_extends(job).get("rules")
+    if rules is None:
+        return True, None
+    for rule in rules:
+        if "if" not in rule or eval_expr(rule["if"], variables):
+            return rule.get("when", "on_success") != "never", rule
+    return False, None
+
+
+def _effective_allow_failure(job, rule):
+    if rule is not None and "allow_failure" in rule:
+        return rule["allow_failure"]
+    merged = resolve_extends(job)
+    if "allow_failure" in merged:
+        return merged["allow_failure"]
+    when = (rule or {}).get("when", merged.get("when", "on_success"))
+    # GitLab: a manual job defaults to allow_failure true.
+    return when == "manual"
+
+
+def _pipeline(variables):
+    out = {}
+    for job in _JOBS:
+        included, rule = _matched_rule(job, variables)
+        if included:
+            out[job] = rule
+    return out
+
+
+def _closure(job, included):
+    seen, todo = set(), [job]
+    while todo:
+        for n in resolve_extends(todo.pop()).get("needs", []) or []:
+            name = n["job"] if isinstance(n, dict) else n
+            if name in included and name not in seen:
+                seen.add(name)
+                todo.append(name)
+    return seen
+
+
+def _stage(job):
+    return stages.index(resolve_extends(job).get("stage", "test"))
+
+
+_release_configs = []
+for _action in ("create", "attach-existing"):
+    for _ref in (("a" * 40,) if _action == "create" else ("v0.10.1", "b" * 40)):
+        for _formats in ("all", "deb", "none"):
+            for _mac in ("true", "false"):
+                for _win in ("true", "false"):
+                    for _source in ("api", "web"):
+                        _release_configs.append({
+                            "CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
+                            "CI_PIPELINE_SOURCE": _source, "PUBLISH_PACKAGES": "true",
+                            "RELEASE_ACTION": _action, "SOURCE_REF": _ref,
+                            "RELEASE_VERSION": "0.10.1", "RELEASE_NOTES_B64": "",
+                            "BUILD_FORMATS": _formats, "BUILD_MACOS_PACKAGES": _mac,
+                            "BUILD_WINDOWS_PACKAGES": _win,
+                        })
+check(len(_release_configs) == 72,
+      f"the release matrix covers 72 trigger shapes ({len(_release_configs)})")
+
+_tolerant, _manual, _ungated, _untagged, _dangling, _sizes = set(), set(), set(), set(), set(), set()
+_publish_stage, _release_stage = stages.index("publish"), stages.index("release")
+for _vars in _release_configs:
+    _inc = _pipeline(_vars)
+    _sizes.add(len(_inc))
+    if "publish-packages" not in _inc or "finalize-release" not in _inc:
+        _ungated.add(("<no publication jobs>", _vars["RELEASE_ACTION"]))
+        continue
+    _pub = _closure("publish-packages", _inc)
+    _tag = _closure("finalize-release", _inc)
+    for _job, _rule in _inc.items():
+        if _effective_allow_failure(_job, _rule):
+            _tolerant.add(_job)
+        if (_rule or {}).get("when", resolve_extends(_job).get("when")) == "manual":
+            _manual.add(_job)
+        # Everything before the publish stage gates publication ...
+        if _stage(_job) < _publish_stage and _job not in _pub:
+            _ungated.add(_job)
+        # ... and everything before the release stage gates the tag.
+        if _stage(_job) < _release_stage and _job != "finalize-release" and _job not in _tag:
+            _untagged.add(_job)
+        # A need on a job this pipeline does not contain is either a creation
+        # error (required) or a silent hole (optional); a release has neither.
+        for _n in resolve_extends(_job).get("needs", []) or []:
+            _name = _n["job"] if isinstance(_n, dict) else _n
+            if _name not in _inc:
+                _dangling.add(f"{_job} -> {_name}")
+check(min(_sizes) >= 30,
+      f"every release shape yields a full pipeline (smallest {min(_sizes)} jobs)")
+check(not _tolerant,
+      f"no job in a release pipeline is allow_failure (found {sorted(_tolerant)})")
+check(not _manual,
+      f"no job in a release pipeline is manual (found {sorted(_manual)})")
+check(not _ungated,
+      f"publish-packages transitively needs every pre-publication job (missing {sorted(map(str, _ungated))})")
+check(not _untagged,
+      f"finalize-release (the tag) transitively needs every earlier job (missing {sorted(_untagged)})")
+check(not _dangling,
+      f"no release job needs a job its pipeline lacks (found {sorted(_dangling)})")
+for _name in ("macos-package-test", "copr-srpm", "build-rpm-opensuse",
+              "validate-rpm-leap", "build-windows", "validate-rpm-opensuse"):
+    check(all(_name in _pipeline(v) for v in _release_configs),
+          f"{_name} is in every release pipeline")
+# No `optional: true` anywhere on the way to or after publication.
+for _job in _JOBS:
+    if resolve_extends(_job).get("extends") != ".publish-rules" and _job != "publish-packages":
+        continue
+    _opt = [n["job"] for n in doc[_job].get("needs", [])
+            if isinstance(n, dict) and n.get("optional")]
+    check(not _opt, f"{_job} has no optional needs (found {_opt})")
+# Post-tag jobs: a failure must make the pipeline red, not yellow.
+for _job in ("flathub-update-pr", "mirror-update-manifest-to-github",
+             "report-optional-assets", "publish-update-manifest",
+             "mirror-release-to-github"):
+    check(_job in _pipeline(_release_configs[0])
+          and not _effective_allow_failure(_job, _pipeline(_release_configs[0])[_job]),
+          f"{_job} runs after the tag and fails the pipeline red")
+
+# Build-only pipelines keep today's behaviour exactly: same jobs, and the same
+# four canaries allow_failure.
+_SNAPSHOT_FLEET = {
+    "config-tests", "resolve-source",
+    "build-deb", "build-deb-ubuntu", "build-rpm", "build-flatpak",
+    "build-appimage", "build-snap", "copr-srpm", "build-rpm-opensuse",
+    "validate-deb", "validate-deb-ubuntu", "validate-rpm", "validate-rpm-opensuse",
+    "validate-rpm-leap", "validate-flatpak", "validate-appimage", "validate-snap",
+}
+_SNAPSHOT_CANARIES = {"copr-srpm", "build-rpm-opensuse", "validate-rpm-leap"}
+_snap_base = {"CI_COMMIT_BRANCH": "main", "CI_DEFAULT_BRANCH": "main",
+              "CI_PIPELINE_SOURCE": "api", "PUBLISH_PACKAGES": "false",
+              "RELEASE_ACTION": "attach-existing", "RELEASE_VERSION": "",
+              "RELEASE_NOTES_B64": "", "BUILD_WINDOWS_PACKAGES": "false"}
+_snapshot_cases = [
+    (dict(_snap_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="true", SOURCE_REF="c" * 40),
+     _SNAPSHOT_FLEET | {"macos-package-test"}, _SNAPSHOT_CANARIES | {"macos-package-test"}),
+    (dict(_snap_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="true", SOURCE_REF="main"),
+     _SNAPSHOT_FLEET, _SNAPSHOT_CANARIES),
+    (dict(_snap_base, BUILD_FORMATS="all", BUILD_MACOS_PACKAGES="false", SOURCE_REF="main"),
+     _SNAPSHOT_FLEET, _SNAPSHOT_CANARIES),
+    (dict(_snap_base, BUILD_FORMATS="rpm", BUILD_MACOS_PACKAGES="false", SOURCE_REF="main"),
+     {"config-tests", "resolve-source", "build-rpm", "validate-rpm",
+      "validate-rpm-opensuse"} | _SNAPSHOT_CANARIES, _SNAPSHOT_CANARIES),
+    (dict(_snap_base, BUILD_FORMATS="none", BUILD_MACOS_PACKAGES="true", SOURCE_REF="d" * 40),
+     {"config-tests", "resolve-source", "macos-package-test"}, {"macos-package-test"}),
+    (dict(_snap_base, BUILD_FORMATS="none", BUILD_MACOS_PACKAGES="false",
+          BUILD_WINDOWS_PACKAGES="true", SOURCE_REF="e" * 40),
+     {"config-tests", "resolve-source", "windows-package-test"}, set()),
+]
+for _vars, _want_jobs, _want_tolerant in _snapshot_cases:
+    _inc = _pipeline(_vars)
+    _label = f"build-only {_vars['BUILD_FORMATS']}/mac={_vars['BUILD_MACOS_PACKAGES']}/" \
+             f"win={_vars['BUILD_WINDOWS_PACKAGES']}/ref={_vars['SOURCE_REF'][:4]}"
+    check(set(_inc) == _want_jobs,
+          f"{_label}: the same jobs as before (extra {sorted(set(_inc) - _want_jobs)}, "
+          f"missing {sorted(_want_jobs - set(_inc))})")
+    _got = {j for j, r in _inc.items() if _effective_allow_failure(j, r)}
+    check(_got == _want_tolerant,
+          f"{_label}: allow_failure exactly on {sorted(_want_tolerant)} (got {sorted(_got)})")
+
+# The voice-delay self-test: `VERDICT: fail` is a hard failure in a release and
+# a warning in a build-only pipeline. Run the real helper; a text scan cannot
+# tell which branch fires.
+def _run_queue_helper(verdict, publish, mode="hard"):
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+        fh.write(f"queue a: held 40 ms\nVERDICT: {verdict}\n")
+        path = fh.name
+    env = dict(os.environ, PUBLISH_PACKAGES=publish)
+    try:
+        proc = subprocess.run(
+            ["bash", "-c",
+             'source "$1"; if assert_queue_selftest TEST "$2" 0 "$3"; then echo "rc=0"; '
+             'else echo "rc=1"; fi',
+             "_", os.path.join(HERE, "..", "scripts", "lib.sh"), path, mode],
+            capture_output=True, text=True, timeout=30, env=env)
+        return proc.returncode, proc.stdout + proc.stderr
+    finally:
+        os.unlink(path)
+
+
+_rc, _out = _run_queue_helper("fail", "true")
+check(_rc != 0 and "rc=0" not in _out and "release pipeline does not publish" in _out,
+      "a release pipeline dies on VERDICT: fail")
+_rc, _out = _run_queue_helper("fail", "true", "soft")
+check(_rc == 0 and "rc=1" in _out and "FAIL:" in _out,
+      "a release pipeline counts VERDICT: fail as a failure in soft mode (macOS)")
+_rc, _out = _run_queue_helper("fail", "false")
+check(_rc == 0 and "rc=0" in _out and "WARNING" in _out,
+      "a build-only pipeline only warns on VERDICT: fail")
+_rc, _out = _run_queue_helper("pass", "true")
+check(_rc == 0 and "rc=0" in _out and "WARNING" not in _out,
+      "a release pipeline passes VERDICT: pass")
+_rc, _out = _run_queue_helper("unmeasurable", "false")
+check(_rc != 0 and "measured NOTHING" in _out,
+      "VERDICT: unmeasurable still dies in a build-only pipeline")
+
+# The post-release report requires macOS unconditionally now, and the manifest
+# writer refuses a missing bundle when publish-packages asks it to.
+_report_src = _strip_shell_comments(_read("scripts", "report-optional-assets.sh"))
+check("BUILD_MACOS_PACKAGES" not in _report_src,
+      "the post-release report checks for macOS whatever BUILD_MACOS_PACKAGES says")
+_wm_src = _strip_shell_comments(_read("scripts", "write-manifest.sh"))
+check('"${LIGHTNING_REQUIRE_MACOS_ASSET:-false}" == true' in _wm_src
+      and "may not publish without it" in _wm_src,
+      "write-manifest.sh refuses to publish without the macOS bundle when required")
 
 if errors:
     print(f"\nPipeline config tests FAILED ({len(errors)})", file=sys.stderr)

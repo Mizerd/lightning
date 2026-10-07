@@ -276,10 +276,11 @@ SOURCE_REF=<full 40-character project-6 commit SHA>
 `BUILD_FORMATS=none` excludes every Linux package build, so the pipeline is
 exactly `config-tests` → `resolve-source` → `macos-package-test`.
 
-The gate is deliberately **not** constrained on `BUILD_FORMATS`,
-`BUILD_WINDOWS_PACKAGES`, or `PUBLISH_PACKAGES` — only on the default branch, a
-web/api pipeline, a pinned 40-character SHA, and the explicit
-`BUILD_MACOS_PACKAGES=true` opt-in. So the same flag added to a **full-fleet**
+The build-only gate is deliberately **not** constrained on `BUILD_FORMATS` or
+`BUILD_WINDOWS_PACKAGES` — only on the default branch, a web/api pipeline, a
+pinned 40-character SHA, and the explicit `BUILD_MACOS_PACKAGES=true` opt-in. A
+publishing pipeline (`PUBLISH_PACKAGES=true`) always builds macOS and cannot
+publish without it (2026-10-07). So the same flag added to a **full-fleet**
 run (`BUILD_FORMATS=all`, with or without publication) builds macOS *alongside*
 Linux rather than instead of it. The Mac is a dedicated host that shares no
 capacity with the Linux or Windows pools, so there is no reason to exclude it —
@@ -473,7 +474,7 @@ exists with a matching version.
 | `PUBLISH_PACKAGES` | `false` by default (safe, non-publishing). `true` enables publish/verify/release. |
 | `BUILD_FORMATS` | Build-only format selection: `all`, `none`, or a comma list from `deb,rpm,flatpak,appimage,snap`. `none` is required for a Windows- or macOS-only test pipeline. |
 | `BUILD_WINDOWS_PACKAGES` | `false` by default. `true` enables the unsigned Windows cross-package test job. |
-| `BUILD_MACOS_PACKAGES` | `false` by default. `true` enables the unsigned macOS arm64 `.app` test job on the Mac mini runner. |
+| `BUILD_MACOS_PACKAGES` | `false` by default. `true` enables the unsigned macOS arm64 `.app` test job on the Mac mini runner in a build-only pipeline. A publishing pipeline always builds macOS and requires it. |
 | `RELEASE_NOTES_B64` | `create` only: base64-encoded Markdown release notes. |
 | `TARGET_PROJECT_ID` / `LIGHTNING_PROJECT_ID` | Fixed to `6`; scripts reject any other value so publication cannot be redirected. |
 | `PACKAGE_NAME` | `lightning`. |

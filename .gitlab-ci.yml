@@ -44,7 +44,7 @@ variables:
   BUILD_MACOS_PACKAGES:
     value: "false"
     options: ["false", "true"]
-    description: "Safe default false. Enables the unsigned macOS arm64 .app bundle on the protected default branch with a pinned 40-char SOURCE_REF. Runs on the physical Mac mini runner, in parallel with the Linux fleet when BUILD_FORMATS is also set. Since 0.7.5 a publishing pipeline ships it as a download-only asset (Apple Silicon, macOS 26+, unsigned); the job is non-blocking, so the Mac being unavailable publishes the release without it."
+    description: "Safe default false. Enables the unsigned macOS arm64 .app bundle in a build-only pipeline on the protected default branch with a pinned 40-char SOURCE_REF. Runs on the physical Mac mini runner, in parallel with the Linux fleet when BUILD_FORMATS is also set. A publishing pipeline (PUBLISH_PACKAGES=true) ALWAYS builds macOS, whatever this says, and cannot publish or tag without it: since 2026-10-07 a release must have every job green."
   RELEASE_NOTES_B64:
     value: ""
     description: "create only: base64-encoded Markdown notes. Otherwise a tracked docs/releases/vX.Y.Z.md is used."
@@ -64,6 +64,15 @@ variables:
 # Shared gate for every publish/verify/release job: default branch with
 # PUBLISH_PACKAGES=true. Independent of RELEASE_ACTION, so both actions run
 # the publish, verify and release jobs.
+#
+# RELEASE PIPELINES ARE STRICT (Rokas, 2026-10-07). A pipeline with
+# PUBLISH_PACKAGES=true cannot pass with a warning: no job in it may be
+# allow_failure, and publish-packages `needs` every build and validate job in
+# it (macOS, COPR, openSUSE and Leap included, none `optional`), so any failure
+# stops the pipeline before the registry is written or the tag exists. Jobs that
+# run after the tag (the Flathub PR, the GitHub manifest mirror) turn the
+# pipeline red, not yellow. Build-only pipelines keep their canaries
+# allow_failure, set per rule below. test-pipeline-config.py asserts all of it.
 .publish-rules:
   # In-job API requests use the internal endpoint: the public URL sits behind
   # a ~100 MB request-body cap that large packages exceed. URLs recorded in the
@@ -75,17 +84,28 @@ variables:
       when: on_success
     - when: never
 
-# Native macOS gate: protected default branch, manually created pipeline, fully
-# pinned project-6 commit, and an explicit opt-in.
+# Native macOS gate: protected default branch, manually created pipeline, and
+# either a release or a fully pinned project-6 commit with an explicit opt-in.
 #
-# Not constrained on BUILD_FORMATS or PUBLISH_PACKAGES: the Mac is a dedicated
-# host, so it runs alongside the Linux fleet rather than being silently left
-# out of full-fleet pipelines. BUILD_FORMATS=none gives a macOS-only pipeline.
+# A publishing pipeline always builds macOS and it blocks publication (the
+# release rule, 2026-10-07): the first rule is a superset of .publish-rules, so
+# publish-packages' non-optional `needs` on this job is always satisfiable. The
+# commit is still pinned there: EXPECTED_SOURCE_SHA comes from resolve-source,
+# and build-macos.sh refuses anything but a full SHA.
+#
+# A build-only pipeline is unchanged: opt-in, pinned SOURCE_REF, allow_failure.
+# Not constrained on BUILD_FORMATS: the Mac is a dedicated host, so it runs
+# alongside the Linux fleet rather than being silently left out of full-fleet
+# pipelines. BUILD_FORMATS=none gives a macOS-only pipeline.
 # See docs/macos-packaging.md.
 .macos-test-rules:
   rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $PUBLISH_PACKAGES == "true"'
+      when: on_success
+      allow_failure: false
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $BUILD_MACOS_PACKAGES == "true" && $SOURCE_REF =~ /^[0-9a-f]{40}$/'
       when: on_success
+      allow_failure: true
     - when: never
 
 # Dedicated Docker-socket runner security gate. A Windows test job is present
@@ -384,20 +404,22 @@ build-rpm:
 # release tag is pushed, and no pipeline watches that build. This assembles
 # the same source RPM from the pinned source and checks that its spec declares
 # the release RPM's runtime dependencies, so a COPR build that would break
-# shows here first. Compiles nothing, and gates no publication.
+# shows here first. Compiles nothing. A release publishes only once it is
+# green (2026-10-07); a build-only pipeline lets it fail.
 copr-srpm:
+  # A release must have it green; a build-only pipeline treats it as a canary.
   rules:
     - if: '$PUBLISH_PACKAGES == "true"'
+      allow_failure: false
     - if: '$BUILD_FORMATS == "all"'
+      allow_failure: true
     - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+      allow_failure: true
     - when: never
   extends: .trusted-pipeline
   stage: build
   interruptible: true
   timeout: 30m
-  # Gates nothing: COPR builds from the tag on its own. A red run here must
-  # not turn a clean release pipeline red (0.9.6's red reporter).
-  allow_failure: true
   image: fedora@sha256:43b29f65a41eb9c35e1cd5323e3bdf3b655c2357a9f4f1ff2f9c2798e5045d80 # fedora:44
   tags: [dnf, rpm, package]
   needs:
@@ -425,19 +447,23 @@ copr-srpm:
 # chroot does: openSUSE's Qt 6.9, GStreamer 1.26 and Rust, no network. Leap is
 # the oldest openSUSE COPR builds for, and the one the release .rpm cannot
 # serve (its Qt is older than Fedora's). The package is a test artifact under
-# dist/opensuse/, never published, so it gates nothing; it shares resource
-# group c with the Ubuntu deb, which starts first and is not delayed by it.
+# dist/opensuse/, never published, but a release publishes only once it is
+# green (2026-10-07); it shares resource group c with the Ubuntu deb, which
+# starts first and is not delayed by it.
 build-rpm-opensuse:
+  # A release must have it green; a build-only pipeline treats it as a canary.
   rules:
     - if: '$PUBLISH_PACKAGES == "true"'
+      allow_failure: false
     - if: '$BUILD_FORMATS == "all"'
+      allow_failure: true
     - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+      allow_failure: true
     - when: never
   extends: .trusted-pipeline
   stage: build
   interruptible: true
   timeout: 3h
-  allow_failure: true
   image: registry.opensuse.org/opensuse/leap@sha256:cd9aac11608afabc96a10074619cf2a65ccf60ff4b72d09d4e4e125af409035d # opensuse/leap 16.0
   tags: [dnf, rpm, package]
   resource_group: lightning-package-build-c
@@ -753,11 +779,9 @@ macos-package-test:
   tags: [macos, arm64]
   resource_group: lightning-macos-package
   interruptible: true
-  # Non-blocking: an unavailable Mac must not hold back the Linux and Windows
-  # packages. allow_failure covers a failed job and the optional `needs` in
-  # publish-packages covers an absent one; write-manifest.sh then publishes
-  # without a macOS entry.
-  allow_failure: true
+  # Blocking in a release (2026-10-07): an unavailable or failing Mac holds the
+  # release back, because a release may not pass with a missing asset. A
+  # build-only pipeline keeps it allow_failure; both are set in the rules.
   # Headroom, not an estimate.
   timeout: 3h
   needs:
@@ -769,7 +793,8 @@ macos-package-test:
     BUILD_JOBS: "4"
   before_script:
     - test "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH"
-    - test "$BUILD_MACOS_PACKAGES" = "true"
+    # A release builds macOS without the opt-in; anything else must opt in.
+    - test "$BUILD_MACOS_PACKAGES" = "true" || test "$PUBLISH_PACKAGES" = "true"
   script:
     # caffeinate: macOS idle sleep ignores CPU load and gitlab-runner takes no
     # power assertion, so a headless Mac otherwise sleeps mid-build. This holds
@@ -948,17 +973,20 @@ validate-rpm-opensuse:
 
 # Installs build-rpm-opensuse's package on a clean Leap 16.0 and runs the same
 # validator in its copr lane (RPM_LANE=copr: dist/opensuse/, keyless). Like the
-# build, a canary for COPR's openSUSE chroots: allow_failure, and publication
-# does not wait for it (test-pipeline-config.py exempts it by name).
+# build, a canary for COPR's openSUSE chroots in a build-only pipeline; a
+# release publishes only once it is green (2026-10-07).
 validate-rpm-leap:
+  # A release must have it green; a build-only pipeline treats it as a canary.
   rules:
     - if: '$PUBLISH_PACKAGES == "true"'
+      allow_failure: false
     - if: '$BUILD_FORMATS == "all"'
+      allow_failure: true
     - if: '$BUILD_FORMATS =~ /(^|,)rpm(,|$)/'
+      allow_failure: true
     - when: never
   extends: .trusted-pipeline
   stage: validate
-  allow_failure: true
   image: registry.opensuse.org/opensuse/leap@sha256:cd9aac11608afabc96a10074619cf2a65ccf60ff4b72d09d4e4e125af409035d # opensuse/leap 16.0
   tags: [dnf, rpm, package]
   variables:
@@ -1149,14 +1177,23 @@ publish-packages:
       artifacts: true
     - job: build-windows
       artifacts: true
-    # Optional: absent when BUILD_MACOS_PACKAGES is unset, and allow_failure
-    # when it fails. The release then publishes without the macOS asset.
+    # Required, never optional: a release cannot publish without macOS
+    # (2026-10-07). .macos-test-rules puts it in every publishing pipeline.
     - job: macos-package-test
       artifacts: true
-      optional: true
+    # Gates only: nothing of theirs is published, but a release may not pass
+    # with any of them red (2026-10-07).
+    - job: copr-srpm
+      artifacts: false
+    - job: build-rpm-opensuse
+      artifacts: false
+    - job: validate-rpm-leap
+      artifacts: false
   before_script: [apk add --no-cache bash coreutils curl jq]
   script:
-    - ./packaging-ci/scripts/write-manifest.sh
+    # Set on the command line, where no trigger variable can override it:
+    # write-manifest.sh refuses to publish without the macOS bundle.
+    - LIGHTNING_REQUIRE_MACOS_ASSET=true ./packaging-ci/scripts/write-manifest.sh
     - ./packaging-ci/scripts/publish-packages.sh
   artifacts:
     expire_in: 7 days
@@ -1291,11 +1328,10 @@ mirror-release-to-github:
       artifacts: true
     - job: verify-published-packages
       artifacts: true
-    # Optional as in publish-packages. This job needs every file the
+    # Required as in publish-packages. This job needs every file the
     # publication manifest names, including the macOS zip.
     - job: macos-package-test
       artifacts: true
-      optional: true
     # Its mirror_url values are cross-checked before anything is uploaded.
     - job: sign-update-manifest
       artifacts: true
@@ -1339,10 +1375,11 @@ publish-update-manifest:
       - dist/update-manifest-v1.json.sig
       - dist/update-publication.json
 
-# Reports a missing optional (macOS) asset, which a green pipeline would
-# otherwise hide. It runs after finalize-release and nothing needs it, so it
-# cannot block publication; it is deliberately not allow_failure. It checks
-# the published release, not job status.
+# Checks the published release itself, not job status, for the macOS asset.
+# Since 2026-10-07 publish-packages cannot run without a green macOS job, so
+# this is the after-the-fact proof that the bytes reached the release. It runs
+# after finalize-release and is not allow_failure: a miss turns the pipeline
+# red.
 report-optional-assets:
   extends: .publish-rules
   stage: update
@@ -1359,14 +1396,14 @@ report-optional-assets:
 # tag and commit and pushes it with cargo-sources.json to a branch of the
 # Flathub repository, taken from the GitHub mirror at the tag (what Flathub
 # fetches). Never merges: Flathub publishes only a merged PR and test-builds
-# every PR, so the maintainer merges after that build. allow_failure, so a
-# GitHub problem never fails a published release; a no-op without
-# FLATHUB_GITHUB_TOKEN, which is scoped to the `flathub` environment.
+# every PR, so the maintainer merges after that build. NOT allow_failure
+# (2026-10-07): it runs after the tag so it cannot block the release, but a
+# failure turns the pipeline red instead of hiding behind a yellow one. A no-op
+# without FLATHUB_GITHUB_TOKEN, which is scoped to the `flathub` environment.
 flathub-update-pr:
   extends: .publish-rules
   stage: update
   image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
-  allow_failure: true
   retry:
     max: 2
     when: [runner_system_failure, stuck_or_timeout_failure, api_failure]
@@ -1389,14 +1426,14 @@ flathub-update-pr:
 # Writes the client's GitHub fallback for update metadata: copies the pair
 # publish-update-manifest just promoted into the fixed `update-latest` release
 # and reads both back anonymously. The client verifies the GitLab signature,
-# so GitHub decides nothing. allow_failure so a GitHub outage never fails a
-# completed release; idempotent, so retries are safe.
+# so GitHub decides nothing. NOT allow_failure (2026-10-07): a GitHub outage
+# cannot undo a completed release, but it turns the pipeline red so the stale
+# fallback is seen; idempotent, so retrying the job is safe.
 mirror-update-manifest-to-github:
   extends: .publish-rules
   stage: update
   image: alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce # alpine:3.22
   resource_group: lightning-project-6-publication
-  allow_failure: true
   retry:
     max: 2
     when: [script_failure, runner_system_failure, stuck_or_timeout_failure, api_failure]

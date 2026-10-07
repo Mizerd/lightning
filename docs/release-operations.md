@@ -89,6 +89,39 @@ Releases are package-first: the tag and GitLab Release are created by
 the lightning-deploy pipeline only after packages publish and verify
 (§14). Never create a tag or release by hand, and never move one.
 
+### A release pipeline cannot pass with warnings (Rokas, 2026-10-07)
+
+Policy, decided by Rokas on 2026-10-07: a RELEASE pipeline
+(`PUBLISH_PACKAGES=true`, either `RELEASE_ACTION`) must be green in every job,
+and nothing is published or tagged unless every build and validate job
+succeeded. Build-only pipelines (`PUBLISH_PACKAGES=false`) are unchanged.
+
+- No job in a release pipeline is `allow_failure`. `copr-srpm`,
+  `build-rpm-opensuse`, `validate-rpm-leap` and `macos-package-test` set it
+  per RULE: `false` on the publishing rule, `true` on the build-only ones.
+- `publish-packages` needs every build and validate job, macOS, COPR,
+  openSUSE and Leap included, and no need is `optional`. A failure anywhere
+  stops the pipeline before the registry is written or the tag exists.
+- **macOS is no longer optional.** A publishing pipeline always builds it,
+  whatever `BUILD_MACOS_PACKAGES` says, and `write-manifest.sh` refuses to
+  publish without the bundle. A sleeping or offline Mac now HOLDS the release:
+  wake it and retry the job (one failed job: retry that job, not the
+  pipeline). This reverses the 0.7.5 rule that "the release never depends on
+  the Mac".
+- The jobs after the tag (`flathub-update-pr`, `mirror-update-manifest-to-github`,
+  `report-optional-assets`) cannot block a release that already exists, but a
+  failure now turns the pipeline RED, not yellow. Retry the job.
+- The voice-delay self-test's `VERDICT: fail` is a hard failure in a release
+  pipeline (`assert_queue_selftest` in `packaging-ci/scripts/lib.sh`) and still
+  only warns in a build-only one.
+- `packaging-ci/tests/test-pipeline-config.py` evaluates the rules over 72
+  release trigger shapes and asserts all of the above, and pins the build-only
+  shapes to their previous jobs and canaries.
+
+Anything below (or in `packaging-ci/docs/`) that calls a job `allow_failure`,
+the macOS asset optional, or a red post-tag job harmless describes the policy
+before this date.
+
 ### What release rounds have learned (operational traps)
 
 - **ONE FAILED JOB IN AN OTHERWISE GREEN PIPELINE: RETRY THAT JOB, NOT THE
@@ -256,8 +289,9 @@ edited in the Flathub repository any more.
   `flathub/org.lightning_matrix.Lightning`, and opens a PR. It never merges:
   Flathub publishes only a merged PR, test-builds every PR, and restricts
   automatic merging. **Merge the PR after its test build passes.**
-  `allow_failure`, idempotent (an identical branch or open PR is reused), and
-  its result is in `dist/flathub/flathub-pr.json`.
+  Not `allow_failure` since 2026-10-07 (a failure turns the release pipeline
+  red), idempotent (an identical branch or open PR is reused), and its result
+  is in `dist/flathub/flathub-pr.json`.
 - **The Flathub repository regenerates its own crate list, as Fractal's
   does.** The job also copies `packaging-ci/flathub/`: a workflow that runs on
   every same-repository PR touching the manifest, and the script it runs,

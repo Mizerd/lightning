@@ -625,11 +625,11 @@ limit**. GitLab's own `max_artifacts_size` is 1024 MB and its internal nginx is
 hostname is. The artifact archive is the ~105 MB zip of the app plus its
 reports, and it does not fit.
 
-**This is `allow_failure: true` and `publish-packages` needs it `optional`, so
-the release publishes anyway, minus macOS, and the pipeline goes green.** That
-is the right trade — one sleeping Mac must not block a release — but it makes
-this the only lane whose absence a green pipeline will not report. Check the
-job, not the pipeline.
+**Until 2026-10-07 this was `allow_failure: true` and `publish-packages` needed
+it `optional`, so the release published anyway, minus macOS, and the pipeline
+went green.** Since then a release pipeline requires it (Rokas's decision; see
+`docs/release-operations.md`): a failed upload stops publication before the
+tag exists.
 
 ### There was never any headroom
 
@@ -852,11 +852,13 @@ What that means in practice:
   generally in `tests/test-pipeline-config.py` ("the mirror consumes every
   artifact source publish-packages does"), so the next format added inherits
   it.
-- **The release never depends on the Mac.** The job is `allow_failure: true`
-  and the `needs` entry is `optional: true`, so the Mac being offline, asleep
-  or mid-macOS-update publishes a release *without* a macOS asset rather than
-  failing eight good packages. `write-manifest.sh` prints which of the two
-  happened.
+- **The release DEPENDS on the Mac (since 2026-10-07; before that it never
+  did).** A publishing pipeline always builds macOS, the job is not
+  `allow_failure` there, the `needs` entry is not `optional`, and
+  `write-manifest.sh` refuses to publish without the bundle. A Mac that is
+  offline, asleep or mid-macOS-update holds the release until it is back;
+  retry the job. In a build-only pipeline the job is still opt-in and
+  `allow_failure`.
 - **It is NOT in the signed update manifest.** The client has no macOS install
   strategy — `InstallType::MacosDmg` is not self-installable and the updater
   helper returns `UnsupportedPlatform` — so an entry there would advertise an
@@ -870,9 +872,10 @@ What that means in practice:
   and `ditto` preserves it — so macOS says "Apple could not verify…" and offers
   the button, rather than "damaged", which offers nothing.
 
-`tests/test-pipeline-config.py` pins that shape: the need exists, it is
-optional, the job is `allow_failure`, no macOS-tagged job carries a release
-action, and the update manifest declares no macOS format. Each of those was
+`tests/test-pipeline-config.py` pins that shape: the need exists and is not
+optional, the job is `allow_failure` only on its build-only rule, no
+macOS-tagged job carries a release action, and the update manifest declares no
+macOS format. Each of those was
 proven to fail against an injected defect before it was committed.
 
 > Earlier revisions made `build-macos.sh` abort on `PUBLISH_PACKAGES=true`. That
@@ -882,18 +885,18 @@ proven to fail against an injected defect before it was committed.
 
 ## Running with the fleet
 
-The gate constrains only the default branch, a web/api pipeline, a pinned
-40-character SHA, and `BUILD_MACOS_PACKAGES=true`. It is deliberately **not**
-constrained on `BUILD_FORMATS`, `BUILD_WINDOWS_PACKAGES`, or
-`PUBLISH_PACKAGES`, because the Mac shares no capacity with the Linux or Windows
-pools:
+In a build-only pipeline the gate constrains only the default branch, a web/api
+pipeline, a pinned 40-character SHA, and `BUILD_MACOS_PACKAGES=true`. A
+publishing pipeline always includes the job (2026-10-07). It is deliberately
+**not** constrained on `BUILD_FORMATS` or `BUILD_WINDOWS_PACKAGES`, because the
+Mac shares no capacity with the Linux or Windows pools:
 
 | Request | Result |
 | --- | --- |
 | `BUILD_MACOS_PACKAGES=true`, `BUILD_FORMATS=none` | macOS-only pipeline |
 | `BUILD_MACOS_PACKAGES=true`, `BUILD_FORMATS=all` | macOS builds in parallel with the whole Linux fleet |
-| `BUILD_MACOS_PACKAGES=true`, `PUBLISH_PACKAGES=true` | macOS builds, Linux publishes; the macOS bundle is not published |
-| `BUILD_MACOS_PACKAGES=false` | no macOS job at all |
+| `PUBLISH_PACKAGES=true` (either value of `BUILD_MACOS_PACKAGES`) | macOS builds, is published, and blocks the release if it fails |
+| `BUILD_MACOS_PACKAGES=false`, `PUBLISH_PACKAGES=false` | no macOS job at all |
 
 It starts as soon as `resolve-source` completes. Two properties make that true
 and both are asserted in the config tests:

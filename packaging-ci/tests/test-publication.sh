@@ -116,9 +116,9 @@ M="$TR/dist/manifest.json"
 # Full metadata present on each entry (extension-ready schema).
 [[ "$($JQ -r '[.entries[]|select(.sha256 and .size and .architecture and .source_sha and .registry_url and .asset_name)]|length' "$M")" == 10 ]] && note "entries carry full metadata" || bad "entry metadata"
 
-# macOS is the one optional input. Absent, the manifest is the ten above, so
-# an offline Mac cannot fail a release; present, it is published normally.
-printf '== optional macOS bundle ==\n'
+# macOS is published when present. Absent, the manifest is the ten above; the
+# release pipeline refuses that case (below) since 2026-10-07.
+printf '== macOS bundle ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
 mkdir -p "$TR/dist/macos"
 MACZIP="$TR/dist/macos/Lightning-${VER}-${SHA:0:7}-macos-arm64.zip"
@@ -134,7 +134,19 @@ M="$TR/dist/manifest.json"
     && note "macOS architecture is arm64" || bad "macOS architecture"
 # It must also reach the aggregate checksum file users verify against.
 grep -q "$(basename "$MACZIP")" "$TR/dist/SHA256SUMS" && note "macOS bundle is in SHA256SUMS" || bad "macOS missing from SHA256SUMS"
+# publish-packages runs write-manifest.sh with LIGHTNING_REQUIRE_MACOS_ASSET=true:
+# a release may not publish without the macOS bundle (Rokas, 2026-10-07).
+LIGHTNING_REQUIRE_MACOS_ASSET=true run "$ROOT/scripts/write-manifest.sh" \
+    && note "a required macOS bundle that is present publishes" \
+    || bad "a required macOS bundle that is present was refused"
 rm -f "$MACZIP"
+if LIGHTNING_REQUIRE_MACOS_ASSET=true run "$ROOT/scripts/write-manifest.sh"; then
+    bad "a required macOS bundle that is ABSENT still produced a manifest"
+else
+    grep -q "may not publish without it" "$TR/out.log" \
+        && note "a required macOS bundle that is absent stops publication" \
+        || bad "absent macOS bundle refused for the wrong reason"
+fi
 
 printf '== publish ==\n'
 setup; export RELEASE_ACTION=attach-existing SOURCE_REF=v$VER
