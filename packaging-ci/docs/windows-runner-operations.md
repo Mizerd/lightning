@@ -19,7 +19,7 @@ the existing Linux runners.
 | Scope | project 7 only, locked, protected, tagged jobs only |
 | Concurrency | 1 job; 2 polling requests |
 | Job limits | 4 CPU, 8 GiB memory (10 GiB including swap), 2-hour maximum |
-| Builder | `lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7` |
+| Builder | `lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v8` |
 
 The runner manager mounts `/var/run/docker.sock`, which is root-equivalent host
 access. It is constrained by project scope, protected-ref access, unique tags,
@@ -64,10 +64,10 @@ record the resulting image ID and size:
 ```bash
 sudo docker build \
   --label net.smetonis.lightning.task=windows-packaging \
-  -t lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7 \
+  -t lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v8 \
   -f packaging/windows/Dockerfile .
 sudo docker image inspect \
-  lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7
+  lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v8
 ```
 
 Do not use a floating builder image. The official Qt multimedia, FFmpeg and
@@ -138,6 +138,27 @@ and `QT_MULTIMEDIA_SHA256`; the new hash was taken from Qt's published
 `.sha256` AND confirmed by downloading the 10.2 MB tarball and hashing it,
 because `download.qt.io` answers without `--location` with a 306-byte mirror
 page that hashes to something plausible and is not the file.
+
+**v8 IS BUILT AND DEPLOYED (2026-10-07).** Image `sha256:84a86df5`, 7.27 GB,
+**30 staged plugins** — v7's 29 plus `libgstaudiomixer.dll`, which
+per-application share audio needs (`ShareAudioSources.cpp`'s Windows probe asks
+for `audiomixer` and `wasapi2src`'s `loopback-target-pid`; the shipped wasapi2
+already has the property). Built on 10.195.35.2 from main `cf1f66f4` plus the
+uncommitted change that adds it, context `packaging-ci/`. Its verify stage
+passed in full: count 30, every plugin PE32+, every symbol probe including
+`audiomixer:libgstaudiomixer` (file existence only — element and plugin share a
+name; the Wine registry probe is what checks it). The plugin imports only
+GStreamer core/audio, GLib, orc and the UCRT api-sets the other staged plugins
+already import; no libstdc++. The host's `config/config.toml` sets `image` to v8
+and adds it to `allowed_images` with v1-v7 retained; the pre-change file is
+`config.toml.pre-v8-20261007-200719`. `gitlab-runner verify` reports the runner
+**is valid** and the container healthy. **Do not remove the v7 image.**
+
+COPY layers are cached on file MODE as well as content, so a context shipped
+from a checkout with umask 022 (644/755) missed the cache that a host checkout
+(umask 002, 664/775) had built, and FFmpeg and Qt Multimedia were rebuilt from
+source. `chmod -R g+w` on the context did not recover it, so that cache had
+probably aged out anyway; it costs ~25 minutes, not correctness.
 
 **v7 IS BUILT AND DEPLOYED (2026-09-16).** Image `sha256:853ee416`, 7.27 GB,
 **29 staged plugins** — v6's 28 plus `libgstlevel.dll`, the capture level meter.

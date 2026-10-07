@@ -256,6 +256,7 @@ RUN set -eu; \
         libgstsctp.dll \
         libgstjpeg.dll \
         libgstlevel.dll \
+        libgstaudiomixer.dll \
         libgstsrtp.dll libgstvideoconvertscale.dll libgstvideorate.dll \
         libgstvideotestsrc.dll libgstvolume.dll libgstvpx.dll \
         libgstopengl.dll \
@@ -331,8 +332,9 @@ RUN set -eu; \
 
 # The element-symbol probe below checks that each element name appears in its
 # plugin, which only that plugin's gst_element_register would contain. For
-# level:libgstlevel this degrades to file existence, since element and plugin
-# share a name; the Wine registry probe (GSTREAMER_ELEMENTS) covers it.
+# level:libgstlevel and audiomixer:libgstaudiomixer this degrades to file
+# existence, since element and plugin share a name; the Wine registry probe
+# (GSTREAMER_ELEMENTS) covers them.
 RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
     && rpm -qa --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' \
        | LC_ALL=C sort > /usr/local/share/lightning-windows-rpms.txt \
@@ -351,7 +353,7 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
          gstreamer-app-1.0 gstreamer-video-1.0 gstreamer-rtp-1.0 \
     && test "$(x86_64-w64-mingw32-pkg-config --modversion gstreamer-webrtc-1.0)" \
          = "${GSTREAMER_VERSION}" \
-    && { expected=29; \
+    && { expected=30; \
          staged="$(ls /usr/x86_64-w64-mingw32/sys-root/mingw/lib/gstreamer-1.0/*.dll | wc -l)"; \
          test "$staged" = "$expected" \
            || { echo "staged plugin count is $staged, expected $expected -- the install loop above and this literal are ONE fact in two places" >&2; \
@@ -370,6 +372,7 @@ RUN chmod 0755 /usr/local/libexec/lightning-windows/cargo \
          sctpenc:libgstsctp \
          jpegdec:libgstjpeg \
          level:libgstlevel \
+         audiomixer:libgstaudiomixer \
          glupload:libgstopengl glcolorconvert:libgstopengl \
          glcolorscale:libgstopengl gldownload:libgstopengl; do \
          element="${pair%%:*}"; plugin="${pair##*:}"; \

@@ -8,6 +8,7 @@
 #include <QPointer>
 #include <QRegularExpression>
 #include <QSet>
+#include <QStringList>
 
 #include <atomic>
 #include <chrono>
@@ -1123,15 +1124,29 @@ bool perApplicationCaptureAvailable()
             // thread.
             try {
 #if defined(Q_OS_WIN)
-                // GStreamer installs these two properties only where the OS
-                // has process loopback (Windows 10 2004, build 19041+).
-                const bool ok = elementExists("audiomixer")
+                // GStreamer installs the loopback properties only where the
+                // OS has process loopback (Windows 10 2004, build 19041+).
+                // Each missing piece is named: a package without the
+                // audiomixer plugin and an old Windows look identical
+                // otherwise.
+                const bool haveMixer = elementExists("audiomixer");
+                const bool haveSource = elementExists("wasapi2src");
+                const bool haveLoopback = haveSource
                     && elementHasProperty("wasapi2src", "loopback-target-pid");
+                const bool ok = haveMixer && haveLoopback;
                 if (!ok) {
-                    qCInfo(lcShareAudio)
-                        << "per-application share audio unavailable: "
-                           "wasapi2src has no process loopback here (needs "
-                           "Windows 10 2004 or newer)";
+                    QStringList missing;
+                    if (!haveMixer)
+                        missing << QStringLiteral("element audiomixer");
+                    if (!haveSource)
+                        missing << QStringLiteral("element wasapi2src");
+                    else if (!haveLoopback)
+                        missing << QStringLiteral(
+                            "wasapi2src property loopback-target-pid (needs "
+                            "Windows 10 2004 or newer)");
+                    qCInfo(lcShareAudio).noquote()
+                        << "per-application share audio unavailable: missing"
+                        << missing.join(QStringLiteral(", "));
                 }
 #else
                 const bool ok = probePipeWire();

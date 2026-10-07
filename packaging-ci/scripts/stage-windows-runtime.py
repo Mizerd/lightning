@@ -83,6 +83,9 @@ OPTIONAL_GSTREAMER_PLUGINS: tuple[str, ...] = ()
 
 GSTREAMER_PLUGINS = (
     "libgstapp.dll",               # appsink, appsrc
+    # audiomixer mixes the per-application share-audio branches; without it
+    # ShareAudioSources reports per-application capture unavailable (v8+).
+    "libgstaudiomixer.dll",        # audiomixer
     "libgstaudioconvert.dll",      # audioconvert
     "libgstaudioresample.dll",     # audioresample
     "libgstaudiotestsrc.dll",      # audiotestsrc
@@ -128,7 +131,11 @@ GSTREAMER_PLUGINS = (
 # absent because Lightning registers it itself. validate-windows-artifacts.sh
 # runs this list against the packaged tree under Wine.
 GSTREAMER_ELEMENTS = (
-    "appsink", "audioconvert", "audioresample", "audiotestsrc", "autoaudiosink",
+    "appsink",
+    # Per-application share audio. Element and plugin share a name, so the
+    # Dockerfile symbol probe degrades to file existence; this list checks it.
+    "audiomixer",
+    "audioconvert", "audioresample", "audiotestsrc", "autoaudiosink",
     "autoaudiosrc", "capsfilter", "dtlssrtpdec", "dtlssrtpenc", "fakesink",
     "gdiscreencapsrc",
     # GPU share path: the app falls back to the CPU when these are missing, so

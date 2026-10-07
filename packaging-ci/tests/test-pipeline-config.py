@@ -499,7 +499,7 @@ for fmt in all_fmts:
 windows = resolve_extends("windows-package-test")
 check(set(windows.get("tags", [])) == {"windows-cross", "windows-package"},
       "Windows job uses only the dedicated cross-package runner tags")
-WINDOWS_IMAGE = "lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v7"
+WINDOWS_IMAGE = "lightning-windows-builder:fedora44-qt6.11.2-ffmpeg7.1.1-gst1.28.5-rust1.95.0-v8"
 image = windows.get("image", {})
 check(isinstance(image, dict)
       and image.get("name") == WINDOWS_IMAGE
@@ -831,10 +831,13 @@ for _node in ast.walk(ast.parse(win_stage_src)):
         ]
 check(_win_elements is not None,
       "GSTREAMER_ELEMENTS is a parseable literal in stage-windows-runtime.py")
-check(len(_win_elements or []) == 43,
-      f"the Windows element probe asks for 43 elements (found "
+check(len(_win_elements or []) == 44,
+      f"the Windows element probe asks for 44 elements (found "
       f"{len(_win_elements or [])})")
-for element in ("jpegdec", "jpegenc", "level", "sctpenc", "sctpdec"):
+# audiomixer: per-application share audio (ShareAudioSources.cpp's Windows
+# probe); without it the feature reports unavailable and nothing else fails.
+for element in ("audiomixer", "jpegdec", "jpegenc", "level", "sctpenc",
+                "sctpdec"):
     check(element in (_win_elements or []),
           f"the Windows element probe covers {element}")
 
