@@ -271,7 +271,20 @@ endif()
 if(NOT LIGHTNING_PORTABLE_QT_ABI AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
         AND Qt6_VERSION VERSION_GREATER_EQUAL 6.10)
     find_package(Qt6 6.10 QUIET COMPONENTS MultimediaPrivate)
+    # Ubuntu ships the CMake target without the private headers it names,
+    # and try_compile then fails hard instead of reporting "unavailable".
+    set(_lightning_mmp_headers_present FALSE)
     if(TARGET Qt6::MultimediaPrivate)
+        set(_lightning_mmp_headers_present TRUE)
+        get_target_property(_lightning_mmp_dirs Qt6::MultimediaPrivate
+            INTERFACE_INCLUDE_DIRECTORIES)
+        foreach(_dir IN LISTS _lightning_mmp_dirs)
+            if(NOT _dir MATCHES "^\\$<" AND NOT EXISTS "${_dir}")
+                set(_lightning_mmp_headers_present FALSE)
+            endif()
+        endforeach()
+    endif()
+    if(_lightning_mmp_headers_present)
         include(CheckCXXSourceCompiles)
         set(CMAKE_REQUIRED_LIBRARIES Qt6::MultimediaPrivate)
         set(CMAKE_REQUIRED_QUIET ON)
