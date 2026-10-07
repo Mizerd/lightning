@@ -1675,7 +1675,7 @@
         <translation>Звук, разрешение и частота кадров</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+55"/>
         <source>Lower your hand</source>
         <translation>Опустите руку</translation>
     </message>
@@ -1730,7 +1730,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-353"/>
+        <location line="-359"/>
         <source>Unmute microphone</source>
         <translation>Включить микрофон</translation>
     </message>
@@ -1760,7 +1760,7 @@
         <translation>Выберите устройство вывода</translation>
     </message>
     <message>
-        <location line="+334"/>
+        <location line="+340"/>
         <source>Leave call</source>
         <translation>Оставить вызов</translation>
     </message>
@@ -1889,17 +1889,27 @@
 <context>
     <name>CallShareOptionsMenu</name>
     <message>
-        <location filename="../qml/CallShareOptionsMenu.qml" line="+31"/>
-        <source>Screen share</source>
-        <translation>Демонстрация экрана</translation>
+        <location filename="../qml/CallShareOptionsMenu.qml" line="+50"/>
+        <source>Screen share sound</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+15"/>
-        <source>Share computer sound</source>
-        <translation>Поделитесь звуком компьютера</translation>
+        <location line="+9"/>
+        <source>No sound</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+13"/>
+        <source>Entire system</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Choose apps…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+35"/>
         <source>Resolution</source>
         <translation>Разрешение</translation>
     </message>
@@ -13026,7 +13036,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Первичный</translation>
     </message>
     <message>
-        <location line="+196"/>
+        <location line="+306"/>
         <source>Everyone in the call sees the whole display you pick.</source>
         <translation>Все участники вызова видят весь выбранный вами дисплей.</translation>
     </message>
@@ -13061,7 +13071,49 @@ Signing out and signing in again is the only fix.</source>
         <translation>Совместное использование одного окна пока недоступно на этой платформе. Вместо этого выберите экран.</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+23"/>
+        <source>Sound</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <location line="+5"/>
+        <source>No sound</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-4"/>
+        <location line="+5"/>
+        <source>Entire system</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-4"/>
+        <source>Only chosen apps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Screen share sound</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+51"/>
+        <source>Lightning runs inside this window&apos;s app, so its sound can&apos;t be shared on its own without sending the call back. Its sound isn&apos;t chosen automatically.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Lightning can&apos;t tell which app this window belongs to, so its sound isn&apos;t chosen automatically. Choose the app below.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This window&apos;s app isn&apos;t playing any sound right now, so its sound isn&apos;t chosen automatically.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+33"/>
         <source>Quality</source>
         <translation>Качество</translation>
     </message>
@@ -13116,22 +13168,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>медленный</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <source>Share audio</source>
-        <translation>Поделиться аудио</translation>
-    </message>
-    <message>
-        <location line="+24"/>
-        <source>Send what this computer is playing, alongside the picture. Where this system allows it, Lightning&apos;s own audio is left out so the others do not hear themselves.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+4"/>
-        <source>Send what this computer is playing, alongside the picture. On this system that includes the call itself, so others hear themselves unless Lightning&apos;s audio plays on a different output device.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+9"/>
+        <location line="+8"/>
         <source>Cancel</source>
         <translation>Отмена</translation>
     </message>
@@ -17355,7 +17392,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+646"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+683"/>
         <location line="+306"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -17363,12 +17400,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="-435"/>
-        <location line="+915"/>
+        <location line="+935"/>
         <source>Screen sharing couldn&apos;t start.</source>
         <translation>Не удалось запустить демонстрацию экрана.</translation>
     </message>
     <message>
-        <location line="-645"/>
+        <location line="-665"/>
         <source>Screen sharing on Wayland needs xdg-desktop-portal, and it isn&apos;t responding. Install or start the portal for your desktop — for example xdg-desktop-portal-kde or xdg-desktop-portal-gnome — then try again.</source>
         <translation>Для совместного использования экрана на Wayland требуется xdg-desktop-portal, и он не отвечает. Установите или запустите портал для рабочего стола — например, xdg-desktop-portal-kde или xdg-desktop-portal-gnome — затем повторите попытку.</translation>
     </message>
@@ -17384,7 +17421,7 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+61"/>
-        <location line="+145"/>
+        <location line="+161"/>
         <source>No display is available to share.</source>
         <translation>Ни один дисплей не доступен для совместного использования.</translation>
     </message>
@@ -17409,17 +17446,17 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+570"/>
+        <location line="+574"/>
         <source>Calling isn&apos;t available on this homeserver.</source>
         <translation>Вызовы недоступны на этом домашнем сервере.</translation>
     </message>
     <message>
-        <location line="-555"/>
+        <location line="-559"/>
         <source>Too many attempts. Try again in a moment.</source>
         <translation>Слишком много попыток. Повторите попытку через минуту.</translation>
     </message>
     <message>
-        <location line="-678"/>
+        <location line="-694"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera. If the camera works in other apps, allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17454,7 +17491,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+526"/>
+        <location line="+542"/>
         <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17476,6 +17513,11 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Your screen is being shared without its sound — this system has no way to capture what it is playing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Your screen is being shared without its sound — the apps you chose can&apos;t be captured on this system.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -17644,12 +17686,67 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+784"/>
+        <location line="+788"/>
         <source>Call audio stopped: this computer&apos;s sound output disconnected. It resumes when an output is available again; if it does not, leave and rejoin the call.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1292"/>
+        <location line="+2072"/>
+        <source>This system can&apos;t capture the sound it plays.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Sound: everything this computer plays, except Lightning.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sound: everything this computer plays, including this call, so others may hear themselves.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>No apps chosen, so the share has no sound.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sound: only %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>The share has no sound.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>%1 couldn&apos;t be captured.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Too many apps to capture at once; some are left out.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>None of them is playing right now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>No app is playing right now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Nothing is being heard right now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3401"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Эта комната зашифрована, и зашифрованные звонки в этой сборке пока недоступны.</translation>
     </message>
@@ -17662,6 +17759,72 @@ Note: importing keys does not verify this session.</source>
         <location line="+294"/>
         <source>The call ended because the connection was lost.</source>
         <translation>Звонок прервался, поскольку связь была потеряна.</translation>
+    </message>
+</context>
+<context>
+    <name>ShareAudioAppList</name>
+    <message>
+        <location filename="../qml/ShareAudioAppList.qml" line="+47"/>
+        <source>Single apps can&apos;t be chosen on this system. It needs PipeWire on Linux, or Windows 10 version 2004 or newer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>No app is playing sound right now. Start one and it appears here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+94"/>
+        <source>Includes Lightning</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Couldn&apos;t capture</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>In the share</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Playing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Not playing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Lightning runs inside this app, so capturing it would send the call back to everyone.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ShareAudioAppsDialog</name>
+    <message>
+        <location filename="../qml/ShareAudioAppsDialog.qml" line="+15"/>
+        <source>Share sound from apps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Only the apps you tick are heard in your screen share. Lightning itself is never included, so nobody hears the call back.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+36"/>
+        <source>Use the entire system</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Done</source>
+        <translation type="unfinished">Готово</translation>
     </message>
 </context>
 <context>
