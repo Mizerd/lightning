@@ -26,17 +26,23 @@ srpm_version="$(rpm -qp --qf '%{VERSION}' "$srpm")"
 [[ "$srpm_version" == "$BASE_VERSION" || "$srpm_version" == "$BASE_VERSION^"* ]] || \
     die "the source RPM is version $srpm_version, not $BASE_VERSION"
 
-# What the spec's %{?suse_version} branch asks for, resolved by zypper as
-# COPR's chroot would. rpmlib() capabilities are rpm's own.
-mapfile -t buildrequires < <(rpm -qpR "$srpm" | grep -v '^rpmlib(')
-(( ${#buildrequires[@]} >= 20 )) || \
-    die "the source RPM declares ${#buildrequires[@]} BuildRequires; the openSUSE branch was not taken"
-printf '%s\n' "${buildrequires[@]}" | tee "$ROOT/dist/rpm-opensuse-buildrequires.txt"
-zypper --non-interactive install --no-recommends "${buildrequires[@]}"
-
 TOPDIR="$ROOT/work/rpmbuild-opensuse"
 rm -rf "$TOPDIR"
 mkdir -p "$TOPDIR"
+
+# What the spec's %{?suse_version} branch asks for, resolved by zypper as
+# COPR's chroot would. Read from the SPEC, evaluated here: the source RPM's
+# header was written on Fedora, so `rpm -qpR` returns the Fedora branch.
+rpm -i --define "_topdir $TOPDIR" "$srpm"
+specs=("$TOPDIR"/SPECS/*.spec)
+(( ${#specs[@]} == 1 )) || die "expected one spec in the source RPM, found ${#specs[@]}"
+mapfile -t buildrequires < <(rpmspec -q --buildrequires "${specs[0]}" | grep -v '^rpmlib(')
+(( ${#buildrequires[@]} >= 20 )) || \
+    die "the spec declares ${#buildrequires[@]} BuildRequires here; the openSUSE branch was not taken"
+printf '%s\n' "${buildrequires[@]}" | tee "$ROOT/dist/rpm-opensuse-buildrequires.txt"
+grep -qx 'qt6-gui-private-devel' "$ROOT/dist/rpm-opensuse-buildrequires.txt" || \
+    die "the BuildRequires above are not the openSUSE branch (no qt6-gui-private-devel)"
+zypper --non-interactive install --no-recommends "${buildrequires[@]}"
 # The spec's own %check runs the binary: version, Rust backend, the call
 # engine compiled in, no RPATH, no Qt private-ABI import.
 if ! rpmbuild --rebuild "$srpm" \
