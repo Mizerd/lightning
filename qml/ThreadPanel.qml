@@ -755,11 +755,12 @@ Rectangle {
                 property var saveMedia: panel.saveMedia
                 // Shared reaction picker / sender profile entry points; event
                 // id captured at open.
-                property var openReactionPicker: function(eventId, point) {
+                property var openReactionPicker: function(eventId, point, expanded) {
                     if (!eventId || eventId.length === 0)
                         return
                     threadReactionPicker.targetEventId = eventId
                     threadReactionPicker.anchorPoint = point
+                    threadReactionPicker.openExpanded = expanded === true
                     threadReactionPicker.open()
                 }
                 property var openSenderProfile: function(member) {

@@ -2272,6 +2272,19 @@ if(BUILD_TESTING)
     set_tests_properties(timeline-pane-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # The reaction picker over the real TimelinePane: compact and anchored at
+    # two window sizes, a packed grid, a resize grip that never scrolls the
+    # timeline, per-context remembered sizes and the quick bar's keys.
+    qt_add_executable(reaction-picker-qml-test
+        tests/ReactionPickerQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(reaction-picker-qml-test)
+    target_link_libraries(reaction-picker-qml-test PRIVATE Qt6::Test)
+    add_test(NAME reaction-picker-qml COMMAND reaction-picker-qml-test)
+    set_tests_properties(reaction-picker-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # The rail's drop-to-make-a-folder gesture, driven by a real pointer on the
     # real SpacesRail and asserted on the store. RailLayoutTest covers only the
     # model and cannot see an unreachable gesture.

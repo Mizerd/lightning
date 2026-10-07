@@ -2196,11 +2196,13 @@ void SettingsManager::setKnownVideoDimensions(const QString &mediaKey,
 
 namespace {
 // Whitelist of picker ids that may reach the store, so QML cannot compose
-// arbitrary keys. "picker" is the id both overlay pickers share.
+// arbitrary keys. "picker" is the id the composer's GIF and emoji pickers
+// share; "reaction" is the reaction picker's own (a share of the whole window,
+// not of the composer card, so it cannot share theirs).
 bool isKnownPickerId(const QString &id)
 {
     return id == QLatin1String("picker") || id == QLatin1String("gif")
-        || id == QLatin1String("emoji");
+        || id == QLatin1String("emoji") || id == QLatin1String("reaction");
 }
 
 QString pickerShareKey(const QString &id, const char *dimension)

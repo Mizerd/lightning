@@ -49,29 +49,67 @@ private Q_SLOTS:
         QVERIFY2(src.contains(QStringLiteral("acceptedButtons: Qt.AllButtons")),
                  "the picker background must still sink presses on its chrome");
 
-        // Modality is not the mechanism. Scoped to the root picker, before the
-        // nested tone popup, which may keep its own modality.
+        // Modality is not the barrier inside the picker. Scoped to the root
+        // picker, before the nested tone popup, which keeps its own modality.
+        // The composer picker is not modal (it would stop the timeline
+        // scrolling behind it); the reaction picker is, because it is placed
+        // at a point in a scrolling row and a press outside it must only
+        // dismiss it, never also drag the timeline.
         const int toneIdx = src.indexOf(QStringLiteral("id: tonePopup"));
         QVERIFY2(toneIdx > 0, "tonePopup is gone");
         const QString rootOnly = src.left(toneIdx);
-        QVERIFY2(rootOnly.contains(QStringLiteral("modal: false")),
-                 "the picker must not be modal — modality does not buy the "
-                 "input barrier and it blocks scrolling the timeline behind "
-                 "the open picker");
+        QVERIFY2(rootOnly.contains(QStringLiteral("modal: reactionMode")),
+                 "only the reaction picker may be modal");
         QVERIFY(!rootOnly.contains(QStringLiteral("modal: true")));
+        QVERIFY(!rootOnly.contains(QStringLiteral("modal: false")));
+
+        // The sink also covers the resize grab band, which is inside the
+        // popup but outside the panel.
+        QVERIFY(src.contains(QStringLiteral(
+            "anchors.leftMargin: -picker.leftInset")));
+        QVERIFY(src.contains(QStringLiteral(
+            "anchors.bottomMargin: -picker.bottomInset")));
     }
 
     void widthAndPaddingMatchSpec()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
         QVERIFY(!picker.isEmpty());
-        // No fixed width: the picker takes a share of the available space.
+        // No fixed width: the composer picker takes a share of the available
+        // space; the reaction picker defaults compact, in pixels, and the
+        // quick bar is content-sized.
         QVERIFY(picker.contains(QStringLiteral("widthFraction:")));
         QVERIFY(picker.contains(QStringLiteral("heightFraction:")));
-        QVERIFY(picker.contains(QStringLiteral("sizeSettingsKey: \"picker\"")));
+        QVERIFY(picker.contains(QStringLiteral(
+            "autoWidth: reactionMode ? 360 + gripBandX : 0")));
+        QVERIFY(picker.contains(QStringLiteral(
+            "autoHeight: reactionMode ? 420 + gripBandY : 0")));
+        QVERIFY(picker.contains(QStringLiteral(
+            "fixedWidth: compact && quickBar ? quickBar.implicitWidth : 0")));
         QVERIFY(!picker.contains(QStringLiteral("width: Math.min(324,")));
         QVERIFY(!picker.contains(QStringLiteral("defaultWidth:")));
         QVERIFY(picker.contains(QStringLiteral("padding: 0")));
+    }
+
+    // The two contexts remember separate sizes: a share of the composer card
+    // means something else entirely as a share of the whole window, which is
+    // how one shared key made the reaction picker a 1000x740 board.
+    void reactionAndComposerContextsHaveSeparateSizeKeys()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
+        QVERIFY(picker.contains(QStringLiteral(
+            "sizeSettingsKey: reactionMode ? \"reaction\" : \"picker\"")));
+        QVERIFY(picker.contains(QStringLiteral(
+            "readonly property bool reactionMode: mode === \"reaction\"")));
+        // The quick bar, and the way out of it.
+        QVERIFY(picker.contains(QStringLiteral("objectName: \"reactionQuickBar\"")));
+        QVERIFY(picker.contains(QStringLiteral("function expand(initialText)")));
+        // The context menu's "more" already offered the quick reactions.
+        const QString delegate =
+            read(QStringLiteral(QML_DIR "/MessageDelegate.qml"));
+        QVERIFY(delegate.contains(QStringLiteral(
+            "root.openReactionPickerFor(root.menuEventId, bubbleRow,\n"
+            "                                               true)")));
     }
 
     void categoryRailIsIconBasedNotGlyphStrip()
@@ -130,9 +168,13 @@ private Q_SLOTS:
     void gridUsesDesignTokenCellsAndFooterPreviewsHoverAndFocus()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
-        // The column count (8) is fixed, not the cell size: cells divide the
-        // body width.
-        QVERIFY(picker.contains(QStringLiteral("cellWidth: Math.floor(width / 8)")));
+        // The cell size is fixed, not the column count: as many columns as
+        // emojiCellSize cells fit, sharing the width. A fixed 8 columns made
+        // 125 px cells in a large picker.
+        QVERIFY(picker.contains(QStringLiteral(
+            "1, Math.floor(width / AppTheme.emojiCellSize))")));
+        QVERIFY(picker.contains(QStringLiteral("cellWidth: Math.floor(width / columns)")));
+        QVERIFY(!picker.contains(QStringLiteral("cellWidth: Math.floor(width / 8)")));
         QVERIFY(picker.contains(QStringLiteral("cellHeight: AppTheme.emojiCellSize")));
         QVERIFY(picker.contains(QStringLiteral("font.pixelSize: AppTheme.emojiGlyphSize")));
         // The footer previews the hovered/focused cell.
@@ -210,8 +252,11 @@ private Q_SLOTS:
         // Never wider than the anchor, nor taller than the room above it.
         QVERIFY(base.contains(QStringLiteral("return anchorItem.width")));
         QVERIFY(base.contains(QStringLiteral("room -= anchorItem.height + anchorGap")));
-        QVERIFY(base.contains(QStringLiteral("var want = maxWidth * effectiveWidthFraction")));
-        QVERIFY(base.contains(QStringLiteral("var want = maxHeight * effectiveHeightFraction")));
+        QVERIFY(base.contains(QStringLiteral("? autoWidth : maxWidth * effectiveWidthFraction")));
+        QVERIFY(base.contains(QStringLiteral("? autoHeight : maxHeight * effectiveHeightFraction")));
+        // A point-placed popup resizes from the corner away from its point.
+        QVERIFY(base.contains(QStringLiteral(
+            "anchorItem ? \"topLeft\" : (placedAbove ? \"topRight\" : \"bottomRight\")")));
 
         // A popup with no anchor item is placed once from its point and only
         // clamped afterwards.
@@ -250,16 +295,20 @@ private Q_SLOTS:
             "app.settings.pickerWidthShare(root.sizeSettingsKey) / 1000")));
         QVERIFY(base.contains(QStringLiteral("Math.round(userWidthFraction * 1000)")));
 
-        // The grip is at the top-left, the only movable corner, so its
-        // arithmetic is inverted: dragging away from the anchor grows the popup.
+        // The grip sits on the popup's movable corner, and moving that corner
+        // away from the popup grows it: the sign follows the corner.
         QVERIFY(grip.contains(QStringLiteral("DragHandler {")));
         QVERIFY(grip.contains(QStringLiteral("target: null")));
         QVERIFY(!grip.contains(QStringLiteral("MouseArea")));
         QVERIFY(grip.contains(QStringLiteral(
-            "grip.popup.resizeTo(grip.pressWidth - activeTranslation.x,")));
+            "var dx = grip.onRight ? activeTranslation.x : -activeTranslation.x")));
         QVERIFY(grip.contains(QStringLiteral(
-            "grip.pressHeight - activeTranslation.y)")));
-        QVERIFY(grip.contains(QStringLiteral("cursorShape: Qt.SizeFDiagCursor")));
+            "var dy = grip.onBottom ? activeTranslation.y : -activeTranslation.y")));
+        QVERIFY(grip.contains(QStringLiteral(
+            "grip.popup.resizeTo(grip.pressWidth + dx, grip.pressHeight + dy)")));
+        QVERIFY(grip.contains(QStringLiteral("grip.popup.beginResize()")));
+        QVERIFY(grip.contains(QStringLiteral("Qt.SizeFDiagCursor")));
+        QVERIFY(grip.contains(QStringLiteral("Qt.SizeBDiagCursor")));
         // A recognisable handle, legible beside the focused search field (whose
         // focus ring is drawn in that corner): its own inset fill and border,
         // lifting to the accent when engaged.
@@ -282,16 +331,30 @@ private Q_SLOTS:
         QVERIFY(grip.contains(QStringLiteral("property real strokeWidth: 2.5")));
 
         // Both pickers mount it as a corner ornament, outside the header
-        // layout, so it displaces nothing.
+        // layout, so it displaces nothing, and out over a grab band so a
+        // press just outside the drawn corner still resizes.
         for (const QString &picker : { emoji, gif }) {
             const int at = picker.indexOf(QStringLiteral("PopupResizeGrip {"));
             QVERIFY(at >= 0);
-            const QString block = picker.mid(at, 520);
-            QVERIFY(block.contains(QStringLiteral("anchors.left: parent.left")));
-            QVERIFY(block.contains(QStringLiteral("anchors.top: parent.top")));
+            const QString block = picker.mid(at, 1100);
+            QVERIFY(block.contains(QStringLiteral("-picker.leftPadding")));
+            QVERIFY(block.contains(QStringLiteral("-picker.topPadding")));
+            QVERIFY(block.contains(QStringLiteral("grabMargin: picker.gripGrab")));
             QVERIFY(block.contains(QStringLiteral("arcCentre:")));
             QVERIFY(block.contains(QStringLiteral("outerRadius:")));
             QVERIFY(!block.contains(QStringLiteral("Layout.alignment")));
+        }
+        // The emoji picker's grip follows the popup's free corner, placed by
+        // x/y: toggling anchors between edges stretched it to full height.
+        {
+            const int at = emoji.indexOf(QStringLiteral("PopupResizeGrip {"));
+            const QString block = emoji.mid(at, 1300);
+            QVERIFY(block.contains(QStringLiteral("corner: picker.gripCorner")));
+            QVERIFY(block.contains(QStringLiteral(
+                "x: picker.gripOnRight ? parent.width - width + picker.rightPadding")));
+            QVERIFY(block.contains(QStringLiteral(
+                "y: picker.gripOnBottom ? parent.height - height + picker.bottomPadding")));
+            QVERIFY(!block.contains(QStringLiteral("anchors.")));
         }
         QVERIFY(!gif.contains(QStringLiteral("Layout.leftMargin: 14")));
 
@@ -302,13 +365,12 @@ private Q_SLOTS:
         QVERIFY(base.contains(QStringLiteral("maxWidth * effectiveWidthFraction")));
         QVERIFY(base.contains(QStringLiteral("maxHeight * effectiveHeightFraction")));
         QVERIFY(!base.contains(QStringLiteral("property real userWidth:")));
-        // Both pickers share one remembered value, coherent because it is a
-        // share.
-        const QString gifKey = QStringLiteral("sizeSettingsKey: \"picker\"");
-        QVERIFY(gif.contains(gifKey));
-        QVERIFY(emoji.contains(gifKey));
-        {
-        }
+        // The composer's two pickers share one remembered value, coherent
+        // because both are a share of the composer card. The reaction picker
+        // keeps its own (reactionAndComposerContextsHaveSeparateSizeKeys).
+        QVERIFY(gif.contains(QStringLiteral("sizeSettingsKey: \"picker\"")));
+        QVERIFY(emoji.contains(QStringLiteral(
+            "sizeSettingsKey: reactionMode ? \"reaction\" : \"picker\"")));
     }
 
     // Button-opened pickers anchor to an item, never a snapshotted point.

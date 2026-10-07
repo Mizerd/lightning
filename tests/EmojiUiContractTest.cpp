@@ -113,7 +113,7 @@ private Q_SLOTS:
         QVERIFY(delegate.contains(
             "root.openReactionPickerFor(root.eventIdForActions()"));
         QVERIFY(delegate.contains(
-            "root.timelineView.openReactionPicker(eventId, p)"));
+            "root.timelineView.openReactionPicker(eventId, p, expanded === true)"));
         // The main timeline's picker uses the room composer: that pane is the
         // room.
         QCOMPARE(pane.count("app.composer.reactTo(targetEventId, emoji)"), 1);

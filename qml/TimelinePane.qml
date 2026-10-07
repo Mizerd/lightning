@@ -2996,12 +2996,14 @@ Rectangle {
                     imageViewer.openFor(mediaKey || "", httpUrl)
                 }
                 // Shared picker / profile entry points; the event id is
-                // captured at open.
-                property var openReactionPicker: function(eventId, point) {
+                // captured at open. The picker opens as its quick bar unless
+                // the caller already offered quick reactions (`expanded`).
+                property var openReactionPicker: function(eventId, point, expanded) {
                     if (!eventId || eventId.length === 0)
                         return
                     sharedReactionPicker.targetEventId = eventId
                     sharedReactionPicker.anchorPoint = point
+                    sharedReactionPicker.openExpanded = expanded === true
                     sharedReactionPicker.open()
                 }
                 // Makes the reaction picker and a message context menu mutually

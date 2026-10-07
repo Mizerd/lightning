@@ -134,7 +134,7 @@ private Q_SLOTS:
     void anUnknownEncryptionStateTakesTheStricterLevel();
     void strictDeviceTrustDefaultsOffAndPersists();
     // Microphone noise suppression (#20): one of four keys, never clamped.
-    void noiseSuppressionDefaultsToWebrtcPersistsAndFallsBack();
+    void noiseSuppressionDefaultsToOffPersistsAndFallsBack();
     void keepMediaOnDeviceDefaultsOnAndPersists();
     void theKeepMediaCheckboxSaysWhereEncryptedMediaIsKept();
     // Every account-scoped value is re-announced on an account switch.
@@ -1202,6 +1202,12 @@ void SettingsSessionTest::pickerSizeIsWhitelistedBoundedAndForgettable()
     s.setPickerShare(QStringLiteral("gif"), 300, 500);
     QCOMPARE(s.pickerWidthShare(QStringLiteral("gif")), 300);
     QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 420);
+    // The reaction picker keeps its own size: a share of the window, never
+    // the composer card's.
+    s.setPickerShare(QStringLiteral("reaction"), 190, 400);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("reaction")), 190);
+    QCOMPARE(s.pickerHeightShare(QStringLiteral("reaction")), 400);
+    QCOMPARE(s.pickerWidthShare(QStringLiteral("picker")), 420);
 
     // The id is a whitelist, not a sanitizer: an unknown id reads 0 and writes
     // nothing, so QML cannot compose a settings key from text it controls.
@@ -1422,12 +1428,13 @@ void SettingsSessionTest::strictDeviceTrustDefaultsOffAndPersists()
     QVERIFY(reopened.strictDeviceTrust());
 }
 
-void SettingsSessionTest::noiseSuppressionDefaultsToWebrtcPersistsAndFallsBack()
+void SettingsSessionTest::noiseSuppressionDefaultsToOffPersistsAndFallsBack()
 {
     {
         SettingsManager settings;
-        // WebRTC: what every build before the selector ran.
-        QCOMPARE(settings.noiseSuppressionMode(), QStringLiteral("webrtc"));
+        // Off since 2026-10-07 (Rokas): suppression is a Labs choice, with
+        // RNNoise marked as recommended in the UI.
+        QCOMPARE(settings.noiseSuppressionMode(), QStringLiteral("off"));
 
         QSignalSpy spy(&settings, &SettingsManager::noiseSuppressionModeChanged);
         settings.setNoiseSuppressionMode(QStringLiteral("rnnoise"));
@@ -1460,7 +1467,7 @@ void SettingsSessionTest::noiseSuppressionDefaultsToWebrtcPersistsAndFallsBack()
             raw.sync();
         }
         SettingsManager settings;
-        QCOMPARE(settings.noiseSuppressionMode(), QStringLiteral("webrtc"));
+        QCOMPARE(settings.noiseSuppressionMode(), QStringLiteral("off"));
     }
 }
 

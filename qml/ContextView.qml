@@ -152,7 +152,7 @@ Rectangle {
                 function toggleStateGroup(groupId) {}
                 property var openImage: view.openImage
                 property var saveMedia: view.saveMedia
-                property var openReactionPicker: function(eventId, point) {}
+                property var openReactionPicker: function(eventId, point, expanded) {}
                 property var openSenderProfile: function(member) {}
                 property string navigationHighlightEventId: view.highlightEventId
                 // A reply quote inside the view jumps within it when loaded;

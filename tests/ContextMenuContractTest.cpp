@@ -85,8 +85,10 @@ private Q_SLOTS:
         QVERIFY(block.contains(QStringLiteral(
             "root.timelineModel.toggleReaction(root.menuEventId, emoji)")));
         QVERIFY(block.contains(QStringLiteral("onMorePressed: {")));
+        // "+" opens the full grid straight away: the strip already offered
+        // the quick reactions.
         QVERIFY(block.contains(QStringLiteral(
-            "root.openReactionPickerFor(root.menuEventId, bubbleRow)")));
+            "root.openReactionPickerFor(root.menuEventId, bubbleRow,")));
 
         // The liveness guard matches React's real condition (permalink
         // non-empty and not redacted). The menu is a lazily created root-level

@@ -3343,13 +3343,15 @@ Item {
     // The reaction picker and profile popover are shared view-level surfaces.
     // The target event id is captured at open, so a recycled delegate cannot
     // redirect a reaction.
-    function openReactionPickerFor(eventId, anchorItem) {
+    // `expanded` opens straight into the grid, for callers that already
+    // offered the quick reactions (the context menu's strip).
+    function openReactionPickerFor(eventId, anchorItem, expanded) {
         if (!root.timelineView || !root.timelineView.openReactionPicker
             || eventId === "")
             return
         var p = anchorItem.mapToItem(Overlay.overlay,
                                      anchorItem.width / 2, anchorItem.height)
-        root.timelineView.openReactionPicker(eventId, p)
+        root.timelineView.openReactionPicker(eventId, p, expanded === true)
     }
 
     TextEdit {
@@ -3566,7 +3568,9 @@ Item {
                     moreMenu.close()
                 }
                 onMorePressed: {
-                    root.openReactionPickerFor(root.menuEventId, bubbleRow)
+                    // Straight to the grid: this strip WAS the quick bar.
+                    root.openReactionPickerFor(root.menuEventId, bubbleRow,
+                                               true)
                     moreMenu.close()
                 }
             }

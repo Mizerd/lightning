@@ -13,10 +13,26 @@ import MatrixClient
 // read it before touching the popup flags. Button hosts set `anchorItem`;
 // reaction entry points pass a bare `anchorPoint` (no stable item under a
 // message-row point).
+//
+// Two contexts, two sizes. The composer picker is a share of the composer
+// card ("picker", shared with the GIF picker). A reaction opens COMPACT: a
+// quick bar of recent emoji and a "more" cell (`expanded` false), which
+// expands into a compact grid with its own default and its own remembered
+// size ("reaction"). A share remembered against the composer card meant
+// something else entirely against the whole window, which is how one key made
+// the reaction picker a 1000x740 board.
 AnchoredPopup {
     id: picker
     property string mode: "composer"
     property bool closeAfterSelection: true
+
+    readonly property bool reactionMode: mode === "reaction"
+    // Reaction mode only: false shows the quick bar, true the grid. Reset on
+    // every open from `openExpanded` (for callers that already offered the
+    // quick reactions, e.g. the context menu's "more").
+    property bool expanded: false
+    property bool openExpanded: false
+    readonly property bool compact: reactionMode && !expanded
     signal emojiChosen(string emoji)
     // The nested tone popup's lifetime, for the owner of transient row
     // interaction (TimelinePane's transientInteractionOwner).
@@ -54,23 +70,77 @@ AnchoredPopup {
         : app.emojiCatalog.category === "Recently Used" ? qsTr("Recently used")
         : app.emojiCatalog.category
 
-    // Sized as a share of the available space (see AnchoredPopup), sharing the
-    // GIF picker's remembered size. The minimum keeps the 8-column grid and the
-    // category rail usable.
+    // Composer: a share of the available space (see AnchoredPopup), sharing
+    // the GIF picker's remembered size. Reaction: a compact default in pixels
+    // (the available space is the whole window) under its own key. The
+    // minimum keeps the category rail (298 px inside 2 x 12 px margins) whole
+    // and a few grid rows usable. The grab band (below) is not content, so it
+    // is added on top.
     widthFraction: 0.36
     heightFraction: 0.58
-    minWidth: 300
-    minHeight: 320
-    sizeSettingsKey: "picker"
+    autoWidth: reactionMode ? 360 + gripBandX : 0
+    autoHeight: reactionMode ? 420 + gripBandY : 0
+    // Guarded: contentItem (where quickBar lives) is deferred.
+    fixedWidth: compact && quickBar ? quickBar.implicitWidth : 0
+    fixedHeight: compact && quickBar ? quickBar.implicitHeight : 0
+    minWidth: 324 + gripBandX
+    minHeight: 320 + gripBandY
+    sizeSettingsKey: reactionMode ? "reaction" : "picker"
+
+    // ── Resize grab band ── A press just outside the popup's item is outside
+    // the popup: it closes it and, unless modal, reaches the timeline behind,
+    // which then scrolls under the drag that was meant to resize (the report:
+    // "it starts to scroll around the room"). A grip cannot live outside the
+    // item, so the panel is inset by `gripGrab` on the grip's two edges,
+    // leaving a transparent band that still counts as inside the popup. As
+    // GifPicker.qml. No band while there is no grip (the quick bar).
+    readonly property real gripGrab: 8
+    readonly property bool gripShown: !compact
+    readonly property bool gripOnRight: gripCorner === "topRight"
+                                        || gripCorner === "bottomRight"
+    readonly property bool gripOnBottom: gripCorner === "bottomLeft"
+                                         || gripCorner === "bottomRight"
+    readonly property real gripBandX: gripShown ? gripGrab : 0
+    readonly property real gripBandY: gripShown ? gripGrab : 0
     padding: 0
-    // Not modal: a Popup doesn't consume presses inside it anyway, and a
-    // grabbed overlay stops the timeline scrolling while the picker is open.
-    // Grid cells consume their own presses and the background sink catches
-    // the chrome.
-    modal: false
+    leftInset: gripShown && !gripOnRight ? gripGrab : 0
+    rightInset: gripShown && gripOnRight ? gripGrab : 0
+    topInset: gripShown && !gripOnBottom ? gripGrab : 0
+    bottomInset: gripShown && gripOnBottom ? gripGrab : 0
+    // Insets move only the background, so the content needs matching padding.
+    leftPadding: leftInset
+    rightPadding: rightInset
+    topPadding: topInset
+    bottomPadding: bottomInset
+
+    // The composer picker is not modal: a Popup doesn't consume presses inside
+    // it anyway, and a grabbed overlay would stop the timeline scrolling while
+    // it is open. Grid cells consume their own presses and the background sink
+    // catches the chrome. The reaction picker IS modal: it is placed at a
+    // point in a scrolling row, so scrolling under it would leave it pointing
+    // at another message, and a press outside must only dismiss it, never
+    // also land on (and drag) the timeline.
+    modal: reactionMode
     dim: false
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+    // From the quick bar to the grid, optionally with the search already
+    // typed (a key pressed on the bar). Re-placed at the same point, so the
+    // grid opens next to the message too and stays on screen.
+    function expand(initialText) {
+        if (!reactionMode || expanded)
+            return
+        expanded = true
+        if (!anchorItem)
+            placeAtPoint()
+        if (initialText && initialText.length > 0) {
+            search.text = initialText
+            app.emojiCatalog.searchText = initialText
+        }
+        // Synchronous: the rest of a typed word must land in the field.
+        search.forceActiveFocus()
+    }
 
     function choose(emoji) {
         if (!emoji || emoji.length === 0) return
@@ -123,7 +193,8 @@ AnchoredPopup {
     // hovered cell, else the keyboard-current one.
     Shortcut {
         sequences: ["Alt+V"]
-        enabled: picker.visible
+        // Not on the quick bar: its grid is hidden.
+        enabled: picker.visible && !picker.compact
         onActivated: picker.openTonesForCurrentCell()
     }
     function openTonesForCurrentCell() {
@@ -135,28 +206,44 @@ AnchoredPopup {
         picker.openTonePopupFor(cell, cell.baseEmoji)
     }
 
-    // AnchoredPopup's own onAboutToShow performs the initial placement.
+    // AnchoredPopup's own onAboutToShow (a Connections in the base) loads the
+    // remembered size and places the popup; the two handlers run in no
+    // promised order, so a point-placed picker is placed again here once its
+    // stage is known.
     onAboutToShow: {
+        expanded = openExpanded
+        openExpanded = false
+        if (!anchorItem)
+            placeAtPoint()
         search.text = ""
         app.emojiCatalog.searchText = ""
         previewEmoji = ""
         previewName = ""
         previewCell = null
+        quickBar.focusIndex = 0
         // Reaction mode only: load this account's MSC2545 packs.
         // refreshIfStale() is a no-op when a snapshot is already in hand.
         if (picker.customEmojiOffered)
             app.stickers.refreshIfStale()
-        Qt.callLater(search.forceActiveFocus)
+        Qt.callLater(function() {
+            if (picker.compact)
+                quickBar.forceActiveFocus()
+            else
+                search.forceActiveFocus()
+        })
     }
 
     background: Item {
         Rectangle {
             id: pickerPanel
+            objectName: "emojiPickerPanel"
             anchors.fill: parent
             color: AppTheme.stormPanel
             border.color: AppTheme.stormBorder
             border.width: 2
-            radius: AppTheme.menuRadius + 6
+            // The quick bar is a pill; the grid keeps the popover corner the
+            // resize arc is drawn concentric with.
+            radius: picker.compact ? height / 2 : AppTheme.menuRadius + 6
 
             // The press barrier. A Popup doesn't consume presses on itself
             // (blockInput() is false inside its own item), and nothing else
@@ -164,9 +251,14 @@ AnchoredPopup {
             // the GridView accepts left presses only. Right presses would reach
             // MessageDelegate's context-menu TapHandler behind the picker. It
             // sits below contentItem, so it only catches what would leave the
-            // picker.
+            // picker. Extended over the grab band, which is inside the popup
+            // but outside this Rectangle.
             MouseArea {
                 anchors.fill: parent
+                anchors.leftMargin: -picker.leftInset
+                anchors.rightMargin: -picker.rightInset
+                anchors.topMargin: -picker.topInset
+                anchors.bottomMargin: -picker.bottomInset
                 acceptedButtons: Qt.AllButtons
             }
         }
@@ -188,9 +280,206 @@ AnchoredPopup {
     // becoming another row.
     contentItem: Item {
 
+    // ── Reaction quick bar: the compact stage ──
+    // Recent emoji first, then common defaults, eight in all, and a cell that
+    // expands to the grid. One focus stop with a virtual cursor: arrows move
+    // it, Enter or Space reacts, Down expands, any typed text expands with
+    // the search filled in, Esc closes (the popup's own policy). Emoji
+    // literals are allowed here, as in QuickReactionStrip.qml.
+    Item {
+        id: quickBar
+        objectName: "reactionQuickBar"
+        visible: picker.compact
+        anchors.fill: parent
+        readonly property int cellSize: 38
+        readonly property int pad: 6
+        readonly property var _defaults:
+            ["👍", "❤️", "😂", "😮", "😢", "🙏", "🎉", "🔥"]
+        readonly property var quickEmoji: {
+            var out = []
+            var recents = app.emojiCatalog.recentEmoji || []
+            for (var i = 0; i < recents.length && out.length < 8; ++i) {
+                if (recents[i] && out.indexOf(recents[i]) < 0)
+                    out.push(recents[i])
+            }
+            for (var j = 0; j < _defaults.length && out.length < 8; ++j) {
+                if (out.indexOf(_defaults[j]) < 0)
+                    out.push(_defaults[j])
+            }
+            return out
+        }
+        readonly property int quickCount: quickEmoji.length
+        // 0..quickCount-1 are emoji; quickCount is the "more" cell.
+        property int focusIndex: 0
+        // The ring shows only once the keyboard is used, not on every open.
+        property bool keyboardActive: false
+        implicitWidth: 2 * pad + (quickCount + 1) * cellSize
+                       + quickSeparator.width
+        implicitHeight: 2 * pad + cellSize
+        // Constant: Qt refuses to clear it while the item has focus, and an
+        // invisible item is never a Tab stop anyway.
+        activeFocusOnTab: true
+        Accessible.role: Accessible.ToolBar
+        Accessible.name: qsTr("Quick reactions")
+        onVisibleChanged: keyboardActive = false
+
+        function activate(index) {
+            if (index >= quickCount)
+                picker.expand()
+            else
+                picker.choose(quickEmoji[index])
+        }
+        Keys.onPressed: (event) => {
+            var plain = !(event.modifiers & (Qt.ControlModifier
+                                             | Qt.AltModifier
+                                             | Qt.MetaModifier))
+            switch (event.key) {
+            case Qt.Key_Left:
+                focusIndex = Math.max(0, focusIndex - 1)
+                keyboardActive = true
+                event.accepted = true
+                return
+            case Qt.Key_Right:
+                focusIndex = Math.min(quickCount, focusIndex + 1)
+                keyboardActive = true
+                event.accepted = true
+                return
+            case Qt.Key_Home:
+                focusIndex = 0
+                keyboardActive = true
+                event.accepted = true
+                return
+            case Qt.Key_End:
+                focusIndex = quickCount
+                keyboardActive = true
+                event.accepted = true
+                return
+            case Qt.Key_Return:
+            case Qt.Key_Enter:
+            case Qt.Key_Space:
+                activate(focusIndex)
+                event.accepted = true
+                return
+            case Qt.Key_Down:
+                picker.expand()
+                event.accepted = true
+                return
+            }
+            // Typing starts a search. Control characters (Esc, Tab, Backspace)
+            // are not text.
+            if (plain && event.text.length > 0
+                    && event.text.charCodeAt(0) >= 0x20
+                    && event.text.charCodeAt(0) !== 0x7f) {
+                picker.expand(event.text)
+                event.accepted = true
+            }
+        }
+
+        Row {
+            id: quickRow
+            x: quickBar.pad
+            y: quickBar.pad
+            spacing: 0
+            Repeater {
+                model: quickBar.quickEmoji
+                delegate: Item {
+                    id: quickCell
+                    required property int index
+                    required property string modelData
+                    readonly property bool current: quickBar.activeFocus
+                        && quickBar.keyboardActive
+                        && quickBar.focusIndex === index
+                    width: quickBar.cellSize
+                    height: quickBar.cellSize
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("React with %1").arg(modelData)
+                    Accessible.onPressAction: quickBar.activate(index)
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: AppTheme.radiusControl
+                        color: quickHover.hovered || quickCell.current
+                               ? AppTheme.stormSelection : "transparent"
+                        border.width: quickCell.current ? 2 : 0
+                        border.color: AppTheme.bolt
+                    }
+                    Label {
+                        anchors.centerIn: parent
+                        text: quickCell.modelData
+                        // Named, not left to fallback (see the grid cell).
+                        font.family: app.emojiFontFamily || ""
+                        font.pixelSize: 24
+                        // A small lift under the pointer.
+                        scale: quickHover.hovered ? 1.18 : 1
+                        Behavior on scale {
+                            NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
+                        }
+                    }
+                    HoverHandler { id: quickHover }
+                    // A MouseArea, as in the grid: it accepts, so the press
+                    // stops here and never reaches the row underneath.
+                    MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: quickBar.activate(quickCell.index)
+                    }
+                }
+            }
+            Item {
+                id: quickSeparator
+                width: 9
+                height: quickBar.cellSize
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 1
+                    height: parent.height - 2 * AppTheme.spacing8
+                    color: AppTheme.stormBorder
+                }
+            }
+            Item {
+                id: quickMore
+                objectName: "reactionQuickMore"
+                readonly property bool current: quickBar.activeFocus
+                    && quickBar.keyboardActive
+                    && quickBar.focusIndex === quickBar.quickCount
+                width: quickBar.cellSize
+                height: quickBar.cellSize
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Show all emoji")
+                Accessible.onPressAction: picker.expand()
+                ToolTip.text: qsTr("All emoji")
+                ToolTip.visible: quickMoreHover.hovered
+                ToolTip.delay: 500
+                Rectangle {
+                    anchors.fill: parent
+                    radius: AppTheme.radiusControl
+                    color: quickMoreHover.hovered || quickMore.current
+                           ? AppTheme.stormSelection : "transparent"
+                    border.width: quickMore.current ? 2 : 0
+                    border.color: AppTheme.bolt
+                }
+                Icon {
+                    anchors.centerIn: parent
+                    name: "add_reaction"
+                    size: 20
+                    color: quickMoreHover.hovered || quickMore.current
+                           ? AppTheme.stormText : AppTheme.stormTextMuted
+                }
+                HoverHandler { id: quickMoreHover }
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: picker.expand()
+                }
+            }
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+        visible: !picker.compact
 
         // ── Row 1: search only (no skin-tone swatch; see file header) ──
         AppTextField {
@@ -415,11 +704,17 @@ AnchoredPopup {
 
                     GridView {
                         id: emojiGrid
+                        objectName: "emojiGrid"
                         anchors.fill: parent
                         clip: true
-                        // Exactly 8 columns: divide the width rather than
-                        // flooring width/cellSize.
-                        cellWidth: Math.floor(width / 8)
+                        // As many columns as cells of about emojiCellSize fit,
+                        // and the width divided among them, so cells stay
+                        // square-ish at every picker size. A fixed column
+                        // count stretched a 1000 px picker into 125 px cells,
+                        // "Recently used" scattered across a sparse board.
+                        readonly property int columns: Math.max(
+                            1, Math.floor(width / AppTheme.emojiCellSize))
+                        cellWidth: Math.floor(width / columns)
                         cellHeight: AppTheme.emojiCellSize
                         model: app.emojiCatalog
                         keyNavigationWraps: true
@@ -653,13 +948,25 @@ AnchoredPopup {
         }
     }
 
-    // The corner ornament that resizes the picker.
+    // The corner ornament that resizes the picker, on the popup's free corner
+    // (top-left above the composer; away from the message for a reaction) and
+    // out over the grab band. Hidden on the quick bar, which is content-sized.
     PopupResizeGrip {
         popup: picker
+        visible: picker.gripShown
+        corner: picker.gripCorner
+        // arcCentre is measured from the panel corner, `gripGrab` inside.
+        grabMargin: picker.gripGrab
         arcCentre: AppTheme.menuRadius + 6
         outerRadius: AppTheme.menuRadius + 2
-        anchors.left: parent.left
-        anchors.top: parent.top
+        // x/y, not anchors: the corner moves when the picker is re-placed,
+        // and swapping a top anchor for a bottom one passes through a state
+        // with both set, which stretches the grip to the full height and
+        // keeps that height after (the arc then drew 200 px from the corner).
+        x: picker.gripOnRight ? parent.width - width + picker.rightPadding
+                              : -picker.leftPadding
+        y: picker.gripOnBottom ? parent.height - height + picker.bottomPadding
+                               : -picker.topPadding
     }
 
     } // contentItem Item
