@@ -930,6 +930,20 @@ private Q_SLOTS:
         QVERIFY(failed.at(1).at(0).toString().isEmpty());
     }
 
+    // The same for "Your microphone isn't available": it described the call's
+    // microphone and stayed on the status bar after leaving (Flatpak RC).
+    void theMicrophoneNoticeEndsWithItsCall()
+    {
+        SfuCallController call;
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+        Q_EMIT call.callFailed(QStringLiteral("Your microphone isn't available."));
+        QCOMPARE(failed.count(), 1);
+        call.leave();
+        QCOMPARE(failed.count(), 2);
+        QVERIFY(failed.at(1).at(0).toString().isEmpty());
+    }
+
     // A withdrawal clears only its own notice: the playback notice coming
     // back must not wipe a later, different one (the microphone's).
     void aWithdrawalDoesNotClearSomebodyElsesNotice()

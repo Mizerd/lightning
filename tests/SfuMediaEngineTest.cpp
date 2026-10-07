@@ -21,6 +21,7 @@
 
 #include <QFile>
 #include <QUrl>
+#include <QVideoSink>
 
 #include <gst/app/gstappsrc.h>
 #include <gst/base/gstbasesink.h>
@@ -5793,6 +5794,171 @@ private slots:
 #endif
     }
 
+    // F3 (Flatpak RC): every video frame was its own queued event to the GUI
+    // thread, so a GUI stall collected every frame it missed — 900 frames of
+    // a 1080p share's self-view in a 30 s stall, RSS 1.1 -> 7.5 GB, host
+    // down. Now a stall leaves ONE frame per key and one delivery.
+    void aGuiStallKeepsOneVideoFrameNotEveryFrame()
+    {
+        SfuMediaEngine engine;
+        SfuVideoRouter router;
+        engine.setVideoRouter(&router);
+        engine.setTestSourceMode(true);
+        engine.setSelfViewInTestModeForTest(true);
+        auto sink = std::make_unique<QVideoSink>();
+        router.attachSink(SfuMediaEngine::localCameraStreamId(), sink.get());
+        QSignalSpy frames(sink.get(), &QVideoSink::videoFrameChanged);
+        engine.start();
+        engine.publishVideo(QStringLiteral("cid-video"), false, -1);
+        QTRY_VERIFY_WITH_TIMEOUT(frames.count() >= 3, 10000);
+
+        // The GUI thread stalls; the pipeline keeps producing.
+        QThread::msleep(1500);
+        QVERIFY2(router.pendingFramesForTest() <= 1,
+                 "frames piled up for a stalled GUI thread");
+        frames.clear();
+        // Everything queued during the stall is delivered now, in one go.
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        const int burst = frames.count();
+        QVERIFY2(burst <= 2,
+                 qPrintable(QStringLiteral("%1 frames delivered at once after "
+                                           "a 1.5 s stall; each was held in "
+                                           "memory meanwhile")
+                                .arg(burst)));
+        // And the picture keeps moving afterwards.
+        QTRY_VERIFY_WITH_TIMEOUT(frames.count() >= burst + 3, 5000);
+        engine.stop();
+        engine.setVideoRouter(nullptr);
+    }
+
+    // F1 (Flatpak RC): pipewiresrc's start waits up to 30 s for its stream,
+    // and right after a PipeWire restart it did — on the GUI thread, freezing
+    // the app (and its call's delayed-leave refresh) for 30 s. A branch now
+    // starts on a pool thread; the scan returns at once.
+    void aSlowBranchStartDoesNotBlockTheGuiThread()
+    {
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        auto listing = std::make_shared<ScriptedListing>();
+        listing->live = { scriptedStream(QStringLiteral("51"), QStringLiteral("toneb")) };
+        installListing(engine, listing, /*followsProcess=*/false);
+        engine.setShareAudioStartDelayForTest(1500);
+        engine.start();
+        lightning::shareaudio::Selection system;
+        system.mode = Mode::System;
+        QElapsedTimer clock;
+        clock.start();
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"), system);
+        const qint64 blocked = clock.elapsed();
+        QVERIFY2(blocked < 1000,
+                 qPrintable(QStringLiteral("the GUI thread waited %1 ms for a "
+                                           "branch to start")
+                                .arg(blocked)));
+        QVERIFY(engine.shareAudioBranchStartingForTest(QStringLiteral("51")));
+        QVERIFY(engine.shareAudioBranchIndexForTest(QStringLiteral("51")) >= 0);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            !engine.shareAudioBranchStartingForTest(QStringLiteral("51")), 5000);
+        QCOMPARE(engine.shareAudioCarriedForTest(),
+                 QStringList{ QStringLiteral("toneb") });
+        engine.stop();
+    }
+
+    // F1: a branch that would not start was recorded as failed and NEVER
+    // retried: after one restart the application stayed out of the share
+    // until the user unticked and ticked it. It is retried after a short
+    // cool-down, and once captured it counts as carried again (the share had
+    // logged "carrying= 0 app(s)" while it carried audio).
+    void aBranchThatWouldNotStartIsRetried()
+    {
+        using lightning::shareaudio::Mode;
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        auto listing = std::make_shared<ScriptedListing>();
+        listing->live = { scriptedStream(QStringLiteral("52"), QStringLiteral("tonea")) };
+        installListing(engine, listing, /*followsProcess=*/false);
+        engine.failShareAudioStartsForTest(1);
+        engine.start();
+        lightning::shareaudio::Selection system;
+        system.mode = Mode::System;
+        engine.publishShareAudio(QStringLiteral("cid-share-audio"), system);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.shareAudioFailedKeysForTest(),
+                                  QStringList{ QStringLiteral("tonea") }, 5000);
+        QVERIFY(engine.shareAudioCarriedForTest().isEmpty());
+        QTRY_COMPARE_WITH_TIMEOUT(engine.shareAudioBranchBinsForTest(), 0, 3000);
+        // A few scans later (the first cool-down is two), it is captured.
+        for (int i = 0; i < 4; ++i)
+            engine.rescanShareAudioSourcesForTest();
+        QTRY_VERIFY_WITH_TIMEOUT(
+            engine.shareAudioBranchIndexForTest(QStringLiteral("52")) >= 0
+                && !engine.shareAudioBranchStartingForTest(QStringLiteral("52")),
+            5000);
+        QCOMPARE(engine.shareAudioCarriedForTest(),
+                 QStringList{ QStringLiteral("tonea") });
+        QVERIFY(engine.shareAudioFailedKeysForTest().isEmpty());
+        QCOMPARE(engine.shareAudioBranchBinsForTest(), 1);
+        engine.stop();
+    }
+
+    // LOW (Flatpak RC): three PipeWire restarts within a minute cost two
+    // attempts each, the budget of five reset only after 60 s without a
+    // failure, and the microphone stayed dead for the rest of the call. A
+    // restart that then delivers for 10 s worked; it stops counting.
+    void aRestartThatDeliversNoLongerCountsAgainstTheMicBudget()
+    {
+        // Nothing to reset.
+        QVERIFY(!SfuMediaEngine::micRestartBudgetResets(0, 5000, true));
+        // Failing again soon, having delivered nothing: the budget runs on.
+        QVERIFY(!SfuMediaEngine::micRestartBudgetResets(3, 15000, false));
+        // Delivered, but only just restarted: not yet proven.
+        QVERIFY(!SfuMediaEngine::micRestartBudgetResets(3, 5000, true));
+        // Delivered and ran 10 s: that restart worked (muted or not, since
+        // it is counted at the source).
+        QVERIFY(SfuMediaEngine::micRestartBudgetResets(3, 10000, true));
+        // A minute without a failure, the old rule.
+        QVERIFY(SfuMediaEngine::micRestartBudgetResets(5, 60001, false));
+    }
+
+    // F2 (Flatpak RC, then measured here on WirePlumber 0.5.14): a capture
+    // whose target is missing was linked to the DEFAULT SOURCE — the
+    // microphone — so an application read "In the share" while the share
+    // carried the mic (silence, in that rig). The branch's stream must forbid
+    // fallback, reconnection and moves, as parsed for real.
+    void thePipeWireBranchNeverFallsBackToAnotherNode()
+    {
+        if (GstElementFactory *f = gst_element_factory_find("pipewiresrc"))
+            gst_object_unref(f);
+        else
+            QSKIP("no pipewiresrc in this build");
+        lightning::shareaudio::Stream s;
+        s.serial = QStringLiteral("4242");
+        lightning::shareaudio::BranchOptions options;
+        options.capture = lightning::shareaudio::Capture::PipeWire;
+        const QString description =
+            lightning::shareaudio::applicationBranchDescription(s, 7, options);
+        GError *error = nullptr;
+        GstElement *branch = gst_parse_bin_from_description(
+            description.toUtf8().constData(), TRUE, &error);
+        QVERIFY2(!error, error ? error->message : "");
+        QVERIFY(branch);
+        GstElement *source = gst_bin_get_by_name(GST_BIN(branch), "shareapp7");
+        QVERIFY(source);
+        GstStructure *props = nullptr;
+        g_object_get(source, "stream-properties", &props, nullptr);
+        QVERIFY2(props, "no stream-properties on the capture");
+        for (const char *field : { "node.dont-fallback", "node.dont-reconnect",
+                                   "node.dont-move" }) {
+            const GValue *value = gst_structure_get_value(props, field);
+            QVERIFY2(value, field);
+            gchar *text = gst_value_serialize(value);
+            QCOMPARE(QString::fromUtf8(text), QStringLiteral("true"));
+            g_free(text);
+        }
+        gst_structure_free(props);
+        gst_object_unref(source);
+        gst_object_unref(branch);
+    }
+
     // N1: a retired branch is taken out only once its EOS has actually
     // passed its src pad. "Retired a scan ago" was the old rule, and a
     // selection change rescans at once: two quick changes took a branch out
@@ -6907,6 +7073,50 @@ private slots:
         QTest::qWait(500);
         QCOMPARE(trackFailed.count(), 1);
         QCOMPARE(fatal.count(), 0);
+        engine.stop();
+    }
+
+    // LOW (Flatpak RC): once the restart budget was spent the microphone was
+    // dead for the rest of the call. It is tried again on a slow cadence, and
+    // when it delivers again the controller is told, so the notice goes.
+    void aMicrophoneGivenUpOnIsRetriedAndReportedBack()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.setCaptureRestartDelayForTest(20);
+        engine.setMicSlowRetryForTest(300);
+        QSignalSpy trackFailed(&engine, &SfuMediaEngine::publishFailed);
+        QSignalSpy recovered(&engine, &SfuMediaEngine::microphoneRecovered);
+        engine.start();
+        const QString cid = QStringLiteral("cid-mic");
+        engine.publishAudio(cid);
+        QTest::qWait(200);
+        // Five failures in quick succession spend the budget; the sixth
+        // gives up and reports.
+        for (int i = 0; i < 6 && trackFailed.isEmpty(); ++i) {
+            engine.handleCaptureError(cid);
+            QTest::qWait(1500);
+        }
+        QCOMPARE(trackFailed.count(), 1);
+        QCOMPARE(engine.microphoneRestartsForTest(), 5);
+        // A retry samples the device for a second. This fixture has no
+        // transport, so its source stops being pulled after a few buffers:
+        // not delivering, so it is retried, not reported back.
+        QTest::qWait(1800);
+        QCOMPARE(recovered.count(), 0);
+        // Now it delivers, continuously (simulated): reported back.
+        QTimer feed;
+        QObject::connect(&feed, &QTimer::timeout, &engine,
+                         [&engine] { engine.addMicCapturedForTest(5); });
+        feed.start(50);
+        QTRY_COMPARE_WITH_TIMEOUT(recovered.count(), 1, 5000);
+        feed.stop();
+        QCOMPARE(recovered.at(0).at(0).toString(), cid);
+        QCOMPARE(engine.microphoneRestartsForTest(), 0);
+        // And a later failure is handled normally again.
+        engine.handleCaptureError(cid);
+        QTRY_COMPARE_WITH_TIMEOUT(engine.microphoneRestartsForTest(), 1, 3000);
+        QCOMPARE(trackFailed.count(), 1);
         engine.stop();
     }
 

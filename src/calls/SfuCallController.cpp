@@ -512,6 +512,13 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
     // device must not.
     connect(m_engine, &SfuMediaEngine::publishFailed, this,
             &SfuCallController::onEnginePublishFailed);
+    // The microphone came back on the engine's slow retry: its notice is no
+    // longer true (only withdrawn if it is still the one showing).
+    connect(m_engine, &SfuMediaEngine::microphoneRecovered, this,
+            [this](const QString &) {
+                withdrawNotice(
+                    userFacingError(QStringLiteral("audio_source_failed")));
+            });
     // A remote stream whose frames are being dropped: surface it instead of a
     // green padlock.
     connect(m_engine, &SfuMediaEngine::remoteMediaBlocked, this,
@@ -4192,6 +4199,14 @@ void SfuCallController::teardown(State finalState, const QString &error)
     if (m_playbackLostAnnounced)
         withdrawNotice(playbackLostNotice());
     m_playbackLostAnnounced = false;
+    // The same for the other in-call notices: "Your microphone isn't
+    // available" and a camera's notice described THIS call's devices, and
+    // stayed on the status bar after leaving it (measured in the Flatpak).
+    withdrawNotice(userFacingError(QStringLiteral("audio_source_failed")));
+    if (withdrawNotice(m_cameraNotice)) {
+        m_cameraNotice.clear();
+        m_cameraNoticeCid.clear();
+    }
 
 #ifdef HAVE_LIGHTNING_WEBRTC
     // Media first: release devices before anything that can fail or block.

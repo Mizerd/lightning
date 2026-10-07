@@ -937,8 +937,39 @@ never ends, so the EOS we send is dropped and never seen — measured). Then an
 IDLE probe unlinks it and releases the mixer pad from inside the probe, and
 the NULL state change and removal run through `gst_element_call_async`, as
 `unpublish()` does. Nothing on the GUI thread waits on a stream lock or on a
-pipewiresrc talking to a stuck daemon. A branch that failed is not retried
-for about 30 s, then forgotten (a restarted daemon reuses serials).
+pipewiresrc talking to a stuck daemon.
+
+**Putting a branch in** never blocks the GUI thread either: its state change
+runs through `gst_element_call_async` (`branchStartAsync()`), because
+pipewiresrc's PAUSED->PLAYING waits up to 30 s for its stream, and right
+after a restart it sometimes does — measured in the Flatpak RC test as a 30 s
+freeze of the whole app (the MatrixRTC delayed-leave refresh lapsed meanwhile,
+and every video frame of the share piled up behind it, see below). A branch
+that would not build, start or run is retried after 4 s, 10 s, then 30 s;
+before, one that would not START was never retried at all.
+
+**A branch is linked to its target or to nothing.** Its stream carries
+`node.dont-fallback`, `node.dont-reconnect` and `node.dont-move`. Without
+them the session manager links a capture whose target is missing (a serial
+gone after a restart, an application that just quit) to the DEFAULT SOURCE —
+measured with WirePlumber 0.5.14 and both the 1.6.9 and the Flatpak's 1.4.9
+plugin: `target-object=99999` was linked to the microphone. That put the
+user's microphone into the share, and is the "In the share but silent after
+a restart" the Flatpak RC test saw (its default source was a silent virtual
+mic). With them the stream fails at once ("defined target not found") and is
+retried against a fresh listing. WirePlumber 0.4: NOT TESTED.
+
+**Video frames reach the GUI through a one-frame mailbox per tile**
+(`SfuVideoRouter::offerFrame()`), never one queued event per frame: a GUI
+thread stalled for 30 s collected 900 frames of a 1080p self-view (8 MB
+each), RSS 1.1 -> 7.5 GB, and the test host went down.
+
+Measured on a socket-activated private graph (the socket survives the
+restart, as with systemd's `pipewire.socket`) with the Flatpak runtime's
+PipeWire 1.4.9 GStreamer plugin: 36 restarts 6-15 s apart under System and
+Apps shares, every chosen application back each time, no capture linked to
+anything but its target, GUI log lines never more than 5 s apart, RSS flat
+at 1.1 GB.
 
 **Windows.** Chosen applications are one `wasapi2src
 loopback-mode=include-process-tree loopback-target-pid=<session pid>` each,

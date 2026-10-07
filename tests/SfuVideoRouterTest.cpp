@@ -130,6 +130,44 @@ private slots:
         QCOMPARE(otherSpy.count(), 0);
     }
 
+    // Frames offered faster than the GUI thread takes them keep ONE frame
+    // per key, the newest, and ask for one delivery. Queued one event per
+    // frame, a 30 s GUI stall held 900 frames of a 1080p self-view: 7.5 GB,
+    // and the host went down (Flatpak RC test).
+    void offeredFramesKeepOnlyTheNewestPerKey()
+    {
+        SfuVideoRouter router;
+        auto sink = std::make_unique<QVideoSink>();
+        router.attachSink(QStringLiteral("PA_alice"), sink.get());
+        QSignalSpy spy(sink.get(), &QVideoSink::videoFrameChanged);
+        const QVideoFrameFormat format(QSize(16, 16),
+                                       QVideoFrameFormat::Format_RGBA8888);
+        int deliveriesAsked = 0;
+        QVideoFrame last;
+        for (int i = 0; i < 100; ++i) {
+            QVideoFrame frame(format);
+            frame.setStartTime(i);
+            last = frame;
+            if (router.offerFrame(QStringLiteral("PA_alice"), frame))
+                ++deliveriesAsked;
+        }
+        QCOMPARE(deliveriesAsked, 1);
+        QCOMPARE(router.pendingFramesForTest(), 1);
+        router.deliverPending(QStringLiteral("PA_alice"));
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(sink->videoFrame().startTime(), last.startTime());
+        QCOMPARE(router.pendingFramesForTest(), 0);
+        // Taken: the next offer asks again; a stale delivery is a no-op.
+        router.deliverPending(QStringLiteral("PA_alice"));
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(router.offerFrame(QStringLiteral("PA_alice"), QVideoFrame(format)));
+        // Two keys, one slot each.
+        QVERIFY(router.offerFrame(QStringLiteral("PA_bob"), QVideoFrame(format)));
+        QCOMPARE(router.pendingFramesForTest(), 2);
+        router.clear();
+        QCOMPARE(router.pendingFramesForTest(), 0);
+    }
+
     void clearDropsEverySink()
     {
         // Teardown: a sink from the call that ended must not receive the next

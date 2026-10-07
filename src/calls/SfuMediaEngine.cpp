@@ -526,13 +526,20 @@ GstFlowReturn onVideoSample(GstElement *sink, void *userData)
     gst_buffer_unmap(buffer, &map);
     gst_sample_unref(sample);
 
-    // Delivered on the GUI thread, which owns the QVideoSink.
+    // Delivered on the GUI thread, which owns the QVideoSink. Through the
+    // router's one-frame mailbox, never one queued event per frame: a busy
+    // GUI thread otherwise collects every frame it misses (900 x 8 MB of a
+    // 1080p self-view in a 30 s stall, measured: the host ran out of
+    // memory). Only the newest frame matters to a picture.
     SfuMediaEngine *engine = ctx->engine;
     const QString streamId = routeKey;
-    marshal(engine, [engine, streamId, frame] {
-        if (SfuVideoRouter *router = engine->videoRouter())
-            router->deliverFrame(streamId, frame);
-    });
+    SfuVideoRouter *router = engine->videoRouter();
+    if (router && router->offerFrame(streamId, frame)) {
+        marshal(engine, [engine, streamId] {
+            if (SfuVideoRouter *r = engine->videoRouter())
+                r->deliverPending(streamId);
+        });
+    }
     return GST_FLOW_OK;
 }
 
@@ -2400,6 +2407,9 @@ void SfuMediaEngine::publishShareAudio(
         m_shareAudioEosSeen.clear();
         m_shareAudioConnections.clear();
         m_shareAudioFailedAt.clear();
+        m_shareAudioFailures.clear();
+        m_shareAudioAlive->store(false);
+        m_shareAudioAlive = std::make_shared<std::atomic<bool>>(true);
         m_shareAudioBranches = 0;
         m_shareAudioNextIndex = 0;
         m_shareAudioScans = 0;
@@ -2609,6 +2619,9 @@ void SfuMediaEngine::resetShareAudioState()
     m_shareAudioEosSeen.clear();
     m_shareAudioConnections.clear();
     m_shareAudioFailedAt.clear();
+    m_shareAudioFailures.clear();
+    // Starts still running on pool threads stop here (branchStartAsync()).
+    m_shareAudioAlive->store(false);
     m_shareAudioHangLogged = false;
     m_shareAudioCarried.clear();
     m_shareAudioFailedKeys.clear();
@@ -2677,23 +2690,98 @@ bool SfuMediaEngine::applyShareAudioSelection(
 namespace {
 GstPadProbeReturn noteBranchEos(GstPad *, GstPadProbeInfo *info, gpointer data);
 void freeBranchEosFlag(gpointer data);
+
+/// One branch's start, run by gst_element_call_async off the GUI thread.
+struct BranchStart {
+    SfuMediaEngine *engine = nullptr;
+    GstElement *shareBin = nullptr;   // ref
+    GstElement *mixer = nullptr;      // ref
+    QString id;
+    int index = -1;
+    quint64 generation = 0;
+    int delayMsForTest = 0;
+    bool failForTest = false;
+    std::shared_ptr<std::atomic<bool>> shareAlive;
+    std::shared_ptr<std::atomic<int>> outstanding;
+};
+
+void branchStartFree(gpointer data)
+{
+    auto *ctx = static_cast<BranchStart *>(data);
+    if (ctx->mixer)
+        gst_object_unref(ctx->mixer);
+    if (ctx->shareBin)
+        gst_object_unref(ctx->shareBin);
+    if (ctx->outstanding)
+        ctx->outstanding->fetch_sub(1);
+    delete ctx;
+}
+
+/// On a GStreamer pool thread. pipewiresrc's PAUSED->PLAYING waits up to
+/// 30 s for its stream to reach STREAMING (GST_PIPEWIRE_DEFAULT_TIMEOUT), and
+/// right after a daemon restart it sometimes does: on the GUI thread that was
+/// a 30 s freeze of the whole application (measured in the Flatpak, with the
+/// MatrixRTC delayed leave firing meanwhile and every video frame of the
+/// share piling up behind it).
+void branchStartAsync(GstElement *branch, gpointer data)
+{
+    auto *ctx = static_cast<BranchStart *>(data);
+    if (ctx->delayMsForTest > 0)
+        std::this_thread::sleep_for(std::chrono::milliseconds(ctx->delayMsForTest));
+    bool ok = false;
+    if (ctx->shareAlive && ctx->shareAlive->load())
+        ok = !ctx->failForTest && gst_element_sync_state_with_parent(branch);
+    if (ok && ctx->shareAlive && !ctx->shareAlive->load()) {
+        // The share went away while this started: never leave a running
+        // element behind in a bin on its way out.
+        gst_element_set_state(branch, GST_STATE_NULL);
+        ok = false;
+    }
+    if (!ok) {
+        // Taken out here, off the GUI thread: setting a pipewiresrc that is
+        // still waiting on its daemon to NULL can wait too. Nothing was
+        // pushed into the mixer (the start failed), so unlinking is safe.
+        GstPad *src = gst_element_get_static_pad(branch, "src");
+        GstPad *peer = src ? gst_pad_get_peer(src) : nullptr;
+        if (src && peer)
+            gst_pad_unlink(src, peer);
+        if (peer) {
+            gst_element_release_request_pad(ctx->mixer, peer);
+            gst_object_unref(peer);
+        }
+        if (src)
+            gst_object_unref(src);
+        gst_element_set_state(branch, GST_STATE_NULL);
+        gst_bin_remove(GST_BIN(ctx->shareBin), branch);
+    }
+    SfuMediaEngine *engine = ctx->engine;
+    const QString id = ctx->id;
+    const int index = ctx->index;
+    const quint64 generation = ctx->generation;
+    marshal(engine, [engine, id, index, generation, ok] {
+        engine->noteShareAudioBranchStarted(id, index, generation, ok);
+    });
+}
 } // namespace
 
 bool SfuMediaEngine::addShareAudioBranch(
     GstElement *bin, GstElement *mixer,
     const lightning::shareaudio::Stream &s)
 {
-    // Recorded first, as failed until it is proven: a branch that cannot be
-    // built is not retried every scan.
+    // Recorded first, as failed until it is proven, with a cool-down: a
+    // branch that cannot be built is not retried every scan, and is retried
+    // (a transient failure right after a daemon restart is the common case).
     lightning::shareaudio::BranchRecord record;
     record.appKey = s.appKey;
     record.pid = s.pid;
     record.startTime = s.startTime;
     record.failed = true;
     m_shareAudioRecords.insert(s.id(), record);
-    // A separate monotonic index, not the branch count, so element names
-    // are never reused within the bin.
-    const int index = m_shareAudioNextIndex;
+    m_shareAudioFailedAt.insert(s.id(), m_shareAudioScans);
+    // A separate monotonic index, not the branch count, and spent even on a
+    // failure: a failed branch is taken out asynchronously, so its name may
+    // still be in the bin.
+    const int index = m_shareAudioNextIndex++;
     const QString description = lightning::shareaudio::
         applicationBranchDescription(s, index, m_shareAudioOptions);
     if (description.isEmpty())
@@ -2770,38 +2858,119 @@ bool SfuMediaEngine::addShareAudioBranch(
         gst_object_unref(ghost);
     }
     m_shareAudioEosSeen.insert(s.id(), eosSeen);
-    if (!gst_element_sync_state_with_parent(branch)) {
-        // A branch stuck in NULL with a linked mixer pad neither produces
-        // nor EOSes and stalls the aggregator; retire it.
-        m_shareAudioEosSeen.remove(s.id());
-        qCWarning(lcSfuMedia)
-            << "share audio: an application's branch would not start;"
-            << "retiring it rather than leaving a silent pad";
-        GstPad *stuck = gst_element_get_static_pad(branch, "src");
-        GstPad *peer = stuck ? gst_pad_get_peer(stuck) : nullptr;
-        if (stuck && peer)
-            gst_pad_unlink(stuck, peer);
-        if (peer) {
-            gst_element_release_request_pad(mixer, peer);
-            gst_object_unref(peer);
-        }
-        if (stuck)
-            gst_object_unref(stuck);
-        gst_element_set_state(branch, GST_STATE_NULL);
-        gst_bin_remove(GST_BIN(bin), branch);
-        return false;
-    }
     lightning::shareaudio::BranchRecord &built = m_shareAudioRecords[s.id()];
     built.failed = false;
     built.index = index;
+    built.starting = true;
+    m_shareAudioFailedAt.remove(s.id());
     // Watched each scan; the fd itself is closed with its element.
     if (connection >= 0)
         m_shareAudioConnections.insert(s.id(), connection);
     ++m_shareAudioBranches;
-    ++m_shareAudioNextIndex;
-    qCInfo(lcSfuMedia) << "share audio: capturing an application app="
-                       << s.appKey << "branch=" << index;
+
+    // Started off the GUI thread (branchStartAsync()); the result comes back
+    // through noteShareAudioBranchStarted(). Counted for stop()'s bounded
+    // wait like a teardown.
+    m_pendingTeardowns->fetch_add(1);
+    auto *ctx = new BranchStart;
+    ctx->engine = this;
+    ctx->shareBin = GST_ELEMENT(gst_object_ref(bin));
+    ctx->mixer = GST_ELEMENT(gst_object_ref(mixer));
+    ctx->id = s.id();
+    ctx->index = index;
+    ctx->generation = m_shareAudioGeneration;
+    ctx->delayMsForTest = m_shareAudioStartDelayMsForTest;
+    if (m_shareAudioFailStartsForTest > 0) {
+        --m_shareAudioFailStartsForTest;
+        ctx->failForTest = true;
+    }
+    ctx->shareAlive = m_shareAudioAlive;
+    ctx->outstanding = m_pendingTeardowns;
+    gst_element_call_async(branch, branchStartAsync, ctx, branchStartFree);
     return true;
+}
+
+void SfuMediaEngine::noteShareAudioBranchStarted(const QString &id, int index,
+                                                 quint64 generation, bool ok)
+{
+    if (generation != m_shareAudioGeneration)
+        return;
+    auto record = m_shareAudioRecords.find(id);
+    if (record == m_shareAudioRecords.end() || record->index != index)
+        return;
+    record->starting = false;
+    if (ok && record->failed) {
+        // It errored while starting (handleShareAudioBranchError()); the
+        // take-out takes it from here.
+        return;
+    }
+    if (ok) {
+        m_shareAudioFailures.remove(id);
+        qCInfo(lcSfuMedia) << "share audio: capturing an application app="
+                           << record->appKey << "branch=" << index;
+        refreshShareAudioKeys();
+        return;
+    }
+    // Already taken out by branchStartAsync(). Kept as failed (index -1) and
+    // retried after the cool-down, against a fresh listing.
+    const int failures = ++m_shareAudioFailures[id];
+    record->failed = true;
+    record->index = -1;
+    record->retired = false;
+    m_shareAudioRetiredAt.remove(id);
+    m_shareAudioEosSeen.remove(id);
+    m_shareAudioConnections.remove(id);
+    m_shareAudioFailedAt.insert(id, m_shareAudioScans);
+    if (m_shareAudioBranches > 0)
+        --m_shareAudioBranches;
+    qCWarning(lcSfuMedia) << "share audio: an application's branch would not "
+                             "start; trying again in about"
+                          << shareAudioCoolDownScans(failures) * 2 << "s app="
+                          << record->appKey << "branch=" << index
+                          << "attempt=" << failures;
+    refreshShareAudioKeys();
+}
+
+int SfuMediaEngine::shareAudioCoolDownScans(int failures)
+{
+    // 4 s, 10 s, then 30 s at the 2 s scan interval: a branch that failed
+    // right after a daemon restart comes back quickly, one that keeps
+    // failing costs little.
+    if (failures <= 1)
+        return 2;
+    if (failures == 2)
+        return 5;
+    return 15;
+}
+
+void SfuMediaEngine::refreshShareAudioKeys()
+{
+    // Derived from the records, never accumulated: a key that failed once
+    // and was captured again afterwards is carried, not failed. Accumulated,
+    // the share reported "carrying= 0 app(s)" while it carried audio.
+    QStringList carried;
+    QStringList failed;
+    for (auto it = m_shareAudioRecords.cbegin();
+         it != m_shareAudioRecords.cend(); ++it) {
+        if (it->appKey.isEmpty())
+            continue;
+        if (it->failed) {
+            if (!failed.contains(it->appKey))
+                failed << it->appKey;
+        } else if (it->index >= 0 && !it->retired && !it->muted
+                   && !carried.contains(it->appKey)) {
+            carried << it->appKey;
+        }
+    }
+    for (const QString &key : carried)
+        failed.removeAll(key);
+    carried.sort();
+    failed.sort();
+    if (carried == m_shareAudioCarried && failed == m_shareAudioFailedKeys)
+        return;
+    m_shareAudioCarried = carried;
+    m_shareAudioFailedKeys = failed;
+    emitShareAudioReport();
 }
 
 namespace {
@@ -2986,6 +3155,13 @@ void SfuMediaEngine::rescanShareAudioSources()
                 it = m_shareAudioRetiredAt.erase(it);
                 continue;
             }
+            // Never under a start still running on a pool thread: its state
+            // change and this NULL would race. It is taken out once the start
+            // has reported back.
+            if (record->starting) {
+                ++it;
+                continue;
+            }
             // Finished means nothing more can come out of it: its EOS has
             // passed, or it errored, or the daemon closed its connection. The
             // last needs saying: after a daemon restart pipewiresrc may have
@@ -3022,21 +3198,25 @@ void SfuMediaEngine::rescanShareAudioSources()
         }
         gst_object_unref(mixer);
     }
-    // Failed records cool down (~30 s), then may be tried again.
-    constexpr int kFailedCoolDownScans = 15;
+    // Failed records cool down (4 s, 10 s, then 30 s), then are forgotten so
+    // the next listing tries again. Before, a branch that would not START was
+    // never retried at all (it never reached this map): measured in the
+    // Flatpak, an application stayed out of the share for good after one
+    // PipeWire restart until the user unticked and ticked it.
     for (auto it = m_shareAudioFailedAt.begin();
          it != m_shareAudioFailedAt.end();) {
-        if (m_shareAudioScans - it.value() < kFailedCoolDownScans) {
+        const int coolDown =
+            shareAudioCoolDownScans(m_shareAudioFailures.value(it.key(), 1));
+        if (m_shareAudioScans - it.value() < coolDown) {
             ++it;
             continue;
         }
         auto record = m_shareAudioRecords.find(it.key());
-        if (record != m_shareAudioRecords.end() && record->index < 0) {
-            m_shareAudioFailedKeys.removeAll(record->appKey);
+        if (record != m_shareAudioRecords.end() && record->index < 0)
             m_shareAudioRecords.erase(record);
-        }
         it = m_shareAudioFailedAt.erase(it);
     }
+    refreshShareAudioKeys();
 
     // What to check is still running (Windows: a branch follows its process).
     QList<lightning::shareaudio::Stream> check;
@@ -3159,17 +3339,12 @@ void SfuMediaEngine::applyShareAudioScan(
                                << "branch=" << record->index;
         }
     }
-    QStringList failedKeys = m_shareAudioFailedKeys;
     for (const lightning::shareaudio::Stream &s : plan.add) {
-        if (!addShareAudioBranch(bin, mixer, s) && !s.appKey.isEmpty()
-            && !failedKeys.contains(s.appKey))
-            failedKeys << s.appKey;
+        if (!addShareAudioBranch(bin, mixer, s))
+            ++m_shareAudioFailures[s.id()];
     }
     gst_object_unref(mixer);
 
-    QStringList carried = plan.carried;
-    for (const QString &key : failedKeys)
-        carried.removeAll(key);
     if (plan.limitReached && !m_shareAudioLimitReached) {
         qCWarning(lcSfuMedia) << "share audio: the per-share limit of"
                               << m_shareAudioCap
@@ -3177,14 +3352,12 @@ void SfuMediaEngine::applyShareAudioScan(
                                  "chosen or newly playing application is left "
                                  "out";
     }
-    const bool changed = carried != m_shareAudioCarried
-        || failedKeys != m_shareAudioFailedKeys
-        || plan.limitReached != m_shareAudioLimitReached;
-    m_shareAudioCarried = carried;
-    m_shareAudioFailedKeys = failedKeys;
-    m_shareAudioLimitReached = plan.limitReached;
-    if (changed)
+    if (plan.limitReached != m_shareAudioLimitReached) {
+        m_shareAudioLimitReached = plan.limitReached;
         emitShareAudioReport();
+    }
+    // Carried and failed come from the records (refreshShareAudioKeys()).
+    refreshShareAudioKeys();
 
     // Warn once if a long share never carried any application: the track is
     // carrying only the silence floor, which must not look like success.
@@ -3202,8 +3375,9 @@ void SfuMediaEngine::applyShareAudioScan(
 void SfuMediaEngine::handleShareAudioBranchError(int index)
 {
     // An application capture that errored (a process loopback that cannot
-    // activate, a node that vanished under an older pipewiresrc): retire it,
-    // never retry it, and say so; the rest of the share carries on.
+    // activate, a node that vanished under an older pipewiresrc, a target
+    // missing after a daemon restart): retire it, say so, and retry it after
+    // a growing cool-down; the rest of the share carries on.
     for (auto it = m_shareAudioRecords.begin(); it != m_shareAudioRecords.end();
          ++it) {
         if (it->index != index || it->failed)
@@ -3213,12 +3387,11 @@ void SfuMediaEngine::handleShareAudioBranchError(int index)
             it->retired = true;
             m_shareAudioRetiredAt.insert(it.key(), m_shareAudioScans);
         }
+        const int failures = ++m_shareAudioFailures[it.key()];
         qCWarning(lcSfuMedia) << "share audio: an application's capture failed"
-                              << "app=" << it->appKey << "branch=" << index;
-        if (!it->appKey.isEmpty() && !m_shareAudioFailedKeys.contains(it->appKey))
-            m_shareAudioFailedKeys << it->appKey;
-        m_shareAudioCarried.removeAll(it->appKey);
-        emitShareAudioReport();
+                              << "app=" << it->appKey << "branch=" << index
+                              << "attempt=" << failures;
+        refreshShareAudioKeys();
         return;
     }
 }
@@ -3481,6 +3654,24 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                         : GST_PAD_PROBE_OK;
                 },
                 nullptr, nullptr);
+            // What the device delivers, upstream of the mute valve: a restart
+            // that delivered is a restart that worked, muted or not (see
+            // micRestartBudgetResets()).
+            m_micCaptured = std::make_shared<std::atomic<quint64>>(0);
+            m_micCapturedAtRestart = 0;
+            gst_pad_add_probe(
+                out, GST_PAD_PROBE_TYPE_BUFFER,
+                [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                    static_cast<std::shared_ptr<std::atomic<quint64>> *>(data)
+                        ->get()
+                        ->fetch_add(1, std::memory_order_relaxed);
+                    return GST_PAD_PROBE_OK;
+                },
+                new std::shared_ptr<std::atomic<quint64>>(m_micCaptured),
+                [](gpointer data) {
+                    delete static_cast<std::shared_ptr<std::atomic<quint64>> *>(
+                        data);
+                });
             gst_object_unref(out);
         }
         gst_object_unref(micsrc);
@@ -7265,6 +7456,24 @@ void SfuMediaEngine::handleMicLevel(double peakDb)
     handleMicLevelAt(peakDb, monotonic.elapsed());
 }
 
+bool SfuMediaEngine::micRestartBudgetResets(int restarts, qint64 sinceRestartMs,
+                                            bool deliveredSinceRestart)
+{
+    if (restarts <= 0)
+        return false;
+    // Quiet for a minute: the old rule, kept.
+    if (sinceRestartMs > 60000)
+        return true;
+    // A restart that delivered and then ran for 10 s worked; the budget is
+    // for a device that keeps FAILING, not for a sound server restarted three
+    // times in a minute (measured in the Flatpak: each restart cost two
+    // attempts, the counter reset only after 60 s with no failure at all, and
+    // the third restart left the microphone dead for the rest of the call).
+    // Counted at the source, upstream of the mute valve, so a muted
+    // microphone is judged the same way.
+    return deliveredSinceRestart && sinceRestartMs >= 10000;
+}
+
 void SfuMediaEngine::handleMicLevelAt(double peakDb, qint64 nowMs)
 {
     // -350 dBFS is `level`'s floor for true digital silence, not a parse
@@ -7404,20 +7613,30 @@ void SfuMediaEngine::handleCaptureError(const QString &cid)
     if (!m_active || cid.isEmpty() || cid != m_micCid)
         return;
     // One failure posts several errors (the source's own, then "Internal
-    // data stream error"); one restart answers them all.
+    // data stream error"); one restart answers them all. Given up: the slow
+    // retry is running.
     if (m_micRestartPending || m_micFailureReported)
         return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    // A failure long after the last restart starts a fresh run.
-    if (m_micRestarts > 0 && now - m_micLastRestartMs > 60000)
+    // A failure long after the last restart, or after a restart that then
+    // delivered audio for a while, starts a fresh run.
+    const bool delivered = m_micCaptured
+        && m_micCaptured->load() > m_micCapturedAtRestart;
+    if (micRestartBudgetResets(m_micRestarts, now - m_micLastRestartMs,
+                               delivered))
         m_micRestarts = 0;
     if (m_micRestarts >= kMaxMicRestarts) {
         m_micFailureReported = true;
         qCWarning(lcSfuMedia)
             << "call diagnosis: gave up restarting the microphone after"
-            << m_micRestarts << "attempts; this device cannot be heard";
+            << m_micRestarts << "attempts; this device cannot be heard. "
+               "Trying it again every"
+            << m_micSlowRetryMs / 1000 << "s";
         // Not failed(): the call goes on, and the controller says so.
         Q_EMIT publishFailed(cid, QStringLiteral("audio_source_failed"));
+        // Never dead for the rest of the call: a sound server restarted a
+        // few times in a row (measured in the Flatpak) is back seconds later.
+        scheduleMicSlowRetry(cid);
         return;
     }
     m_micRestartPending = true;
@@ -7433,6 +7652,45 @@ void SfuMediaEngine::handleCaptureError(const QString &cid)
     });
 }
 
+void SfuMediaEngine::scheduleMicSlowRetry(const QString &cid)
+{
+    const quint64 generation = m_generation.load();
+    QTimer::singleShot(m_micSlowRetryMs, this, [this, cid, generation] {
+        if (!m_active || generation != m_generation.load() || cid != m_micCid
+            || !m_micFailureReported)
+            return;
+        // Is it delivering NOW? Sampled over one second: a count that grew
+        // at some point since the last try says nothing about a device that
+        // died again afterwards.
+        const quint64 before = m_micCaptured ? m_micCaptured->load() : 0;
+        QTimer::singleShot(1000, this, [this, cid, generation, before] {
+            if (!m_active || generation != m_generation.load()
+                || cid != m_micCid || !m_micFailureReported)
+                return;
+            const quint64 now = m_micCaptured ? m_micCaptured->load() : 0;
+            if (now > before) {
+                // Errors are not the test: stopping the dead source to
+                // restart it posts its own ("pa_stream_cork() failed"),
+                // measured.
+                m_micFailureReported = false;
+                m_micRestarts = 0;
+                qCInfo(lcSfuMedia) << "call diagnosis: the microphone is "
+                                      "capturing again after a restart";
+                Q_EMIT microphoneRecovered(cid);
+                return;
+            }
+            qCInfo(lcSfuMedia) << "call diagnosis: retrying the microphone; "
+                                  "it is delivering nothing";
+            m_micLastRestartMs = QDateTime::currentMSecsSinceEpoch();
+            m_micCapturedAtRestart = now;
+            if (GstElement *bin = m_publishedBins.value(cid))
+                gst_element_call_async(bin, restartSourceAsync, nullptr,
+                                       nullptr);
+            scheduleMicSlowRetry(cid);
+        });
+    });
+}
+
 void SfuMediaEngine::restartMicrophone(const QString &cid, quint64 generation)
 {
     m_micRestartPending = false;
@@ -7443,6 +7701,7 @@ void SfuMediaEngine::restartMicrophone(const QString &cid, quint64 generation)
         return;
     ++m_micRestarts;
     m_micLastRestartMs = QDateTime::currentMSecsSinceEpoch();
+    m_micCapturedAtRestart = m_micCaptured ? m_micCaptured->load() : 0;
     // The valve, level meter, encoder, payloader (its sequence numbers and
     // SSRC) and the webrtcbin pad all stay, so the published track is the
     // same track. The state change runs off this thread.

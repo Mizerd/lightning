@@ -37,6 +37,7 @@ void SfuVideoRouter::clear()
 {
     QMutexLocker lock(&m_mutex);
     m_sinks.clear();
+    m_pending.clear();
 }
 
 bool SfuVideoRouter::watching(const QString &streamId) const
@@ -77,4 +78,35 @@ void SfuVideoRouter::deliverFrame(const QString &streamId,
     // Outside the lock: setVideoFrame reaches the render path, and holding a
     // mutex the streaming thread wants would stall the pipeline.
     sink->setVideoFrame(frame);
+}
+
+bool SfuVideoRouter::offerFrame(const QString &streamId,
+                                const QVideoFrame &frame)
+{
+    QMutexLocker lock(&m_mutex);
+    const bool scheduled = m_pending.contains(streamId);
+    // Replaces (and so frees) a frame the GUI thread has not taken yet.
+    m_pending.insert(streamId, frame);
+    return !scheduled;
+}
+
+int SfuVideoRouter::pendingFramesForTest() const
+{
+    QMutexLocker lock(&m_mutex);
+    return static_cast<int>(m_pending.size());
+}
+
+void SfuVideoRouter::deliverPending(const QString &streamId)
+{
+    QVideoFrame frame;
+    {
+        QMutexLocker lock(&m_mutex);
+        const auto it = m_pending.find(streamId);
+        if (it == m_pending.end())
+            return;
+        frame = it.value();
+        // Taken: the next offer schedules the next delivery.
+        m_pending.erase(it);
+    }
+    deliverFrame(streamId, frame);
 }

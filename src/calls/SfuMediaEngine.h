@@ -574,8 +574,20 @@ public:
     int subscriberAutoremoveForTest() const;
     /// Test-only: the first microphone restart waits `ms`, doubling after.
     void setCaptureRestartDelayForTest(int ms) { m_micRestartBaseDelayMs = ms; }
+    void setMicSlowRetryForTest(int ms) { m_micSlowRetryMs = ms; }
+    /// As if the microphone source had pushed `buffers` more (a fixture with
+    /// no transport stops pulling after a few).
+    void addMicCapturedForTest(quint64 buffers)
+    {
+        if (m_micCaptured)
+            m_micCaptured->fetch_add(buffers);
+    }
     /// Test-only: microphone restarts attempted in this run.
     int microphoneRestartsForTest() const { return m_micRestarts; }
+    /// Does a new microphone failure start a fresh restart budget? After a
+    /// minute, or after a restart that delivered and ran for 10 s.
+    static bool micRestartBudgetResets(int restarts, qint64 sinceRestartMs,
+                                       bool deliveredSinceRestart);
 
     /// Test-only: a rebuild job sleeps `ms` before it builds anything.
     void setRebuildJobDelayForTest(int ms) { m_rebuildJobDelayMs.store(ms); }
@@ -639,6 +651,27 @@ public:
         const lightning::shareaudio::BranchOptions &options);
     void rescanShareAudioSourcesForTest() { rescanShareAudioSources(); }
     void setShareAudioBranchCapForTest(int cap) { m_shareAudioCap = cap; }
+    /// Each branch start sleeps this long on its pool thread first, as a
+    /// pipewiresrc waiting on its daemon does.
+    void setShareAudioStartDelayForTest(int ms)
+    {
+        m_shareAudioStartDelayMsForTest = ms;
+    }
+    /// The next `count` branch starts fail, as one aimed at a vanished node.
+    void failShareAudioStartsForTest(int count)
+    {
+        m_shareAudioFailStartsForTest = count;
+    }
+    bool shareAudioBranchStartingForTest(const QString &id) const
+    {
+        const auto it = m_shareAudioRecords.constFind(id);
+        return it != m_shareAudioRecords.cend() && it->starting;
+    }
+    QStringList shareAudioCarriedForTest() const { return m_shareAudioCarried; }
+    QStringList shareAudioFailedKeysForTest() const
+    {
+        return m_shareAudioFailedKeys;
+    }
     /// A retired branch is NOT sent EOS: it goes on producing, as a source
     /// still mid-push would, so a test can prove nothing is taken out
     /// before its EOS has passed.
@@ -713,6 +746,12 @@ public:
     /// a control surface. A `generation` mismatch is dropped so a completion
     /// cannot touch the next session.
     void noteTeardownComplete(const QString &cid, quint64 generation);
+
+    /// A share-audio branch's start, finished on a pool thread, reported on
+    /// the GUI thread. Public only for that callback. A failed branch was
+    /// already taken out; it is retried after a cool-down.
+    void noteShareAudioBranchStarted(const QString &id, int index,
+                                     quint64 generation, bool ok);
 
     /// A remote description from the SFU for one peer connection.
     void applyRemoteDescription(Target target, const QString &kind,
@@ -857,6 +896,9 @@ Q_SIGNALS:
     /// checkCameraFirstFrame() for `camera_no_frames` (a camera whose capture
     /// delivered nothing within kCameraFirstFrameTimeoutMs).
     void publishFailed(const QString &cid, const QString &category);
+    /// The microphone, given up on (publishFailed "audio_source_failed"),
+    /// came back on a slow retry.
+    void microphoneRecovered(const QString &cid);
     /// A received track's output failed (the sound server went away) and
     /// could not be rebuilt: true once when recovery is given up, false once
     /// a later rebuild works again. The call carries on either way.
@@ -983,7 +1025,8 @@ public Q_SLOTS:
     /// call, and says so (`share_audio_failed`).
     void handleShareAudioSourceError();
     /// An ERROR from application branch `index` (`shareapp<index>`), on the
-    /// GUI thread: retired, never retried, reported in shareAudioReport.
+    /// GUI thread: retired, retried after a cool-down, reported in
+    /// shareAudioReport.
     void handleShareAudioBranchError(int index);
     /// lightningdenoise reported a mode taking effect, on the GUI thread.
     void handleDenoiseStatus(const QString &requested, const QString &active,
@@ -1367,8 +1410,15 @@ private:
     bool m_testSelfView = false;
     int m_micRestarts = 0;
     qint64 m_micLastRestartMs = 0;
+    /// Buffers the microphone source has delivered, and the count at the last
+    /// restart (micRestartBudgetResets()).
+    std::shared_ptr<std::atomic<quint64>> m_micCaptured;
+    quint64 m_micCapturedAtRestart = 0;
     bool m_micRestartPending = false;
     bool m_micFailureReported = false;
+    /// After the restart budget: try again this often, for the whole call.
+    int m_micSlowRetryMs = 30000;
+    void scheduleMicSlowRetry(const QString &cid);
     int m_micRestartBaseDelayMs = 500;
     int m_cameraFirstFrameTimeoutMs = kCameraFirstFrameTimeoutMs;
     int m_portalCameraFirstFrameTimeoutMs = kPortalCameraFirstFrameTimeoutMs;
@@ -1472,6 +1522,10 @@ private:
     /// releases its mixer pad, and gst_element_call_async sets it to NULL and
     /// removes it. Never blocks the calling (GUI) thread.
     void takeOutShareAudioBranch(GstElement *bin, GstElement *mixer, int index);
+    /// Carried and failed applications, derived from the records.
+    void refreshShareAudioKeys();
+    /// Scans a failed branch waits before it is tried again.
+    static int shareAudioCoolDownScans(int failures);
     void emitShareAudioReport();
     /// Clears the per-application bookkeeping; the bin is the caller's.
     void resetShareAudioState();
@@ -1504,6 +1558,14 @@ private:
     QHash<QString, int> m_shareAudioConnections;
     /// Stream::id() -> the scan a failed branch was taken out on (cool-down).
     QHash<QString, int> m_shareAudioFailedAt;
+    /// Stream::id() -> consecutive failures, for the cool-down.
+    QHash<QString, int> m_shareAudioFailures;
+    /// False once the share's state is reset: a branch start still running
+    /// on a pool thread must not leave a started element behind.
+    std::shared_ptr<std::atomic<bool>> m_shareAudioAlive =
+        std::make_shared<std::atomic<bool>>(false);
+    int m_shareAudioStartDelayMsForTest = 0;
+    int m_shareAudioFailStartsForTest = 0;
     QElapsedTimer m_shareAudioScanStarted;
     bool m_shareAudioHangLogged = false;
     bool m_shareAudioSuppressRetireEosForTest = false;

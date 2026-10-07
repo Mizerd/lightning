@@ -241,7 +241,9 @@ struct BranchRecord {
     qint64 startTime = 0;    // Windows: process creation time (pid reuse)
     bool muted = false;
     bool retired = false;    // sent EOS; taken out once finished, then forgotten
-    bool failed = false;     // would not build, or errored: never retried
+    bool failed = false;     // would not build, start or run: retried after a
+                             // growing cool-down, not on every scan
+    bool starting = false;   // its state change runs off the GUI thread
 };
 
 struct ScanInput {

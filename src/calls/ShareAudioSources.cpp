@@ -309,9 +309,22 @@ QString applicationBranchDescription(const Stream &stream, int index,
         // gst-plugin-pipewire 1.4 and 1.6, and 8 fails to negotiate with
         // sources offering fewer. `on-disconnect=eos` (1.6 and newer) retires
         // the branch when its application quits.
+        //
+        // `node.dont-fallback` / `dont-reconnect` / `dont-move`: the capture
+        // is linked to its target or to NOTHING. Without them the session
+        // manager links a capture whose target is missing (a serial gone
+        // after a daemon restart, or an application that just quit) to the
+        // DEFAULT SOURCE — measured on WirePlumber 0.5.14: target-object=99999
+        // was linked to the microphone. That put the user's microphone into
+        // the share, and in the Flatpak test read as an application "In the
+        // share" that carried silence for minutes. With them, a missing
+        // target fails at once ("defined target not found") and the branch is
+        // retried against a fresh listing.
         source = QStringLiteral(
                      "pipewiresrc name=%1 target-object=%2 "
-                     "min-buffers=1 do-timestamp=true%3")
+                     "min-buffers=1 do-timestamp=true "
+                     "stream-properties=\"props,node.dont-fallback=true,"
+                     "node.dont-reconnect=true,node.dont-move=true\"%3")
                      .arg(branchSourceName(index), stream.serial,
                           options.retireOnDisconnect
                               ? QStringLiteral(" on-disconnect=eos")
