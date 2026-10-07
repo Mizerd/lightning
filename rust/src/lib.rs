@@ -10853,6 +10853,66 @@ fn authentication_error(error: &UnifiedSyncError) -> bool {
     matches!(unified_error_kind(error), Some(ErrorKind::UnknownToken { .. } | ErrorKind::Forbidden))
 }
 
+/// The `room_list_error` category for an authentication error the modern lane
+/// is retrying. Names the errcode so a log can tell the two apart; a literal,
+/// never server text.
+fn authentication_retry_category(error: &UnifiedSyncError) -> &'static str {
+    match unified_error_kind(error) {
+        Some(ErrorKind::Forbidden) => "authentication_retry_forbidden",
+        _ => "authentication_retry_unknown_token",
+    }
+}
+
+/// Consecutive authentication errors the modern lane rebuilds through before it
+/// declares the session unauthorized. A Running edge resets the count.
+///
+/// Why any: a 401 from sliding sync does not prove the session is dead.
+/// Verified in matrix-sdk 0.18 (`client/futures.rs`): on a 401 it refreshes and
+/// retries ONCE, and a 401 on that retry is returned as-is, without
+/// broadcasting `SessionChange::UnknownToken`. The LIKELY cause of such a retry
+/// failing, NOT YET CAPTURED: MAS revokes the access token paired with every
+/// refresh token it consumes (`refresh_token_grant`), so a second refresh in the
+/// same burst of 401s on an expired token would revoke the token the first
+/// one's retry carries. Parking on the first such error killed the room list for
+/// the session while every other request kept working (matrix.org, 2026-10-07;
+/// intermittent, a re-run synced fine). A session that really is dead is
+/// reported by the SDK itself (`session_token_revoked`, which detaches it), and
+/// a server that keeps refusing still ends in `Failed`, after the bound.
+const MODERN_AUTH_RETRY_LIMIT: u32 = 3;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ModernAuthVerdict {
+    Retry,
+    Fatal,
+}
+
+/// The modern lane's count of consecutive authentication errors. One instance
+/// lives for the whole lane, across supervisor rebuilds; `on_running` is the
+/// reset, called on the room list's Running edge, so the bound is per spell of
+/// refusals and not per session (an intermittent race recurs over a long
+/// session and must not accumulate towards `Fatal`).
+#[derive(Debug, Default)]
+pub(crate) struct AuthRetryBudget {
+    consecutive: u32,
+}
+
+impl AuthRetryBudget {
+    /// Record one authentication error and say whether to rebuild or give up.
+    pub(crate) fn on_auth_error(&mut self) -> ModernAuthVerdict {
+        self.consecutive = self.consecutive.saturating_add(1);
+        if self.consecutive > MODERN_AUTH_RETRY_LIMIT {
+            ModernAuthVerdict::Fatal
+        } else {
+            ModernAuthVerdict::Retry
+        }
+    }
+
+    /// The server answered this session: earlier refusals are behind us.
+    pub(crate) fn on_running(&mut self) {
+        self.consecutive = 0;
+    }
+}
+
 /// What one failed classic `/sync` means for the loop that issued it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClassicSyncFault {
@@ -10952,21 +11012,27 @@ async fn run_modern_sync(
     };
     tokio::pin!(watchdog);
 
+    // Consecutive authentication errors; see MODERN_AUTH_RETRY_LIMIT.
+    let mut auth_budget = AuthRetryBudget::default();
+
     loop {
         let service = match SyncService::builder(client.clone()).build().await {
             Ok(service) => service,
             Err(error) if unsupported_modern_error(&error) => return Some(cancel),
             Err(error) => {
-                enqueue(&events, json!({
-                    "type": "room_list_error", "category": if authentication_error(&error) {
-                        "authentication"
-                    } else { "temporary" }
-                }));
+                let mut category = "temporary";
                 if authentication_error(&error) {
-                    set_sync_mode(&sync_mode, &events, SyncMode::Failed, None);
-                    let _ = (&mut cancel).await;
-                    return None;
+                    if auth_budget.on_auth_error() == ModernAuthVerdict::Fatal {
+                        enqueue(&events, json!({
+                            "type": "room_list_error", "category": "authentication"
+                        }));
+                        set_sync_mode(&sync_mode, &events, SyncMode::Failed, None);
+                        let _ = (&mut cancel).await;
+                        return None;
+                    }
+                    category = authentication_retry_category(&error);
                 }
+                enqueue(&events, json!({ "type": "room_list_error", "category": category }));
                 tokio::select! {
                     _ = &mut cancel => return None,
                     _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => continue,
@@ -11105,6 +11171,7 @@ async fn run_modern_sync(
                         // costly to repeat per response.
                         if !list_running {
                             list_running = true;
+                            auth_budget.on_running();
                             client.send_queue().set_enabled(true).await;
                         }
                         if first_sync {
@@ -11130,16 +11197,24 @@ async fn run_modern_sync(
                             // The only path to classic sync: a positively classified unsupported
                             // endpoint.
                             if unsupported_modern_error(&error) { return Some(cancel); }
-                            // Authentication failure is fatal: no downgrade, no retry.
+                            // Authentication failure: never a downgrade, and fatal only
+                            // past a bounded number of rebuilds (MODERN_AUTH_RETRY_LIMIT).
                             if authentication_error(&error) {
-                                set_sync_mode(&sync_mode, &events, SyncMode::Failed, None);
+                                if auth_budget.on_auth_error() == ModernAuthVerdict::Fatal {
+                                    set_sync_mode(&sync_mode, &events, SyncMode::Failed, None);
+                                    enqueue(&events, json!({
+                                        "type": "room_list_error", "category": "authentication"
+                                    }));
+                                    let _ = (&mut cancel).await;
+                                    return None;
+                                }
+                                // Logged by C++ as a retrying error; not shown as one.
                                 enqueue(&events, json!({
-                                    "type": "room_list_error", "category": "authentication"
+                                    "type": "room_list_error",
+                                    "category": authentication_retry_category(&error)
                                 }));
-                                let _ = (&mut cancel).await;
-                                return None;
                             }
-                            // Anything else is transient: keep the mode, report offline, rebuild.
+                            // Otherwise (or a retried auth error): keep the mode, report offline, rebuild.
                             enqueue(&events, json!({
                                 "type": "room_list_sync_state", "state": "offline"
                             }));
@@ -11419,7 +11494,9 @@ async fn run_classic_sync_with(
                         if classify_classic_sync_error(error.client_api_error_kind())
                             == ClassicSyncFault::Fatal
                         {
-                            // Same as the modern lane: stop and report, never retry.
+                            // Stop and report, never retry. (The modern lane now rebuilds
+                            // through a bounded number first, MODERN_AUTH_RETRY_LIMIT;
+                            // doing the same here is an open follow-up.)
                             session_gone.store(true, Ordering::SeqCst);
                             enqueue(&events, json!({
                                 "type": "room_list_error", "category": "authentication"
@@ -16350,3 +16427,365 @@ mod final_session_tokens_tests {
 // A retired bridge must leave nothing of its account store open (GitHub #2).
 #[cfg(all(test, target_os = "linux"))]
 mod store_close_tests;
+
+/// The modern lane against a homeserver whose sliding sync answers
+/// `M_UNKNOWN_TOKEN` although the session is alive: the SDK refreshes, and the
+/// one retry it allows is refused too. matrix-sdk 0.18 returns that retry's 401
+/// without broadcasting `SessionChange::UnknownToken` (verified in its source);
+/// what refuses the retry on matrix.org is likely MAS revoking the token a
+/// concurrent refresh superseded, not yet captured. Seen once on matrix.org on
+/// 2026-10-07: room list "failed", "Matrix session is no longer authorized.",
+/// while pagination, media and receipts all still worked.
+#[cfg(test)]
+mod modern_sync_auth_tests {
+    use super::{
+        run_modern_sync, AuthRetryBudget, ModernAuthVerdict, SyncMode, MODERN_AUTH_RETRY_LIMIT,
+    };
+    use std::collections::VecDeque;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+
+    use matrix_sdk::{
+        authentication::matrix::MatrixSession,
+        ruma::{OwnedDeviceId, OwnedUserId},
+        store::RoomLoadSettings,
+        SessionMeta, SessionTokens,
+    };
+
+    /// Reads one request; returns its request line and its body.
+    fn read_request(stream: &mut TcpStream) -> (String, String) {
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        let head_end = loop {
+            let n = stream.read(&mut chunk).unwrap_or(0);
+            if n == 0 {
+                return (String::new(), String::new());
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break pos + 4;
+            }
+        };
+        let head = String::from_utf8_lossy(&buf[..head_end]).to_string();
+        let length = head
+            .lines()
+            .find_map(|line| {
+                line.to_ascii_lowercase()
+                    .strip_prefix("content-length:")
+                    .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+            })
+            .unwrap_or(0);
+        while buf.len() < head_end + length {
+            let n = stream.read(&mut chunk).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        let body = String::from_utf8_lossy(&buf[head_end..]).to_string();
+        (head.lines().next().unwrap_or("").to_owned(), body)
+    }
+
+    fn respond(stream: &mut TcpStream, status: &str, payload: &str) {
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
+             Connection: close\r\nContent-Length: {}\r\n\r\n{}",
+            payload.len(),
+            payload
+        );
+        let _ = stream.write_all(response.as_bytes());
+        let _ = stream.flush();
+    }
+
+    /// When the fake homeserver refuses a sliding-sync request.
+    #[derive(Clone, Copy)]
+    enum Script {
+        /// Refuse every request.
+        RefuseAlways,
+        /// `rounds` times: refuse `refuse` requests, then answer until the
+        /// room-list connection has had `answered` responses (enough to reach
+        /// Running). After the last round, answer everything.
+        Rounds { rounds: usize, refuse: usize, answered: usize },
+    }
+
+    /// The script's position. One lock, so a refusal decision and its count
+    /// cannot interleave between two concurrent requests.
+    #[derive(Default)]
+    struct Progress {
+        round: usize,
+        refused_this_round: usize,
+        room_list_answered_this_round: usize,
+    }
+
+    #[derive(Default)]
+    struct Seen {
+        unknown_token: AtomicUsize,
+        refreshes: AtomicUsize,
+        syncs_served: AtomicUsize,
+    }
+
+    /// A homeserver advertising MSC4186. `/refresh` always succeeds: the
+    /// session is never dead, which is the whole point.
+    fn serve(script: Script, seen: Arc<Seen>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let progress = Arc::new(Mutex::new(Progress::default()));
+        thread::spawn(move || {
+            let _ = ready_tx.send(());
+            let pos = Arc::new(AtomicUsize::new(0));
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let seen = Arc::clone(&seen);
+                let pos = Arc::clone(&pos);
+                let progress = Arc::clone(&progress);
+                thread::spawn(move || {
+                    let (line, body) = read_request(&mut stream);
+                    let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+                    if path.starts_with("/_matrix/client/versions") {
+                        respond(&mut stream, "200 OK",
+                                r#"{"versions":["v1.1","v1.11"],"unstable_features":{"org.matrix.simplified_msc3575":true}}"#);
+                    } else if path.contains("simplified_msc3575/sync") {
+                        let room_list = body.contains("room-list");
+                        let refuse = {
+                            let mut p = progress.lock().unwrap();
+                            match script {
+                                Script::RefuseAlways => true,
+                                Script::Rounds { rounds, refuse, answered } => {
+                                    if p.round >= rounds {
+                                        false
+                                    } else if p.refused_this_round < refuse {
+                                        p.refused_this_round += 1;
+                                        true
+                                    } else {
+                                        if room_list {
+                                            p.room_list_answered_this_round += 1;
+                                            if p.room_list_answered_this_round >= answered {
+                                                *p = Progress { round: p.round + 1, ..Progress::default() };
+                                            }
+                                        }
+                                        false
+                                    }
+                                }
+                            }
+                        };
+                        if refuse {
+                            seen.unknown_token.fetch_add(1, Ordering::SeqCst);
+                            respond(&mut stream, "401 Unauthorized",
+                                    r#"{"errcode":"M_UNKNOWN_TOKEN","error":"Token is not active","soft_logout":false}"#);
+                        } else {
+                            // Not a long-poll: pace the loop instead of spinning.
+                            thread::sleep(Duration::from_millis(100));
+                            seen.syncs_served.fetch_add(1, Ordering::SeqCst);
+                            let n = pos.fetch_add(1, Ordering::SeqCst) + 1;
+                            respond(&mut stream, "200 OK", &format!(r#"{{"pos":"{n}"}}"#));
+                        }
+                    } else if path.starts_with("/_matrix/client/v3/refresh") {
+                        let n = seen.refreshes.fetch_add(1, Ordering::SeqCst) + 1;
+                        respond(&mut stream, "200 OK", &format!(
+                            r#"{{"access_token":"access-{n}","refresh_token":"refresh-{n}","expires_in_ms":300000}}"#));
+                    } else if path.contains("/keys/upload") {
+                        respond(&mut stream, "200 OK",
+                                r#"{"one_time_key_counts":{"signed_curve25519":50}}"#);
+                    } else if path.contains("/keys/query") {
+                        respond(&mut stream, "200 OK", r#"{"device_keys":{},"failures":{}}"#);
+                    } else {
+                        respond(&mut stream, "200 OK", "{}");
+                    }
+                });
+            }
+        });
+        ready_rx.recv().expect("listener thread started");
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    type Done = fn(&[serde_json::Value]) -> bool;
+
+    fn drain(events: &Arc<Mutex<VecDeque<String>>>) -> Vec<serde_json::Value> {
+        events.lock().unwrap().iter().map(|e| serde_json::from_str(e).unwrap()).collect()
+    }
+
+    fn is_running(v: &serde_json::Value) -> bool {
+        v["type"] == "room_list_sync_state" && v["state"] == "running"
+    }
+
+    fn is_failed(v: &serde_json::Value) -> bool {
+        v["type"] == "room_list_mode" && v["mode"] == "failed"
+    }
+
+    fn is_auth_retry(v: &serde_json::Value) -> bool {
+        v["type"] == "room_list_error"
+            && v["category"].as_str().is_some_and(|c| c.starts_with("authentication_retry"))
+    }
+
+    fn told_session_gone(v: &serde_json::Value) -> bool {
+        v["type"] == "room_list_error" && v["category"] == "authentication"
+    }
+
+    /// Runs the modern lane until `done` holds, `failed` is seen, or `bound`
+    /// passes, then cancels it. Returns the events and the final mode.
+    fn run(script: Script, seen: Arc<Seen>, bound: Duration, done: Done)
+        -> (Vec<serde_json::Value>, SyncMode)
+    {
+        let addr = serve(script, seen);
+        let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let sync_mode = Arc::new(Mutex::new(SyncMode::Probing));
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let client = matrix_sdk::Client::builder()
+                .homeserver_url(format!("http://{addr}"))
+                .handle_refresh_tokens()
+                .build()
+                .await
+                .expect("client");
+            let session = MatrixSession {
+                meta: SessionMeta {
+                    user_id: OwnedUserId::try_from("@me:example.org").expect("user id"),
+                    device_id: OwnedDeviceId::from("TESTDEVICE"),
+                },
+                tokens: SessionTokens {
+                    access_token: "access-0".to_owned(),
+                    refresh_token: Some("refresh-0".to_owned()),
+                },
+            };
+            client
+                .matrix_auth()
+                .restore_session(session, RoomLoadSettings::default())
+                .await
+                .expect("restore");
+
+            let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+            let watched = Arc::clone(&events);
+            let watcher = async move {
+                let deadline = tokio::time::Instant::now() + bound;
+                while tokio::time::Instant::now() < deadline {
+                    let seen = drain(&watched);
+                    if done(&seen) || seen.iter().any(is_failed) {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                let _ = cancel_tx.send(());
+            };
+            let (fallback, ()) = tokio::join!(
+                run_modern_sync(
+                    client,
+                    Arc::clone(&events),
+                    Arc::clone(&sync_mode),
+                    Arc::new(Mutex::new(None)),
+                    Arc::new(Mutex::new(None)),
+                    Arc::new(Mutex::new(None)),
+                    cancel_rx,
+                ),
+                watcher
+            );
+            assert!(fallback.is_none(), "an auth error must never downgrade to classic sync");
+        });
+        let mode = *sync_mode.lock().unwrap();
+        (drain(&events), mode)
+    }
+
+    #[test]
+    fn a_401_the_sdk_refreshed_through_does_not_end_the_room_list() {
+        let seen = Arc::new(Seen::default());
+        // One round: enough refusals that the SDK's refresh-and-retry fails.
+        let script = Script::Rounds { rounds: 1, refuse: 4, answered: usize::MAX };
+        let (events, mode) = run(script, Arc::clone(&seen), Duration::from_secs(40),
+                                 |e| e.iter().any(is_running));
+
+        assert!(seen.unknown_token.load(Ordering::SeqCst) >= 2,
+                "the server never refused a sync; this test proved nothing: {events:?}");
+        assert!(seen.refreshes.load(Ordering::SeqCst) >= 1,
+                "the SDK never refreshed, so this is not the matrix.org shape: {events:?}");
+        assert!(!events.iter().any(is_failed),
+                "a refused sync on a live session ended the room list: {events:?}");
+        assert!(!events.iter().any(told_session_gone),
+                "told the user the session is gone while it was not: {events:?}");
+        assert!(events.iter().any(is_running), "the room list never recovered: {events:?}");
+        assert!(seen.syncs_served.load(Ordering::SeqCst) >= 2, "{events:?}");
+        assert_eq!(mode, SyncMode::SlidingSync);
+        // The retry is visible in the log, naming the errcode, never server text.
+        assert!(events.iter().any(|v| v["type"] == "room_list_error"
+                                      && v["category"] == "authentication_retry_unknown_token"),
+                "{events:?}");
+    }
+
+    /// The reset, through the real loop: more refusal spells than the budget,
+    /// each followed by a Running edge, must never add up to `Failed`. An
+    /// intermittent race recurs over a long session.
+    #[test]
+    fn refusal_spells_separated_by_running_never_add_up_to_failed() {
+        let seen = Arc::new(Seen::default());
+        let rounds = MODERN_AUTH_RETRY_LIMIT as usize + 2;
+        let script = Script::Rounds { rounds, refuse: 4, answered: 3 };
+        let (events, mode) = run(script, Arc::clone(&seen), Duration::from_secs(90), |e| {
+            // Done once the budget would have been exhausted without the reset
+            // and the list is running again after the last spell.
+            let retries = e.iter().filter(|v| is_auth_retry(v)).count();
+            let last_retry = e.iter().rposition(is_auth_retry);
+            retries > MODERN_AUTH_RETRY_LIMIT as usize
+                && last_retry.is_some_and(|i| e[i..].iter().any(is_running))
+        });
+
+        // Checked first: without the reset the run ends in Failed after LIMIT
+        // retries, which the count below would misreport as a weak fixture.
+        assert!(!events.iter().any(is_failed),
+                "separate refusal spells accumulated into Failed: {events:?}");
+        let retries = events.iter().filter(|v| is_auth_retry(v)).count();
+        assert!(retries > MODERN_AUTH_RETRY_LIMIT as usize,
+                "fewer refusal spells than the budget; this test proved nothing: \
+                 {retries} retries, {events:?}");
+        assert!(!events.iter().any(told_session_gone), "{events:?}");
+        assert_eq!(mode, SyncMode::SlidingSync, "{events:?}");
+    }
+
+    #[test]
+    fn a_session_the_server_keeps_refusing_still_ends_in_failed() {
+        let seen = Arc::new(Seen::default());
+        let (events, mode) = run(Script::RefuseAlways, Arc::clone(&seen),
+                                 Duration::from_secs(60), |_| false);
+
+        assert!(seen.unknown_token.load(Ordering::SeqCst) >= 2, "{events:?}");
+        assert!(!events.iter().any(is_running), "{events:?}");
+        assert_eq!(mode, SyncMode::Failed, "{events:?}");
+        assert!(events.iter().any(told_session_gone), "{events:?}");
+        // Bounded: exactly MODERN_AUTH_RETRY_LIMIT retries were announced first.
+        let retries = events.iter().filter(|v| is_auth_retry(v)).count();
+        assert_eq!(retries, MODERN_AUTH_RETRY_LIMIT as usize, "{events:?}");
+    }
+
+    #[test]
+    fn the_budget_is_consecutive_and_running_resets_it() {
+        // LIMIT + 1 in a row: the last one is fatal, none before it.
+        let mut budget = AuthRetryBudget::default();
+        for _ in 0..MODERN_AUTH_RETRY_LIMIT {
+            assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Retry);
+        }
+        assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Fatal);
+
+        // LIMIT + 1 with a Running edge between each: never fatal.
+        let mut budget = AuthRetryBudget::default();
+        for _ in 0..=MODERN_AUTH_RETRY_LIMIT {
+            assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Retry);
+            budget.on_running();
+        }
+
+        // A reset in the middle restarts the count from one.
+        let mut budget = AuthRetryBudget::default();
+        for _ in 0..MODERN_AUTH_RETRY_LIMIT {
+            budget.on_auth_error();
+        }
+        budget.on_running();
+        for _ in 0..MODERN_AUTH_RETRY_LIMIT {
+            assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Retry);
+        }
+        assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Fatal);
+    }
+}
