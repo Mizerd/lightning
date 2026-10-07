@@ -278,8 +278,10 @@ if(NOT LIGHTNING_PORTABLE_QT_ABI AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
         set(_lightning_mmp_headers_present TRUE)
         get_target_property(_lightning_mmp_dirs Qt6::MultimediaPrivate
             INTERFACE_INCLUDE_DIRECTORIES)
-        foreach(_dir IN LISTS _lightning_mmp_dirs)
-            if(NOT _dir MATCHES "^\\$<" AND NOT EXISTS "${_dir}")
+        # Each entry is a path wrapped in a $<$<BOOL:...>:PATH> genex.
+        foreach(_entry IN LISTS _lightning_mmp_dirs)
+            string(REGEX MATCH "(/[^>:]+)>*$" _path "${_entry}")
+            if(_path AND NOT EXISTS "${CMAKE_MATCH_1}")
                 set(_lightning_mmp_headers_present FALSE)
             endif()
         endforeach()
