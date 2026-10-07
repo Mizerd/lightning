@@ -3783,3 +3783,14 @@ an unexplained empty rectangle on the same machine, because they draw video the
 same way and nothing tells them either. Pre-existing and deliberately out of
 scope for the round that added the notice — recorded so it is not later read as
 closed. `app.softwareRenderer` is already available to all three.
+
+### Share audio after a PipeWire restart mid-share (2026-10-07, open)
+
+Measured on the 0.10.1 Flatpak RC (pipeline 301), 14 restarts: no freeze, flat
+RSS/fds. Open: after 4 of 10 System-mode restarts the receiver heard nothing
+while the sender reported every app "In the share" and its pre-encoder level
+meter read -10 dBFS (loss is after the meter: encoder, timestamps or playout,
+not traced); once a SIGSEGV in the KDE runtime's libgstpipewire.so (+0x1f403,
+PipeWire main-loop thread) right after the daemon closed both captures. Only a
+daemon restart during a share triggers either. Evidence:
+/mnt/storage/scratch/fp-rc/logs/r3-*.log, Tasks/2026-10-07-fp-rc.md (round 3).
