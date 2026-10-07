@@ -12,6 +12,14 @@
 
 Q_LOGGING_CATEGORY(lcCallSound, "lightning.calls.sound")
 
+// Stands in for CallDeviceController::audioOutputsChanged.
+class OutputListSource : public QObject
+{
+    Q_OBJECT
+Q_SIGNALS:
+    void changed();
+};
+
 class CallSoundPlayerTest : public QObject
 {
     Q_OBJECT
@@ -102,6 +110,65 @@ private slots:
         QVERIFY2(player.soundReloadsForTest() <= 5,
                  qPrintable(QStringLiteral("%1 reloads for 1.5 s of flapping")
                                 .arg(player.soundReloadsForTest() - 2)));
+    }
+
+    // Live Windows FAIL 2026-10-07 (pipeline 290): the call's audio came back
+    // on CallDeviceController's output-change signal, and no cue (nor the
+    // notification chime) ever did: the player's own QMediaDevices was never
+    // told, and nothing was logged. The reload must follow a signal it is
+    // handed, ask the given answer about outputs when it is due, and skip
+    // while there are none.
+    void theReloadFollowsTheSignalItIsHanded()
+    {
+        CallSoundPlayer player(CallSoundPlayer::ForTest{},
+                               /*offTheGuiThread=*/false);
+        player.setOutputChangeDebounceForTest(100, 500);
+        OutputListSource source;
+        bool anyOutput = false;
+        int asked = 0;
+        player.followOutputChanges(&source, &OutputListSource::changed,
+                                   [&] {
+                                       ++asked;
+                                       return anyOutput;
+                                   });
+
+        // The device went: a burst, one reload, told there is no output.
+        for (int i = 0; i < 3; ++i) {
+            Q_EMIT source.changed();
+            QTest::qWait(20);
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(player.soundReloadsForTest(), 1, 2000);
+        QCOMPARE(asked, 1);
+        QVERIFY(!player.lastReloadHadOutputForTest());
+
+        // It came back.
+        anyOutput = true;
+        Q_EMIT source.changed();
+        QTRY_COMPARE_WITH_TIMEOUT(player.soundReloadsForTest(), 2, 2000);
+        QCOMPARE(asked, 2);
+        QVERIFY(player.lastReloadHadOutputForTest());
+    }
+
+    // ...and the application hands it the device controller's signal, the
+    // one measured to arrive. Source scan: enableCallSounds() opens audio, so
+    // no test runs it.
+    void theApplicationDrivesTheReloadFromTheDeviceController()
+    {
+        QFile file(QStringLiteral(SOUNDS_DIR "/../../src/app/AppController.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString code = QString::fromUtf8(file.readAll());
+        const int begin =
+            code.indexOf(QStringLiteral("void AppController::enableCallSounds()"));
+        QVERIFY(begin >= 0);
+        const int end =
+            code.indexOf(QStringLiteral("\nvoid AppController::"), begin + 1);
+        QVERIFY(end > begin);
+        const QString body = code.mid(begin, end - begin);
+        QVERIFY2(body.contains(QStringLiteral("followOutputChanges("))
+                     && body.contains(QStringLiteral(
+                         "&CallDeviceController::audioOutputsChanged")),
+                 "the call sounds do not follow the device controller's "
+                 "output-change signal");
     }
 
     // The notification chimes are bundled like every other sound, in the same

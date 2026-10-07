@@ -82,9 +82,25 @@ public:
     /// came back. Debounced, because devices flap; then, where the effects
     /// live, each unusable sound is loaded again (and a loop that was lost
     /// resumes) if an output exists. One reload per burst of changes. The
-    /// real constructor connects this to QMediaDevices; tests call it
-    /// directly.
+    /// real constructor connects this to its own QMediaDevices, and
+    /// followOutputChanges() to a signal that is known to arrive.
     void audioOutputsChanged();
+    /// Follow `signal` of `sender` as an output-list change, and answer
+    /// "does any output exist?" with `anyOutput` (GUI thread, asked once per
+    /// burst, when the reload is due). On Windows 2026-10-07 (pipeline 290)
+    /// the device controller's signal fired and rebuilt the call's audio
+    /// while the player's own path never reloaded a cue: either its
+    /// QMediaDevices was not told or the output query on the effects' thread
+    /// came back empty, and that log could not tell which. So AppController
+    /// drives the reload from CallDeviceController::audioOutputsChanged
+    /// through this, with the answer asked on the GUI thread.
+    template <typename Sender, typename Signal>
+    void followOutputChanges(Sender *sender, Signal signal,
+                             std::function<bool()> anyOutput)
+    {
+        m_anyOutput = std::move(anyOutput);
+        connect(sender, signal, this, [this] { audioOutputsChanged(); });
+    }
     /// Test-only: the quiet period a burst must end with, and the most a
     /// burst may hold the reload off.
     void setOutputChangeDebounceForTest(int quietMs, int maxWaitMs)
@@ -95,6 +111,8 @@ public:
     /// Test-only: reloads handed to the effects so far. A ForTest player
     /// counts them and posts nothing, so no sound effect is ever created.
     int soundReloadsForTest() const { return m_soundReloads; }
+    /// Test-only: what the last reload was told about outputs existing.
+    bool lastReloadHadOutputForTest() const { return m_lastReloadAnyOutput; }
 
 private:
     void startEffects(bool offTheGuiThread);
@@ -120,6 +138,10 @@ private:
     int m_outputChangeQuietMs = 1000;
     int m_outputChangeMaxWaitMs = 5000;
     int m_soundReloads = 0;
+    bool m_lastReloadAnyOutput = false;
+    /// Whether any output exists, asked on the GUI thread when a reload is
+    /// due; see followOutputChanges(). Unset: assume one does.
+    std::function<bool()> m_anyOutput;
     /// A ForTest player: never creates a sound effect (see the header).
     bool m_forTest = false;
 };

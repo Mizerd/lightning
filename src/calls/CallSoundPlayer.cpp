@@ -158,14 +158,12 @@ public:
     /// the same URL is a no-op), so canPlay() stayed false for the rest of
     /// the session. Each such sound is replaced by a new effect, and
     /// a sound never loaded (no output at startup) is loaded now. A loop that
-    /// was lost resumes. Returns how many were (re)loaded, or -1 when there
-    /// is still no output to load them for.
+    /// was lost resumes. Whether an output exists was asked on the GUI
+    /// thread (it used to be asked here, from the effects' thread, and a
+    /// stale empty answer there would have skipped the reload without a
+    /// word). Returns how many were (re)loaded.
     int reloadUnusable()
     {
-        // Asked here, where the effects live, not on the GUI thread: asking
-        // the audio backend is exactly what can hang (see route()).
-        if (QMediaDevices::audioOutputs().isEmpty())
-            return -1;
         int reloaded = 0;
         bool loopLost = false;
         for (const QString &sound : kSounds) {
@@ -288,7 +286,10 @@ CallSoundPlayer::CallSoundPlayer(std::function<QString()> callSpeakerId,
     startEffects(kEffectsOffTheGuiThread);
     // Hotplug: an output that went away and came back (or one that appears
     // for the first time) makes the unusable cues loadable again. A
-    // notification from Qt's backend, never a poll.
+    // notification from Qt's backend, never a poll. A fallback only: on
+    // Windows 2026-10-07 this path never reloaded a cue, and AppController
+    // drives the reload through followOutputChanges().
+    m_anyOutput = [] { return !QMediaDevices::audioOutputs().isEmpty(); };
     m_devices = new QMediaDevices(this);
     connect(m_devices, &QMediaDevices::audioOutputsChanged, this,
             &CallSoundPlayer::audioOutputsChanged);
@@ -406,16 +407,21 @@ void CallSoundPlayer::reloadAfterOutputChange()
 {
     m_outputChangeBurstStartMs = -1;
     ++m_soundReloads;
-    if (m_forTest)
+    // Asked here, on the GUI thread, from whatever answered the signal.
+    const bool anyOutput = m_anyOutput ? m_anyOutput() : true;
+    m_lastReloadAnyOutput = anyOutput;
+    // Said every time, so a log tells "never told" from "told, nothing to
+    // do" (the first Windows run could not).
+    qCInfo(lcCallSound) << "call sounds: the audio outputs changed (any="
+                        << anyOutput << ")";
+    if (m_forTest || !anyOutput)
         return;
     post([](CallSoundEffects *effects) {
         const int reloaded = effects->reloadUnusable();
-        if (reloaded > 0) {
-            qCInfo(lcCallSound)
-                << "call sounds re-initialised after an audio output change "
-                   "reloaded="
-                << reloaded;
-        }
+        qCInfo(lcCallSound)
+            << "call sounds re-initialised after an audio output change "
+               "reloaded="
+            << reloaded;
     });
 }
 
