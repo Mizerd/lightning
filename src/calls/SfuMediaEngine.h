@@ -529,6 +529,29 @@ public:
     /// Test-only: every receive-bin rebuild fails, as with no sound server.
     void failReceiveRebuildsForTest(bool fail) { m_failReceiveRebuilds = fail; }
 
+    /// GUI thread: the system's list of audio outputs changed (a headset
+    /// plugged in or out, a Bluetooth sink back, an RDP audio endpoint
+    /// returning). `anyOutput` is whether at least one output exists now.
+    /// Debounced, because devices flap: once the changes have been quiet for
+    /// a moment, every receive chain that gave up on its output gets ONE more
+    /// rebuild, and one still retrying gets one more attempt when its own
+    /// budget runs out. Without this a chain that gave up stayed silent until
+    /// the user left and rejoined, although the device came back (measured on
+    /// Windows 2026-10-07: AUDCLNT_E_DEVICE_INVALIDATED, back a minute later).
+    void notifyAudioOutputsChanged(bool anyOutput = true);
+    /// Test-only: how long the output changes must be quiet before the
+    /// re-arm, and the most a burst may hold it off.
+    void setOutputChangeDebounceForTest(int quietMs, int maxWaitMs)
+    {
+        m_outputChangeQuietMs = quietMs;
+        m_outputChangeMaxWaitMs = maxWaitMs;
+    }
+    /// Test-only: receive-chain rebuilds started in this session, re-armed or
+    /// not.
+    int receiveRebuildAttemptsForTest() const { return m_receiveRebuildAttempts; }
+    /// Test-only: receive chains a changed output list re-armed this session.
+    int receiveRearmsForTest() const { return m_receiveRearms; }
+
     /// Test-only: a property of a named element inside a published bin,
     /// serialized by GStreamer; empty when absent.
     QString publishedBinPropertyForTest(const QString &cid,
@@ -1111,6 +1134,16 @@ private:
         /// across rebuild attempts; -1 when unknown.
         double level = -1.0;
         qint64 lastRebuildMs = 0;
+        /// Every rebuild of the run failed and the engine stopped trying.
+        /// Only a changed output list starts it again; see
+        /// notifyAudioOutputsChanged().
+        bool givenUp = false;
+        /// The output list changed while this chain was still retrying: when
+        /// its own budget runs out it gets one more attempt instead of giving
+        /// up (the change may have landed during an attempt already failing).
+        bool rearmOnGiveUp = false;
+        /// The current attempt was granted by a changed output list.
+        bool rearmed = false;
     };
     QHash<GstPad *, ReceiveBin> m_receiveBins;
     /// Retire the receive bins fed by these transceivers, except the one on
@@ -1161,6 +1194,18 @@ private:
     /// A rebuild job on a GStreamer pool thread; see rebuildReceiveBin().
     static void runRebuildJob(GstElement *pipeline, void *data);
     static constexpr int kMaxReceiveRebuilds = 5;
+    /// GUI thread: the debounced half of notifyAudioOutputsChanged().
+    void rearmReceiveChains();
+    /// Trailing-edge debounce for output-list changes; single shot.
+    QTimer m_outputChangeTimer;
+    /// When the current burst of output changes began; -1 when none is open.
+    qint64 m_outputChangeBurstStartMs = -1;
+    /// What the last change in the burst said about outputs existing.
+    bool m_outputChangeAnyOutput = true;
+    int m_outputChangeQuietMs = 1000;
+    int m_outputChangeMaxWaitMs = 5000;
+    int m_receiveRebuildAttempts = 0;
+    int m_receiveRearms = 0;
     void restartMicrophone(const QString &cid, quint64 generation);
     static constexpr int kMaxMicRestarts = 5;
     QString m_micCid;

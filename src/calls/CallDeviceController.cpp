@@ -63,6 +63,8 @@ void CallDeviceController::ensureBackend() const
             &CallDeviceController::onDeviceListChanged);
     connect(m_devices, &QMediaDevices::audioOutputsChanged, self,
             &CallDeviceController::onDeviceListChanged);
+    connect(m_devices, &QMediaDevices::audioOutputsChanged, self,
+            &CallDeviceController::audioOutputsChanged);
     connect(m_devices, &QMediaDevices::videoInputsChanged, self,
             &CallDeviceController::onDeviceListChanged);
     self->m_lastActiveMic = activeMicrophoneId();
@@ -159,6 +161,12 @@ bool CallDeviceController::hasMicrophone() const
 {
     ensureBackend();
     return !QMediaDevices::audioInputs().isEmpty();
+}
+
+bool CallDeviceController::hasSpeaker() const
+{
+    ensureBackend();
+    return !QMediaDevices::audioOutputs().isEmpty();
 }
 
 bool CallDeviceController::camerasChosenByDesktop() const

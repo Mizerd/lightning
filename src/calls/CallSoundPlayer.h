@@ -31,7 +31,9 @@
 
 #include "calls/CallSoundController.h"
 
+class QMediaDevices;
 class QThread;
+class QTimer;
 class CallSoundEffects;
 struct CallSoundReadiness;
 
@@ -73,6 +75,27 @@ public:
     /// Test-only: mark `sound` loaded without a sound effect.
     void markReadyForTest(const QString &sound);
 
+    /// GUI thread: the list of audio outputs changed. When an output went
+    /// away (measured on Windows 2026-10-07: every cue went to Error on
+    /// AUDCLNT_E_DEVICE_INVALIDATED) nothing moved a cue out of Error, so
+    /// they stayed unusable for the rest of the session although the device
+    /// came back. Debounced, because devices flap; then, where the effects
+    /// live, each unusable sound is loaded again (and a loop that was lost
+    /// resumes) if an output exists. One reload per burst of changes. The
+    /// real constructor connects this to QMediaDevices; tests call it
+    /// directly.
+    void audioOutputsChanged();
+    /// Test-only: the quiet period a burst must end with, and the most a
+    /// burst may hold the reload off.
+    void setOutputChangeDebounceForTest(int quietMs, int maxWaitMs)
+    {
+        m_outputChangeQuietMs = quietMs;
+        m_outputChangeMaxWaitMs = maxWaitMs;
+    }
+    /// Test-only: reloads handed to the effects so far. A ForTest player
+    /// counts them and posts nothing, so no sound effect is ever created.
+    int soundReloadsForTest() const { return m_soundReloads; }
+
 private:
     void startEffects(bool offTheGuiThread);
     /// Run `job` where the effects live, never waiting for it.
@@ -85,4 +108,18 @@ private:
     /// The looping sound, mirrored here so play() can refuse a one-shot of
     /// it without asking the effects' thread.
     QString m_loopSound;
+
+    /// The debounced half of audioOutputsChanged().
+    void reloadAfterOutputChange();
+    /// Only in the real player: Qt's device notifications.
+    QMediaDevices *m_devices = nullptr;
+    /// Trailing-edge debounce for output-list changes; single shot.
+    QTimer *m_outputChangeTimer = nullptr;
+    /// When the current burst began; -1 when none is open.
+    qint64 m_outputChangeBurstStartMs = -1;
+    int m_outputChangeQuietMs = 1000;
+    int m_outputChangeMaxWaitMs = 5000;
+    int m_soundReloads = 0;
+    /// A ForTest player: never creates a sound effect (see the header).
+    bool m_forTest = false;
 };

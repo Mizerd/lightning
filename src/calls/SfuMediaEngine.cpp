@@ -998,6 +998,10 @@ SfuMediaEngine::SfuMediaEngine(QObject *parent)
     m_shareKeepAliveTimer.setSingleShot(false);
     connect(&m_shareKeepAliveTimer, &QTimer::timeout, this,
             &SfuMediaEngine::tickShareKeepAlive);
+    // See notifyAudioOutputsChanged().
+    m_outputChangeTimer.setSingleShot(true);
+    connect(&m_outputChangeTimer, &QTimer::timeout, this,
+            &SfuMediaEngine::rearmReceiveChains);
     QMutexLocker lock(&g_aliveMutex);
     g_aliveEngines.insert(this);
 }
@@ -1102,6 +1106,11 @@ void SfuMediaEngine::teardown(bool endOfCall)
     }
     // Per call; the controller forgets its notice with the call.
     m_playbackFailureAnnounced = false;
+    // A burst of output changes is about this call's chains, which are gone.
+    m_outputChangeTimer.stop();
+    m_outputChangeBurstStartMs = -1;
+    m_receiveRebuildAttempts = 0;
+    m_receiveRearms = 0;
     {
         // The fresh Pulse connection was this call's.
         QMutexLocker lock(&m_receiveBinMutex);
@@ -6957,11 +6966,49 @@ void SfuMediaEngine::scheduleReceiveRebuild(GstPad *pad, quint64 generation)
         attempt = it->rebuilds;
     }
     if (attempt >= kMaxReceiveRebuilds) {
-        // No slow retry after this (review #14, accepted): the notice asks
-        // for a rejoin, which rebuilds everything.
-        qCWarning(lcSfuMedia)
-            << "call diagnosis: gave up rebuilding a receive chain after"
-            << attempt << "attempts; that track stays silent";
+        // No timed retry after this (review #14, accepted). What starts it
+        // again is the output list changing: notifyAudioOutputsChanged().
+        bool rearmNow = false;
+        bool wasRearmed = false;
+        {
+            QMutexLocker lock(&m_receiveBinMutex);
+            auto it = m_receiveBins.find(pad);
+            if (it == m_receiveBins.end())
+                return;
+            wasRearmed = it->rearmed;
+            it->rearmed = false;
+            if (it->rearmOnGiveUp) {
+                // The output list changed while this run was failing, maybe
+                // during the very attempt that just failed: one more.
+                it->rearmOnGiveUp = false;
+                it->rearmed = true;
+                it->rebuilds = kMaxReceiveRebuilds - 1;
+                rearmNow = true;
+            } else {
+                it->givenUp = true;
+            }
+        }
+        if (rearmNow) {
+            ++m_receiveRearms;
+            qCInfo(lcSfuMedia)
+                << "call diagnosis: an audio output was added or removed "
+                   "while a receive chain was failing; one more rebuild "
+                   "before giving up";
+            rebuildReceiveBin(pad, generation);
+            return;
+        }
+        if (wasRearmed) {
+            qCWarning(lcSfuMedia)
+                << "call diagnosis: the rebuild after the audio outputs "
+                   "changed failed too; that track stays silent until an "
+                   "output is added again";
+        } else {
+            qCWarning(lcSfuMedia)
+                << "call diagnosis: gave up rebuilding a receive chain after"
+                << attempt
+                << "attempts; that track stays silent until an audio output "
+                   "is added";
+        }
         if (!m_playbackFailureAnnounced) {
             m_playbackFailureAnnounced = true;
             Q_EMIT remotePlaybackFailed(true);
@@ -6973,6 +7020,77 @@ void SfuMediaEngine::scheduleReceiveRebuild(GstPad *pad, quint64 generation)
     QTimer::singleShot(delay, this, [this, pad, generation] {
         rebuildReceiveBin(pad, generation);
     });
+}
+
+void SfuMediaEngine::notifyAudioOutputsChanged(bool anyOutput)
+{
+    // GUI thread, from a device notification (QMediaDevices). Never asks the
+    // audio backend anything itself: enumerating devices can block
+    // (gst_device_monitor_start() is synchronous and unbounded), and the
+    // rebuild that follows decides on a pool thread whether an output opens.
+    if (!m_active)
+        return;
+    m_outputChangeAnyOutput = anyOutput;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_outputChangeBurstStartMs < 0)
+        m_outputChangeBurstStartMs = now;
+    // Trailing edge: devices flap (a USB headset re-enumerates, a Bluetooth
+    // sink appears before its profile is up), so wait for the changes to go
+    // quiet. A burst that never goes quiet is still answered, once, after
+    // the longest wait.
+    const qint64 waited = now - m_outputChangeBurstStartMs;
+    const qint64 left = qMax<qint64>(0, m_outputChangeMaxWaitMs - waited);
+    m_outputChangeTimer.start(
+        static_cast<int>(qMin<qint64>(m_outputChangeQuietMs, left)));
+}
+
+void SfuMediaEngine::rearmReceiveChains()
+{
+    m_outputChangeBurstStartMs = -1;
+    if (!m_active || !m_subscriber.pipeline)
+        return;
+    const bool anyOutput = m_outputChangeAnyOutput;
+    const quint64 generation = m_generation.load();
+    QList<GstPad *> rearm;
+    int stillRetrying = 0;
+    {
+        QMutexLocker lock(&m_receiveBinMutex);
+        for (auto it = m_receiveBins.begin(); it != m_receiveBins.end(); ++it) {
+            // Playing, or a video chain (an appsink has no device to lose).
+            if (it->isolateProbe == 0 || it->kind == QLatin1String("video"))
+                continue;
+            // No output at all (the device just went): nothing can open, and
+            // the change that brings one back re-arms these.
+            if (!anyOutput)
+                continue;
+            if (!it->givenUp) {
+                // Still inside its own budget; it retries anyway, and gets one
+                // more attempt if that runs out (the change may have landed
+                // while an attempt that will fail was already out).
+                it->rearmOnGiveUp = true;
+                ++stillRetrying;
+                continue;
+            }
+            if (it->rebuilding)
+                continue;
+            // One attempt: rebuildReceiveBin() takes the count to the budget,
+            // so a failure gives up again at once and waits for the next
+            // change rather than starting another 16 s run.
+            it->givenUp = false;
+            it->rearmed = true;
+            it->rebuilds = kMaxReceiveRebuilds - 1;
+            rearm.append(it.key());
+        }
+    }
+    if (rearm.isEmpty() && stillRetrying == 0)
+        return;
+    qCInfo(lcSfuMedia) << "call diagnosis: the audio outputs changed (any="
+                       << anyOutput << "); rebuilding" << rearm.size()
+                       << "silent receive chain(s)," << stillRetrying
+                       << "still retrying";
+    m_receiveRearms += static_cast<int>(rearm.size());
+    for (GstPad *pad : std::as_const(rearm))
+        rebuildReceiveBin(pad, generation);
 }
 
 namespace {
@@ -7126,11 +7244,13 @@ void SfuMediaEngine::rebuildReceiveBin(GstPad *pad, quint64 generation)
         // Kept in the map, marked: a retire while the job runs removes it,
         // and the job's bin is then discarded rather than re-inserted.
         it->rebuilding = true;
+        it->givenUp = false;
         it->rebuilds += 1;
         it->lastRebuildMs = QDateTime::currentMSecsSinceEpoch();
         entry = it.value();
         it->bin = nullptr;
     }
+    ++m_receiveRebuildAttempts;
     const QString volumeName =
         outputVolumeElementName(volumeKeyFor(entry.streamId, entry.trackKey));
     // Which output failed. pulsesink shares one server connection per client
@@ -7268,12 +7388,16 @@ void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
             return;
         }
         it->rebuilding = false;
+        entry = it.value();
         if (ok) {
             it->bin = bin;
             probe = it->isolateProbe;
             it->isolateProbe = 0;
+            // The run is over; a later failure starts a fresh one.
+            it->rearmed = false;
+            it->rearmOnGiveUp = false;
+            it->givenUp = false;
         }
-        entry = it.value();
     }
     if (!ok) {
         qCWarning(lcSfuMedia) << "receive chain rebuild" << entry.rebuilds
@@ -7330,6 +7454,12 @@ void SfuMediaEngine::finishReceiveRebuild(GstPad *pad, quint64 generation,
                                ? QStringLiteral("")
                                : QStringLiteral("on a new Pulse connection"))
                        << "); waiting for it to render";
+    if (entry.rearmed) {
+        qCInfo(lcSfuMedia)
+            << "call diagnosis: receive chain restored after device returned "
+               "stream="
+            << entry.streamId << "output=" << outputName;
+    }
     if (m_playbackFailureAnnounced) {
         bool anyStillFailed = false;
         {

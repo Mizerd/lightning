@@ -4,6 +4,7 @@
 
 #include <QAudioDevice>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QLoggingCategory>
@@ -12,6 +13,7 @@
 #include <QSet>
 #include <QSoundEffect>
 #include <QThread>
+#include <QTimer>
 #include <QUrl>
 
 #include <atomic>
@@ -143,10 +145,56 @@ public:
         if (!e)
             return;
         m_loopSound = sound;
+        m_loopGain = gain;
+        m_loopDevice = device;
         route(e, device);
         e->setLoopCount(QSoundEffect::Infinite);
         e->setVolume(gain);
         e->play();
+    }
+
+    /// After the output list changed. A QSoundEffect whose output went away
+    /// sits in Error, and nothing here ever moved it out (setSource() with
+    /// the same URL is a no-op), so canPlay() stayed false for the rest of
+    /// the session. Each such sound is replaced by a new effect, and
+    /// a sound never loaded (no output at startup) is loaded now. A loop that
+    /// was lost resumes. Returns how many were (re)loaded, or -1 when there
+    /// is still no output to load them for.
+    int reloadUnusable()
+    {
+        // Asked here, where the effects live, not on the GUI thread: asking
+        // the audio backend is exactly what can hang (see route()).
+        if (QMediaDevices::audioOutputs().isEmpty())
+            return -1;
+        int reloaded = 0;
+        bool loopLost = false;
+        for (const QString &sound : kSounds) {
+            QSoundEffect *old = m_effects.value(sound);
+            if (old && old->status() != QSoundEffect::Error)
+                continue;
+            if (old) {
+                // Its status must no longer reach the readiness set: the new
+                // effect's does.
+                QObject::disconnect(old, nullptr, this, nullptr);
+                m_effects.remove(sound);
+                old->stop();
+                old->deleteLater();
+                loopLost = loopLost || sound == m_loopSound;
+            }
+            effect(sound);
+            ++reloaded;
+        }
+        if (loopLost) {
+            if (QSoundEffect *e = m_effects.value(m_loopSound)) {
+                route(e, m_loopDevice);
+                e->setLoopCount(QSoundEffect::Infinite);
+                e->setVolume(m_loopGain);
+                // Played once loaded: QSoundEffect queues a play() that
+                // arrives while it is still loading.
+                e->play();
+            }
+        }
+        return reloaded;
     }
 
     void stopAll()
@@ -207,6 +255,8 @@ private:
     std::shared_ptr<CallSoundReadiness> m_readiness;
     QHash<QString, QSoundEffect *> m_effects;
     QString m_loopSound;
+    float m_loopGain = 1.0f;
+    QString m_loopDevice;
 };
 
 const QStringList &CallSoundPlayer::knownSounds()
@@ -236,6 +286,12 @@ CallSoundPlayer::CallSoundPlayer(std::function<QString()> callSpeakerId,
     , m_readiness(std::make_shared<CallSoundReadiness>())
 {
     startEffects(kEffectsOffTheGuiThread);
+    // Hotplug: an output that went away and came back (or one that appears
+    // for the first time) makes the unusable cues loadable again. A
+    // notification from Qt's backend, never a poll.
+    m_devices = new QMediaDevices(this);
+    connect(m_devices, &QMediaDevices::audioOutputsChanged, this,
+            &CallSoundPlayer::audioOutputsChanged);
     // No output device (a headless session, a CI container): nothing can
     // play, so skip the preload. canPlay() stays false and the ringer falls
     // back to the desktop's sound; a later play() creates its effect lazily.
@@ -280,11 +336,16 @@ CallSoundPlayer::CallSoundPlayer(ForTest, bool offTheGuiThread)
 {
     // No preload: a test must never create a sound effect on a thread Qt
     // 6.10+ does not allow; see the header.
+    m_forTest = true;
     startEffects(offTheGuiThread);
 }
 
 void CallSoundPlayer::startEffects(bool offTheGuiThread)
 {
+    m_outputChangeTimer = new QTimer(this);
+    m_outputChangeTimer->setSingleShot(true);
+    connect(m_outputChangeTimer, &QTimer::timeout, this,
+            &CallSoundPlayer::reloadAfterOutputChange);
     m_readiness->clock.start();
     m_effects = new CallSoundEffects(m_readiness);
     if (offTheGuiThread) {
@@ -326,6 +387,36 @@ void CallSoundPlayer::post(std::function<void(CallSoundEffects *)> job)
 void CallSoundPlayer::postForTest(std::function<void()> job)
 {
     post([job = std::move(job)](CallSoundEffects *) { job(); });
+}
+
+void CallSoundPlayer::audioOutputsChanged()
+{
+    // Trailing edge: wait for the changes to go quiet, but answer a burst
+    // that never does once, after the longest wait.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_outputChangeBurstStartMs < 0)
+        m_outputChangeBurstStartMs = now;
+    const qint64 left = qMax<qint64>(
+        0, m_outputChangeMaxWaitMs - (now - m_outputChangeBurstStartMs));
+    m_outputChangeTimer->start(
+        static_cast<int>(qMin<qint64>(m_outputChangeQuietMs, left)));
+}
+
+void CallSoundPlayer::reloadAfterOutputChange()
+{
+    m_outputChangeBurstStartMs = -1;
+    ++m_soundReloads;
+    if (m_forTest)
+        return;
+    post([](CallSoundEffects *effects) {
+        const int reloaded = effects->reloadUnusable();
+        if (reloaded > 0) {
+            qCInfo(lcCallSound)
+                << "call sounds re-initialised after an audio output change "
+                   "reloaded="
+                << reloaded;
+        }
+    });
 }
 
 void CallSoundPlayer::markReadyForTest(const QString &sound)

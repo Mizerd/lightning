@@ -6356,6 +6356,214 @@ private slots:
         receiver.stop();
     }
 
+    // Measured live on Windows 2026-10-07: the audio endpoint went away
+    // (AUDCLNT_E_DEVICE_INVALIDATED), five rebuilds failed in 16 s, the chain
+    // gave up, and when the device came back a minute later nothing tried
+    // again: silent until leave and rejoin. A changed output list must
+    // rebuild a given-up chain, ONCE for a whole burst of changes, and the
+    // notice must be withdrawn when it plays again.
+    void aGivenUpReceiveChainIsRebuiltWhenAnOutputReturns()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        receiver.setReceiveRebuildDelayForTest(20);
+        receiver.setOutputChangeDebounceForTest(200, 2000);
+        receiver.failReceiveRebuildsForTest(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        QSignalSpy lost(&receiver, &SfuMediaEngine::remotePlaybackFailed);
+
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.contains(QStringLiteral("first")),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        GstElement *firstSink =
+            firstSinkOf(receiver.receiveBinForTest(QStringLiteral("first")));
+        QVERIFY(firstSink);
+        failLikeADisconnectedSoundServer(firstSink);
+
+        // The whole budget fails, as with the endpoint gone, and it gives up.
+        QTRY_COMPARE_WITH_TIMEOUT(lost.count(), 1, 10000);
+        QCOMPARE(lost.at(0).at(0).toBool(), true);
+        const int atGiveUp = receiver.receiveRebuildAttemptsForTest();
+        QCOMPARE(atGiveUp, 5);
+        QVERIFY(receiver.receiveBinForTest(QStringLiteral("first")) == nullptr);
+        // Nothing retries by itself.
+        QTest::qWait(800);
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), atGiveUp);
+
+        // The output comes back, announced as a burst (a device
+        // re-enumerating says "changed" several times).
+        receiver.failReceiveRebuildsForTest(false);
+        for (int i = 0; i < 4; ++i) {
+            receiver.notifyAudioOutputsChanged(true);
+            QTest::qWait(50);
+        }
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.receiveBinForTest(QStringLiteral("first")) != nullptr,
+            "a given-up receive chain was not rebuilt when an audio output "
+            "came back",
+            10000);
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), atGiveUp + 1);
+        QCOMPARE(receiver.receiveRearmsForTest(), 1);
+        std::atomic<int> again{0};
+        GstElement *rebuiltSink =
+            firstSinkOf(receiver.receiveBinForTest(QStringLiteral("first")));
+        QVERIFY(rebuiltSink);
+        countBuffersAt(rebuiltSink, &again);
+        QTRY_VERIFY_WITH_TIMEOUT(again.load() > 20, 10000);
+        // The "Call audio stopped" notice is withdrawn.
+        QTRY_COMPARE_WITH_TIMEOUT(lost.count(), 2, 5000);
+        QCOMPARE(lost.at(1).at(0).toBool(), false);
+
+        // A later change leaves a playing chain alone.
+        receiver.notifyAudioOutputsChanged(true);
+        QTest::qWait(600);
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), atGiveUp + 1);
+        QCOMPARE(receiver.receiveRearmsForTest(), 1);
+        QCOMPARE(receiver.receiveBinsForTest(), 1);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // The bound: an output list saying nothing exists rebuilds nothing, and
+    // a burst of changes after which the output still will not open costs
+    // exactly ONE attempt and no second notice, then waits for the next
+    // burst instead of starting another run of retries.
+    void aReturningOutputThatStillFailsCostsOneAttemptPerBurst()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        receiver.setReceiveRebuildDelayForTest(20);
+        receiver.setOutputChangeDebounceForTest(200, 2000);
+        receiver.failReceiveRebuildsForTest(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        QSignalSpy lost(&receiver, &SfuMediaEngine::remotePlaybackFailed);
+
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.contains(QStringLiteral("first")),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        GstElement *firstSink =
+            firstSinkOf(receiver.receiveBinForTest(QStringLiteral("first")));
+        QVERIFY(firstSink);
+        failLikeADisconnectedSoundServer(firstSink);
+        QTRY_COMPARE_WITH_TIMEOUT(lost.count(), 1, 10000);
+        const int atGiveUp = receiver.receiveRebuildAttemptsForTest();
+        QCOMPARE(atGiveUp, 5);
+
+        // The device went: no output exists, so nothing is attempted.
+        for (int i = 0; i < 3; ++i) {
+            receiver.notifyAudioOutputsChanged(false);
+            QTest::qWait(50);
+        }
+        QTest::qWait(600);
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), atGiveUp);
+        QCOMPARE(receiver.receiveRearmsForTest(), 0);
+
+        // One appears and still will not open: one attempt for the burst.
+        for (int i = 0; i < 4; ++i) {
+            receiver.notifyAudioOutputsChanged(true);
+            QTest::qWait(50);
+        }
+        QTRY_COMPARE_WITH_TIMEOUT(receiver.receiveRebuildAttemptsForTest(),
+                                  atGiveUp + 1, 5000);
+        QTest::qWait(800);
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), atGiveUp + 1);
+        QCOMPARE(lost.count(), 1);
+        QVERIFY(receiver.receiveBinForTest(QStringLiteral("first")) == nullptr);
+
+        // The next burst gets one more, and still no second notice.
+        receiver.notifyAudioOutputsChanged(true);
+        QTRY_COMPARE_WITH_TIMEOUT(receiver.receiveRebuildAttemptsForTest(),
+                                  atGiveUp + 2, 5000);
+        QTest::qWait(800);
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), atGiveUp + 2);
+        QCOMPARE(receiver.receiveRearmsForTest(), 2);
+        QCOMPARE(lost.count(), 1);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // A change that lands while the chain is still inside its own budget
+    // (maybe during an attempt that was already failing) buys exactly one
+    // attempt more when that budget runs out, then the usual single notice.
+    void anOutputChangeDuringTheRetriesBuysOneMoreAttempt()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        // 150+300+600+1200+2400 ms: room for a change in the middle.
+        receiver.setReceiveRebuildDelayForTest(150);
+        receiver.setOutputChangeDebounceForTest(100, 1000);
+        receiver.failReceiveRebuildsForTest(true);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+        QSignalSpy lost(&receiver, &SfuMediaEngine::remotePlaybackFailed);
+
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            arrived.contains(QStringLiteral("first")),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        GstElement *firstSink =
+            firstSinkOf(receiver.receiveBinForTest(QStringLiteral("first")));
+        QVERIFY(firstSink);
+        failLikeADisconnectedSoundServer(firstSink);
+        QTRY_VERIFY_WITH_TIMEOUT(receiver.receiveRebuildAttemptsForTest() >= 1,
+                                 5000);
+        receiver.notifyAudioOutputsChanged(true);
+        QTest::qWait(300);
+        QVERIFY2(receiver.receiveRebuildAttemptsForTest() < 5,
+                 "the change landed after the budget ran out; the test's "
+                 "timing no longer exercises the in-budget case");
+        QCOMPARE(receiver.receiveRearmsForTest(), 0);
+
+        QTRY_COMPARE_WITH_TIMEOUT(lost.count(), 1, 15000);
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), 6);
+        QCOMPARE(receiver.receiveRearmsForTest(), 1);
+        QTest::qWait(800);
+        QCOMPARE(receiver.receiveRebuildAttemptsForTest(), 6);
+        QCOMPARE(lost.count(), 1);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+    }
+
     // webrtcbin never removes a receiving src pad (it has no pad-removed for
     // them at all in 1.28), so a track the far end retires kept its receive
     // bin and its audio output for the rest of the call: measured live as one

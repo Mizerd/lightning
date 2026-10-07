@@ -74,6 +74,9 @@ public:
     /// Without a microphone the app still joins, receive-only.
     bool hasMicrophone() const;
     bool hasCamera() const;
+    /// At least one audio output exists. Answered from Qt's device list,
+    /// which the backend keeps current; for audioOutputsChanged() listeners.
+    bool hasSpeaker() const;
 
     /// Empty selects "system default", stored as such rather than as the
     /// currently resolved id.
@@ -108,6 +111,11 @@ Q_SIGNALS:
     void selectionChanged();
     /// The active device changed in a way a live call must follow.
     void activeDevicesChanged();
+    /// The list of audio OUTPUTS changed: one was added or removed (a
+    /// headset, a Bluetooth sink, a remote-desktop audio endpoint). Emitted
+    /// even when the default did not move, because a call whose output
+    /// failed must try again when one comes back.
+    void audioOutputsChanged();
 
 private Q_SLOTS:
     void onDeviceListChanged();

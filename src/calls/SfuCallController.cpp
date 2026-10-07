@@ -2157,9 +2157,9 @@ void SfuCallController::onRemotePlaybackFailed(bool failed)
 
 QString SfuCallController::playbackLostNotice()
 {
-    return tr("Call audio stopped: this computer's sound output disconnected "
-              "and could not be reopened. Leave and rejoin the call to hear "
-              "it again.");
+    return tr("Call audio stopped: this computer's sound output disconnected. "
+              "It resumes when an output is available again; if it does not, "
+              "leave and rejoin the call.");
 }
 
 bool SfuCallController::withdrawNotice(const QString &notice)

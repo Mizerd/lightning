@@ -4,6 +4,7 @@
 // created here, so no audio device is needed.
 #include "calls/CallSoundPlayer.h"
 
+#include <QElapsedTimer>
 #include <QFile>
 #include <QLoggingCategory>
 #include <QSemaphore>
@@ -59,6 +60,48 @@ private slots:
         QVERIFY(ran);
         player.markReadyForTest(QStringLiteral("ring"));
         QVERIFY(player.canPlay(QStringLiteral("ring")));
+    }
+
+    // Measured live on Windows 2026-10-07: the audio endpoint went away, every
+    // cue went to Error ("call sound unusable"), and when the device came
+    // back nothing reloaded them, so the ringer stayed on the desktop's sound
+    // for the rest of the session. A changed output list must reload them,
+    // once per burst of changes (devices flap), and a burst that never goes
+    // quiet must still be answered.
+    void aChangedOutputListReloadsTheCuesOncePerBurst()
+    {
+        CallSoundPlayer player(CallSoundPlayer::ForTest{},
+                               /*offTheGuiThread=*/false);
+        player.setOutputChangeDebounceForTest(150, 600);
+        QCOMPARE(player.soundReloadsForTest(), 0);
+
+        // A burst: one reload, after it goes quiet.
+        for (int i = 0; i < 5; ++i) {
+            player.audioOutputsChanged();
+            QTest::qWait(30);
+        }
+        QCOMPARE(player.soundReloadsForTest(), 0);
+        QTRY_COMPARE_WITH_TIMEOUT(player.soundReloadsForTest(), 1, 2000);
+        QTest::qWait(400);
+        QCOMPARE(player.soundReloadsForTest(), 1);
+
+        // The next change is a new burst.
+        player.audioOutputsChanged();
+        QTRY_COMPARE_WITH_TIMEOUT(player.soundReloadsForTest(), 2, 2000);
+
+        // Changes every 100 ms for 1.5 s never go quiet for 150 ms, and are
+        // still answered: at the longest wait, then again.
+        QElapsedTimer flapping;
+        flapping.start();
+        while (flapping.elapsed() < 1500) {
+            player.audioOutputsChanged();
+            QTest::qWait(100);
+        }
+        QVERIFY2(player.soundReloadsForTest() >= 3,
+                 "a burst that never went quiet was never answered");
+        QVERIFY2(player.soundReloadsForTest() <= 5,
+                 qPrintable(QStringLiteral("%1 reloads for 1.5 s of flapping")
+                                .arg(player.soundReloadsForTest() - 2)));
     }
 
     // The notification chimes are bundled like every other sound, in the same
