@@ -3794,3 +3794,14 @@ not traced); once a SIGSEGV in the KDE runtime's libgstpipewire.so (+0x1f403,
 PipeWire main-loop thread) right after the daemon closed both captures. Only a
 daemon restart during a share triggers either. Evidence:
 /mnt/storage/scratch/fp-rc/logs/r3-*.log, Tasks/2026-10-07-fp-rc.md (round 3).
+
+### Sustained disk writes from the SDK after start (2026-10-07, to investigate)
+
+Rokas's matrix.org account, 1-2 min after start: ~1.5 MB/s written, 169 MiB in
+under 2 min, all on the SDK threads (`lightning-sdk`, `tokio-rt-worker`). The
+crypto store's WAL grew ~40 KB/s (rewritten on checkpoint), the state WAL a
+little; the search index and event cache were idle. Likely first-sync key and
+device tracking, NOT confirmed: measure again after catch-up (more than 10
+min), and if writes stay high, attribute per file (needs ptrace, which
+yama scope 1 blocks: use bpftrace or an opt-in SQLite trace) and compare with
+the smetonis.net account.
