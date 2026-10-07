@@ -31,12 +31,12 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+159"/>
+        <location line="+193"/>
         <source>Sign out</source>
         <translation>Выйти</translation>
     </message>
     <message>
-        <location line="-205"/>
+        <location line="-239"/>
         <source>Edit status…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -108,12 +108,12 @@
     </message>
     <message>
         <location line="+15"/>
-        <location line="+76"/>
+        <location line="+110"/>
         <source>Cancel</source>
         <translation>Отмена</translation>
     </message>
     <message>
-        <location line="-69"/>
+        <location line="-103"/>
         <source>Remove</source>
         <translation>Удалить</translation>
     </message>
@@ -132,8 +132,26 @@
         <source>You will be signed out of this session. Lightning&apos;s local data for this account is removed from this computer; your messages stay on the server, and encrypted history may need your recovery key after the next sign-in.</source>
         <translation>Вы выйдете из этого сеанса. Локальные данные Lightning для этой учётной записи будут удалены с этого компьютера; ваши сообщения останутся на сервере, а для зашифрованной истории после следующего входа может понадобиться ключ восстановления.</translation>
     </message>
+    <message numerus="yes">
+        <location line="+19"/>
+        <source>%n of your chat backgrounds is not saved on your homeserver yet. Signing out now deletes it from this device.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+17"/>
+        <source>%n chat background you removed is still on your homeserver and comes back when you sign in again.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+23"/>
+        <location line="+21"/>
         <source>Confirm sign out</source>
         <translation>Подтвердить выход</translation>
     </message>
@@ -424,7 +442,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5582"/>
+        <location filename="../src/app/AppController.cpp" line="+5593"/>
         <source>Room invitation</source>
         <translation>Приглашение в комнату</translation>
     </message>
@@ -439,7 +457,7 @@
         <translation>Вас пригласили в %1</translation>
     </message>
     <message>
-        <location line="-4404"/>
+        <location line="-4415"/>
         <source>Incoming voice call</source>
         <translation>Входящий голосовой вызов</translation>
     </message>
@@ -512,13 +530,13 @@
     <message>
         <location line="+1"/>
         <location line="+49"/>
-        <location line="+3091"/>
-        <location line="+714"/>
+        <location line="+3102"/>
+        <location line="+715"/>
         <source>Not connected</source>
         <translation>Нет подключения</translation>
     </message>
     <message>
-        <location line="-3851"/>
+        <location line="-3863"/>
         <source>Connecting…</source>
         <translation>Подключение…</translation>
     </message>
@@ -591,12 +609,12 @@
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2790"/>
+        <location line="+2801"/>
         <source>Not signed in.</source>
         <translation>Вход не выполнен.</translation>
     </message>
     <message>
-        <location line="-2788"/>
+        <location line="-2799"/>
         <source>Room-key import failed.</source>
         <translation>Не удалось импортировать ключи комнат.</translation>
     </message>
@@ -811,7 +829,7 @@
         <translation>Очистка локальных данных этого устройства не решит проблему и уничтожит ключи шифрования, которые вам ещё нужны.</translation>
     </message>
     <message>
-        <location line="+408"/>
+        <location line="+419"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -857,14 +875,14 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+280"/>
+        <location line="+281"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+373"/>
-        <location filename="../src/app/AppController.cpp" line="-1094"/>
-        <location line="+824"/>
+        <location filename="../src/app/AppController.cpp" line="-1106"/>
+        <location line="+835"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1113,6 +1131,64 @@
     <message>
         <location line="+8"/>
         <source>That is not a server address. Enter one like matrix.org.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>BackgroundSyncPrompt</name>
+    <message>
+        <location filename="../qml/BackgroundSyncPrompt.qml" line="+78"/>
+        <source>Chat backgrounds on your homeserver</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Two different backgrounds</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>Lightning will now keep your chat backgrounds on your homeserver, encrypted, so they follow you to your other devices. The key to each picture is kept in your account data, which your homeserver&apos;s administrator can read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>A different background for every room came from your other device.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A different background for %1 came from your other device.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>a room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>They look the same.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>OK</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Use this one</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Don&apos;t keep them on my homeserver</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Use the synced one</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -2674,7 +2750,164 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+29"/>
+        <source>the server is limiting requests</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>the server could not be reached</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>a picture is too large for the server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>the server refused it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>a newer version of Lightning saved it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>it was turned off on another device</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>you have your own background in too many rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>your homeserver could not be read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>a saved picture could not be used</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>error: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>Keep my backgrounds on my homeserver</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Your own backgrounds then follow you to your other devices and come back when you sign in again. The server stores each picture encrypted, but the key is kept in your account data, which your homeserver&apos;s administrator can read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+27"/>
+        <source>Saving %n background(s) on your homeserver…</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>Fetching %n background(s) from your homeserver…</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Checking your homeserver…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Removing your backgrounds from your homeserver…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>%n background(s) could not be saved on or fetched from your homeserver (%1).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Removed from your homeserver. Your other devices keep their own copies until you remove them there. The encrypted pictures already uploaded stay in its media storage, which offers no way to delete them; without the key they cannot be viewed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>%1 removed from your homeserver, %2 could not be (a room you left, or saved by a newer Lightning). Your other devices keep their own copies.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Nothing could be removed from your homeserver.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Off on this device, but your homeserver could not be told yet (%1); Lightning keeps trying.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Your backgrounds stay on this device only, and are deleted when you sign out. This applies to all your devices. Turning it on again puts the pictures this device has back on your homeserver.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Retry</source>
+        <translation type="unfinished">Повторить</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Retry removal</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Stop keeping backgrounds on your homeserver?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>This turns it off on all your devices. Your backgrounds stay on this device until you sign out. You can also remove the copies on your homeserver; your other devices keep the pictures they already have until you remove them there. The encrypted pictures themselves cannot be deleted from the server&apos;s media storage, but without the key they cannot be viewed. Turning it on again later puts each device&apos;s pictures back on your homeserver.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Отмена</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Keep server copies</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Remove server copies</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+29"/>
         <source>Show backgrounds set by others</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6971,7 +7204,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Наклейку не удалось сохранить.</translation>
     </message>
     <message>
-        <location line="+160"/>
+        <location line="+168"/>
         <location line="+16"/>
         <source>Connected</source>
         <translation>Подключено</translation>
@@ -12697,12 +12930,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+53"/>
-        <location line="+2458"/>
+        <location line="+2567"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>Lightning не смог полностью сбросить локальный сеанс этой учётной записи. Проверьте журналы приложения и права доступа к файловой системе, затем повторите попытку.</translation>
     </message>
     <message>
-        <location line="-2474"/>
+        <location line="-2583"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Локальный сеанс Lightning пересоздан. Предыдущее хранилище шифрования отложено в сторону, а не удалено, и по-прежнему находится в каталоге данных этой учётной записи. Вы можете войти снова.</translation>
     </message>
@@ -12715,7 +12948,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+206"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+3957"/>
+        <location line="+4066"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -12724,29 +12957,29 @@ Signing out and signing in again is the only fix.</source>
         <translation>Вход не выполнен.</translation>
     </message>
     <message>
-        <location line="-4355"/>
+        <location line="-4464"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+4149"/>
+        <location line="+4258"/>
         <source>Unknown room: %1</source>
         <translation>Неизвестная комната: %1</translation>
     </message>
     <message>
-        <location line="-4357"/>
+        <location line="-4466"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Пока нельзя отправлять в зашифрованные комнаты: зашифрованная отправка Rust SDK не проверена.</translation>
     </message>
     <message>
-        <location line="+595"/>
-        <location line="+2305"/>
+        <location line="+689"/>
+        <location line="+2320"/>
         <location line="+54"/>
         <source>The sticker could not be sent.</source>
         <translation>Наклейку не удалось отправить.</translation>
     </message>
     <message>
-        <location line="-1132"/>
+        <location line="-1147"/>
         <source>Lightning cannot send that yet.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12756,7 +12989,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+202"/>
+        <location line="+217"/>
         <source>Local Lightning session reset. You can sign in again.</source>
         <translation>Локальный сеанс Lightning сброшен. Вы можете войти снова.</translation>
     </message>
@@ -12828,7 +13061,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5028"/>
+        <location line="-5137"/>
         <source>Enter your username.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12843,7 +13076,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5020"/>
+        <location line="+5129"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Не удалось отправить сообщение. Можно повторить через действие «Повторить» у сообщения.</translation>
     </message>
