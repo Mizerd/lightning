@@ -930,11 +930,29 @@ Item {
     // applies instead of the identity inks.
     readonly property bool replyOnOwnBubble:
         bubbleMode && model.isOwn === true
+    // Secondary ink for anything drawn ON an own bubble (caption, quoted body,
+    // status line). The page's secondary inks are tuned for the page, and on
+    // the accent fill they fall to ~1:1 on the light presets (#25). Derived
+    // from ownBubbleText, so a custom theme with a light bubble and dark ink
+    // stays readable; 0.85 keeps >= 4.5:1 on every preset (Moss Light, the
+    // tightest, is 4.98; message-rail-collision asserts it on all eleven).
+    readonly property bool drawsOnOwnBubble: bubbleMode && model.isOwn === true
+    readonly property color ownBubbleSecondaryInk:
+        Qt.alpha(AppTheme.ownBubbleText, 0.85)
+    // A media caption is quieter than a message body: textSecondary on the
+    // page, the bubble's secondary ink on an own bubble.
+    readonly property color captionInk:
+        drawsOnOwnBubble ? ownBubbleSecondaryInk : AppTheme.textSecondary
+    // The row's inline action links (Retry, Cancel, Retry decryption): the
+    // page's link blue is ~1:1 on several own-bubble fills, so on a bubble
+    // they take its ink and stay links by their underline.
+    readonly property color inlineLinkInk:
+        drawsOnOwnBubble ? AppTheme.ownBubbleText : AppTheme.link
     readonly property color replySenderInk:
         replyOnOwnBubble ? AppTheme.ownBubbleText
                          : AppTheme.userColor(replySenderKey)
     readonly property color replyBodyInk:
-        replyOnOwnBubble ? AppTheme.onAccentMuted : AppTheme.textSecondary
+        replyOnOwnBubble ? ownBubbleSecondaryInk : AppTheme.textSecondary
 
     // Read-receipt rail clearance. The facepile paints upward from the row's
     // bottom at the row's right margin; on a narrow pane it would land on the
@@ -1732,7 +1750,12 @@ Item {
                                       || root.replyKindLabel()
                                       || qsTr("(original message not loaded)")
                                 color: root.replyBodyInk
-                                opacity: replyHover.hovered ? 1.0 : 0.85
+                                // No resting fade on an own bubble: the ink
+                                // is already de-emphasised, and a second
+                                // 0.85 took it under 4.5:1 on Moss Light
+                                // and Purple Dusk.
+                                opacity: replyHover.hovered
+                                         || root.replyOnOwnBubble ? 1.0 : 0.85
                                 Behavior on opacity { NumberAnimation { duration: 90 } }
                                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                                 elide: Label.ElideRight
@@ -1904,10 +1927,14 @@ Item {
                                         root.searchHighlight,
                                         root.isCurrentSearchHit)
                         }
+                        // The bubble decides the ink family before the row's
+                        // kind picks a weight: a page ink on an own bubble's
+                        // accent fill is unreadable (#25).
                         color: model.undecryptable === true
-                               ? AppTheme.muted
-                               : bodyLabel.isMediaCaption ? AppTheme.textSecondary
-                               : root.bubbleMode && model.isOwn === true
+                               ? (root.drawsOnOwnBubble
+                                  ? root.ownBubbleSecondaryInk : AppTheme.muted)
+                               : bodyLabel.isMediaCaption ? root.captionInk
+                               : root.drawsOnOwnBubble
                                  ? AppTheme.ownBubbleText : AppTheme.text
                         // TextEdit does not inherit the Controls font. A whole
                         // font so the colour emoji face is a real per-character
@@ -2079,8 +2106,10 @@ Item {
                                             // Same ink, font, scaling and interaction
                                             // as the single-body path. Big emoji
                                             // cannot occur with a fenced block.
-                                            color: root.bubbleMode
-                                                   && segmentsLoader.ownMessage
+                                            color: root.mediaCaptionBody
+                                                   ? root.captionInk
+                                                   : root.bubbleMode
+                                                     && segmentsLoader.ownMessage
                                                    ? AppTheme.ownBubbleText
                                                    : AppTheme.text
                                             font.family: AppTheme.uiFont
@@ -2180,14 +2209,16 @@ Item {
                                     return qsTr("Key withheld by sender")
                                 return qsTr("Waiting for keys…")
                             }
-                            color: AppTheme.textMuted
+                            color: root.drawsOnOwnBubble
+                                   ? root.ownBubbleSecondaryInk
+                                   : AppTheme.textMuted
                             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             font.italic: true
                         }
                         // Inline text links use AppTheme.link, not accent.
                         Label {
                             text: qsTr("Retry decryption")
-                            color: AppTheme.link
+                            color: root.inlineLinkInk
                             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             font.underline: true
                             MouseArea {
@@ -2199,7 +2230,7 @@ Item {
                         }
                         Label {
                             text: qsTr("Security settings")
-                            color: AppTheme.link
+                            color: root.inlineLinkInk
                             font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                             font.underline: true
                             MouseArea {
@@ -2341,6 +2372,7 @@ Item {
                                     || model.edited === true
                             visible: active
                             sourceComponent: Label {
+                                objectName: "messageStatusText"
                                 text: {
                                     var ts = Qt.formatDateTime(
                                         model.timestamp,
@@ -2363,9 +2395,8 @@ Item {
                                     if (model.edited) return qsTr("(edited)")
                                     return ""
                                 }
-                                color: root.bubbleMode
-                                       && model.isOwn === true
-                                       ? AppTheme.onAccentMuted
+                                color: root.drawsOnOwnBubble
+                                       ? root.ownBubbleSecondaryInk
                                        : AppTheme.textMuted
                                 font.pixelSize: AppTheme.scaled(10)
                                 // The "edited" marker opens the edit history;
@@ -2401,7 +2432,7 @@ Item {
                         Label {
                             visible: model.isOwn && model.status === 2
                             text: qsTr("Retry")
-                            color: AppTheme.link
+                            color: root.inlineLinkInk
                             // Matches its sibling on the same status line.
                             font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                             font.underline: true
@@ -2431,7 +2462,7 @@ Item {
                                          || model.status === 2)
                                      && root.canCancelSendAt(index)
                             text: qsTr("Cancel")
-                            color: AppTheme.link
+                            color: root.inlineLinkInk
                             font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                             font.underline: true
                             Accessible.role: Accessible.Button

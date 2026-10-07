@@ -11,12 +11,18 @@
 // paragraph read left-aligned): each paragraph takes its own direction and
 // starts at the edge it reads from.
 //
+// And the inks drawn ON an own bubble (#25: an own image's caption used the
+// page's secondary grey on the accent fill): every one meets 4.5:1 against
+// the bubble on all eleven presets.
+//
 // These are geometric assertions on the real delegate, not a source scan: a
 // scan cannot see an overlap.
 #include <QtTest/QtTest>
 
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlEngine>
+#include <QQmlExpression>
 #include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickTextDocument>
@@ -28,6 +34,9 @@
 
 #include "app/AppController.h"
 #include "app/SettingsManager.h"
+
+#include <algorithm>
+#include <cmath>
 
 namespace {
 constexpr int kSignalTimeoutMs = 5000;
@@ -214,6 +223,52 @@ class MessageRailCollisionTest : public QObject
                                   Q_RETURN_ARG(QRectF, r),
                                   Q_ARG(int, block.position()));
         return textEdit->mapToItem(reference, r.topLeft()).x();
+    }
+
+    /// WCAG 2.1 relative luminance and contrast ratio.
+    static double relativeLuminance(const QColor &c)
+    {
+        auto lin = [](double v) {
+            return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * lin(c.redF()) + 0.7152 * lin(c.greenF())
+            + 0.0722 * lin(c.blueF());
+    }
+    static double contrastRatio(const QColor &a, const QColor &b)
+    {
+        const double la = relativeLuminance(a);
+        const double lb = relativeLuminance(b);
+        return (std::max(la, lb) + 0.05) / (std::min(la, lb) + 0.05);
+    }
+    /// What `ink` drawn at `alpha` over the opaque `ground` renders as.
+    static QColor over(const QColor &ink, double alpha, const QColor &ground)
+    {
+        return QColor::fromRgbF(
+            float(alpha * ink.redF() + (1.0 - alpha) * ground.redF()),
+            float(alpha * ink.greenF() + (1.0 - alpha) * ground.greenF()),
+            float(alpha * ink.blueF() + (1.0 - alpha) * ground.blueF()));
+    }
+    /// The opacity an item is painted at, up to (not including) `ground`.
+    static double opacityUpTo(QQuickItem *item, QQuickItem *ground)
+    {
+        double o = 1.0;
+        for (QQuickItem *it = item; it && it != ground; it = it->parentItem())
+            o *= it->opacity();
+        return o;
+    }
+    /// First item in the VISUAL tree with this objectName: Loader content
+    /// and Repeater delegates are not always QObject children.
+    static QQuickItem *findVisual(QQuickItem *parent, const QString &name)
+    {
+        if (!parent)
+            return nullptr;
+        for (QQuickItem *child : parent->childItems()) {
+            if (child->objectName() == name)
+                return child;
+            if (QQuickItem *hit = findVisual(child, name))
+                return hit;
+        }
+        return nullptr;
     }
 
 private Q_SLOTS:
@@ -794,6 +849,117 @@ private Q_SLOTS:
                      "edge is at %2")
                      .arg(start).arg(innerRight(d.root, bubble))));
         QVERIFY(rightEdgeIn(body, d.root) <= innerRight(d.root, bubble) + 0.6);
+    }
+
+    // Bubbles: the secondary text drawn ON an own bubble is readable on every
+    // preset (#25). An own image's caption took the page's textSecondary over
+    // the accent fill: 1.04:1 on Lightning Light, 1.16 on Moss Light, 1.27 on
+    // Warm, 4.19 on Purple Dusk. The quoted reply line (onAccentMuted under a
+    // 0.85 fade: 4.00 on Moss Light, 4.14 on Purple Dusk) and the "(edited)"
+    // status line are held to the same floor. Measures the ink the real
+    // delegate resolves, at the opacity it is painted with, over the fill the
+    // bubble resolves, and asserts the count of distinct fills it saw.
+    void textOnAnOwnBubbleIsReadableOnEveryPreset()
+    {
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(1);   // Bubbles
+
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("isOwn"), true);
+        f.insert(QStringLiteral("isImage"), true);
+        f.insert(QStringLiteral("mediaWidth"), 320);
+        f.insert(QStringLiteral("mediaHeight"), 200);
+        f.insert(QStringLiteral("mediaMimetype"), QStringLiteral("image/png"));
+        f.insert(QStringLiteral("mediaFilename"), QStringLiteral("lake.png"));
+        // Differs from the filename, so it renders once as a caption.
+        f.insert(QStringLiteral("body"),
+                 QStringLiteral("Sunset over the lake"));
+        f.insert(QStringLiteral("replyToEventId"), QStringLiteral("$quoted"));
+        f.insert(QStringLiteral("replyToSender"), QStringLiteral("Bob"));
+        f.insert(QStringLiteral("replyToPreview"),
+                 QStringLiteral("the line being answered"));
+        f.insert(QStringLiteral("edited"), true);
+
+        Delegate d;
+        QVERIFY(build(app, f, d, kRowWidth, true));
+        QVERIFY2(QQmlProperty::read(d.root, QStringLiteral("bubbleMode")).toBool(),
+                 "the fixture is not in Bubbles mode; the rest proves nothing");
+        QVERIFY2(QQmlProperty::read(d.root, QStringLiteral("mediaCaptionBody"))
+                     .toBool(),
+                 "the fixture's body is not read as a caption");
+        // Bubbles is switched on after creation (isDirectRoom), and the quote
+        // line's opacity has a 90 ms Behavior: let it settle, or the case
+        // measures the animation's start.
+        QTest::qWait(300);
+
+        auto *bubble = d.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        QVERIFY(bubble);
+        struct Probe {
+            const char *what;
+            QQuickItem *item;
+        };
+        const QList<Probe> probes = {
+            { "the caption",
+              findVisual(d.root, QStringLiteral("messageBody")) },
+            { "the quoted reply line",
+              findVisual(d.root, QStringLiteral("replyQuoteBody")) },
+            { "the status line",
+              findVisual(d.root, QStringLiteral("messageStatusText")) },
+        };
+        for (const Probe &p : probes) {
+            QVERIFY2(p.item && p.item->isVisible(),
+                     qPrintable(QStringLiteral("%1 is not on the bubble")
+                                    .arg(QLatin1String(p.what))));
+            QVERIFY2(p.item->mapToItem(bubble, QPointF(0, 0)).y() >= 0,
+                     qPrintable(QStringLiteral("%1 is not inside the bubble")
+                                    .arg(QLatin1String(p.what))));
+        }
+
+        QSet<QRgb> fills;
+        int checked = 0;
+        for (int mode = 1; mode <= 11; ++mode) {
+            QQmlExpression set(qmlContext(d.root), d.root,
+                               QStringLiteral("AppTheme.mode = %1").arg(mode));
+            set.evaluate();
+            QVERIFY2(!set.hasError(), qPrintable(set.error().toString()));
+            QCoreApplication::processEvents();
+
+            const QColor fill = bubble->property("color").value<QColor>();
+            QVERIFY2(fill.isValid() && fill.alpha() == 255,
+                     qPrintable(QStringLiteral("theme %1: the own bubble is "
+                                               "not an opaque fill (%2)")
+                                    .arg(mode).arg(fill.name(QColor::HexArgb))));
+            fills.insert(fill.rgb());
+            for (const Probe &p : probes) {
+                const QColor ink = p.item->property("color").value<QColor>();
+                QVERIFY(ink.isValid());
+                const double alpha = ink.alphaF() * opacityUpTo(p.item, bubble);
+                const double ratio = contrastRatio(over(ink, alpha, fill), fill);
+                QVERIFY2(ratio >= 4.5,
+                         qPrintable(QStringLiteral(
+                             "theme %1: %2 is %3 at %4 opacity on the own "
+                             "bubble %5 — %6:1, under the 4.5:1 text floor")
+                                        .arg(mode)
+                                        .arg(QLatin1String(p.what))
+                                        .arg(ink.name(QColor::HexRgb))
+                                        .arg(alpha, 0, 'f', 2)
+                                        .arg(fill.name(QColor::HexRgb))
+                                        .arg(ratio, 0, 'f', 2)));
+            }
+            ++checked;
+        }
+        QQmlExpression reset(qmlContext(d.root), d.root,
+                             QStringLiteral("AppTheme.mode = 0"));
+        reset.evaluate();
+        QCOMPARE(checked, 11);
+        // Eleven presets share nine own-bubble fills (the three Lightning
+        // palettes use one blue). Fewer means the palette never changed.
+        QVERIFY2(fills.size() >= 8,
+                 qPrintable(QStringLiteral("only %1 distinct own-bubble fills "
+                                           "were measured")
+                                .arg(fills.size())));
     }
 
 private:
