@@ -53,6 +53,53 @@ pub(crate) fn track_encryption_for(encrypted: bool) -> i32 {
         lkp::encryption::Type::None as i32
     }
 }
+
+/// What a server `LeaveRequest` asks of us, as the `sfu_state` word the
+/// controller acts on: "reconnecting" (the call survives and the client
+/// connects again) or "ended" (the server is done with us).
+///
+/// livekit-server states it in `action` from protocol 13 (RESUME and
+/// RECONNECT both mean "come back"; this client always comes back with a
+/// full re-join, since webrtcbin cannot restart ICE on a live peer
+/// connection) and only in the obsolete `can_reconnect` before that. A
+/// CONNECTION_TIMEOUT after a network blip arrives as RESUME, and reading
+/// every Leave as the end of the call is what turned a 26 s Wi-Fi loss into
+/// a dead call. An action from a newer protocol is read as the end unless
+/// `can_reconnect` says otherwise: never invent a reconnect the server did
+/// not offer.
+pub(crate) fn leave_disposition(action: i32, can_reconnect: bool)
+    -> &'static str
+{
+    use lkp::leave_request::Action;
+    match Action::try_from(action) {
+        Ok(Action::Resume) | Ok(Action::Reconnect) => "reconnecting",
+        Ok(Action::Disconnect) | Err(_) => {
+            if can_reconnect { "reconnecting" } else { "ended" }
+        }
+    }
+}
+
+/// How long the signalling socket may stay silent before it is presumed
+/// dead, or `None` when the server set no timeout.
+///
+/// livekit-server answers every `ping` with `pong` and every `ping_req`
+/// with `pong_resp`, so a live socket is never silent for longer than one
+/// ping interval. livekit-client closes and reconnects after
+/// `JoinResponse.ping_timeout` without a pong; any frame counts here, which
+/// is a superset. Bounded both ways, and never shorter than one interval
+/// plus a margin, or a slow pong would read as a dead socket. A half-open
+/// TCP connection (a Wi-Fi change, a VPN reconnect, a sleep) otherwise
+/// looks healthy for as long as the kernel keeps it.
+pub(crate) fn signal_silence_limit(ping_timeout: i32, ping_interval: i32)
+    -> Option<Duration>
+{
+    if ping_timeout <= 0 {
+        return None;
+    }
+    let interval = ping_interval.clamp(1, 120) as u64;
+    let timeout = (ping_timeout as u64).clamp(5, 120).max(interval + 2);
+    Some(Duration::from_secs(timeout))
+}
 use matrix_sdk::ruma::api::client::account::request_openid_token;
 use prost::Message as _;
 use serde_json::json;
@@ -732,19 +779,43 @@ async fn run_session(
     // counter, as livekit-client does. Index 0 = publisher, 1 = subscriber.
     let mut remote_offer_id = [0u32; 2];
     let mut local_offer_id = [0u32; 2];
+    // After the JoinResponse a lost socket is a call to recover, not one to
+    // end: the controller keeps the membership and the call UI and joins
+    // again ("reconnecting"). Before it, a failure is a failed join.
+    let mut joined = false;
+    // The ping timeout's watchdog: armed at the join, fed by every frame.
+    let mut silence_limit: Option<Duration> = None;
+    let mut last_heard = tokio::time::Instant::now();
+    let reconnecting = |category: &str| json!({
+        "type": "sfu_state", "generation": generation,
+        "state": "reconnecting", "category": category,
+    });
 
     loop {
         tokio::select! {
+            _ = tokio::time::sleep_until(
+                    last_heard
+                        + silence_limit.unwrap_or(Duration::from_secs(3600))),
+                if silence_limit.is_some() =>
+            {
+                // Nothing from the server for longer than its own ping
+                // timeout: the socket is dead even if the kernel has not
+                // said so.
+                emit(reconnecting("signal_timeout"));
+                break;
+            }
             _ = ping_ticker.tick(), if ping_armed => {
                 let now_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as i64)
                     .unwrap_or(0);
-                // Write failure: the socket is gone, stop.
+                // Write failure: the socket is gone, stop. The ticker is armed
+                // only after the join, so this is always mid-call.
                 if !send_request(
                     &mut sink,
                     lkp::signal_request::Message::Ping(now_ms)).await
                 {
+                    emit(reconnecting("signal_lost"));
                     break;
                 }
                 if !send_request(
@@ -754,6 +825,7 @@ async fn run_session(
                         rtt: 0,
                     })).await
                 {
+                    emit(reconnecting("signal_lost"));
                     break;
                 }
             }
@@ -831,25 +903,50 @@ async fn run_session(
                     }
                 };
                 if !send_request(&mut sink, message).await {
-                    emit(json!({
-                        "type": "sfu_state", "generation": generation,
-                        "state": "failed", "category": "send_failed",
-                    }));
+                    if joined {
+                        emit(reconnecting("signal_lost"));
+                    } else {
+                        emit(json!({
+                            "type": "sfu_state", "generation": generation,
+                            "state": "failed", "category": "send_failed",
+                        }));
+                    }
                     break;
                 }
             }
             frame = source.next() => {
-                let Some(frame) = frame else { break };
+                let Some(frame) = frame else {
+                    // The stream ended without a Leave: the socket is gone.
+                    if joined {
+                        emit(reconnecting("signal_lost"));
+                    }
+                    break;
+                };
+                // Any frame proves the socket alive (see signal_silence_limit).
+                if frame.is_ok() {
+                    last_heard = tokio::time::Instant::now();
+                }
                 let payload = match frame {
                     Ok(WsMessage::Binary(bytes)) => bytes,
-                    Ok(WsMessage::Close(_)) => break,
+                    Ok(WsMessage::Close(_)) => {
+                        // A close with no Leave before it is not the server
+                        // ending the call (that sends a Leave first).
+                        if joined {
+                            emit(reconnecting("signal_lost"));
+                        }
+                        break;
+                    }
                     Ok(WsMessage::Ping(_)) | Ok(WsMessage::Pong(_))
                     | Ok(WsMessage::Text(_)) | Ok(WsMessage::Frame(_)) => continue,
                     Err(_) => {
-                        emit(json!({
-                            "type": "sfu_state", "generation": generation,
-                            "state": "failed", "category": "connection_lost",
-                        }));
+                        if joined {
+                            emit(reconnecting("signal_lost"));
+                        } else {
+                            emit(json!({
+                                "type": "sfu_state", "generation": generation,
+                                "state": "failed", "category": "connection_lost",
+                            }));
+                        }
                         break;
                     }
                 };
@@ -871,6 +968,10 @@ async fn run_session(
                             tokio::time::MissedTickBehavior::Delay);
                         ping_ticker.tick().await;   // consume the immediate one
                         ping_armed = true;
+                        joined = true;
+                        silence_limit = signal_silence_limit(
+                            join.ping_timeout, join.ping_interval);
+                        last_heard = tokio::time::Instant::now();
                         // Our own row first, then the others. JoinResponse keeps the local
                         // participant separate; without it in the list the stage cannot draw the
                         // local tile, and `ownParticipantRow()` (used to send mutes) finds nothing.
@@ -1009,10 +1110,12 @@ async fn run_session(
                     }
                     lkp::signal_response::Message::Leave(leave) => {
                         // Include the reason (a closed enum, not content); "told to leave" alone is
-                        // unactionable.
+                        // unactionable. RESUME and RECONNECT keep the call: see leave_disposition.
                         emit(json!({
                             "type": "sfu_state", "generation": generation,
-                            "state": "ended", "category": "server_leave",
+                            "state": leave_disposition(
+                                leave.action, leave.can_reconnect),
+                            "category": "server_leave",
                             "reason": leave.reason,
                             "action": leave.action,
                         }));
@@ -1710,6 +1813,82 @@ mod tests {
             value["tracks"].as_array().expect("tracks").len(),
             MAX_TRACKS_PER_PARTICIPANT
         );
+    }
+
+    // The live failure (2026-10-07, Windows, UDP blocked for 26 s): the SFU
+    // timed the media out and sent Leave{reason=CONNECTION_TIMEOUT,
+    // action=RESUME}, and the call ended. RESUME and RECONNECT must keep the
+    // call; only DISCONNECT ends it. Decoded from the wire, so the field
+    // numbers are exercised too.
+    #[test]
+    fn a_leave_that_asks_us_back_keeps_the_call() {
+        use lkp::leave_request::Action;
+        let decode = |leave: lkp::LeaveRequest| {
+            let response = lkp::SignalResponse {
+                message: Some(lkp::signal_response::Message::Leave(leave)),
+            };
+            match lkp::SignalResponse::decode(&response.encode_to_vec()[..])
+                .expect("a SignalResponse round-trips")
+                .message
+            {
+                Some(lkp::signal_response::Message::Leave(leave)) => {
+                    leave_disposition(leave.action, leave.can_reconnect)
+                }
+                _ => panic!("not a Leave"),
+            }
+        };
+        // The logged case: reason 14, action 1.
+        assert_eq!(
+            decode(lkp::LeaveRequest {
+                reason: lkp::DisconnectReason::ConnectionTimeout as i32,
+                action: Action::Resume as i32,
+                ..Default::default()
+            }),
+            "reconnecting",
+            "Leave{{CONNECTION_TIMEOUT, RESUME}} ended the call");
+        assert_eq!(
+            decode(lkp::LeaveRequest {
+                action: Action::Reconnect as i32,
+                ..Default::default()
+            }),
+            "reconnecting");
+        assert_eq!(
+            decode(lkp::LeaveRequest {
+                reason: lkp::DisconnectReason::ParticipantRemoved as i32,
+                action: Action::Disconnect as i32,
+                ..Default::default()
+            }),
+            "ended",
+            "a DISCONNECT (removed, room deleted) must end the call");
+        // A server older than protocol 13 says it only with can_reconnect.
+        assert_eq!(
+            decode(lkp::LeaveRequest {
+                can_reconnect: true,
+                ..Default::default()
+            }),
+            "reconnecting");
+        assert_eq!(decode(lkp::LeaveRequest::default()), "ended");
+        // An action from a newer protocol is not a reconnect we were offered.
+        assert_eq!(leave_disposition(99, false), "ended");
+        assert_eq!(leave_disposition(99, true), "reconnecting");
+        // The numbers the log line prints are the wire's.
+        assert_eq!(Action::Resume as i32, 1);
+        assert_eq!(lkp::DisconnectReason::ConnectionTimeout as i32, 14);
+    }
+
+    // The ping timeout: off when the server sets none, bounded, and never
+    // shorter than one ping interval plus a margin.
+    #[test]
+    fn the_signalling_watchdog_follows_the_servers_ping_timeout() {
+        assert_eq!(signal_silence_limit(0, 10), None);
+        assert_eq!(signal_silence_limit(-5, 10), None);
+        assert_eq!(signal_silence_limit(20, 10), Some(Duration::from_secs(20)));
+        // A timeout shorter than the interval would fire between two pongs.
+        assert_eq!(signal_silence_limit(5, 10), Some(Duration::from_secs(12)));
+        // Absurd values are bounded.
+        assert_eq!(signal_silence_limit(1, 1), Some(Duration::from_secs(5)));
+        assert_eq!(signal_silence_limit(100_000, 1),
+                   Some(Duration::from_secs(120)));
     }
 
     #[test]

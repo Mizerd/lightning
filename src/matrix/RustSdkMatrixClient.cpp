@@ -8475,7 +8475,11 @@ quint64 RustSdkMatrixClient::sfuConnect(const QString &serviceUrl,
     const QByteArray room = roomId.toUtf8();
     const QString result = takeRustString(mx_rust_sfu_connect(
         m_rustHandle, url.constData(), room.constData(), opId));
-    return result.isEmpty() ? opId : 0;
+    // The Rust side tore down any previous session first; its queued
+    // reports are dropped from here on (see handleRoomCommandEvent).
+    m_sfuConnectOp = result.isEmpty() ? opId : 0;
+    m_sfuSessionGeneration = 0;
+    return m_sfuConnectOp;
 }
 
 void RustSdkMatrixClient::sfuLocalDescription(const QString &kind,
@@ -8529,6 +8533,9 @@ void RustSdkMatrixClient::sfuMuteTrack(const QString &sid, bool muted)
 
 void RustSdkMatrixClient::sfuDisconnect()
 {
+    // Nothing the abandoned session still has queued may reach the caller.
+    m_sfuConnectOp = 0;
+    m_sfuSessionGeneration = 0;
     if (!m_rustHandle)
         return;
     takeRustString(mx_rust_sfu_disconnect(m_rustHandle));
@@ -9543,6 +9550,39 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                    "key until this is resolved.";
         }
         return true;
+    }
+    if (type.startsWith(QLatin1String("sfu_"))) {
+        // One SFU session at a time, and nothing from an older one. The Rust
+        // side gates every report on its session generation, but a report
+        // queued before sfuDisconnect()/sfuConnect() bumped it is still in
+        // the event queue, and a call that reconnects runs sessions back to
+        // back: a late "closed", participant list or SDP from the session it
+        // abandoned must not reach the new one. The answer to a connect
+        // (authorized, or a failure before it) names its op id and so binds
+        // the session's generation; everything else must carry that
+        // generation.
+        const quint64 generation = static_cast<quint64>(
+            event.value(QStringLiteral("generation")).toDouble());
+        if (type == QLatin1String("sfu_state")
+            && event.contains(QStringLiteral("op_id"))) {
+            if (m_sfuConnectOp == 0 || opId() != m_sfuConnectOp) {
+                qCInfo(lcRust) << "sfu report from an abandoned connect"
+                                  " ignored state="
+                               << event.value(QStringLiteral("state"))
+                                      .toString();
+                return true;
+            }
+            m_sfuSessionGeneration = generation;
+        } else if (m_sfuSessionGeneration == 0
+                   || generation != m_sfuSessionGeneration) {
+            if (type == QLatin1String("sfu_state")) {
+                qCInfo(lcRust) << "sfu report from an earlier session ignored"
+                                  " state="
+                               << event.value(QStringLiteral("state"))
+                                      .toString();
+            }
+            return true;
+        }
     }
     if (type == QLatin1String("sfu_state")) {
         // Log LiveKit's DisconnectReason for a server-initiated leave.

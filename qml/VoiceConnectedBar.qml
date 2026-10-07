@@ -45,7 +45,10 @@ Rectangle {
                     color: app.groupCall.state === SfuCallController.Connected ? AppTheme.success : AppTheme.warning
                 }
                 Text {
-                    text: app.groupCall.state === SfuCallController.Connected ? qsTr("Voice connected") : qsTr("Connecting…")
+                    text: app.groupCall.state === SfuCallController.Reconnecting
+                          ? qsTr("Reconnecting…")
+                          : app.groupCall.state === SfuCallController.Connected
+                            ? qsTr("Voice connected") : qsTr("Connecting…")
                     color: app.groupCall.state === SfuCallController.Connected ? AppTheme.success : AppTheme.warning
                     font.pixelSize: 11
                     font.weight: Font.DemiBold

@@ -1149,6 +1149,11 @@ private:
     // session.
     calls::SdpStore m_callSdpStore;
     bool m_callMediaCapable = false;
+    /// The live SFU session: the op id of the connect that started it, and
+    /// the Rust session generation its answer named (0 until then). Reports
+    /// from any other session are dropped; see handleRoomCommandEvent().
+    quint64 m_sfuConnectOp = 0;
+    quint64 m_sfuSessionGeneration = 0;
 
     quint64 nextOpId() { return ++m_opCounter; }
     // Dispatch one Rust "command result" event to the matching signal.

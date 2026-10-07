@@ -234,6 +234,13 @@ public:
     void start();
     /// Tear everything down, release every device and forget the call's keys.
     void stop();
+    /// End this SFU session's media (peer connections, captures, receive
+    /// bins) but keep the call's keys, as start() does: the call is
+    /// reconnecting and the next start() continues it. A peer's key does not
+    /// come again, so forgetting it here would leave that peer undecryptable
+    /// after the rejoin. The generation bump stops every callback of the old
+    /// peer connections.
+    void suspend();
     bool active() const { return m_active; }
 
     /// Where received video frames go. The engine only asks it whether anyone
@@ -746,6 +753,11 @@ Q_SIGNALS:
     void remoteTrackRemoved(const QString &identity, const QString &kind);
     /// Aggregate connection state for the session, as a closed-set string.
     void connectionStateChanged(const QString &state);
+    /// One peer connection's ICE transport, for this session only (stale
+    /// webrtcbins are filtered by generation). `target` is a Target;
+    /// `state` is a closed set: "connected" (CONNECTED or COMPLETED),
+    /// "disconnected" or "failed". Other ICE states are not reported.
+    void transportStateChanged(int target, const QString &state);
     /// Terminal failure. `category` is safe to log; SDP never is.
     void failed(const QString &category);
     /// One published track cannot carry media; the call itself is fine.
@@ -837,6 +849,9 @@ public Q_SLOTS:
                               int mlineIndex, const QString &candidate);
     void handleFailure(quintptr token, quint64 generation,
                        const QString &category);
+    /// An ICE connection state change, marshalled from onPeerStateNotify.
+    void handleTransportState(quintptr token, quint64 generation,
+                              const QString &state);
     /// A bus ERROR from inside the publishing bin `cid`, on the GUI thread.
     /// Reported only when the bin is still registered (so not a teardown),
     /// its capture delivered zero buffers (never prerolled), and it has not

@@ -1046,6 +1046,12 @@ void SfuMediaEngine::stop()
     teardown(true);
 }
 
+void SfuMediaEngine::suspend()
+{
+    // start()'s own teardown: the session's media goes, the keys stay.
+    teardown(false);
+}
+
 void SfuMediaEngine::teardown(bool endOfCall)
 {
     // At the end of a call the keys go, before the never-started early
@@ -1421,8 +1427,9 @@ bool SfuMediaEngine::ensurePeer(Target target)
     armStatsTrace();
     // Connection state: signalling keeps working over the WebSocket while
     // ICE/DTLS may never complete, so without this "no audio" and "no
-    // connection" look the same. `this` is user data only so destroyPeer can
-    // disconnect by data; the handler never touches the engine.
+    // connection" look the same. `this` is user data so destroyPeer can
+    // disconnect by data; the handler touches the engine only through
+    // marshal(), inside a CallbackScope, for the ICE connection state.
     g_signal_connect(webrtc, "notify::ice-connection-state",
                      G_CALLBACK(onPeerStateNotify), this);
     g_signal_connect(webrtc, "notify::ice-gathering-state",
@@ -6277,6 +6284,15 @@ void SfuMediaEngine::handleFailure(quintptr token, quint64 generation,
     Q_EMIT failed(category);
 }
 
+void SfuMediaEngine::handleTransportState(quintptr token, quint64 generation,
+                                          const QString &state)
+{
+    Target target = Target::Publisher;
+    if (!tokenIsLive(token, generation, &target))
+        return;
+    Q_EMIT transportStateChanged(static_cast<int>(target), state);
+}
+
 void SfuMediaEngine::handleCaptureEnded(const QString &cid)
 {
     if (!m_active || !m_publishedBins.contains(cid))
@@ -6636,7 +6652,6 @@ void SfuMediaEngine::handlePublishError(const QString &cid)
 void SfuMediaEngine::onPeerStateNotify(GstElement *webrtc, void *paramSpec,
                                        void *userData)
 {
-    Q_UNUSED(userData);
     auto *spec = static_cast<GParamSpec *>(paramSpec);
     if (!webrtc || !spec || !spec->name)
         return;
@@ -6646,6 +6661,38 @@ void SfuMediaEngine::onPeerStateNotify(GstElement *webrtc, void *paramSpec,
     const gchar *rawName = GST_ELEMENT_NAME(webrtc);
     qCInfo(lcSfuMedia) << "peer" << (rawName ? rawName : "?")
                        << spec->name << "=" << value;
+
+    // The ICE transport is the controller's business: a failed one is a call
+    // to reconnect, and "connected" is what ends a reconnect. Only those
+    // states, by name, never the numbers.
+    if (!userData || g_strcmp0(spec->name, "ice-connection-state") != 0)
+        return;
+    const char *word = nullptr;
+    switch (value) {
+    case GST_WEBRTC_ICE_CONNECTION_STATE_CONNECTED:
+    case GST_WEBRTC_ICE_CONNECTION_STATE_COMPLETED:
+        word = "connected";
+        break;
+    case GST_WEBRTC_ICE_CONNECTION_STATE_DISCONNECTED:
+        word = "disconnected";
+        break;
+    case GST_WEBRTC_ICE_CONNECTION_STATE_FAILED:
+        word = "failed";
+        break;
+    default:
+        return;
+    }
+    // A retiring webrtcbin reports nothing more, as for every other callback.
+    const lightning::webrtc::CallbackScope scope(webrtc);
+    if (!scope.live())
+        return;
+    auto *engine = static_cast<SfuMediaEngine *>(userData);
+    const quintptr token = reinterpret_cast<quintptr>(webrtc);
+    const quint64 generation = engine->m_generation.load();
+    const QString state = QString::fromLatin1(word);
+    marshal(engine, [engine, token, generation, state] {
+        engine->handleTransportState(token, generation, state);
+    });
 }
 
 void SfuMediaEngine::onNegotiationNeeded(GstElement *webrtc, void *userData)

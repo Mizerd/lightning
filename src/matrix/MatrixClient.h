@@ -2221,8 +2221,11 @@ Q_SIGNALS:
                              const QString &keyBase64);
 
     // ── SFU signalling ──
-    /// Closed-set lifecycle: authorized / signalling / ended / closed /
-    /// failed. `category` explains a failure and is safe to log.
+    /// Closed-set lifecycle: authorized / signalling / reconnecting / ended /
+    /// closed / failed. `category` explains a failure and is safe to log.
+    /// "reconnecting": a joined session was lost in a way the call survives
+    /// (the SFU asked us back, or the signalling socket died); "ended": the
+    /// SFU removed us for good. Only reports of the live session arrive.
     void sfuStateChanged(const QString &state, const QString &category);
     /// LiveKit's per-room server-injected-frame trailer
     /// (`JoinResponse.sif_trailer`): at most 64 raw bytes, empty when absent.
