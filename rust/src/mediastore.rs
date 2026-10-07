@@ -39,7 +39,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use matrix_sdk::config::StoreConfig;
@@ -50,6 +50,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::media::store::MemoryMediaStore;
 use sha2::{Digest, Sha256};
+
+use crate::storeclose::StoreProbe;
 
 /// The encrypted store's directory, inside the account's store directory, so
 /// it is deleted with the account.
@@ -160,6 +162,15 @@ pub(crate) fn forget(owner: usize, store_path: &Path) {
             map.remove(store_path);
         }
     }
+}
+
+/// The handle that last set this directory's key (`set_key`'s `owner`), if
+/// any. The stores opened now belong to it (storeclose.rs).
+pub(crate) fn owner_for(store_path: &Path) -> Option<usize> {
+    registry()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(store_path).map(|entry| entry.owner))
 }
 
 fn key_for(store_path: &Path) -> (Option<KeyBytes>, bool) {
@@ -571,22 +582,43 @@ pub(crate) async fn open_media(
 /// crypto stores exactly as `ClientBuilder::sqlite_store(path, None)` opened
 /// them (matrix-sdk 0.18 client/builder/mod.rs:693-721), and the media store
 /// from open_media. Records what was opened for `active()`.
-pub(crate) async fn open_account_stores(store_path: &Path) -> Result<StoreConfig, String> {
+///
+/// Each SQLite store is handed to the SDK as an `Arc` this function made, so
+/// the returned probe can tell, by a `Weak` failing to upgrade, when the SDK
+/// has really let go of it (storeclose.rs, GitHub #2).
+pub(crate) async fn open_account_stores(
+    store_path: &Path,
+) -> Result<(StoreConfig, StoreProbe), String> {
     let config = SqliteStoreConfig::new(store_path);
-    let state = SqliteStateStore::open_with_config(&config).await.map_err(build_error)?;
-    let event_cache = SqliteEventCacheStore::open_with_config(&config)
-        .await
-        .map_err(build_error)?;
-    let crypto = SqliteCryptoStore::open_with_config(&config).await.map_err(build_error)?;
+    let state = Arc::new(
+        SqliteStateStore::open_with_config(&config).await.map_err(build_error)?,
+    );
+    let event_cache = Arc::new(
+        SqliteEventCacheStore::open_with_config(&config)
+            .await
+            .map_err(build_error)?,
+    );
+    let crypto = Arc::new(
+        SqliteCryptoStore::open_with_config(&config).await.map_err(build_error)?,
+    );
     let (media, active) = open_media(store_path, &config).await?;
     record_active(store_path, active);
+    let mut probe = StoreProbe::default();
+    probe.set_owner(owner_for(store_path));
+    probe.store("state", &state);
+    probe.store("event_cache", &event_cache);
+    probe.store("crypto", &crypto);
     let store_config = StoreConfig::new(CrossProcessLockConfig::multi_process(STORE_LOCK_HOLDER))
         .state_store(state)
         .event_cache_store(event_cache)
         .crypto_store(crypto);
     Ok(match media {
-        OpenedMedia::Sqlite(store) => store_config.media_store(store),
-        OpenedMedia::Memory => store_config.media_store(MemoryMediaStore::new()),
+        OpenedMedia::Sqlite(store) => {
+            let store = Arc::new(store);
+            probe.store("media", &store);
+            (store_config.media_store(store), probe)
+        }
+        OpenedMedia::Memory => (store_config.media_store(MemoryMediaStore::new()), probe),
     })
 }
 

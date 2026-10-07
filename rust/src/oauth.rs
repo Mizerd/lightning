@@ -872,6 +872,11 @@ pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
         let shared_runtime = Arc::clone(&bridge.runtime);
         std::thread::spawn(move || {
             let runtime_events = Arc::clone(&events);
+            // Held and announced only after `run_async_on` has returned, i.e.
+            // after this thread's Client is gone, as `mx_rust_logout` does:
+            // C++ starts deleting the store when it sees `logged_out`.
+            let outcome: Arc<Mutex<Option<serde_json::Value>>> = Arc::new(Mutex::new(None));
+            let outcome_slot = Arc::clone(&outcome);
             run_async_on(shared_runtime, runtime_events, "oauth_logout", async move {
                 let client = client_slot.lock().ok().and_then(|mut g| g.take());
                 // Same shape as mx_rust_logout: C++ reads "result", so a failed revocation
@@ -890,8 +895,20 @@ pub unsafe extern "C" fn mx_rust_oauth_logout(ptr: *mut c_void) -> *mut c_char {
                     None => json!({ "type": "logged_out", "result": "no_session" }),
                 };
                 drop(client);
-                enqueue(&events, event);
+                if let Ok(mut slot) = outcome_slot.lock() {
+                    *slot = Some(event);
+                }
             });
+            let event = outcome
+                .lock()
+                .ok()
+                .and_then(|mut slot| slot.take())
+                .unwrap_or_else(|| json!({
+                    "type": "logged_out",
+                    "result": "failed",
+                    "category": "logout_task_failed",
+                }));
+            enqueue(&events, event);
         });
 
         Ok(String::new())

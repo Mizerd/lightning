@@ -24,6 +24,13 @@ char *mx_rust_version(void);
 
 void *mx_rust_create(const char *store_path);
 void  mx_rust_destroy(void *client);
+/* mx_rust_destroy, then report whether the account store was really released
+ * (every SQLite store dropped, bounded wait):
+ * "store_closed=true|false waited_ms=N builds=N client_alive=true|false
+ * still_open=<store names>|none runtime_shutdown=completed|timed_out|shared".
+ * Only this handle's own client builds are waited for. Names and counts only,
+ * never a path. Free with mx_rust_free_cstring. */
+char *mx_rust_destroy_and_report(void *client);
 
 /*
  * Optional smoke-only MatrixSession sidecar. This lets
