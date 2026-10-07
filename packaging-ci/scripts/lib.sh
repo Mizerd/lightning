@@ -159,9 +159,12 @@ _queue_selftest_soft_complain() {
 # --- the call sounds ---------------------------------------------------------
 #
 # Judges a `--call-sounds-status` transcript for every format. Warn-only:
-# QSoundEffect needs an output device to reach Ready and CI containers have
-# none, so output `none` means unmeasured, not failed. To promote, give the
-# validators a null sink and make the MEASURED SHORT branch fail.
+# a sound counts as loaded only with an output device (QSoundEffect must
+# reach Ready; on Linux with Qt 6.10+ the cue mixer must have an output that
+# accepts its format, see the "call sounds voiced by:" line) and CI
+# containers have none, so output `none` means unmeasured, not failed. To
+# promote, give the validators a null sink and make the MEASURED SHORT branch
+# fail.
 # test-pipeline-config.py checks the count against data/sounds/*.wav.
 CALL_SOUNDS_EXPECTED=17
 
@@ -194,7 +197,7 @@ assert_call_sounds_status() {
     fi
     if [[ -z "$output" || "$output" == "none" ]]; then
         echo "WARNING: $label: call sounds UNMEASURED: $loaded of $total loaded with NO audio output device in this environment (exit $status)." >&2
-        echo "WARNING: QSoundEffect cannot reach Ready without an output device, so this says nothing about the package. See assert_call_sounds_status in lib.sh." >&2
+        echo "WARNING: no call sound counts as loaded without an output device (QSoundEffect, or the Linux Qt 6.10+ cue mixer), so this says nothing about the package. See assert_call_sounds_status in lib.sh." >&2
         return 0
     fi
     echo "WARNING: $label: call sounds MEASURED SHORT: only $loaded of $total loaded on output '$output' (exit $status)." >&2

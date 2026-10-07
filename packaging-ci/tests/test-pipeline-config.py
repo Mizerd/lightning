@@ -1091,6 +1091,29 @@ for needle in ("opensuse-tumbleweed|opensuse-leap)", "zypper --non-interactive i
                'if [[ "$distro" == fedora ]]; then\n    rpmlint'):
     check(needle in _rpm_validate,
           f"validate-rpm runs on Tumbleweed as well as Fedora ({needle.splitlines()[0]})")
+# The call sounds' stream role (CMake LIGHTNING_HAVE_QT_AUDIO_ROLE) imports a
+# Qt private-ABI symbol (QPlatformAudioSink::get), so it must stay out of every
+# portable lane: CMake gates it on NOT LIGHTNING_PORTABLE_QT_ABI and refuses a
+# lane that asks for both, and no portable lane asks for it.
+_top_cmake = open(os.path.join(HERE, "..", "..", "CMakeLists.txt"), encoding="utf-8").read()
+check("if(NOT LIGHTNING_PORTABLE_QT_ABI AND CMAKE_SYSTEM_NAME STREQUAL \"Linux\"" in _top_cmake,
+      "the call sounds' stream role is never compiled into a portable-ABI build")
+check(_top_cmake.index("option(LIGHTNING_PORTABLE_QT_ABI")
+      < _top_cmake.index("if(NOT LIGHTNING_PORTABLE_QT_ABI AND CMAKE_SYSTEM_NAME"),
+      "the role gate reads LIGHTNING_PORTABLE_QT_ABI after the option is declared")
+check("if(LIGHTNING_REQUIRE_QT_AUDIO_ROLE AND LIGHTNING_PORTABLE_QT_ABI)" in _top_cmake,
+      "CMake refuses a build that requires the role and a portable ABI at once")
+_portable_lanes = {
+    "scripts/build-rpm.sh": _read("scripts", "build-rpm.sh"),
+    "packaging/rpm/lightning-copr.spec.in": open(
+        os.path.join(HERE, "..", "packaging", "rpm", "lightning-copr.spec.in"),
+        encoding="utf-8").read(),
+}
+for _name, _src in _portable_lanes.items():
+    check("LIGHTNING_PORTABLE_QT_ABI=ON" in _src,
+          f"{_name} is a portable-ABI lane")
+    check("LIGHTNING_REQUIRE_QT_AUDIO_ROLE" not in _src,
+          f"{_name} never requires the call sounds' private-ABI stream role")
 _suse = resolve_extends_dict(doc["validate-rpm-opensuse"])
 check(str(_suse.get("image", "")).startswith("registry.opensuse.org/opensuse/tumbleweed@sha256:"),
       "validate-rpm-opensuse runs on the pinned openSUSE Tumbleweed image")
@@ -1251,7 +1274,8 @@ check("--call-queue-selftest" in _macos_src,
 #
 # Warn-only. Pins that every lane runs it and that the helper tells a measured
 # shortfall from an unmeasured run: without an audio output device
-# QSoundEffect loads nothing however healthy the package is.
+# no call sound counts as loaded (QSoundEffect, or the Linux Qt 6.10+ cue
+# mixer) however healthy the package is.
 for fmt in sorted(FORMAT_SELECTOR):
     validator = _strip_shell_comments(_read("scripts", f"validate-{fmt}.sh"))
     check("--call-sounds-status" in validator,

@@ -244,6 +244,70 @@ if(LIGHTNING_PORTABLE_QT_ABI)
     message(STATUS "QML compilation: bytecode only (no AOT C++)")
 endif()
 
+# The call sounds' stream role (CallSoundPlayer.cpp, AudioSinkOutput). On
+# Linux with Qt 6.10+ the cues are mixed into long-lived QAudioSinks, and only
+# Qt's private QPlatformAudioSink can ask PipeWire/PulseAudio for media.role
+# "Notification", as QSoundEffect's own engine does. Optional: compiled in
+# only when Qt6::MultimediaPrivate exists AND its header really builds (the
+# KDE Flatpak SDK 6.11 ships both); without it the app logs once and the
+# stream keeps Qt's default role. The app also skips the call at run time
+# unless the running Qt is the one it was built against (private ABI).
+# Never with LIGHTNING_PORTABLE_QT_ABI (the RPM lanes): QPlatformAudioSink::get
+# is a Qt_*_PRIVATE_API import, which validate-rpm.sh refuses. Those builds keep
+# Qt's default role ("Music") and say so once at run time.
+# NOTE: LIGHTNING_QT_AUDIO_ROLE_BUILDS is a cached check result. A tree whose
+# first configure found the package but could not build the header keeps OFF
+# until that cache entry (or CMakeCache.txt) is removed.
+option(LIGHTNING_REQUIRE_QT_AUDIO_ROLE
+    "Fail configure on Linux with Qt 6.10+ when the call sounds cannot set their stream role"
+    OFF)
+set(LIGHTNING_HAVE_QT_AUDIO_ROLE OFF)
+if(LIGHTNING_REQUIRE_QT_AUDIO_ROLE AND LIGHTNING_PORTABLE_QT_ABI)
+    message(FATAL_ERROR
+        "LIGHTNING_REQUIRE_QT_AUDIO_ROLE=ON contradicts "
+        "LIGHTNING_PORTABLE_QT_ABI=ON: the call sounds' stream role needs Qt's "
+        "private ABI, which a portable build must not import.")
+endif()
+if(NOT LIGHTNING_PORTABLE_QT_ABI AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
+        AND Qt6_VERSION VERSION_GREATER_EQUAL 6.10)
+    find_package(Qt6 6.10 QUIET COMPONENTS MultimediaPrivate)
+    if(TARGET Qt6::MultimediaPrivate)
+        include(CheckCXXSourceCompiles)
+        set(CMAKE_REQUIRED_LIBRARIES Qt6::MultimediaPrivate)
+        set(CMAKE_REQUIRED_QUIET ON)
+        # Qt built with -reduce-relocations refuses non-PIC code.
+        set(CMAKE_REQUIRED_FLAGS -fPIC)
+        check_cxx_source_compiles("
+#include <QtMultimedia/private/qaudiosystem_p.h>
+int main()
+{
+    auto get = &QPlatformAudioSink::get;
+    auto role = QtMultimediaPrivate::AudioEndpointRole::SoundEffect;
+    (void)get;
+    (void)role;
+    return 0;
+}" LIGHTNING_QT_AUDIO_ROLE_BUILDS)
+        unset(CMAKE_REQUIRED_FLAGS)
+        unset(CMAKE_REQUIRED_LIBRARIES)
+        unset(CMAKE_REQUIRED_QUIET)
+        if(LIGHTNING_QT_AUDIO_ROLE_BUILDS)
+            set(LIGHTNING_HAVE_QT_AUDIO_ROLE ON)
+        endif()
+    endif()
+endif()
+message(STATUS "Call sounds media.role Notification: ${LIGHTNING_HAVE_QT_AUDIO_ROLE}")
+if(LIGHTNING_REQUIRE_QT_AUDIO_ROLE AND CMAKE_SYSTEM_NAME STREQUAL "Linux"
+        AND Qt6_VERSION VERSION_GREATER_EQUAL 6.10
+        AND NOT LIGHTNING_HAVE_QT_AUDIO_ROLE)
+    message(FATAL_ERROR
+        "LIGHTNING_REQUIRE_QT_AUDIO_ROLE=ON but Qt6::MultimediaPrivate and "
+        "<QtMultimedia/private/qaudiosystem_p.h> are not usable, so the call "
+        "sounds would ship without media.role \"Notification\" (the desktop's "
+        "notification volume would not apply to them). Install the Qt "
+        "Multimedia private headers, or clear a cached "
+        "LIGHTNING_QT_AUDIO_ROLE_BUILDS.")
+endif()
+
 # ---------------------------------------------------------------------------
 # Localization (Qt Linguist).
 #
@@ -421,6 +485,8 @@ set(APP_SOURCES
     src/app/GuiStallTracer.cpp
     src/app/AsyncLogSink.h
     src/app/AsyncLogSink.cpp
+    src/app/RepeatLogLimiter.h
+    src/app/RepeatLogLimiter.cpp
     src/app/ShortcutRegistry.h
     src/app/ShortcutRegistry.cpp
     src/app/SyncLatencyTracer.h
@@ -445,6 +511,10 @@ set(APP_SOURCES
     src/calls/CallSoundController.cpp
     src/calls/CallSoundPlayer.h
     src/calls/CallSoundPlayer.cpp
+    src/calls/CallSoundPcm.h
+    src/calls/CallSoundPcm.cpp
+    src/calls/CallSoundMixer.h
+    src/calls/CallSoundMixer.cpp
     src/calls/CallDeviceController.h
     src/calls/CallDeviceController.cpp
     # Settings microphone/speaker test. Always built: without the media
@@ -1174,6 +1244,12 @@ function(_lightning_configure_qml_module target _scope)
         target_compile_definitions(${target} ${_scope}
             LIGHTNING_HAVE_QPA_SCREEN=1)
     endif()
+    # The call sounds' stream role; see LIGHTNING_HAVE_QT_AUDIO_ROLE above.
+    if(LIGHTNING_HAVE_QT_AUDIO_ROLE)
+        target_link_libraries(${target} ${_scope} Qt6::MultimediaPrivate)
+        target_compile_definitions(${target} ${_scope}
+            LIGHTNING_HAVE_QT_AUDIO_ROLE=1)
+    endif()
 
     # Update trust configuration: the only values the updater takes from the
     # build.
@@ -1798,6 +1874,19 @@ if(BUILD_TESTING)
     target_include_directories(async-log-sink-test PRIVATE src)
     target_link_libraries(async-log-sink-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME async-log-sink COMMAND async-log-sink-test)
+
+    # The outermost message handler's limiter: a message repeated without end
+    # costs a bounded number of lines, and says how many it suppressed.
+    qt_add_executable(repeat-log-limiter-test
+        tests/RepeatLogLimiterTest.cpp
+        src/app/RepeatLogLimiter.h
+        src/app/RepeatLogLimiter.cpp
+    )
+    target_include_directories(repeat-log-limiter-test PRIVATE src)
+    target_compile_definitions(repeat-log-limiter-test PRIVATE
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(repeat-log-limiter-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME repeat-log-limiter COMMAND repeat-log-limiter-test)
 
     # Storm Band tile painter: deterministic procedural pixel-art layers,
     # palette derivation from theme inputs, defensive id parsing.
@@ -3340,6 +3429,10 @@ if(BUILD_TESTING)
         tests/CallSoundPlayerTest.cpp
         src/calls/CallSoundPlayer.h
         src/calls/CallSoundPlayer.cpp
+        src/calls/CallSoundPcm.h
+        src/calls/CallSoundPcm.cpp
+        src/calls/CallSoundMixer.h
+        src/calls/CallSoundMixer.cpp
         src/app/AsyncLogSink.h
         src/app/AsyncLogSink.cpp
     )
@@ -3348,7 +3441,30 @@ if(BUILD_TESTING)
         SOUNDS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/sounds")
     target_link_libraries(call-sound-player-test PRIVATE
         Qt6::Core Qt6::Multimedia Qt6::Qml Qt6::Test)
+    if(LIGHTNING_HAVE_QT_AUDIO_ROLE)
+        target_link_libraries(call-sound-player-test PRIVATE
+            Qt6::MultimediaPrivate)
+        target_compile_definitions(call-sound-player-test PRIVATE
+            LIGHTNING_HAVE_QT_AUDIO_ROLE=1)
+    endif()
     add_test(NAME call-sound-player COMMAND call-sound-player-test)
+
+    # The Linux Qt 6.10+ cues: PCM decoding, the mixer, and the engine's one
+    # output (end of data, loops, failure, device-change reload, routing,
+    # idle suspend) against a fake output. Opens no device.
+    qt_add_executable(call-sound-pcm-test
+        tests/CallSoundPcmTest.cpp
+        src/calls/CallSoundPcm.h
+        src/calls/CallSoundPcm.cpp
+        src/calls/CallSoundMixer.h
+        src/calls/CallSoundMixer.cpp
+    )
+    target_include_directories(call-sound-pcm-test PRIVATE src)
+    target_compile_definitions(call-sound-pcm-test PRIVATE
+        SOUNDS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data/sounds")
+    target_link_libraries(call-sound-pcm-test PRIVATE
+        Qt6::Core Qt6::Multimedia Qt6::Test)
+    add_test(NAME call-sound-pcm COMMAND call-sound-pcm-test)
 
     # Call sounds wired to AppController / SfuCallController / CallController
     # through a recording sink; never opens an audio device.

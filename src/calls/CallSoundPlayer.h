@@ -1,4 +1,24 @@
-// Plays the call sounds with QSoundEffect.
+// Plays the call sounds: with QSoundEffect, except on Linux with Qt 6.10 and
+// later, where they are mixed into one long-lived QAudioSink (CallSoundMixer).
+//
+// Why not QSoundEffect there: its engine (QRtAudioEngine) hands a
+// finished voice back to the application thread and keeps its own reference
+// until the end of that audio callback. When the application thread gets
+// there first, which it does when another voice on the same engine is still
+// playing (every cue shares one engine: one device, one format) and the
+// audio thread is delayed (no real-time priority, a busy or virtual CPU), the
+// voice is destroyed on the audio thread. A voice owns an eventfd with a
+// QSocketNotifier registered with the GUI thread: destroying it there closes
+// the fd and leaves the notifier registered ("Socket notifiers cannot be
+// enabled or disabled from another thread"), and the GUI thread's glib
+// dispatcher then loops for ever on the closed fd ("Invalid socket N and type
+// 'Read', disabling..."). Measured 2026-10-07 in a Flatpak (Qt 6.11.2): the
+// UI and the call dead, 200% CPU, 95 million log lines in 7 minutes.
+// Reproduced with QSoundEffect alone, outside the app, in a private
+// PipeWire graph: overlapping cues, no real-time priority, one CPU. Not a
+// stream per cue either: see CallSoundMixer.h. Windows and macOS keep
+// QSoundEffect: their notifiers are not eventfds on a glib dispatcher, the
+// loop has not been shown there, and Windows was validated live with it.
 //
 // Where the sound effects live depends on Qt:
 //
@@ -11,15 +31,17 @@
 //   thread back (its sink keeps waiting on a stream that already failed), so
 //   cues stay silent for the rest of the session while the UI and the call
 //   carry on; see soundThreadStuck() for what that means at quit.
-// * Qt 6.10 and later: QSoundEffect's engine (QRtAudioEngine) moves itself
-//   to the application thread when created elsewhere, but its eventfd socket
-//   notifier stays registered with the creating thread's event loop, and
-//   tearing the engine down then crashes that loop. So the effects stay on
-//   the GUI thread there. Mixing already runs on Qt's real-time audio thread.
+// * Qt 6.10 and later: on the GUI thread. (QSoundEffect's engine there moves
+//   itself to the application thread when created elsewhere, but its eventfd
+//   socket notifier stays registered with the creating thread's event loop,
+//   and tearing the engine down then crashes that loop.) The mixer's one
+//   output is opened at preload, not per cue, and the backend's real-time
+//   thread only reads the ring buffer the sink owns.
 //
 // Every sound is preloaded so the ringer can be relied on the moment a call
-// arrives; canPlay() reports what reached QSoundEffect::Ready. Only bundled
-// sound names are accepted.
+// arrives; canPlay() reports what reached QSoundEffect::Ready, or with the
+// mixer what decoded while its output is usable. Only bundled sound names
+// are accepted.
 #pragma once
 
 #include <QObject>
@@ -56,6 +78,9 @@ public:
     static const QStringList &knownSounds();
     /// Whether this build keeps the effects off the GUI thread; see above.
     static bool playsOffTheGuiThread();
+    /// What voices the cues in this build: "QSoundEffect" or
+    /// "QAudioSink mixer".
+    static const char *cueBackend();
     /// A player was destroyed with its sound thread still stuck on the sound
     /// server. The process then ends as soon as the application object is
     /// torn down, without Qt's own teardown: freeing the Pulse mainloop the

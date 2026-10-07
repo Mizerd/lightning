@@ -1,5 +1,81 @@
 # Open items and the NOT TESTED inventory
 
+## 2026-10-07 — OPEN (Qt, not ours): an orphaned PipeWire sink stream can still spin the GUI thread
+
+**What it is.** Qt 6.11's native PipeWire sink keeps each stream alive through
+a self-reference (`QPipewireAudioStream::m_self`) until PipeWire reports the
+stream UNCONNECTED, and drops that reference on its own `QAudioContext`
+thread (`qpipewire_audiosink.cpp`, `stateChanged`, with Qt's own comment
+"CAVEAT: m_self may have been the last owner"). When the stream's device goes
+away, `handleIOError` (`qaudiosystem_platform_stream_support_p.h`) drops the
+application's reference WITHOUT disconnecting, so the stream is orphaned:
+alive, owned only by `m_self`. If PipeWire later unconnects it (measured: the
+daemon restarting), the stream, with its four `QAutoResetEvent`s, is destroyed
+on `QAudioContext`. Each owns an eventfd and a `QSocketNotifier` registered
+with the GUI thread: the same "Socket notifiers cannot be enabled or disabled
+from another thread" followed by "Invalid socket N ... disabling..." for ever
+that took the 2026-10-07 Flatpak call down.
+
+**Not introduced by the cue mixer, and it does not depend on it.** The
+reviewer reproduced it on the OLD path too: `stress-old` (QSoundEffect, main
+536825b4) with the output removed and the PipeWire daemon then killed, 2 of 2
+FAIL. Any Qt 6.10+ QAudioSink on the PipeWire backend whose device is removed
+is exposed; by reading, not measured, that includes the voice-message player
+(QMediaPlayer's FFmpeg audio output plays through a QAudioSink). The mixer only stopped OPENING streams while devices come and go,
+which was the window WirePlumber's "destroy a new dont-reconnect stream whose
+target vanished" policy made into a race per cue (prepare-link.lua).
+
+**Status.** NOT FIXED; needs Qt. Live risk: a user who unplugs the active
+output and whose PipeWire then restarts (a session restart without logging
+out, a crash, an update). The repeat limiter (`RepeatLogLimiter`) bounds what
+it writes to disk; it does not stop the loop.
+
+**Mitigation to evaluate later, NOT decided.** Run Qt Multimedia on its
+PulseAudio backend in the Flatpak (`QT_AUDIO_BACKEND=pulseaudio`, through
+pipewire-pulse; the manifest already grants `--socket=pulseaudio`). Its sink
+stream has no self-reference and dies with the application's owner, on the
+application thread (`qpulseaudiosink.cpp`). To check first: device ids (the
+call device preferences are stored as Qt device ids), the QSoundEffect voice
+race on that backend (not exercised by the cue mixer, which no longer uses
+QSoundEffect on Linux), and whether a PulseAudio-backend QAudioSink open can
+block the GUI thread on a stalled server.
+
+**Upstream bug draft (not filed).**
+
+> Title: Qt 6.10+/6.11 Multimedia: QObjects with GUI-thread socket notifiers
+> destroyed on audio threads (QRtAudioEngine voices; PipeWire sink streams)
+>
+> 1. `QRtAudioEngine::audioCallback()` keeps references to finished voices in a
+>    local vector until the callback returns, after it has already handed them
+>    to the application thread (StopNotification + `m_notificationEvent.set()`).
+>    When the application thread processes the notification first (another
+>    voice still active on the engine, so no blocking `suspend()` round trip;
+>    the audio thread delayed: no RT priority, a contended CPU), the last
+>    reference is dropped on the real-time thread and `~QSoundEffectVoice` runs
+>    there. Its `QAutoResetEventEventFD` closes the eventfd and its
+>    `QSocketNotifier` is disabled from the wrong thread ("Socket notifiers
+>    cannot be enabled or disabled from another thread"), leaving a stale
+>    registration; the glib dispatcher then loops for ever in
+>    `socketNotifierSourceCheck` ("Invalid socket N and type 'Read',
+>    disabling..."). Reproducer: two QSoundEffects on one device (one looping),
+>    short one-shots every few ms, no RT priority, process pinned to one CPU;
+>    or an LD_PRELOAD shim that delays the audio thread after the eventfd
+>    write. Backtrace: `audioCallback -> ~QSoundEffectVoice ->
+>    ~QAutoResetEventEventFD -> ~QSocketNotifier` on `data-loop.0`.
+> 2. `QPipewireAudioSinkStream` drops `m_self` in `stateChanged(UNCONNECTED)`
+>    on the PipeWire loop thread; after `handleIOError()` (device removed) the
+>    application no longer owns the stream, so the stream and its
+>    `QAutoResetEvent`s are destroyed on `QAudioContext` with the same result.
+> 3. `QAutoResetEventEventFD` closes its fd BEFORE its member `QSocketNotifier`
+>    is destroyed, and the notifier is not a child, so `moveToThread()` of the
+>    event does not move it.
+>
+> Suggested direction: never let the last reference to such an object drop on
+> an audio thread (hand it back to the owning thread), and make
+> QAutoResetEvent's notifier a child destroyed before the fd is closed.
+> Seen with Qt 6.11.1/6.11.2 (KDE Flatpak runtime 6.11 and nixpkgs),
+> PipeWire 1.6, WirePlumber 0.5.
+
 ## 2026-10-06 — openSUSE: what runs, and the COPR route for Leap
 
 **Measured on a real Tumbleweed desktop** (rig VM, Tumbleweed 20261001, KDE

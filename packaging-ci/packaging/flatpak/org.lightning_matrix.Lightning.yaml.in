@@ -105,6 +105,7 @@ modules:
         -DLIGHTNING_ENABLE_WEBRTC=ON
         -DLIGHTNING_REQUIRE_WEBRTC=ON
         -DLIGHTNING_REQUIRE_QT_SVG=ON
+        -DLIGHTNING_REQUIRE_QT_AUDIO_ROLE=ON
       - cmake --build build
       - cmake --install build
       # configure-build.sh's call-engine guard, since this build bypasses it:

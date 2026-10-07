@@ -6,6 +6,7 @@
 
 #include <QElapsedTimer>
 #include <QFile>
+#include <QRegularExpression>
 #include <QLoggingCategory>
 #include <QSemaphore>
 #include <QtTest/QtTest>
@@ -203,6 +204,104 @@ private slots:
                      qPrintable(sound + QStringLiteral(" lasts %1 s")
                                     .arg(seconds)));
         }
+    }
+
+    // Live FAIL 2026-10-07 (Flatpak, Qt 6.11.2): QSoundEffect freed a
+    // finished voice on the audio thread, and the GUI thread's glib event
+    // loop then spun for ever on the voice's closed eventfd ("Invalid socket
+    // ... disabling", 95 million lines, the call dead). Reproduced with
+    // QSoundEffect alone. On Linux from Qt 6.10 the cues are mixed into one
+    // output instead (CallSoundMixer; its behaviour is call-sound-pcm's).
+    // Source scan, because only a sound server shows the defect: what the
+    // player constructs is chosen by a constant true exactly there.
+    void onLinuxFromQt610NoCueIsVoicedByQSoundEffect()
+    {
+        QFile file(QStringLiteral(SOUNDS_DIR "/../../src/calls/CallSoundPlayer.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString code = QString::fromUtf8(file.readAll());
+        // Every construction of the effects in the player.
+        const QRegularExpression construct(
+            QStringLiteral(R"(m_effects\s*=\s*new\s+(\w+)\s*\()"));
+        QStringList built;
+        for (auto it = construct.globalMatch(code); it.hasNext();)
+            built << it.next().captured(1);
+        QVERIFY2(!built.isEmpty(), "the player constructs no effects");
+        QVERIFY2(!built.contains(QStringLiteral("CallSoundEffects")),
+                 "the player constructs one implementation for every Qt "
+                 "version (QSoundEffect, which Qt 6.10+ frees on the audio "
+                 "thread)");
+        QVERIFY2(code.contains(QStringLiteral(
+                     "#if defined(Q_OS_LINUX) && QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)\n"
+                     "constexpr bool kCuesMixed = true;\n"
+                     "#else\n"
+                     "constexpr bool kCuesMixed = false;\n"
+                     "#endif")),
+                 "the mixer is not chosen for exactly Linux with Qt 6.10+");
+        QVERIFY2(code.contains(QStringLiteral(
+                     "if constexpr (kCuesMixed)\n"
+                     "        m_effects = new MixerCues(m_readiness);\n"
+                     "    else\n"
+                     "        m_effects = new QSoundEffectCues(m_readiness);")),
+                 "the cues are not chosen by that constant");
+        // ...and the mixer's side owns no QSoundEffect.
+        const int begin = code.indexOf(QStringLiteral("class AudioSinkOutput"));
+        const int end = code.indexOf(QStringLiteral("\nvoid CallSoundEffects::setReady"), begin);
+        QVERIFY(begin >= 0 && end > begin);
+        const QRegularExpression usesQSoundEffect(
+            QStringLiteral(R"(\bQSoundEffect\s*(\*|::|\(|\{)|new\s+QSoundEffect\b)"));
+        QVERIFY2(!usesQSoundEffect.match(code.mid(begin, end - begin)).hasMatch(),
+                 "the mixed cues use QSoundEffect");
+    }
+
+    // Rokas 2026-10-07: the mixed cues keep the stream role QSoundEffect's
+    // engine gave them (media.role "Notification", so the desktop's
+    // notification volume governs them). Only Qt's private QPlatformAudioSink
+    // sets it, before start() creates the stream; a build without the
+    // private headers says so once. Measured on a live PipeWire node (pw-dump).
+    void theMixedCuesAskForTheNotificationRole()
+    {
+        QFile file(QStringLiteral(SOUNDS_DIR "/../../src/calls/CallSoundPlayer.cpp"));
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.fileName()));
+        const QString code = QString::fromUtf8(file.readAll());
+        const int begin = code.indexOf(QStringLiteral("class AudioSinkOutput"));
+        const int end = code.indexOf(QStringLiteral("\nclass MixerCues"), begin);
+        QVERIFY2(begin >= 0 && end > begin, "no AudioSinkOutput");
+        const QString output = code.mid(begin, end - begin);
+        const int role = output.indexOf(QStringLiteral(
+            "setRole(\n                    QtMultimediaPrivate::AudioEndpointRole::SoundEffect)"));
+        const int start = output.indexOf(QStringLiteral("m_sink->start(feed)"));
+        QVERIFY2(role >= 0, "the cues' sink asks for no role");
+        QVERIFY2(start > role, "the role is set after start() made the stream");
+        const int guard = output.lastIndexOf(
+            QStringLiteral("#if defined(LIGHTNING_HAVE_QT_AUDIO_ROLE)"), role);
+        QVERIFY2(guard >= 0, "the private call is not behind the CMake check");
+        // Private ABI: only into the very Qt it was built against.
+        const int sameQt = output.indexOf(
+            QStringLiteral("qstrcmp(qVersion(), QT_VERSION_STR) == 0"), guard);
+        QVERIFY2(sameQt > guard && sameQt < role,
+                 "the private call does not check the running Qt");
+        QVERIFY2(output.contains(QStringLiteral(
+                     "QStringLiteral(\"call sounds: media.role not set (%1)\")"))
+                     && output.contains(QStringLiteral(
+                         "sayNoRole(QStringLiteral(\"no private Qt Multimedia headers\"));")),
+                 "a build or a runtime without the role does not say so");
+        QFile cmake(QStringLiteral(SOUNDS_DIR "/../../CMakeLists.txt"));
+        QVERIFY(cmake.open(QIODevice::ReadOnly));
+        const QString lists = QString::fromUtf8(cmake.readAll());
+        QVERIFY2(lists.contains(QStringLiteral("find_package(Qt6 6.10 QUIET COMPONENTS MultimediaPrivate)"))
+                     && lists.contains(QStringLiteral("#include <QtMultimedia/private/qaudiosystem_p.h>"))
+                     && lists.contains(QStringLiteral("LIGHTNING_HAVE_QT_AUDIO_ROLE=1")),
+                 "CMake does not check for the private header before using it");
+        // The Flatpak may not ship without it (the KDE SDK 6.11 has it).
+        QFile flatpak(QStringLiteral(SOUNDS_DIR "/../../packaging-ci/packaging/flatpak/"
+                                     "org.lightning_matrix.Lightning.yaml.in"));
+        QVERIFY(flatpak.open(QIODevice::ReadOnly));
+        QVERIFY2(QString::fromUtf8(flatpak.readAll())
+                     .contains(QStringLiteral("-DLIGHTNING_REQUIRE_QT_AUDIO_ROLE=ON")),
+                 "the Flatpak can ship without the cues' role");
+#if defined(LIGHTNING_HAVE_QT_AUDIO_ROLE)
+        qInfo("this build sets the cues' media.role");
+#endif
     }
 };
 

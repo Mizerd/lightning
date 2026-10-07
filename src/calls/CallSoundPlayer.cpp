@@ -1,11 +1,14 @@
 #include "calls/CallSoundPlayer.h"
 
 #include "app/AsyncLogSink.h"
+#include "calls/CallSoundMixer.h"
 
 #include <QAudioDevice>
+#include <QAudioSink>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QHash>
 #include <QLoggingCategory>
 #include <QMediaDevices>
@@ -20,6 +23,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <optional>
+#include <utility>
+
+#if defined(LIGHTNING_HAVE_QT_AUDIO_ROLE)
+// Private Qt Multimedia API, for the stream's role (see AudioSinkOutput).
+// CMake defines the macro only after compiling against this header.
+#include <QtMultimedia/private/qaudiosystem_p.h>
+#endif
 
 Q_DECLARE_LOGGING_CATEGORY(lcCallSound)
 
@@ -54,6 +65,17 @@ float linearGain(qreal perceptual)
 // thread.
 constexpr bool kEffectsOffTheGuiThread =
     QT_VERSION < QT_VERSION_CHECK(6, 10, 0);
+
+// See the header: on Linux from 6.10 QSoundEffect frees a finished voice on
+// the audio backend's real-time thread, and the GUI thread's glib event loop
+// then spins for ever on the voice's closed eventfd. The cues are mixed into
+// one QAudioSink there. Windows and macOS keep QSoundEffect (validated live
+// on Windows; the defect is the eventfd notifier's).
+#if defined(Q_OS_LINUX) && QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+constexpr bool kCuesMixed = true;
+#else
+constexpr bool kCuesMixed = false;
+#endif
 
 std::atomic<bool> g_soundThreadStuck{false};
 std::atomic<int> g_exitStatus{0};
@@ -94,17 +116,59 @@ namespace {
 constexpr qint64 kStuckAfterMs = 2000;
 } // namespace
 
-/// Owns the QSoundEffects. Lives on the effects' thread and is only ever
-/// called there.
+/// Where the cues are voiced. Lives where the effects live (see the header)
+/// and is only ever called there.
 class CallSoundEffects : public QObject
 {
 public:
-    explicit CallSoundEffects(std::shared_ptr<CallSoundReadiness> readiness)
+    ~CallSoundEffects() override = default;
+
+    virtual void preload() = 0;
+    virtual void play(const QString &sound, float gain,
+                      const QString &device) = 0;
+    virtual void loop(const QString &sound, float gain,
+                      const QString &device) = 0;
+    /// After the output list changed: make every unusable sound usable
+    /// again and resume a loop that was lost. Returns how many were
+    /// (re)loaded.
+    virtual int reloadUnusable() = 0;
+    virtual void stopAll() = 0;
+
+protected:
+    /// The call's chosen speaker (`wanted`, an output id) or the default.
+    /// Re-resolved on every cue so a device plugged in mid-session is used;
+    /// resolved where the effects live rather than on the GUI thread, since
+    /// asking the audio backend is exactly what can hang (Qt < 6.10).
+    static QAudioDevice resolveOutput(const QString &wanted)
+    {
+        QAudioDevice target = QMediaDevices::defaultAudioOutput();
+        if (!wanted.isEmpty()) {
+            const QList<QAudioDevice> outputs = QMediaDevices::audioOutputs();
+            for (const QAudioDevice &device : outputs) {
+                if (QString::fromUtf8(device.id()) == wanted) {
+                    target = device;
+                    break;
+                }
+            }
+        }
+        return target;
+    }
+
+    static void setReady(const std::shared_ptr<CallSoundReadiness> &readiness,
+                         const QString &sound, bool ready);
+};
+
+/// Owns the QSoundEffects (everywhere but Linux with Qt 6.10 and later; see
+/// the header).
+class QSoundEffectCues final : public CallSoundEffects
+{
+public:
+    explicit QSoundEffectCues(std::shared_ptr<CallSoundReadiness> readiness)
         : m_readiness(std::move(readiness))
     {
     }
 
-    void preload()
+    void preload() override
     {
         QElapsedTimer timer;
         timer.start();
@@ -113,7 +177,7 @@ public:
         qCInfo(lcCallSound) << "call sounds preloading ms=" << timer.elapsed();
     }
 
-    void play(const QString &sound, float gain, const QString &device)
+    void play(const QString &sound, float gain, const QString &device) override
     {
         // A one-shot of the looping sound would cut the loop short.
         if (sound == m_loopSound)
@@ -127,7 +191,7 @@ public:
         e->play();
     }
 
-    void loop(const QString &sound, float gain, const QString &device)
+    void loop(const QString &sound, float gain, const QString &device) override
     {
         if (sound == m_loopSound) {
             // The controller re-asserts the loop on every state change:
@@ -162,7 +226,7 @@ public:
     /// thread (it used to be asked here, from the effects' thread, and a
     /// stale empty answer there would have skipped the reload without a
     /// word). Returns how many were (re)loaded.
-    int reloadUnusable()
+    int reloadUnusable() override
     {
         int reloaded = 0;
         bool loopLost = false;
@@ -195,7 +259,7 @@ public:
         return reloaded;
     }
 
-    void stopAll()
+    void stopAll() override
     {
         for (QSoundEffect *e : std::as_const(m_effects))
             e->stop();
@@ -230,22 +294,9 @@ private:
         return e;
     }
 
-    /// The call's chosen speaker (`wanted`, an output id) or the default.
-    /// Re-resolved on every cue so a device plugged in mid-session is used;
-    /// resolved here rather than on the GUI thread, since asking the audio
-    /// backend is exactly what can hang.
     static void route(QSoundEffect *e, const QString &wanted)
     {
-        QAudioDevice target = QMediaDevices::defaultAudioOutput();
-        if (!wanted.isEmpty()) {
-            const QList<QAudioDevice> outputs = QMediaDevices::audioOutputs();
-            for (const QAudioDevice &device : outputs) {
-                if (QString::fromUtf8(device.id()) == wanted) {
-                    target = device;
-                    break;
-                }
-            }
-        }
+        const QAudioDevice target = resolveOutput(wanted);
         if (!target.isNull() && e->audioDevice() != target)
             e->setAudioDevice(target);
     }
@@ -257,6 +308,180 @@ private:
     QString m_loopDevice;
 };
 
+/// CueEngine's output in the app: one pull-mode QAudioSink.
+class AudioSinkOutput final : public CueOutput
+{
+public:
+    AudioSinkOutput(const QAudioDevice &device, const QAudioFormat &format,
+                    QObject *parent)
+        : CueOutput(parent), m_sink(new QAudioSink(device, format, this))
+    {
+        // The ring buffer is refilled on this (the GUI) thread, so it is how
+        // long the GUI thread may stall before a loop stutters, and also the
+        // most a cue waits behind audio already mixed. See kRingBufferUs.
+        m_sink->setBufferSize(format.bytesForDuration(kRingBufferUs));
+        // The stream's role, before start() creates the stream, exactly as
+        // QSoundEffect's own engine (QRtAudioEngine) does: PipeWire and
+        // PulseAudio then tag it media.role "Notification", so the desktop's
+        // notification volume still governs the cues. No public API does it.
+#if defined(LIGHTNING_HAVE_QT_AUDIO_ROLE)
+        // Private ABI, so only with the very Qt it was built against: a
+        // runtime update within 6.11.x is not caught by the loader, and
+        // setRole() is a virtual call into it.
+        if (qstrcmp(qVersion(), QT_VERSION_STR) == 0) {
+            if (QPlatformAudioSink *platform = QPlatformAudioSink::get(*m_sink)) {
+                platform->setRole(
+                    QtMultimediaPrivate::AudioEndpointRole::SoundEffect);
+            }
+        } else {
+            sayNoRole(QStringLiteral("built with Qt " QT_VERSION_STR
+                                     ", running Qt %1")
+                          .arg(QLatin1String(qVersion())));
+        }
+#else
+        sayNoRole(QStringLiteral("no private Qt Multimedia headers"));
+#endif
+        connect(m_sink, &QAudioSink::stateChanged, this, [this] { check(); });
+    }
+
+    void start(QIODevice *feed) override
+    {
+        m_sink->start(feed);
+        check();
+    }
+    void suspend() override { m_sink->suspend(); }
+    void resume() override { m_sink->resume(); }
+    bool suspended() const override
+    {
+        return m_sink->state() == QAudio::SuspendedState;
+    }
+    void stop() override { m_sink->reset(); }
+
+private:
+    /// Once per process: the cues then carry Qt's default role.
+    static void sayNoRole(const QString &why)
+    {
+        static bool said = false;
+        if (!std::exchange(said, true)) {
+            qCInfo(lcCallSound).noquote()
+                << QStringLiteral("call sounds: media.role not set (%1)").arg(why);
+        }
+    }
+
+    // Measured 2026-10-07 (private PipeWire graph; the ring looping while the
+    // GUI thread was blocked once a second): 40 ms stuttered on every 50 ms
+    // block, 120 ms on none up to 100 ms and on every 200 ms one (about
+    // 95 ms of silence each). The price: a cue that starts while a loop
+    // keeps the output fed is heard about 150 ms after play() instead of
+    // about 65 (about 45 either way when the output is idle). Qt's default
+    // is 250 ms.
+    static constexpr qint64 kRingBufferUs = 120000;
+
+    /// The device could not be opened or went away. An underrun is not that
+    /// (older Qt reports one when a pull source runs dry).
+    void check()
+    {
+        const QAudio::Error error = m_sink->error();
+        if (m_failed
+            || (error != QAudio::OpenError && error != QAudio::IOError
+                && error != QAudio::FatalError)) {
+            return;
+        }
+        m_failed = true;
+        qCWarning(lcCallSound) << "call sounds: the output failed error="
+                               << int(error);
+        Q_EMIT failed();
+    }
+
+    QAudioSink *m_sink;
+    bool m_failed = false;
+};
+
+/// Mixes the cues into one long-lived QAudioSink (Linux, Qt 6.10 and later;
+/// see the header and CallSoundMixer.h). Lives on the GUI thread.
+class MixerCues final : public CallSoundEffects
+{
+public:
+    explicit MixerCues(std::shared_ptr<CallSoundReadiness> readiness)
+        : m_engine(kSounds, hooks(std::move(readiness)), this)
+    {
+    }
+
+    void preload() override
+    {
+        QElapsedTimer timer;
+        timer.start();
+        m_engine.preload();
+        qCInfo(lcCallSound) << "call sounds preloading ms=" << timer.elapsed();
+    }
+    void play(const QString &sound, float gain, const QString &device) override
+    {
+        m_engine.play(sound, gain, device);
+    }
+    void loop(const QString &sound, float gain, const QString &device) override
+    {
+        m_engine.loop(sound, gain, device);
+    }
+    int reloadUnusable() override { return m_engine.reloadUnusable(); }
+    void stopAll() override { m_engine.stopAll(); }
+
+private:
+    static QAudioDevice outputById(const QByteArray &id)
+    {
+        const QList<QAudioDevice> outputs = QMediaDevices::audioOutputs();
+        for (const QAudioDevice &device : outputs) {
+            if (device.id() == id)
+                return device;
+        }
+        return {};
+    }
+
+    static CueEngine::Hooks hooks(std::shared_ptr<CallSoundReadiness> readiness)
+    {
+        CueEngine::Hooks h;
+        h.resolveOutput = [](const QString &wanted) -> std::optional<QByteArray> {
+            const QAudioDevice device = resolveOutput(wanted);
+            if (device.isNull())
+                return std::nullopt;
+            return device.id();
+        };
+        h.supports = [](const QByteArray &id, const QAudioFormat &format) {
+            const QAudioDevice device = outputById(id);
+            return !device.isNull() && device.isFormatSupported(format);
+        };
+        h.open = [](const QByteArray &id, const QAudioFormat &format,
+                    QObject *parent) -> CueOutput * {
+            const QAudioDevice device = outputById(id);
+            if (device.isNull())
+                return nullptr;
+            return new AudioSinkOutput(device, format, parent);
+        };
+        h.wav = [](const QString &sound) -> std::optional<QByteArray> {
+            QFile file(QStringLiteral(":/sounds/%1.wav").arg(sound));
+            if (!file.open(QIODevice::ReadOnly))
+                return std::nullopt;
+            return file.readAll();
+        };
+        h.setReady = [readiness](const QString &sound, bool ready) {
+            setReady(readiness, sound, ready);
+        };
+        return h;
+    }
+
+    CueEngine m_engine;
+};
+
+void CallSoundEffects::setReady(
+    const std::shared_ptr<CallSoundReadiness> &readiness, const QString &sound,
+    bool ready)
+{
+    QMutexLocker lock(&readiness->mutex);
+    if (ready)
+        readiness->ready.insert(sound);
+    else
+        readiness->ready.remove(sound);
+}
+
 const QStringList &CallSoundPlayer::knownSounds()
 {
     return kSounds;
@@ -265,6 +490,11 @@ const QStringList &CallSoundPlayer::knownSounds()
 bool CallSoundPlayer::playsOffTheGuiThread()
 {
     return kEffectsOffTheGuiThread;
+}
+
+const char *CallSoundPlayer::cueBackend()
+{
+    return kCuesMixed ? "QAudioSink mixer" : "QSoundEffect";
 }
 
 bool CallSoundPlayer::soundThreadStuck()
@@ -348,7 +578,10 @@ void CallSoundPlayer::startEffects(bool offTheGuiThread)
     connect(m_outputChangeTimer, &QTimer::timeout, this,
             &CallSoundPlayer::reloadAfterOutputChange);
     m_readiness->clock.start();
-    m_effects = new CallSoundEffects(m_readiness);
+    if constexpr (kCuesMixed)
+        m_effects = new MixerCues(m_readiness);
+    else
+        m_effects = new QSoundEffectCues(m_readiness);
     if (offTheGuiThread) {
         m_thread = new QThread();
         m_thread->setObjectName(QStringLiteral("call-sounds"));

@@ -27,6 +27,7 @@
 #include "app/AsyncLogSink.h"
 #include "app/GuiStallTracer.h"
 #include "app/QmlGcPolicy.h"
+#include "app/RepeatLogLimiter.h"
 #include "media/VaapiLogGate.h"
 #include "text/SpellChecker.h"
 #include "storage/AppDataPaths.h"
@@ -78,6 +79,7 @@
 #include <QTextStream>
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -921,6 +923,62 @@ void installVaapiLogGate()
     g_previousMessageHandler = qInstallMessageHandler(vaapiGatedMessageHandler);
 }
 
+// A message repeated without end costs a bounded number of lines on stderr and
+// in --log-file alike (RepeatLogLimiter.h). Installed around the --log-file
+// handler and inside the VAAPI gate, so that gate still counts every export
+// warning. Never freed: a handler can still run during static destruction.
+QtMessageHandler g_beforeRepeatLimiter = nullptr;
+lightning::logging::RepeatLogLimiter *g_repeatLimiter = nullptr;
+
+qint64 steadyNowMs()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+void repeatLimitedMessageHandler(QtMsgType type, const QMessageLogContext &ctx,
+                                 const QString &msg)
+{
+    const QtMessageHandler next = g_beforeRepeatLimiter;
+    if (!next)
+        return;
+    if (type == QtFatalMsg || !g_repeatLimiter) {
+        next(type, ctx, msg);
+        return;
+    }
+    const lightning::logging::RepeatLogLimiter::Decision decision =
+        g_repeatLimiter->admit(type, ctx.category, msg, steadyNowMs());
+    for (const auto &summary : decision.summaries) {
+        const QMessageLogContext summaryContext(nullptr, 0, nullptr,
+                                                summary.category.constData());
+        next(summary.type, summaryContext, summary.text);
+    }
+    if (decision.pass)
+        next(type, ctx, msg);
+}
+
+// Registered with atexit after the --log-file drain, so it runs before it: a
+// flood that ends with the process still says what it cost.
+void flushRepeatLimiterAtExit()
+{
+    const QtMessageHandler next = g_beforeRepeatLimiter;
+    if (!next || !g_repeatLimiter)
+        return;
+    for (const auto &summary : g_repeatLimiter->takePending(steadyNowMs())) {
+        const QMessageLogContext summaryContext(nullptr, 0, nullptr,
+                                                summary.category.constData());
+        next(summary.type, summaryContext, summary.text);
+    }
+}
+
+void installRepeatLimiter()
+{
+    g_repeatLimiter = new lightning::logging::RepeatLogLimiter();
+    g_beforeRepeatLimiter = qInstallMessageHandler(repeatLimitedMessageHandler);
+    std::atexit(flushRepeatLimiterAtExit);
+}
+
 } // namespace
 
 // Window icon and the AppImage launcher entry.
@@ -1736,6 +1794,10 @@ int main(int argc, char *argv[])
     if (!qEnvironmentVariableIsSet("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
         qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "none");
 
+    // Bound any message repeated without end, on stderr and in --log-file
+    // alike. Before the VAAPI gate, so it sits inside it (that gate counts
+    // every export warning itself).
+    installRepeatLimiter();
     // Rate-limit Qt FFmpeg's per-frame VAAPI export warnings. Installed
     // before QGuiApplication so the earliest warnings are gated too.
     installVaapiLogGate();
@@ -1811,7 +1873,8 @@ int main(int argc, char *argv[])
         || pf.action == PreflightResult::RunCallSoundsDemo) {
         // Whether the sounds play depends on the packaged Qt Multimedia
         // backend, so load each through the real CallSoundPlayer and report
-        // which reached QSoundEffect::Ready.
+        // which it calls playable (QSoundEffect::Ready before Qt 6.10;
+        // decoded and suited to the default output from 6.10).
         QCoreApplication::setOrganizationName(QStringLiteral("MatrixClient"));
         QCoreApplication::setApplicationName(QStringLiteral("matrix-client"));
         QCoreApplication probeApp(argc, argv);
@@ -1820,6 +1883,8 @@ int main(int argc, char *argv[])
         out << "default audio output: "
             << (output.isNull() ? QStringLiteral("none")
                                 : output.description())
+            << "\n"
+            << "call sounds voiced by: " << CallSoundPlayer::cueBackend()
             << "\n";
         CallSoundPlayer player([] { return QString(); });
         const QStringList &sounds = CallSoundPlayer::knownSounds();
