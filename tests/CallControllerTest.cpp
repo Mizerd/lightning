@@ -19,6 +19,7 @@
 #include "calls/CallStageState.h"
 #include "calls/SdpStore.h"
 #include "calls/RtcController.h"
+#include "calls/ScreenCastPortal.h"
 #include <QSettings>
 #include <QTemporaryDir>
 #include "app/SettingsManager.h"
@@ -610,6 +611,60 @@ struct KeyLaneCall {
     int newest() const { return call.newestKeyIndexForTest(); }
     int adopted() const { return call.adoptedKeyIndexForTest(); }
 };
+
+// ── Reconnecting ──
+
+const QString kReconnectRoom = QStringLiteral("!reconnect:example.org");
+const QString kReconnectFocus = QStringLiteral("https://sfu.example.org");
+
+/// A call that got up: membership published carrying the focus (so the SFU
+/// connect went out once), the SFU session signalling, and Connected, which
+/// is the one state a lost session may be recovered from. `room` defaults to
+/// kReconnectRoom.
+void connectRecoverableCall(RecordingCallClient &client,
+                            SfuCallController &call,
+                            const QString &delayId = QString(),
+                            const QString &room = kReconnectRoom,
+                            bool transportUp = true)
+{
+    call.setClient(&client);
+    const quint64 op = call.beginMembershipPublishForTest(room,
+                                                          kReconnectFocus);
+    QVERIFY(op != 0);
+    client.answerPublish(op, true, delayId);
+    QCOMPARE(call.state(), SfuCallController::State::Authorizing);
+    QCOMPARE(client.sfuConnects.size(), 1);
+    client.emitSfuState(QStringLiteral("authorized"), QString());
+    client.emitSfuState(QStringLiteral("signalling"), QString());
+    // The engine's first remote description is what makes a call Connected;
+    // this target has no engine.
+    call.setCallStateForTest(SfuCallController::State::Connected);
+    // ...and its ICE came up: media flowed before the loss.
+    if (transportUp) {
+        QVERIFY(QMetaObject::invokeMethod(&call, "onEngineTransportState",
+                                          Qt::DirectConnection,
+                                          Q_ARG(int, 1),
+                                          Q_ARG(QString,
+                                                QStringLiteral("connected"))));
+    }
+}
+
+/// The SFU's JoinResponse for a rejoin, on the signal the bridge emits.
+void emitSfuJoin(RecordingCallClient &client, const QString &ownIdentity,
+                 const QVariantList &participants)
+{
+    Q_EMIT client.sfuJoined(ownIdentity, participants, QVariantList(),
+                            QByteArray());
+}
+
+/// SfuMediaEngine::transportStateChanged, as the controller receives it.
+bool emitTransport(SfuCallController &call, int target, const QString &state)
+{
+    return QMetaObject::invokeMethod(&call, "onEngineTransportState",
+                                     Qt::DirectConnection,
+                                     Q_ARG(int, target),
+                                     Q_ARG(QString, state));
+}
 
 } // namespace
 
@@ -4649,14 +4704,14 @@ private Q_SLOTS:
         // An unset session type must not decide.
         QVERIFY(falls(refusal, QStringLiteral("xcb"), QString(), QString(),
                       QStringLiteral(":0"), true));
-        // Only the recognised refusal falls back: a dismissal, a busy portal,
-        // a timeout or any other failure is not consent to capture the X11
-        // root window.
+        // Only the recognised refusals fall back: a busy portal or any other
+        // failure is not consent to capture the X11 root window. (A dismissal
+        // in the picker is `cancelled`, which never reaches this predicate.)
         for (const QString &other :
              { QStringLiteral("refused"), QStringLiteral("no_portal"),
                QStringLiteral("start_failed"), QStringLiteral("select_failed"),
                QStringLiteral("no_session"), QStringLiteral("busy"),
-               QStringLiteral("timeout") }) {
+               QStringLiteral("no_stream") }) {
             QVERIFY2(!falls(other, QStringLiteral("xcb"),
                             QStringLiteral("x11"), QString(),
                             QStringLiteral(":0"), true),
@@ -4682,6 +4737,60 @@ private Q_SLOTS:
                      true, QStringLiteral("xcb"), QStringLiteral("x11"),
                      QString(), QStringLiteral(":0"), true),
                  SfuCallController::LinuxShareRoute::Portal);
+    }
+
+    // xdg-desktop-portal-kde on X11 advertises ScreenCast and then never
+    // produces a session (live Flatpak FAIL 2026-10-07: the share button did
+    // nothing for minutes). A portal that never answers, refuses the session
+    // or times out falls back to Lightning's own (always-asking) picker on
+    // X11, and still never on Wayland. Fails on the old tree, which accepted
+    // x11_unsupported only.
+    void aPortalThatNeverAnswersOnX11FallsBackToLightningsOwnPicker()
+    {
+        for (const QString &category :
+             { QStringLiteral("no_answer"), QStringLiteral("timeout"),
+               QStringLiteral("session_refused") }) {
+            QVERIFY2(SfuCallController::portalFailureFallsBackToDisplays(
+                         category, QStringLiteral("xcb"), QStringLiteral("x11"),
+                         QString(), QStringLiteral(":0"), true),
+                     qPrintable(category));
+            QVERIFY2(!SfuCallController::portalFailureFallsBackToDisplays(
+                         category, QStringLiteral("wayland"),
+                         QStringLiteral("wayland"), QStringLiteral("wayland-0"),
+                         QString(), true),
+                     qPrintable(category));
+            QVERIFY2(!SfuCallController::portalFailureFallsBackToDisplays(
+                         category, QStringLiteral("xcb"), QStringLiteral("x11"),
+                         QStringLiteral("wayland-0"), QStringLiteral(":0"),
+                         true),
+                     qPrintable(category));
+        }
+        // The handshake is bounded on X11 only, decided by the same
+        // predicate, and the portal turns a silent stall or a refused session
+        // into those categories instead of a silent "cancel".
+        QFile ctl(QStringLiteral(SOURCE_DIR "/src/calls/SfuCallController.cpp"));
+        QVERIFY(ctl.open(QIODevice::ReadOnly));
+        const QByteArray c = ctl.readAll();
+        const int route = c.indexOf("case LinuxShareRoute::Portal: {");
+        QVERIFY2(route > 0, "the Portal route lost its bounded block");
+        const QByteArray block = c.mid(route, 2400);
+        QVERIFY2(block.contains("portalFailureFallsBackToDisplays(")
+                     && block.contains("QStringLiteral(\"no_answer\")")
+                     && block.contains("x11FallbackPossible ? "
+                                       "kX11PortalPreparationBoundMs : 0"),
+                 "requestScreenShare() does not bound the portal on X11");
+        QFile portal(QStringLiteral(SOURCE_DIR "/src/calls/ScreenCastPortal.cpp"));
+        QVERIFY(portal.open(QIODevice::ReadOnly));
+        const QByteArray p = portal.readAll();
+        QVERIFY2(p.contains("Q_EMIT failed(QStringLiteral(\"no_answer\"))"),
+                 "the portal has no no-answer bound");
+        QVERIFY2(p.contains("Q_EMIT failed(QStringLiteral(\"session_refused\"))"),
+                 "a refused session is still swallowed as a cancel");
+        // The picker stage gets its own bound, armed when Start is sent.
+        const int start = p.indexOf("void ScreenCastPortal::startSession()");
+        QVERIFY(start > 0);
+        QVERIFY2(p.mid(start, 600).contains("armAnswerWatchdog(m_pickerBoundMs)"),
+                 "the picker stage is not bounded");
     }
 
     // The handler must consult it, and the fallback must never auto-select
@@ -5020,8 +5129,12 @@ private Q_SLOTS:
         SfuCallController call;
         call.setClient(&client);
 
+        // During the join: a call that was already up reconnects on a
+        // failure a retry can cure instead of ending with its wording (see
+        // eachWayOfLosingTheSessionReconnectsButARefusalStillEnds), so the
+        // wording is the join's.
         auto sentenceFor = [&](const QString &category) {
-            call.setCallStateForTest(SfuCallController::State::Connected);
+            call.setCallStateForTest(SfuCallController::State::Connecting);
             client.emitSfuState(QStringLiteral("failed"), category);
             return call.lastError();
         };
@@ -5832,6 +5945,459 @@ private Q_SLOTS:
             &fatal, "onEngineFailed", Qt::DirectConnection,
             Q_ARG(QString, QStringLiteral("connection_lost"))));
         QCOMPARE(fatal.state(), SfuCallController::State::Failed);
+    }
+
+    // ── Reconnecting after a transient network loss ──
+    //
+    // Live FAIL 2026-10-07 (Windows, UDP blocked for 26 s): the SFU timed
+    // our media out and sent Leave{CONNECTION_TIMEOUT, RESUME}; the bridge
+    // reported it as "ended" and the call was torn down with "The call ended
+    // because the connection was lost." The bridge now reports a Leave that
+    // asks us back, and a lost signalling socket, as "reconnecting".
+
+    // The whole recovery: membership and UI kept, the heartbeat still
+    // running, one rejoin with the same focus and room, and Connected again
+    // only once the new session's transport is up. Nothing is retracted and
+    // nothing is announced as a failure.
+    void aSessionLostToTheNetworkRejoinsWithoutEndingTheCall()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setReconnectTimingForTest(20, 5000, 20000);
+        connectRecoverableCall(client, call, QStringLiteral("delay-1"));
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        client.emitSfuState(QStringLiteral("reconnecting"),
+                            QStringLiteral("server_leave"));
+        QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
+        QVERIFY(call.active());
+        QCOMPARE(call.roomId(), kReconnectRoom);
+        QCOMPARE(failed.count(), 0);
+        QVERIFY2(client.retractions.isEmpty(),
+                 "the membership was retracted: to everyone else we left");
+
+        // The membership heartbeat keeps running while reconnecting, or the
+        // MSC4140 delayed retraction fires and removes us mid-reconnect.
+        call.startRefreshTickForTest(10);
+        QTRY_VERIFY(!client.delayedRestarts.isEmpty());
+
+        // One attempt, with the call's own focus and room.
+        QTRY_COMPARE(client.sfuConnects.size(), 2);
+        QCOMPARE(client.sfuConnects.last(),
+                 qMakePair(kReconnectFocus, kReconnectRoom));
+        QCOMPARE(call.reconnectAttemptsForTest(), 1);
+
+        client.emitSfuState(QStringLiteral("authorized"), QString());
+        client.emitSfuState(QStringLiteral("signalling"), QString());
+        emitSfuJoin(client, QStringLiteral("@me:example.org:MEDEV"), {
+            sfuParticipant(QStringLiteral("@me:example.org:MEDEV"),
+                           QStringLiteral("PA_ME2"), {}),
+            sfuParticipant(QStringLiteral("@b:example.org:BDEV"),
+                           QStringLiteral("PA_B"), {}),
+        });
+        QVERIFY2(call.state() == SfuCallController::State::Reconnecting,
+                 "a JoinResponse is not media: with the network still down "
+                 "the websocket comes back while nothing can be heard");
+
+        QVERIFY(emitTransport(call, 1, QStringLiteral("connected")));
+        QCOMPARE(call.state(), SfuCallController::State::Connected);
+        QCOMPARE(call.reconnectAttemptsForTest(), 0);
+        QCOMPARE(failed.count(), 0);
+        QVERIFY(client.retractions.isEmpty());
+        QCOMPARE(call.roomId(), kReconnectRoom);
+
+        // Done: no further attempt goes out.
+        QTest::qWait(150);
+        QCOMPARE(client.sfuConnects.size(), 2);
+        QCOMPARE(call.state(), SfuCallController::State::Connected);
+    }
+
+    // Every trigger a connected call recovers from, and the ones it must not.
+    void eachWayOfLosingTheSessionReconnectsButARefusalStillEnds()
+    {
+        const auto reconnects = [](const QString &state,
+                                   const QString &category) {
+            RecordingCallClient client;
+            SfuCallController call;
+            call.setReconnectTimingForTest(10000, 5000, 20000);
+            connectRecoverableCall(client, call);
+            client.emitSfuState(state, category);
+            return call.state();
+        };
+        using S = SfuCallController::State;
+        // The signalling socket died (the bridge's own word for it).
+        QCOMPARE(reconnects(QStringLiteral("reconnecting"),
+                            QStringLiteral("signal_lost")), S::Reconnecting);
+        QCOMPARE(reconnects(QStringLiteral("reconnecting"),
+                            QStringLiteral("signal_timeout")), S::Reconnecting);
+        // A socket error or a close without a Leave.
+        QVERIFY2(reconnects(QStringLiteral("failed"),
+                            QStringLiteral("connection_lost"))
+                     == S::Reconnecting,
+                 "a lost socket ended a connected call");
+        QCOMPARE(reconnects(QStringLiteral("closed"), QString()),
+                 S::Reconnecting);
+        // The service refusing us is the same answer on every attempt.
+        QCOMPARE(reconnects(QStringLiteral("failed"),
+                            QStringLiteral("sfu_forbidden")), S::Failed);
+        // A Leave with DISCONNECT (removed, room closed) ends the call.
+        QCOMPARE(reconnects(QStringLiteral("ended"),
+                            QStringLiteral("server_leave")), S::Failed);
+
+        // ICE failing on a connected call reconnects too.
+        {
+            RecordingCallClient client;
+            SfuCallController call;
+            call.setReconnectTimingForTest(10000, 5000, 20000);
+            connectRecoverableCall(client, call);
+            QVERIFY(emitTransport(call, 0, QStringLiteral("failed")));
+            QCOMPARE(call.state(), S::Reconnecting);
+        }
+        // "disconnected" only after its grace, and not at all if ICE comes
+        // back first.
+        {
+            RecordingCallClient client;
+            SfuCallController call;
+            call.setReconnectTimingForTest(10000, 5000, 20000, 60);
+            connectRecoverableCall(client, call);
+            QVERIFY(emitTransport(call, 1, QStringLiteral("disconnected")));
+            QCOMPARE(call.state(), S::Connected);
+            QVERIFY(emitTransport(call, 1, QStringLiteral("connected")));
+            QTest::qWait(150);
+            QCOMPARE(call.state(), S::Connected);
+            QVERIFY(emitTransport(call, 1, QStringLiteral("disconnected")));
+            QTRY_COMPARE(call.state(), S::Reconnecting);
+        }
+        // Lost before the call was ever up: still a failed join.
+        {
+            RecordingCallClient client;
+            SfuCallController call;
+            connectRecoverableCall(client, call);
+            call.setCallStateForTest(S::Connecting);
+            client.emitSfuState(QStringLiteral("reconnecting"),
+                                QStringLiteral("server_leave"));
+            QCOMPARE(call.state(), S::Failed);
+        }
+    }
+
+    // A network that does not come back: bounded attempts with backoff, then
+    // the call ends with the existing wording, the membership is retracted
+    // and nothing is attempted afterwards.
+    void aReconnectThatNeverGetsBackEndsHonestly()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        // First backoff 10 ms (doubling to 80), each attempt 60 ms, 400 ms in
+        // all.
+        call.setReconnectTimingForTest(10, 60, 400);
+        connectRecoverableCall(client, call);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        client.emitSfuState(QStringLiteral("reconnecting"),
+                            QStringLiteral("signal_lost"));
+        QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
+        // The first attempt fails at once (the network is down), and another
+        // is made.
+        QTRY_COMPARE(client.sfuConnects.size(), 2);
+        client.emitSfuState(QStringLiteral("failed"),
+                            QStringLiteral("connect_timeout"));
+        QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
+        QTRY_COMPARE(client.sfuConnects.size(), 3);
+
+        // The rest time out on their own until the budget is spent.
+        QTRY_COMPARE_WITH_TIMEOUT(call.state(),
+                                  SfuCallController::State::Failed, 5000);
+        QCOMPARE(call.lastError(),
+                 QStringLiteral("The call ended because the connection was "
+                                "lost."));
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().first().toString(), call.lastError());
+        QCOMPARE(client.retractions.size(), 1);
+        QCOMPARE(client.retractions.first().first, kReconnectRoom);
+        QVERIFY2(client.sfuConnects.size() <= 12,
+                 "the attempts were not bounded by the backoff");
+
+        const int attempts = client.sfuConnects.size();
+        QTest::qWait(200);
+        QCOMPARE(client.sfuConnects.size(), attempts);
+        QCOMPARE(call.state(), SfuCallController::State::Failed);
+
+        // A refusal during a reconnect ends it at once, with its own wording.
+        RecordingCallClient refusing;
+        SfuCallController refused;
+        refused.setReconnectTimingForTest(10, 5000, 20000);
+        connectRecoverableCall(refusing, refused);
+        refusing.emitSfuState(QStringLiteral("reconnecting"),
+                              QStringLiteral("server_leave"));
+        QTRY_COMPARE(refusing.sfuConnects.size(), 2);
+        refusing.emitSfuState(QStringLiteral("failed"),
+                              QStringLiteral("sfu_forbidden"));
+        QCOMPARE(refused.state(), SfuCallController::State::Failed);
+        QVERIFY(!refused.lastError().isEmpty());
+        QVERIFY(refused.lastError() != call.lastError());
+    }
+
+    // Leave while reconnecting ends the call now: no attempt afterwards, and
+    // nothing the attempt in flight reports can bring it back.
+    void leavingWhileReconnectingEndsAtOnce()
+    {
+        using S = SfuCallController::State;
+        {
+            // Waiting for the first attempt.
+            RecordingCallClient client;
+            SfuCallController call;
+            call.setReconnectTimingForTest(40, 5000, 20000);
+            connectRecoverableCall(client, call);
+            client.emitSfuState(QStringLiteral("reconnecting"),
+                                QStringLiteral("server_leave"));
+            QCOMPARE(call.state(), S::Reconnecting);
+            call.leave();
+            QCOMPARE(call.state(), S::Ended);
+            QCOMPARE(client.retractions.size(), 1);
+            QTest::qWait(200);
+            QVERIFY2(client.sfuConnects.size() == 1,
+                     "an attempt was made after the user left");
+        }
+        {
+            // An attempt in flight.
+            RecordingCallClient client;
+            SfuCallController call;
+            call.setReconnectTimingForTest(10, 5000, 20000);
+            connectRecoverableCall(client, call);
+            client.emitSfuState(QStringLiteral("reconnecting"),
+                                QStringLiteral("server_leave"));
+            QTRY_COMPARE(client.sfuConnects.size(), 2);
+            call.leave();
+            QCOMPARE(call.state(), S::Ended);
+            client.emitSfuState(QStringLiteral("authorized"), QString());
+            client.emitSfuState(QStringLiteral("signalling"), QString());
+            emitSfuJoin(client, QStringLiteral("@me:example.org:MEDEV"), {});
+            QVERIFY(emitTransport(call, 1, QStringLiteral("connected")));
+            QCOMPARE(call.state(), S::Ended);
+            QTest::qWait(150);
+            QCOMPARE(client.sfuConnects.size(), 2);
+        }
+    }
+
+    // A report from the session being abandoned must not move the new one:
+    // not a late "closed", Leave or failure, not its JoinResponse or
+    // participant list, and not a transport "connected" from before the
+    // rejoin.
+    void aStaleReportFromTheAbandonedSessionChangesNothing()
+    {
+        using S = SfuCallController::State;
+        RecordingCallClient client;
+        SfuCallController call;
+        // Long backoff: everything below arrives while waiting.
+        call.setReconnectTimingForTest(10000, 5000, 60000);
+        connectRecoverableCall(client, call);
+        call.setOwnIdentityForTest(QStringLiteral("@me:example.org:MEDEV"));
+        call.ingestParticipantsForTest({
+            sfuParticipant(QStringLiteral("@b:example.org:BDEV"),
+                           QStringLiteral("PA_B"), {}),
+        });
+        const int rows = call.participantModel()->rowCount();
+        QVERIFY(rows >= 1);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        client.emitSfuState(QStringLiteral("reconnecting"),
+                            QStringLiteral("server_leave"));
+        QCOMPARE(call.state(), S::Reconnecting);
+        // The tiles stay while reconnecting.
+        QCOMPARE(call.participantModel()->rowCount(), rows);
+
+        client.emitSfuState(QStringLiteral("closed"), QString());
+        client.emitSfuState(QStringLiteral("ended"),
+                            QStringLiteral("server_leave"));
+        client.emitSfuState(QStringLiteral("failed"),
+                            QStringLiteral("connection_lost"));
+        client.emitSfuState(QStringLiteral("failed"),
+                            QStringLiteral("sfu_forbidden"));
+        emitSfuJoin(client, QStringLiteral("@me:example.org:MEDEV"), {});
+        QVariantMap gone = sfuParticipant(
+            QStringLiteral("@b:example.org:BDEV"), QString(), {});
+        gone.insert(QStringLiteral("state"), QStringLiteral("disconnected"));
+        const QVariantList staleUpdate{ gone };
+        QVERIFY(QMetaObject::invokeMethod(&call, "onSfuParticipants",
+                                          Qt::DirectConnection,
+                                          Q_ARG(QVariantList, staleUpdate)));
+        QVERIFY(emitTransport(call, 1, QStringLiteral("connected")));
+
+        QCOMPARE(call.state(), S::Reconnecting);
+        QCOMPARE(failed.count(), 0);
+        QCOMPARE(call.reconnectAttemptsForTest(), 0);
+        QCOMPARE(client.sfuConnects.size(), 1);
+        QVERIFY2(call.participantModel()->rowCount() == rows,
+                 "a participant update from the abandoned session reached "
+                 "the call");
+        QVERIFY(client.retractions.isEmpty());
+    }
+
+    // After the rejoin everyone present is sent the key we already use, once
+    // and without a rotation, and only devices the membership names: an SFU
+    // participant with no membership gets nothing.
+    void aRejoinSendsOurCurrentKeyAgainToMembersOnly()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV") });
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.call.startKeyLaneForTest();
+        QCOMPARE(c.client.keySends.size(), 1);
+        const int key = c.newest();
+        QCOMPARE(c.adopted(), key);
+
+        // Give the call its focus, as join() does, and get it up again.
+        c.call.setReconnectTimingForTest(10, 5000, 20000);
+        const quint64 op = c.call.beginMembershipPublishForTest(
+            c.room, kReconnectFocus);
+        c.client.answerPublish(op, true, QString());
+        c.call.setCallStateForTest(SfuCallController::State::Connected);
+
+        c.client.emitSfuState(QStringLiteral("reconnecting"),
+                              QStringLiteral("server_leave"));
+        QCOMPARE(c.call.state(), SfuCallController::State::Reconnecting);
+        // Nothing is sent while there is no session.
+        QCOMPARE(c.client.keySends.size(), 1);
+        QTRY_COMPARE(c.client.sfuConnects.size(), 2);
+        c.client.emitSfuState(QStringLiteral("authorized"), QString());
+        c.client.emitSfuState(QStringLiteral("signalling"), QString());
+        emitSfuJoin(c.client, QStringLiteral("@me:example.org:MEDEV"), {
+            sfuParticipant(QStringLiteral("@me:example.org:MEDEV"),
+                           QStringLiteral("PA_ME2"), {}),
+            sfuParticipant(KeyLaneCall::identityFor(QStringLiteral("ADEV")),
+                           QStringLiteral("PA_A1"), {}),
+            sfuParticipant(QStringLiteral("@stranger:example.org:XDEV"),
+                           QStringLiteral("PA_X"), {}),
+        });
+
+        QCOMPARE(c.client.keySends.size(), 2);
+        QCOMPARE(c.lastSend().devices, QStringList{ QStringLiteral("ADEV") });
+        QCOMPARE(c.lastSend().index, key);
+        QVERIFY(c.lastSend().key == c.client.keySends.at(0).key);
+        QCOMPARE(c.newest(), key);
+        QCOMPARE(c.adopted(), key);
+    }
+
+    // Review M3: a successful reconnect resets the episode's budget, so a
+    // focus that lets ICE connect and then sends Leave RESUME again (or a
+    // flapping SFU) would cycle us for ever, each cycle a fresh OpenID token
+    // to its JWT service. Episodes are capped per rolling window; past the
+    // cap the next loss ends the call honestly.
+    void reconnectEpisodesAreCappedSoAFocusCannotCycleUsForEver()
+    {
+        using S = SfuCallController::State;
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setReconnectTimingForTest(10, 5000, 20000);
+        call.setReconnectEpisodeCapForTest(2, 60000);
+        connectRecoverableCall(client, call);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        const auto lostAndRecovered = [&client, &call] {
+            const int connects = client.sfuConnects.size();
+            client.emitSfuState(QStringLiteral("reconnecting"),
+                                QStringLiteral("server_leave"));
+            QCOMPARE(call.state(), S::Reconnecting);
+            QTRY_COMPARE(client.sfuConnects.size(), connects + 1);
+            client.emitSfuState(QStringLiteral("authorized"), QString());
+            client.emitSfuState(QStringLiteral("signalling"), QString());
+            emitSfuJoin(client, QStringLiteral("@me:example.org:MEDEV"), {});
+            QVERIFY(emitTransport(call, 1, QStringLiteral("connected")));
+            QCOMPARE(call.state(), S::Connected);
+        };
+        lostAndRecovered();
+        lostAndRecovered();
+        QCOMPARE(failed.count(), 0);
+
+        client.emitSfuState(QStringLiteral("reconnecting"),
+                            QStringLiteral("server_leave"));
+        QVERIFY2(call.state() == S::Failed,
+                 "a third loss inside the window started another reconnect");
+        QCOMPARE(call.lastError(),
+                 QStringLiteral("The call ended because the connection was "
+                                "lost."));
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(client.retractions.size(), 1);
+        const int connects = client.sfuConnects.size();
+        QTest::qWait(100);
+        QCOMPARE(client.sfuConnects.size(), connects);
+
+        // The window rolls: an episode that has aged out no longer counts.
+        RecordingCallClient later;
+        SfuCallController rolling;
+        rolling.setReconnectTimingForTest(10, 5000, 20000);
+        rolling.setReconnectEpisodeCapForTest(1, 150);
+        connectRecoverableCall(later, rolling);
+        const auto recover = [&later, &rolling] {
+            const int before = later.sfuConnects.size();
+            later.emitSfuState(QStringLiteral("reconnecting"),
+                               QStringLiteral("server_leave"));
+            QCOMPARE(rolling.state(), S::Reconnecting);
+            QTRY_COMPARE(later.sfuConnects.size(), before + 1);
+            later.emitSfuState(QStringLiteral("authorized"), QString());
+            later.emitSfuState(QStringLiteral("signalling"), QString());
+            emitSfuJoin(later, QStringLiteral("@me:example.org:MEDEV"), {});
+            QVERIFY(emitTransport(rolling, 1, QStringLiteral("connected")));
+            QCOMPARE(rolling.state(), S::Connected);
+        };
+        recover();
+        QTest::qWait(250);
+        recover();
+    }
+
+    // Review L5: a call is Connected from its first SDP, before any media
+    // path exists. One whose ICE never came up and could not be recovered
+    // was never "lost"; it says it could not connect.
+    void aCallWhoseTransportNeverConnectedSaysItCouldNotConnect()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setReconnectTimingForTest(10, 60, 300);
+        connectRecoverableCall(client, call, QString(), kReconnectRoom,
+                               /*transportUp=*/false);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+        QVERIFY(emitTransport(call, 0, QStringLiteral("failed")));
+        QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
+        QTRY_COMPARE_WITH_TIMEOUT(call.state(),
+                                  SfuCallController::State::Failed, 5000);
+        QCOMPARE(call.lastError(),
+                 QStringLiteral("Couldn't connect to the call."));
+        QCOMPARE(failed.count(), 1);
+
+        // The server ending such a session says the same.
+        RecordingCallClient other;
+        SfuCallController ended;
+        connectRecoverableCall(other, ended, QString(), kReconnectRoom,
+                               /*transportUp=*/false);
+        other.emitSfuState(QStringLiteral("ended"),
+                           QStringLiteral("server_leave"));
+        QCOMPARE(ended.state(), SfuCallController::State::Failed);
+        QCOMPARE(ended.lastError(),
+                 QStringLiteral("Couldn't connect to the call."));
+    }
+
+    // Review L4: a portal grant that lands while reconnecting is refused
+    // with a reason, its descriptor closed and its session cancelled, rather
+    // than failing silently after the user consented.
+    void aShareGrantedWhileReconnectingIsRefusedWithAReason()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        ScreenCastPortal portal;
+        call.setScreenCastPortal(&portal);
+        call.setReconnectTimingForTest(10000, 5000, 20000);
+        connectRecoverableCall(client, call);
+        client.emitSfuState(QStringLiteral("reconnecting"),
+                            QStringLiteral("server_leave"));
+        QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
+        QSignalSpy failed(&call, &SfuCallController::callFailed);
+
+        Q_EMIT portal.ready(7, -1);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().first().toString(),
+                 QStringLiteral("You can share your screen once the call has "
+                                "reconnected."));
+        QCOMPARE(call.state(), SfuCallController::State::Reconnecting);
+        QVERIFY(!call.screenSharing());
     }
 
 

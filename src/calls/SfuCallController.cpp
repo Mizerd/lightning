@@ -42,6 +42,7 @@
 // GStreamer or link dependency.
 #include "calls/SfuMediaEngine.h"
 #include "calls/noise/MicProcessing.h"
+#include "app/SandboxEnvironment.h"
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
 // Unconditional for one constexpr: the media-key index bound in
@@ -89,15 +90,11 @@ void closePortalFd(int fd)
 bool runningSandboxed()
 {
 #ifdef Q_OS_LINUX
-    if (!qEnvironmentVariableIsEmpty("FLATPAK_ID"))
-        return true;
-    if (QFileInfo::exists(QStringLiteral("/.flatpak-info")))
-        return true;
-    if (!qEnvironmentVariableIsEmpty("SNAP")
-        && !qEnvironmentVariableIsEmpty("SNAP_NAME"))
-        return true;
-#endif
+    // Never QFileInfo::exists("/.flatpak-info"): see SandboxEnvironment.h.
+    return sandboxenv::isSandboxed();
+#else
     return false;
+#endif
 }
 
 /// Whether any V4L2 device node is visible. A presence test, not an
@@ -157,6 +154,42 @@ constexpr int kMaxParticipants = 64;
 /// Annotations (raises, reactions) waiting for the membership they address.
 /// One per participant is the real bound.
 constexpr int kMaxPendingAnnotations = kMaxParticipants;
+
+// ── Reconnecting after a transient network loss ──
+//
+// The SFU telling us to come back (Leave RESUME/RECONNECT, which is how it
+// reports a media timeout), the signalling socket dying, or our ICE failing
+// does not end the call: the membership, the call UI and the keys stay, and
+// the SFU session is joined again from scratch (new JWT, websocket and peer
+// connections; webrtcbin cannot restart ICE in place, so LiveKit's lighter
+// "resume" is out of reach). A reconnect counts as done only when a new peer
+// connection's ICE is up, not at the join: with the network still down the
+// websocket can come back while media cannot.
+//
+// The first attempt goes after kReconnectFirstBackoffMs, then doubling to
+// kReconnectMaxBackoffMs, each attempt bounded by kReconnectAttemptTimeoutMs
+// (livekit-client's peerConnectionTimeout), the whole episode by
+// kReconnectBudgetMs, after which the call ends with the existing "connection
+// was lost" wording. The SFU itself gives up on a silent participant after
+// about 15 s, so a network gone for 15-30 s recovers and one gone for more
+// than about a minute ends honestly.
+constexpr int kReconnectFirstBackoffMs = 1000;
+constexpr int kReconnectMaxBackoffMs = 8000;
+constexpr int kReconnectAttemptTimeoutMs = 15000;
+constexpr int kReconnectBudgetMs = 45000;
+/// An ICE transport that reports "disconnected" may come back by itself
+/// (libnice keeps checking); only one that stays so this long reconnects.
+constexpr int kIceDisconnectedGraceMs = 10000;
+/// At most this many reconnect episodes may BEGIN within
+/// kReconnectEpisodeWindowMs; the next loss ends the call. Each episode is
+/// bounded by kReconnectBudgetMs, but a successful one resets that budget,
+/// and the focus is chosen by the oldest membership (attacker input, see
+/// docs/security-audit-2026-09-02.md): an SFU that lets ICE connect and then
+/// sends Leave RESUME, or one that flaps, would otherwise cycle us for ever,
+/// each cycle a fresh OpenID token POSTed to its JWT service and possibly a
+/// key rotation fanned out over to-device.
+constexpr int kMaxReconnectEpisodes = 3;
+constexpr qint64 kReconnectEpisodeWindowMs = 10 * 60 * 1000;
 } // namespace
 
 SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
@@ -215,6 +248,37 @@ SfuCallController::SfuCallController(QObject *parent) : QObject(parent)
     });
     m_joinKeyGraceMs = kJoinKeyGraceMs;
     m_keyClock.start();
+
+    // Reconnecting; see kReconnectBudgetMs.
+    m_reconnectFirstBackoffMs = kReconnectFirstBackoffMs;
+    m_reconnectMaxBackoffMs = kReconnectMaxBackoffMs;
+    m_maxReconnectEpisodes = kMaxReconnectEpisodes;
+    m_reconnectEpisodeWindowMs = kReconnectEpisodeWindowMs;
+    m_episodeClock.start();
+    m_reconnectTimer.setSingleShot(true);
+    connect(&m_reconnectTimer, &QTimer::timeout, this,
+            &SfuCallController::launchReconnectAttempt);
+    m_reconnectAttemptTimer.setSingleShot(true);
+    m_reconnectAttemptTimer.setInterval(kReconnectAttemptTimeoutMs);
+    connect(&m_reconnectAttemptTimer, &QTimer::timeout, this, [this] {
+        reconnectAttemptFailed(QStringLiteral("attempt_timeout"));
+    });
+    m_reconnectDeadlineTimer.setSingleShot(true);
+    m_reconnectDeadlineTimer.setInterval(kReconnectBudgetMs);
+    connect(&m_reconnectDeadlineTimer, &QTimer::timeout, this, [this] {
+        if (m_state != State::Reconnecting)
+            return;
+        qCWarning(lcSfuCall)
+            << "reconnect budget spent attempts=" << m_reconnectAttempts
+            << "budgetMs=" << m_reconnectDeadlineTimer.interval();
+        giveUpReconnect(connectionLostMessage());
+    });
+    m_iceDisconnectedTimer.setSingleShot(true);
+    m_iceDisconnectedTimer.setInterval(kIceDisconnectedGraceMs);
+    connect(&m_iceDisconnectedTimer, &QTimer::timeout, this, [this] {
+        if (m_state == State::Connected)
+            beginReconnect(QStringLiteral("ice_disconnected"));
+    });
 }
 
 SfuCallController::~SfuCallController()
@@ -236,24 +300,7 @@ void SfuCallController::setClient(MatrixClient *client)
         disconnect(m_client, nullptr, this, nullptr);
     // A client change is an account change: any call belonged to the old one.
     teardown(State::Idle);
-    // Drop any outstanding retraction too: op ids come from each client's own
-    // counter, so a stale id could match an unrelated op from the new client.
-    // Warn only if a retry was already armed (an attempt had failed); the
-    // retraction just dispatched will probably land.
-    if (m_retractRetryTimer.isActive()) {
-        qCWarning(lcSfuCall)
-            << "a FAILED call retraction is being abandoned because the "
-               "account changed; that membership is now the server's to "
-               "expire";
-    }
-    m_retractRetryTimer.stop();
-    m_retractOp = 0;
-    m_retractRoomId.clear();
-    m_retractDelayId.clear();
-    m_retractAttempts = 0;
-    // Same for an abandoned publish parked by the teardown above.
-    m_abandonedPublishOp = 0;
-    m_abandonedPublishRoomId.clear();
+    abandonOutstandingMembershipWrites();
     m_client = client;
     if (!m_client)
         return;
@@ -410,6 +457,10 @@ void SfuCallController::setMediaEngine(SfuMediaEngine *engine)
             &SfuCallController::onEngineLocalCandidate);
     connect(m_engine, &SfuMediaEngine::failed, this,
             &SfuCallController::onEngineFailed);
+    // ICE: a failed transport reconnects the call, and a new session's
+    // transport coming up is what ends a reconnect.
+    connect(m_engine, &SfuMediaEngine::transportStateChanged, this,
+            &SfuCallController::onEngineTransportState);
     // Not failed(): onEngineFailed ends the call, and one broken capture
     // device must not.
     connect(m_engine, &SfuMediaEngine::publishFailed, this,
@@ -504,13 +555,20 @@ void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
                 qCInfo(lcSfuCall) << "screen share portal ready node="
                                   << nodeId << "remote_fd="
                                   << (pipewireFd >= 0);
-                if (!active()
+                const bool reconnecting = m_state == State::Reconnecting;
+                if (!active() || reconnecting
                     || !startScreenShare(static_cast<int>(nodeId),
                                          pipewireFd)) {
                     qCWarning(lcSfuCall)
                         << "screen share refused after portal grant active="
-                        << active();
+                        << active() << "reconnecting=" << reconnecting;
                     closePortalFd(pipewireFd);
+                    // The granted session would keep the compositor
+                    // capturing for nobody.
+                    if (m_portal)
+                        m_portal->cancel();
+                    if (reconnecting)
+                        Q_EMIT callFailed(shareWhileReconnectingMessage());
                 }
             });
     connect(m_portal, &ScreenCastPortal::cancelled, this, [] {
@@ -522,7 +580,9 @@ void SfuCallController::setScreenCastPortal(ScreenCastPortal *portal)
                                      << category;
 #if defined(HAVE_LIGHTNING_WEBRTC) && !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
                 // KDE's portal refuses on X11 ("not available in X11
-                // sessions"); Lightning's own picker works there.
+                // sessions"), refuses the session, or never answers at all
+                // (bounded in requestScreenShare()); Lightning's own picker
+                // works there.
                 if (active()
                     && portalFailureFallsBackToDisplays(
                         category, QGuiApplication::platformName(),
@@ -661,7 +721,16 @@ bool SfuCallController::portalFailureFallsBackToDisplays(
     const QString &sessionType, const QString &waylandDisplay,
     const QString &x11Display, bool captureElementPresent)
 {
-    if (category != QLatin1String("x11_unsupported"))
+    // The portal's own X11 refusal; a portal that refused to make a session
+    // (no dialog was shown, so the user declined nothing); and one that never
+    // answered (the caller's no-answer bound, or the overall timeout). The
+    // picker that follows always asks, so none of these captures anything
+    // without the user's choice. A dismissal in the portal's picker arrives
+    // as `cancelled`, never here.
+    static const QStringList kFallbackCategories{
+        QStringLiteral("x11_unsupported"), QStringLiteral("session_refused"),
+        QStringLiteral("no_answer"), QStringLiteral("timeout")};
+    if (!kFallbackCategories.contains(category))
         return false;
     if (platformName.startsWith(QLatin1String("wayland"), Qt::CaseInsensitive)
         || sessionType.compare(QLatin1String("wayland"), Qt::CaseInsensitive)
@@ -767,6 +836,12 @@ QRect SfuCallController::physicalRectForScreenNamed(const QString &name)
 void SfuCallController::offerLinuxDisplayPicker(bool autoSelectSingle)
 {
 #if defined(HAVE_LIGHTNING_WEBRTC) && !defined(Q_OS_WIN) && !defined(Q_OS_MACOS)
+    // Also reached from the portal's failure handler, which can land after a
+    // reconnect began.
+    if (m_state == State::Reconnecting) {
+        Q_EMIT callFailed(shareWhileReconnectingMessage());
+        return;
+    }
     if (!populateLinuxDisplaySources()) {
         Q_EMIT callFailed(tr("No display is available to share."));
         return;
@@ -827,6 +902,12 @@ void SfuCallController::requestScreenShare()
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!active() || m_engine.isNull())
         return;
+    // Nothing can be published while reconnecting; asking the user to pick
+    // (and consent in the portal) first would only end in a refusal.
+    if (m_state == State::Reconnecting) {
+        Q_EMIT callFailed(shareWhileReconnectingMessage());
+        return;
+    }
     const bool portalUsable =
         !m_portal.isNull() && ScreenCastPortal::available();
 #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
@@ -929,12 +1010,39 @@ void SfuCallController::requestScreenShare()
             SfuMediaEngine::x11ScreenCaptureElementName()));
     qCInfo(lcSfuCall) << "screen share route=" << static_cast<int>(route);
     switch (route) {
-    case LinuxShareRoute::Portal:
+    case LinuxShareRoute::Portal: {
         // Monitors and windows; virtual sources are for remote desktop. The
         // portal draws the dialog.
-        m_portal->requestShare(ScreenCastPortal::Monitor
-                               | ScreenCastPortal::Window);
+        //
+        // On an X11 session Lightning has its own picker to fall back to, and
+        // a portal may advertise ScreenCast without being able to do it:
+        // xdg-desktop-portal-kde on X11 (KWin's zkde_screencast is
+        // Wayland-only) never produced a session and the button did nothing
+        // for minutes (live 2026-10-07). So there the handshake is bounded:
+        // no session within kX11PortalPreparationBoundMs, or no answer from
+        // its picker within kX11PortalPickerBoundMs, and it is abandoned for
+        // Lightning's own picker (the `failed` handler above). Wayland has no
+        // fallback and keeps the portal's own, generous timeout.
+        const bool x11FallbackPossible = portalFailureFallsBackToDisplays(
+            QStringLiteral("no_answer"), QGuiApplication::platformName(),
+            qEnvironmentVariable("XDG_SESSION_TYPE"),
+            qEnvironmentVariable("WAYLAND_DISPLAY"),
+            qEnvironmentVariable("DISPLAY"),
+            SfuMediaEngine::elementAvailable(
+                SfuMediaEngine::x11ScreenCaptureElementName()));
+        constexpr int kX11PortalPreparationBoundMs = 8000;
+        constexpr int kX11PortalPickerBoundMs = 30000;
+        if (x11FallbackPossible)
+            qCInfo(lcSfuCall) << "screen share portal bounded (X11 session) "
+                                 "preparation-ms="
+                              << kX11PortalPreparationBoundMs
+                              << "picker-ms=" << kX11PortalPickerBoundMs;
+        m_portal->requestShare(
+            ScreenCastPortal::Monitor | ScreenCastPortal::Window,
+            x11FallbackPossible ? kX11PortalPreparationBoundMs : 0,
+            x11FallbackPossible ? kX11PortalPickerBoundMs : 0);
         return;
+    }
     case LinuxShareRoute::FallbackDisplays:
         // No portal on an X11 session: Lightning draws the same picker as on
         // Windows and macOS.
@@ -956,6 +1064,14 @@ void SfuCallController::chooseScreenShareSource(int index)
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (m_screenShareSources.isEmpty())
         return;   // Linux: the portal already chose.
+    if (m_state == State::Reconnecting) {
+        // Lightning's own picker (Windows, macOS, X11) left open when the
+        // reconnect began: refuse before anything is captured.
+        m_screenShareSources.clear();
+        Q_EMIT screenShareSourcesChanged();
+        Q_EMIT callFailed(shareWhileReconnectingMessage());
+        return;
+    }
     if (index < 0 || index >= m_screenShareSources.size()) {
         qCWarning(lcSfuCall) << "screen share source out of range";
         cancelScreenShareSelection();
@@ -1015,6 +1131,15 @@ bool SfuCallController::active() const
 {
     return m_state != State::Idle && m_state != State::Ended
         && m_state != State::Failed;
+}
+
+bool SfuCallController::sfuSessionLive() const
+{
+    // While reconnecting, only the attempt that has joined is a session;
+    // before that every SFU report belongs to the one we abandoned.
+    return active()
+        && (m_state != State::Reconnecting
+            || m_reconnectPhase == ReconnectPhase::Joined);
 }
 
 #ifdef LIGHTNING_ENABLE_SCREENSHOT_DEMO
@@ -1422,6 +1547,10 @@ bool SfuCallController::join(const QString &roomId, bool withVideo)
                                       ? QStringLiteral("<none>")
                                       : QStringLiteral("<set>"));
     ++m_generation;
+    stopReconnect();
+    m_shareSourceReusable = false;
+    m_transportEverConnected = false;
+    m_reconnectEpisodeStarts.clear();
     m_roomId = roomId;
     m_withVideo = withVideo;
     m_cameraOn = withVideo;
@@ -1547,12 +1676,32 @@ QString membershipRefusalCategory(const QString &category)
 }
 } // namespace
 
+namespace {
+// Emits membershipWritesSettled() when the function it guards takes
+// membershipWritesPending() from true to false, whichever return it leaves by.
+struct MembershipSettleGuard
+{
+    SfuCallController *controller;
+    bool pendingBefore;
+    explicit MembershipSettleGuard(SfuCallController *c)
+        : controller(c), pendingBefore(c->membershipWritesPending())
+    {
+    }
+    ~MembershipSettleGuard()
+    {
+        if (pendingBefore && !controller->membershipWritesPending())
+            Q_EMIT controller->membershipWritesSettled();
+    }
+};
+} // namespace
+
 void SfuCallController::onMembershipPublished(quint64 opId, bool ok,
                                               const QString &category,
                                               const QString &eventId,
                                               const QString &delayId,
                                               const QString &delayedCategory)
 {
+    const MembershipSettleGuard settle(this);
     if (opId == 0)
         return;
     // Why no delayed retraction was armed: endpoint absent (permanent) or
@@ -1704,6 +1853,33 @@ void SfuCallController::onSfuState(const QString &state,
                       << "active=" << active();
     if (!active())
         return;
+    // A reconnect has its own reading of every report; see
+    // onReconnectSfuState().
+    if (m_state == State::Reconnecting) {
+        onReconnectSfuState(state, category);
+        return;
+    }
+    // A call that was up and lost its SFU session recovers instead of ending:
+    // the SFU asking us back (a Leave with RESUME or RECONNECT, its media
+    // timeout), the signalling socket dying ("reconnecting" from the bridge),
+    // or a socket that closed without a Leave. A call that never got up
+    // keeps failing honestly, below.
+    if (m_state == State::Connected
+        && (state == QLatin1String("reconnecting")
+            || state == QLatin1String("closed")
+            || (state == QLatin1String("failed")
+                && !sfuFailureIsRefusal(category)))) {
+        beginReconnect(category.isEmpty() ? state : category);
+        return;
+    }
+    if (state == QLatin1String("reconnecting")) {
+        // Lost before the call was ever up: a failed join, as before.
+        if (m_state == State::Connecting) {
+            teardown(State::Failed, connectionLostMessage());
+            Q_EMIT callFailed(m_lastError);
+        }
+        return;
+    }
     if (state == QLatin1String("authorized")) {
         setState(State::Connecting);
         return;
@@ -1739,13 +1915,359 @@ void SfuCallController::onSfuState(const QString &state,
         return;
     }
     if (state == QLatin1String("ended") || state == QLatin1String("closed")) {
-        // The SFU dropped us; report it rather than silently ending.
+        // The SFU dropped us for good (a Leave with DISCONNECT: removed, room
+        // closed), or lost us before the call was up; report it rather than
+        // silently ending.
         if (m_state == State::Connected || m_state == State::Connecting) {
-            teardown(State::Failed, tr("The call ended because the "
-                                       "connection was lost."));
+            teardown(State::Failed, connectionLostMessage());
             Q_EMIT callFailed(m_lastError);
         }
     }
+}
+
+QString SfuCallController::connectionLostMessage() const
+{
+    // A call is "Connected" from the first SDP, before any media path
+    // exists, so only a transport that actually connected makes this a call
+    // that was lost rather than one that never got through.
+    if (!m_transportEverConnected)
+        return tr("Couldn't connect to the call.");
+    return tr("The call ended because the connection was lost.");
+}
+
+QString SfuCallController::shareWhileReconnectingMessage()
+{
+    return tr("You can share your screen once the call has reconnected.");
+}
+
+bool SfuCallController::admitReconnectEpisode()
+{
+    const qint64 now = m_episodeClock.elapsed();
+    while (!m_reconnectEpisodeStarts.isEmpty()
+           && now - m_reconnectEpisodeStarts.constFirst()
+                  >= m_reconnectEpisodeWindowMs) {
+        m_reconnectEpisodeStarts.removeFirst();
+    }
+    if (m_reconnectEpisodeStarts.size() >= m_maxReconnectEpisodes)
+        return false;
+    m_reconnectEpisodeStarts.append(now);
+    return true;
+}
+
+bool SfuCallController::sfuFailureIsRefusal(const QString &category)
+{
+    // An answer that will be the same on every attempt: the service or the
+    // homeserver refusing us, or our own policy refusing the focus. Anything
+    // else is retried within the reconnect budget, deliberately broadly: the
+    // focus worked minutes ago, and with the network down even DNS fails
+    // (the JWT fetch then reports `invalid_transport`, a captive portal
+    // `tls_failed`).
+    static const QSet<QString> refusals = {
+        QStringLiteral("forbidden"),
+        QStringLiteral("sfu_forbidden"),
+        QStringLiteral("membership_forbidden"),
+        QStringLiteral("unsupported"),
+        QStringLiteral("sfu_not_found"),
+        QStringLiteral("focus_private_name"),
+        QStringLiteral("focus_unroutable"),
+        QStringLiteral("focus_url_invalid"),
+    };
+    return refusals.contains(category);
+}
+
+void SfuCallController::beginReconnect(const QString &reason)
+{
+    if (!active() || !m_client || m_roomId.isEmpty()
+        || m_focusUrl.isEmpty()) {
+        // Nothing to come back to: end as before.
+        if (active()) {
+            teardown(State::Failed, connectionLostMessage());
+            Q_EMIT callFailed(m_lastError);
+        }
+        return;
+    }
+    const bool fresh = m_state != State::Reconnecting;
+    if (fresh && !admitReconnectEpisode()) {
+        // Lost again and again: whatever the cause (a flapping network, or a
+        // focus that keeps asking us back), another round would only repeat
+        // it. End honestly.
+        qCWarning(lcSfuCall)
+            << "call lost its session again; reconnect episodes exhausted"
+            << "max=" << m_maxReconnectEpisodes
+            << "windowMs=" << m_reconnectEpisodeWindowMs
+            << "reason=" << reason;
+        teardown(State::Failed, connectionLostMessage());
+        Q_EMIT callFailed(m_lastError);
+        return;
+    }
+    qCWarning(lcSfuCall) << "call RECONNECTING reason=" << reason
+                         << "fresh=" << fresh
+                         << "attempts=" << m_reconnectAttempts;
+    m_iceDisconnectedTimer.stop();
+    if (fresh) {
+        m_reconnectAttempts = 0;
+        m_reconnectClock.start();
+        m_reconnectDeadlineTimer.start();
+        // The membership, its refresh timer, the participant tiles and every
+        // key stay: this is the same call. The UI shows "Reconnecting…".
+        setState(State::Reconnecting);
+        // A share being chosen cannot be published until the call is back:
+        // close the portal's session (consent given later would leave it
+        // open) and Lightning's own picker.
+        if (m_portal && m_portal->busy())
+            m_portal->cancel();
+        if (!m_screenShareSources.isEmpty()) {
+            m_screenShareSources.clear();
+            Q_EMIT screenShareSourcesChanged();
+        }
+    }
+    suspendSfuSession();
+    scheduleReconnectAttempt();
+}
+
+void SfuCallController::suspendSfuSession()
+{
+    m_reconnectAttemptTimer.stop();
+    m_reconnectPhase = ReconnectPhase::Waiting;
+#ifdef HAVE_LIGHTNING_WEBRTC
+    // The peer connections go; the keys stay (a peer's key is not sent
+    // twice). Captures stop until the rejoin publishes again.
+    if (!m_engine.isNull())
+        m_engine->suspend();
+#endif
+    // Sends a Leave if that socket still works, so the SFU drops the old
+    // session at once rather than at its own timeout, and bumps the bridge's
+    // session so nothing the old one has queued can reach us.
+    if (m_client)
+        m_client->sfuDisconnect();
+    // A camera grant in flight would publish into the suspended engine; the
+    // rejoin asks again.
+    if (m_cameraAwaitingPortal) {
+        m_cameraAwaitingPortal = false;
+        if (m_cameraPortal)
+            m_cameraPortal->cancel();
+    }
+    // What the abandoned session published is gone with it; the rejoin
+    // declares fresh tracks. The user's intent (camera on, mute, deafen)
+    // stays and is re-applied.
+    m_audioCid.clear();
+    m_cameraCid.clear();
+    m_screenCid.clear();
+    m_shareAudioCid.clear();
+    m_publishedTrackIds.clear();
+    m_publishedTrackSids.clear();
+    m_candidatesSent = 0;
+    // A portal share's PipeWire descriptor went down with the engine and
+    // cannot be published again without asking the portal: that share ends
+    // here, honestly, rather than reappearing as a frozen tile. Window and
+    // display shares (Windows, the X11 fallback) are published again on the
+    // rejoin from the source they were started with.
+    if (m_screenSharing && !m_shareSourceReusable) {
+        qCInfo(lcSfuCall) << "screen share ended by the reconnect (a portal "
+                             "share cannot be resumed)";
+        m_screenSharing = false;
+        if (m_portal)
+            m_portal->cancel();
+#ifdef HAVE_LIGHTNING_WEBRTC
+        clearLocalVideoSurface(SfuMediaEngine::localScreenStreamId());
+#endif
+        Q_EMIT mediaStateChanged();
+    }
+    // Badges and the meter describe media of the session that is gone.
+    if (!m_blockedStreams.isEmpty()) {
+        m_blockedStreams.clear();
+        Q_EMIT remoteMediaBlockedChanged();
+        Q_EMIT participantsChanged();
+    }
+    resetMicrophoneLevel();
+}
+
+void SfuCallController::scheduleReconnectAttempt()
+{
+    if (m_state != State::Reconnecting)
+        return;
+    // 1, 2, 4, 8, 8… s after the loss or the failed attempt.
+    int delay = m_reconnectFirstBackoffMs;
+    for (int i = 0; i < m_reconnectAttempts && delay < m_reconnectMaxBackoffMs;
+         ++i) {
+        delay *= 2;
+    }
+    delay = qMin(delay, m_reconnectMaxBackoffMs);
+    // An attempt that cannot start before the budget runs out is not made;
+    // the deadline ends the call.
+    const qint64 left = m_reconnectDeadlineTimer.remainingTime();
+    if (left >= 0 && delay >= left) {
+        qCWarning(lcSfuCall) << "no time left for another reconnect attempt"
+                             << "attempts=" << m_reconnectAttempts;
+        giveUpReconnect(connectionLostMessage());
+        return;
+    }
+    m_reconnectPhase = ReconnectPhase::Waiting;
+    m_reconnectTimer.start(delay);
+    qCInfo(lcSfuCall) << "reconnect attempt" << (m_reconnectAttempts + 1)
+                      << "in" << delay << "ms";
+}
+
+void SfuCallController::launchReconnectAttempt()
+{
+    if (m_state != State::Reconnecting
+        || m_reconnectPhase != ReconnectPhase::Waiting || !m_client) {
+        return;
+    }
+    ++m_reconnectAttempts;
+    m_reconnectPhase = ReconnectPhase::Dialing;
+    m_reconnectAttemptTimer.start();
+    // The same focus and room as the call's membership, which is unchanged:
+    // to everyone else this device never left the call.
+    const quint64 op = m_client->sfuConnect(m_focusUrl, m_roomId);
+    qCInfo(lcSfuCall) << "reconnect attempt" << m_reconnectAttempts
+                      << "dispatched op=" << op
+                      << "elapsedMs=" << m_reconnectClock.elapsed();
+    if (op == 0)
+        reconnectAttemptFailed(QStringLiteral("dispatch_failed"));
+}
+
+void SfuCallController::reconnectAttemptFailed(const QString &why)
+{
+    if (m_state != State::Reconnecting
+        || m_reconnectPhase == ReconnectPhase::Waiting) {
+        return;
+    }
+    qCWarning(lcSfuCall) << "reconnect attempt" << m_reconnectAttempts
+                         << "failed why=" << why
+                         << "elapsedMs=" << m_reconnectClock.elapsed();
+    suspendSfuSession();
+    scheduleReconnectAttempt();
+}
+
+void SfuCallController::finishReconnect()
+{
+    qCInfo(lcSfuCall) << "call RECONNECTED attempts=" << m_reconnectAttempts
+                      << "elapsedMs=" << m_reconnectClock.elapsed();
+    stopReconnect();
+    setState(State::Connected);
+}
+
+void SfuCallController::giveUpReconnect(const QString &error)
+{
+    if (m_state != State::Reconnecting)
+        return;
+    // teardown() retracts the membership, which is right now: the call is
+    // over for this device.
+    teardown(State::Failed, error);
+    Q_EMIT callFailed(m_lastError);
+}
+
+void SfuCallController::stopReconnect()
+{
+    m_reconnectTimer.stop();
+    m_reconnectAttemptTimer.stop();
+    m_reconnectDeadlineTimer.stop();
+    m_iceDisconnectedTimer.stop();
+    m_reconnectPhase = ReconnectPhase::None;
+    m_reconnectAttempts = 0;
+}
+
+void SfuCallController::onReconnectSfuState(const QString &state,
+                                            const QString &category)
+{
+    // Only the current attempt's session may move a reconnect. The bridge
+    // already drops reports from abandoned sessions; the phase is the second
+    // line: before this attempt's websocket is up, nothing but its own
+    // authorization or failure can arrive, so a "closed" or a Leave then is
+    // a straggler from the session we left.
+    const bool dialing = m_reconnectPhase == ReconnectPhase::Dialing;
+    const bool live = m_reconnectPhase == ReconnectPhase::Signalling
+        || m_reconnectPhase == ReconnectPhase::Joined;
+    if (state == QLatin1String("authorized")) {
+        return; // still dialing
+    }
+    if (state == QLatin1String("signalling")) {
+        if (dialing)
+            m_reconnectPhase = ReconnectPhase::Signalling;
+        return;
+    }
+    if (state == QLatin1String("failed")) {
+        if (!dialing && !live) {
+            qCInfo(lcSfuCall) << "stale sfu failure ignored while waiting to"
+                                 " reconnect category=" << category;
+            return;
+        }
+        if (sfuFailureIsRefusal(category)) {
+            // The service refused us; it will refuse every attempt.
+            qCWarning(lcSfuCall)
+                << "the call service refused the reconnect category="
+                << category;
+            giveUpReconnect(userFacingError(category));
+            return;
+        }
+        reconnectAttemptFailed(category);
+        return;
+    }
+    if (state == QLatin1String("reconnecting")
+        || state == QLatin1String("closed")
+        || state == QLatin1String("ended")) {
+        if (!live) {
+            qCInfo(lcSfuCall) << "stale sfu report ignored while reconnecting"
+                              << "state=" << state;
+            return;
+        }
+        if (state == QLatin1String("ended")) {
+            // The new session was told to go for good (DISCONNECT).
+            giveUpReconnect(connectionLostMessage());
+            return;
+        }
+        reconnectAttemptFailed(category.isEmpty() ? state : category);
+        return;
+    }
+}
+
+void SfuCallController::onEngineTransportState(int target,
+                                               const QString &state)
+{
+    qCInfo(lcSfuCall) << "transport target=" << target << "state=" << state
+                      << "callState=" << static_cast<int>(m_state);
+    if (!active())
+        return;
+    if (state == QLatin1String("connected")) {
+        m_iceDisconnectedTimer.stop();
+        m_transportEverConnected = true;
+        // The new session's media path is up: that, not the join, ends a
+        // reconnect.
+        if (m_state == State::Reconnecting
+            && m_reconnectPhase == ReconnectPhase::Joined) {
+            finishReconnect();
+        }
+        return;
+    }
+    if (state == QLatin1String("failed")) {
+        if (m_state == State::Connected) {
+            beginReconnect(QStringLiteral("ice_failed"));
+        } else if (m_state == State::Reconnecting
+                   && m_reconnectPhase == ReconnectPhase::Joined) {
+            reconnectAttemptFailed(QStringLiteral("ice_failed"));
+        }
+        return;
+    }
+    if (state == QLatin1String("disconnected")) {
+        if (m_state == State::Connected && !m_iceDisconnectedTimer.isActive())
+            m_iceDisconnectedTimer.start();
+        return;
+    }
+}
+
+void SfuCallController::setReconnectTimingForTest(int firstBackoffMs,
+                                                  int attemptTimeoutMs,
+                                                  int budgetMs,
+                                                  int iceDisconnectedGraceMs)
+{
+    m_reconnectFirstBackoffMs = qMax(1, firstBackoffMs);
+    m_reconnectMaxBackoffMs = qMax(m_reconnectFirstBackoffMs,
+                                   firstBackoffMs * 8);
+    m_reconnectAttemptTimer.setInterval(qMax(1, attemptTimeoutMs));
+    m_reconnectDeadlineTimer.setInterval(qMax(1, budgetMs));
+    if (iceDisconnectedGraceMs >= 0)
+        m_iceDisconnectedTimer.setInterval(qMax(1, iceDisconnectedGraceMs));
 }
 
 void SfuCallController::onSfuJoined(const QString &identity,
@@ -1763,13 +2285,38 @@ void SfuCallController::onSfuJoined(const QString &identity,
                       << "active=" << active();
     if (!active())
         return;
-#ifdef HAVE_LIGHTNING_WEBRTC
+    // A rejoin after a lost session: only the current attempt's join counts.
+    // Before its websocket was up, or after its join, a JoinResponse is a
+    // straggler from another session (the bridge filters those too).
+    const bool rejoin = m_state == State::Reconnecting;
+    if (rejoin && m_reconnectPhase != ReconnectPhase::Dialing
+        && m_reconnectPhase != ReconnectPhase::Signalling) {
+        qCInfo(lcSfuCall) << "stale sfu join ignored while reconnecting";
+        return;
+    }
+    // Outside the media guard, so the reconnect state machine is the same
+    // in a build without an engine (where join() refuses anyway).
     m_ownIdentity = identity;
     // Seed the remote mute record from the join's participant list.
     noteRemoteTrackMutes(participants);
+    // On a rejoin this replaces the list the lost session left: the same
+    // people, and our own row under the same identity with a new sid.
     m_participants = participants.mid(0, kMaxParticipants);
     noteParticipantIdentities();
     rebuildModels();
+    if (rejoin) {
+        m_reconnectPhase = ReconnectPhase::Joined;
+        // Everyone present is sent our current key again: a receiver that
+        // dropped it while we were gone (or that a send never reached) can
+        // decrypt us from the first frame. The recipients are kept, so this
+        // is a re-send to the same devices, never a rotation, and still only
+        // to SFU participants the membership names (mediaKeyTargets()).
+        m_keyHolders.clear();
+        qCInfo(lcSfuCall) << "reconnect attempt" << m_reconnectAttempts
+                          << "joined inCall=" << m_participants.size()
+                          << "elapsedMs=" << m_reconnectClock.elapsed();
+    }
+#ifdef HAVE_LIGHTNING_WEBRTC
     if (!m_engine.isNull()) {
         m_engine->start();
         // After start(), which clears any previous trailer (and keeps the
@@ -1780,15 +2327,32 @@ void SfuCallController::onSfuJoined(const QString &identity,
         m_engine->setIceServers(iceServers);
         applyAudioState();
         publishTracks();
+        // A window or display share continues from the source it was
+        // started with; see suspendSfuSession() for a portal share.
+        if (rejoin && m_screenSharing && m_shareSourceReusable) {
+            m_screenSharing = false;
+            if (!startScreenShare(m_shareNodeId, -1, m_shareWindowHandle,
+                                  m_shareCaptureRect)) {
+                qCWarning(lcSfuCall)
+                    << "screen share could not be resumed after the "
+                       "reconnect";
+                Q_EMIT mediaStateChanged();
+            }
+        }
     }
-    setState(State::Connecting);
+#else
+    Q_UNUSED(iceServers); Q_UNUSED(sifTrailer);
+#endif
+    // A rejoin stays Reconnecting until the new transport is up
+    // (onEngineTransportState).
+    if (!rejoin)
+        setState(State::Connecting);
+    else
+        distributeKeyIfNeeded();
     // Apply keys a peer sent before we got here.
     applyParkedKeys();
     Q_EMIT participantsChanged();
     // The key is minted in publishTracks(), before the first frame.
-#else
-    Q_UNUSED(identity); Q_UNUSED(participants); Q_UNUSED(iceServers);
-#endif
 }
 
 void SfuCallController::publishTracks()
@@ -1834,7 +2398,7 @@ void SfuCallController::publishTracks()
 
 void SfuCallController::onSfuParticipants(const QVariantList &updates)
 {
-    if (!active())
+    if (!sfuSessionLive())
         return;
     noteRemoteTrackMutes(updates);
     const bool setChanged = mergeParticipants(updates);
@@ -1971,7 +2535,7 @@ bool SfuCallController::mergeParticipants(const QVariantList &updates)
 
 void SfuCallController::onSfuSpeakers(const QVariantList &speakers)
 {
-    if (!active())
+    if (!sfuSessionLive())
         return;
     mergeSpeakers(speakers);
 }
@@ -2010,7 +2574,7 @@ void SfuCallController::mergeSpeakers(const QVariantList &speakers)
 
 void SfuCallController::onSfuConnectionQuality(const QVariantList &updates)
 {
-    if (!active())
+    if (!sfuSessionLive())
         return;
     QHash<QString, QString> quality;
     for (const QVariant &value : updates) {
@@ -2037,7 +2601,7 @@ void SfuCallController::onSfuRemoteDescription(const QString &kind,
                                                 const QString &sdp)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
-    if (!active() || m_engine.isNull())
+    if (!sfuSessionLive() || m_engine.isNull())
         return;
     m_engine->applyRemoteDescription(
         target == QLatin1String("publisher")
@@ -2055,7 +2619,7 @@ void SfuCallController::onSfuRemoteCandidate(const QString &target,
                                               const QString &candidateInit)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
-    if (!active() || m_engine.isNull())
+    if (!sfuSessionLive() || m_engine.isNull())
         return;
     m_engine->applyRemoteCandidate(
         target == QLatin1String("publisher")
@@ -3045,9 +3609,45 @@ void SfuCallController::republishMembership()
     }
 }
 
+void SfuCallController::abandonOutstandingMembershipWrites()
+{
+    // Op ids come from the client's own counter, and the app's one client
+    // serves every account in turn: a retry still armed after a sign-out or
+    // an account switch would dispatch the old account's retraction under
+    // the new account's session, and a stale op id could match an unrelated
+    // op of the new one. Warn only if a retry was already armed (an attempt
+    // had failed); a retraction just dispatched will probably land.
+    if (m_retractRetryTimer.isActive()) {
+        qCWarning(lcSfuCall)
+            << "a FAILED call retraction is being abandoned because the "
+               "account changed; that membership is now the server's to "
+               "expire";
+    }
+    const bool wasPending = membershipWritesPending();
+    m_retractRetryTimer.stop();
+    m_retractOp = 0;
+    m_retractRoomId.clear();
+    m_retractDelayId.clear();
+    m_retractAttempts = 0;
+    // Same for a publish parked by teardown().
+    m_abandonedPublishOp = 0;
+    m_abandonedPublishRoomId.clear();
+    if (wasPending)
+        Q_EMIT membershipWritesSettled();
+}
+
+bool SfuCallController::membershipWritesPending() const
+{
+    // The room id is held from dispatch until success, giving up, or a
+    // failed dispatch, including while a retry waits on its timer.
+    return m_retractOp != 0 || !m_retractRoomId.isEmpty()
+        || m_abandonedPublishOp != 0;
+}
+
 void SfuCallController::onMembershipRetracted(quint64 opId, bool ok,
                                               const QString &category)
 {
+    const MembershipSettleGuard settle(this);
     if (opId == 0)
         return;
     // The bridge routes both `rtc_membership_retracted` and
@@ -3100,6 +3700,7 @@ void SfuCallController::onMembershipRetracted(quint64 opId, bool ok,
 
 void SfuCallController::retryRetraction()
 {
+    const MembershipSettleGuard settle(this);
     if (m_retractRoomId.isEmpty())
         return;
     dispatchRetraction(m_retractRoomId, m_retractDelayId);
@@ -3137,6 +3738,12 @@ void SfuCallController::teardown(State finalState, const QString &error)
                       << "error=" << (error.isEmpty()
                                       ? QStringLiteral("<none>") : error);
     ++m_generation;
+    // A Leave pressed while reconnecting ends here, at once: no attempt is
+    // launched after this and none in flight can revive the call.
+    stopReconnect();
+    m_shareSourceReusable = false;
+    m_transportEverConnected = false;
+    m_reconnectEpisodeStarts.clear();
     m_refreshTimer.stop();
     // Remember a publish still in flight: the server may apply it after our
     // retraction, recreating a membership for a device that left.
@@ -3474,6 +4081,15 @@ void SfuCallController::setCameraOn(bool on)
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (m_cameraOn == on || !active() || m_engine.isNull() || !m_client)
         return;
+    if (m_state == State::Reconnecting) {
+        // No session to publish into: record the intent, which the rejoin
+        // honours (publishTracks()).
+        m_cameraOn = on;
+        if (!on)
+            clearLocalVideoSurface(SfuMediaEngine::localCameraStreamId());
+        Q_EMIT mediaStateChanged();
+        return;
+    }
     m_cameraOn = on;
     if (on) {
         // May publish now (direct) or after a portal dialog; `m_cameraOn` is
@@ -3508,6 +4124,10 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
 #ifdef HAVE_LIGHTNING_WEBRTC
     if (!active() || m_engine.isNull() || !m_client)
         return false;
+    // No session to publish into while reconnecting (the caller closes the
+    // descriptor on a refusal).
+    if (!sfuSessionLive())
+        return false;
     // Without a source (node id, window handle or X11 rectangle) refuse rather
     // than guess, or the wrong screen gets published. This guard has a twin in
     // SfuMediaEngine::publishVideo; keep them in sync.
@@ -3515,6 +4135,18 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
         return false;
     if (m_screenSharing)
         stopScreenShare();
+    // Remember the source when it can be captured again without asking
+    // anyone, so a reconnect can resume the share. A portal share hands over
+    // a PipeWire descriptor that the engine consumes; it cannot.
+#ifdef Q_OS_LINUX
+    m_shareSourceReusable = pipewireFd < 0
+        && (windowHandle != 0 || captureRect.isValid());
+#else
+    m_shareSourceReusable = pipewireFd < 0;
+#endif
+    m_shareNodeId = pipewireNodeId;
+    m_shareWindowHandle = windowHandle;
+    m_shareCaptureRect = captureRect;
     const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
     // `window=` and `x11rect=` are booleans, never the values: an HWND and a
     // root rectangle describe the user's desktop.

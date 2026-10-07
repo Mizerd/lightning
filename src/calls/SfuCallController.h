@@ -265,6 +265,16 @@ public:
     Q_INVOKABLE bool join(const QString &roomId, bool withVideo = false);
     /// Leave. Safe to call in any state, including mid-join.
     Q_INVOKABLE void leave();
+    /// Membership writes still owed to the server after a leave: the
+    /// retraction in flight or waiting to retry, or a publish whose answer
+    /// may still need retracting. Sign-out waits for these, bounded, before
+    /// the session goes (AppController); membershipWritesSettled() says
+    /// when this turns false.
+    bool membershipWritesPending() const;
+    /// Stops tracking (and retrying) every outstanding membership write. For
+    /// the moment its account's session stops being the client's: after the
+    /// sign-out wait, and when an account switch detaches the session.
+    void abandonOutstandingMembershipWrites();
 
     Q_INVOKABLE void setMicrophoneMuted(bool muted);
     Q_INVOKABLE void toggleMicrophoneMuted();
@@ -584,9 +594,28 @@ public:
         m_cameraCid = cid;
         m_cameraOn = !cid.isEmpty();
     }
+    /// Shorten the reconnect timing (the first backoff, which doubles to 8x;
+    /// each attempt's watchdog; the whole budget; and, when not negative,
+    /// the ICE-disconnected grace) so tests run quickly. The real timers and
+    /// state machine run.
+    void setReconnectTimingForTest(int firstBackoffMs, int attemptTimeoutMs,
+                                   int budgetMs,
+                                   int iceDisconnectedGraceMs = -1);
+    /// Reconnect attempts dispatched in the current reconnect, 0 outside one.
+    int reconnectAttemptsForTest() const { return m_reconnectAttempts; }
+    /// Change the reconnect-episode cap (at most `maxEpisodes` reconnects
+    /// begun within any `windowMs`), so tests can reach it quickly.
+    void setReconnectEpisodeCapForTest(int maxEpisodes, int windowMs)
+    {
+        m_maxReconnectEpisodes = maxEpisodes > 0 ? maxEpisodes : 1;
+        m_reconnectEpisodeWindowMs = windowMs > 0 ? windowMs : 1;
+    }
 
 Q_SIGNALS:
     void stateChanged();
+    /// membershipWritesPending() turned false (retracted, refused, or given
+    /// up on).
+    void membershipWritesSettled();
     void mediaStateChanged();
     void remoteMediaBlockedChanged();
     void microphoneSilentChanged();
@@ -647,6 +676,11 @@ private Q_SLOTS:
                                   const QString &sdp);
     void onEngineLocalCandidate(int target, const QString &candidateInit);
     void onEngineFailed(const QString &category);
+    /// One peer connection's ICE transport (SfuMediaEngine::
+    /// transportStateChanged): "failed" (or "disconnected" for longer than a
+    /// grace) reconnects a connected call; "connected" on a rejoined session
+    /// ends a reconnect.
+    void onEngineTransportState(int target, const QString &state);
     /// One track could not carry media: turn that control off and say so. The
     /// call is not ended. See SfuMediaEngine::publishFailed.
     void onEnginePublishFailed(const QString &cid, const QString &category);
@@ -685,6 +719,78 @@ private:
 
     void setState(State state, const QString &error = QString());
     void teardown(State finalState, const QString &error = QString());
+
+    // ── Reconnecting (see kReconnectBudgetMs in the .cpp) ──
+    /// Where the current reconnect attempt is. Waiting: no SFU session, the
+    /// next attempt is timed. Dialing: sfuConnect() dispatched. Signalling:
+    /// its websocket is up. Joined: its JoinResponse arrived and media is
+    /// being negotiated; the reconnect ends when a transport connects.
+    enum class ReconnectPhase { None, Waiting, Dialing, Signalling, Joined };
+    /// Why a call that lost its SFU session ended, in the existing wording:
+    /// "connection was lost" once a transport had connected in this call,
+    /// "couldn't connect" when none ever did (a join whose ICE never came
+    /// up must not read as a call that dropped).
+    QString connectionLostMessage() const;
+    /// The refusal for a share asked for while reconnecting.
+    static QString shareWhileReconnectingMessage();
+    /// Whether another reconnect episode may begin now; records it when so.
+    /// See kMaxReconnectEpisodes.
+    bool admitReconnectEpisode();
+    /// Whether an SFU failure category is an answer that every attempt
+    /// would get (a refusal), as opposed to one a retry can cure.
+    static bool sfuFailureIsRefusal(const QString &category);
+    /// Active, and not reconnecting before the current attempt has joined:
+    /// whether SFU reports (participants, SDP, candidates) are for us.
+    bool sfuSessionLive() const;
+    /// Enter (or continue) Reconnecting: keep the membership, the UI and
+    /// the keys, drop the SFU session and time the next attempt.
+    void beginReconnect(const QString &reason);
+    /// Drop the SFU session's media and signalling, keeping the call.
+    void suspendSfuSession();
+    /// Time the next attempt with backoff, or give up past the budget.
+    void scheduleReconnectAttempt();
+    /// The timer fired: join the SFU again.
+    void launchReconnectAttempt();
+    /// The current attempt did not get the call back.
+    void reconnectAttemptFailed(const QString &why);
+    /// The rejoined session's transport is up.
+    void finishReconnect();
+    /// End the call honestly from Reconnecting.
+    void giveUpReconnect(const QString &error);
+    /// Stop every reconnect timer and forget the episode.
+    void stopReconnect();
+    /// onSfuState() while Reconnecting.
+    void onReconnectSfuState(const QString &state, const QString &category);
+    ReconnectPhase m_reconnectPhase = ReconnectPhase::None;
+    /// Attempts dispatched in this episode.
+    int m_reconnectAttempts = 0;
+    int m_reconnectFirstBackoffMs = 0;
+    int m_reconnectMaxBackoffMs = 0;
+    QElapsedTimer m_reconnectClock;
+    /// The next attempt (single-shot).
+    QTimer m_reconnectTimer;
+    /// The current attempt's watchdog: no transport within it, next attempt.
+    QTimer m_reconnectAttemptTimer;
+    /// The whole episode's budget; past it the call ends.
+    QTimer m_reconnectDeadlineTimer;
+    /// ICE "disconnected" for this long on a connected call reconnects.
+    QTimer m_iceDisconnectedTimer;
+    /// The running share's source, when it can be captured again without
+    /// asking anyone (a window or display; never a portal descriptor), so a
+    /// reconnect can resume it.
+    bool m_shareSourceReusable = false;
+    int m_shareNodeId = -1;
+    quint64 m_shareWindowHandle = 0;
+    QRect m_shareCaptureRect;
+    /// A peer connection's ICE reached connected at least once in this call;
+    /// per call.
+    bool m_transportEverConnected = false;
+    /// When each recent reconnect episode began (m_episodeClock ms), for the
+    /// episode cap; per call.
+    QList<qint64> m_reconnectEpisodeStarts;
+    QElapsedTimer m_episodeClock;
+    int m_maxReconnectEpisodes = 0;
+    qint64 m_reconnectEpisodeWindowMs = 0;
     /// Ask the server to remove our membership and remember the attempt for
     /// retries. The room is captured here because teardown() clears m_roomId.
     void dispatchRetraction(const QString &roomId, const QString &delayId);
