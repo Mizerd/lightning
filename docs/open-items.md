@@ -3805,3 +3805,10 @@ device tracking, NOT confirmed: measure again after catch-up (more than 10
 min), and if writes stay high, attribute per file (needs ptrace, which
 yama scope 1 blocks: use bpftrace or an opt-in SQLite trace) and compare with
 the smetonis.net account.
+
+### A ring that stayed silent once on Windows (2026-10-08, not reproduced)
+
+Build 303: after an RDP audio endpoint drop, Settings > Test and Test mention
+played in 4/4 rounds and the ring in 3/4; in round 2 the ring logged
+`call sound loop= "ring"` but was silent for 15 s, then audible a minute later
+without a restart. Not reproduced in two more rounds. Tasks/2026-10-07-win-rc.md.
