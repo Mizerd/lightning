@@ -35,6 +35,7 @@
 
 #ifdef ENABLE_RUST_SDK_BACKEND
 #include "smoke/RustSdkSmokeTest.h"
+#include "matrix_rust.h"
 #endif
 
 #ifdef Q_OS_UNIX
@@ -1996,6 +1997,26 @@ int main(int argc, char *argv[])
     }
 #ifdef ENABLE_RUST_SDK_BACKEND
     if (pf.action == PreflightResult::RunSmokeTest) {
+        // A persistent smoke run shares the GUI's stores. Hold the same OS
+        // profile lock, including across asynchronous Rust teardown at exit.
+        std::unique_ptr<lightning::SingleInstanceGuard::RootLock> profileLock;
+        if (qgetenv("LIGHTNING_TEST_PERSISTENT_STORE") == "1") {
+            const QString root = matrix::app_data::primaryRoot();
+            const bool created = !QFileInfo::exists(root);
+            if (root.isEmpty() || !QDir().mkpath(root)) {
+                DiagnosticStream(stderr) << "persistent smoke test: profile lock unavailable\n";
+                return 5;
+            }
+            if (created)
+                QFile::setPermissions(root, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+            profileLock = std::make_unique<lightning::SingleInstanceGuard::RootLock>(
+                root, QStringLiteral("matrix-client"));
+            if (profileLock->result() != lightning::SingleInstanceGuard::LockProbe::Acquired) {
+                DiagnosticStream(stderr) << "persistent smoke test: profile lock unavailable or held by another process\n";
+                return 5;
+            }
+            profileLock->holdLockUntilProcessExit();
+        }
         // Headless: no QGuiApplication, no QML engine, no display probe.
         QCoreApplication::setOrganizationName(
             QStringLiteral("MatrixClient"));
@@ -2154,6 +2175,10 @@ int main(int argc, char *argv[])
     instanceGuard.holdLockUntilProcessExit();
     switch (instanceGuard.claim()) {
     case lightning::SingleInstanceGuard::Claim::Primary:
+#ifdef ENABLE_RUST_SDK_BACKEND
+        mx_rust_profile_lock_held();
+#endif
+        break;
     case lightning::SingleInstanceGuard::Claim::Unguarded:
         break;
     case lightning::SingleInstanceGuard::Claim::Deferred:

@@ -85,7 +85,8 @@ public:
     // RAII probe-and-hold of another data root's lock, usable before a
     // QCoreApplication exists (raw flock()/LockFileEx, no QLocalSocket, so it
     // cannot also fall back to the socket the way claim()'s Lock::Error path
-    // can). Releases on destruction. --reset-crypto-store holds one across
+    // can). Releases on destruction unless held until process exit.
+    // --reset-crypto-store holds one across
     // its whole scan-and-delete, so a starting instance waits in its own
     // claim() budget instead of opening the store mid-delete; probing and
     // releasing BEFORE deleting would leave exactly that window open.
@@ -98,9 +99,11 @@ public:
         RootLock &operator=(const RootLock &) = delete;
 
         LockProbe result() const { return m_result; }
+        void holdLockUntilProcessExit() { m_holdLockUntilProcessExit = true; }
 
     private:
         LockProbe m_result = LockProbe::Unusable;
+        bool m_holdLockUntilProcessExit = false;
 #ifdef Q_OS_WIN
         void *m_handle = nullptr;
 #else

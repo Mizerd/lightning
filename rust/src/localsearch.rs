@@ -175,7 +175,7 @@ impl SearchIndex {
 
     /// Add or update one message. An upsert on the event id, so an edit
     /// replaces the old wording instead of leaving it findable. The caller
-    /// resolves the edit.
+    /// resolves the edit. Returns whether a row actually changed.
     pub(crate) fn upsert(
         &self,
         event_id: &str,
@@ -185,13 +185,13 @@ impl SearchIndex {
         body: &str,
         msgtype: &str,
         ts: i64,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         if event_id.is_empty() || room_id.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
         // An empty body can never be found; do not spend a row on it.
         if body.trim().is_empty() {
-            return Ok(());
+            return Ok(false);
         }
         self.conn
             .execute(
@@ -201,7 +201,10 @@ impl SearchIndex {
                  ON CONFLICT(event_id) DO UPDATE SET
                      body        = excluded.body,
                      sender_name = excluded.sender_name,
-                     msgtype     = excluded.msgtype",
+                     msgtype     = excluded.msgtype
+                 WHERE messages.body IS NOT excluded.body
+                    OR messages.sender_name IS NOT excluded.sender_name
+                    OR messages.msgtype IS NOT excluded.msgtype",
                 params![
                     event_id,
                     room_id,
@@ -212,8 +215,8 @@ impl SearchIndex {
                     ts,
                 ],
             )
-            .map_err(|e| format!("cannot index a message: {e}"))?;
-        Ok(())
+            .map(|changed| changed != 0)
+            .map_err(|e| format!("cannot index a message: {e}"))
     }
 
     /// A redaction removes the row outright; a redacted message must not stay
@@ -855,6 +858,14 @@ pub(crate) async fn collect_from(
 pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> usize {
     let ids: Vec<String> = batch.ordinary.iter().map(|c| c.event_id.clone()).collect();
     let known = index.known(&ids).unwrap_or_default();
+    // Preserve the old result (the last cached edit wins), but do not replay
+    // intermediate wording into FTS on every sweep. Use the first edit's
+    // immutable sender/timestamp if the original is absent, as before.
+    let mut final_edits = std::collections::HashMap::new();
+    for edit in &batch.edits {
+        final_edits.insert(edit.event_id.as_str(), edit);
+    }
+    let mut applied_edits = std::collections::HashSet::new();
     let mut written = 0usize;
     for (item, is_edit) in batch
         .ordinary
@@ -865,18 +876,26 @@ pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch)
         if !is_edit && known.contains(&item.event_id) {
             continue;
         }
-        let display = batch.names.get(&item.sender).cloned().unwrap_or_default();
+        let content = if is_edit {
+            if !applied_edits.insert(item.event_id.as_str()) {
+                continue;
+            }
+            final_edits[item.event_id.as_str()]
+        } else {
+            item
+        };
+        let display = batch.names.get(&content.sender).cloned().unwrap_or_default();
         if index
             .upsert(
                 &item.event_id,
                 room_id,
                 &item.sender,
                 &display,
-                &item.body,
-                &item.msgtype,
+                &content.body,
+                &content.msgtype,
                 item.ts,
             )
-            .is_ok()
+            .unwrap_or(false)
         {
             written += 1;
         }
@@ -1073,6 +1092,64 @@ mod tests {
         ix.upsert("", "!r:x", "@a:x", "Ann", "text", "m.text", 1).unwrap();
         ix.upsert("$2", "", "@a:x", "Ann", "text", "m.text", 1).unwrap();
         assert_eq!(ix.stats().unwrap().messages, 0);
+    }
+
+    #[test]
+    fn identicalUpsertsDoNotRewriteTheFtsIndex() {
+        let ix = index();
+        add(&ix, "$same", "!r:x", "unchanged wording", 1000);
+        let before = ix.conn.total_changes();
+        add(&ix, "$same", "!r:x", "unchanged wording", 1000);
+        assert_eq!(ix.conn.total_changes(), before);
+        assert_eq!(ix.search("unchanged", "", 10, 0).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn cachedEditHistoryDoesNotRewriteTheFtsIndex() {
+        let ix = index();
+        let item = |body: &str, ts| Indexable {
+            event_id: "$edited".into(), sender: "@a:x".into(),
+            body: body.into(), msgtype: "m.text".into(), ts,
+        };
+        let batch = RoomBatch {
+            ordinary: vec![item("original wording", 1000)],
+            edits: vec![item("intermediate wording", 2000), item("final wording", 3000)],
+            names: std::collections::HashMap::from([("@a:x".into(), "Ann".into())]),
+            undecryptable: vec![],
+        };
+        write_batch(&ix, "!r:x", &batch);
+        let before = ix.conn.total_changes();
+        write_batch(&ix, "!r:x", &batch);
+        assert_eq!(ix.conn.total_changes(), before);
+        assert_eq!(ix.search("final", "", 10, 0).unwrap().len(), 1);
+        assert!(ix.search("intermediate", "", 10, 0).unwrap().is_empty());
+        let timestamp: i64 = ix.conn.query_row(
+            "SELECT ts FROM messages WHERE event_id = '$edited'", [], |r| r.get(0),
+        ).unwrap();
+        assert_eq!(timestamp, 1000);
+    }
+
+    #[test]
+    fn coalescingEditsKeepsTheOriginalFallbackMetadata() {
+        let ix = index();
+        let batch = RoomBatch {
+            ordinary: vec![],
+            edits: vec![
+                Indexable { event_id: "$missing-original".into(), sender: "@first:x".into(),
+                    body: "first wording".into(), msgtype: "m.text".into(), ts: 1000 },
+                Indexable { event_id: "$missing-original".into(), sender: "@last:x".into(),
+                    body: "final wording".into(), msgtype: "m.notice".into(), ts: 2000 },
+            ],
+            names: std::collections::HashMap::from([("@last:x".into(), "Latest name".into())]),
+            undecryptable: vec![],
+        };
+        assert_eq!(write_batch(&ix, "!r:x", &batch), 1);
+        let hit = ix.search("final", "", 10, 0).unwrap().remove(0);
+        assert_eq!(hit.sender, "@first:x");
+        assert_eq!(hit.ts, 1000);
+        assert_eq!(hit.sender_name, "Latest name");
+        assert_eq!(hit.msgtype, "m.notice");
+        assert_eq!(write_batch(&ix, "!r:x", &batch), 0);
     }
 
     #[test]

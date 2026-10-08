@@ -1013,8 +1013,8 @@ void RustSdkMatrixClient::login(const QString &homeserver,
     // in RustSessionPolicy, where it is pure and tested.
     if (matrix::rust_session::unreadableSecretBlocksLogin(
             storeExists, targetHasRecord, targetTokenReadable,
-            m_settings->secretBackendUnavailable(),
-            m_settings->secretMissesAreInconclusive())) {
+            m_settings && m_settings->secretBackendUnavailable(),
+            m_settings && m_settings->secretMissesAreInconclusive())) {
         failWithBlockReason(
             matrix::rust_session::StoreBlockReason::SecretBackendUnavailable,
             identity);

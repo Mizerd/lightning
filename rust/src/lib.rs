@@ -93,6 +93,7 @@ mod mediafetch;
 mod mediafiles;
 mod mediahistory;
 mod mediastore;
+mod storelocking;
 mod namecolor;
 mod widgets;
 mod oauth;
@@ -10157,7 +10158,11 @@ async fn build_client_with(
         HomeserverInput::Discover(value) => base.server_name_or_homeserver_url(value),
         HomeserverInput::Url(value) => base.homeserver_url(value),
     };
+    // One snapshot drives the client's crypto sync service AND the custom
+    // event-cache/media store locks; changing only StoreConfig misses crypto.
+    let store_lock_config = storelocking::config();
     let mut builder = base
+        .cross_process_store_config(store_lock_config.clone())
         .user_agent(USER_AGENT)
         .handle_refresh_tokens()
         .with_encryption_settings(encryption_settings)
@@ -10192,7 +10197,8 @@ async fn build_client_with(
     // the account's key, or in memory without one (mediastore.rs).
     let mut store_probe = None;
     if !store_path.as_os_str().is_empty() {
-        let (store_config, probe) = mediastore::open_account_stores(store_path).await?;
+        let (store_config, probe) =
+            mediastore::open_account_stores(store_path, store_lock_config).await?;
         builder = builder.store_config(store_config);
         store_probe = Some(probe);
     }
@@ -10232,8 +10238,18 @@ async fn build_client_with(
     // oversize fetches skip the cache, and unencrypted ones are kept as files
     // instead. 1 GiB in total; SDK defaults otherwise.
     let policy = rooms::media_retention_policy();
+    let preserve_caches = mediastore::preserve_caches_for_audit();
+    let policy = if preserve_caches {
+        // Do not let a cache read trigger automatic eviction during the audit.
+        // Normal startup installs the regular policy again.
+        policy.with_cleanup_frequency(None)
+    } else {
+        policy
+    };
     // Best effort; the error may contain the store path, so it is not logged.
-    if client.media().set_media_retention_policy(policy).await.is_ok() {
+    if client.media().set_media_retention_policy(policy).await.is_ok()
+        && !preserve_caches
+    {
         // Sweep blobs cached before the policy existed. Runs once per client build;
         // the SDK debounces the real work to daily. Bounded, and cancelled with the
         // shared runtime before any store deletion.

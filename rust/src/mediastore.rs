@@ -65,11 +65,6 @@ const LEGACY_SIDECARS: [&str; 2] = ["matrix-sdk-media.sqlite3-wal", "matrix-sdk-
 /// taken as abandoned (an upload that wedged and was never cancelled), so the
 /// old plaintext store cannot stay in use for ever.
 pub(crate) const ABANDONED_AFTER: Duration = Duration::from_secs(7 * 24 * 60 * 60);
-/// The holder `sqlite_store()` gave every store's cross-process lock:
-/// `ClientBuilder::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME`, private in
-/// matrix-sdk 0.18 (client/builder/mod.rs:137). The client's own lock config
-/// is the builder default, which is the same name.
-const STORE_LOCK_HOLDER: &str = "main";
 
 /// Where this account's media store lives this session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -449,6 +444,21 @@ enum Prepared {
 /// Decide and carry out the filesystem half. Blocking. Log lines name no
 /// path, account or key.
 fn prepare(store_path: &Path, key: Option<&[u8; 32]>) -> Prepared {
+    prepare_preserving_caches(store_path, key, preserve_caches_for_audit())
+}
+
+/// Temporary runtime audit switch: avoid migration deleting the data under
+/// investigation. A cache for another key stays untouched and is not opened.
+pub(crate) fn preserve_caches_for_audit() -> bool {
+    std::env::var_os("LIGHTNING_IO_AUDIT_PRESERVE_CACHES")
+        .is_some_and(|value| value == "1")
+}
+
+fn prepare_preserving_caches(
+    store_path: &Path,
+    key: Option<&[u8; 32]>,
+    preserve_caches: bool,
+) -> Prepared {
     // Serialised: a restore whose first build timed out starts a second while
     // the first one's blocking half may still be running.
     static PREPARE: Mutex<()> = Mutex::new(());
@@ -480,7 +490,7 @@ fn prepare(store_path: &Path, key: Option<&[u8; 32]>) -> Prepared {
         ),
         _ => {}
     }
-    if drop_legacy {
+    if drop_legacy && !preserve_caches {
         if remove_legacy(store_path) {
             eprintln!("lightning: media store: removed the old unencrypted media cache");
         } else {
@@ -498,6 +508,10 @@ fn prepare(store_path: &Path, key: Option<&[u8; 32]>) -> Prepared {
         return Prepared::Memory;
     };
     if wipe {
+        if preserve_caches {
+            eprintln!("lightning: media store: audit preserves the existing cache; media is kept in memory only");
+            return Prepared::Memory;
+        }
         match fs::remove_dir_all(&dir) {
             Ok(()) => eprintln!(
                 "lightning: media store: removed an encrypted media cache whose key is gone"
@@ -588,6 +602,7 @@ pub(crate) async fn open_media(
 /// has really let go of it (storeclose.rs, GitHub #2).
 pub(crate) async fn open_account_stores(
     store_path: &Path,
+    lock_config: CrossProcessLockConfig,
 ) -> Result<(StoreConfig, StoreProbe), String> {
     let config = SqliteStoreConfig::new(store_path);
     let state = Arc::new(
@@ -608,7 +623,7 @@ pub(crate) async fn open_account_stores(
     probe.store("state", &state);
     probe.store("event_cache", &event_cache);
     probe.store("crypto", &crypto);
-    let store_config = StoreConfig::new(CrossProcessLockConfig::multi_process(STORE_LOCK_HOLDER))
+    let store_config = StoreConfig::new(lock_config)
         .state_store(state)
         .event_cache_store(event_cache)
         .crypto_store(crypto);
@@ -793,6 +808,27 @@ mod tests {
             IgnoreMediaRetentionPolicy::No
         };
         legacy.add_media_content(&request(URI), MARKER.to_vec(), policy).await.unwrap();
+        // Snapshot tests must wait for the SDK's asynchronous connection close
+        // and WAL checkpoint before comparing database bytes.
+        legacy.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn audit_preserves_idle_legacy_and_mismatched_encrypted_caches() {
+        let store = Store::new("audit-preserve");
+        plaintext_store_with(&store.0, false).await;
+        let legacy_before = fs::read(store.0.join(MEDIA_DB)).unwrap();
+        assert_eq!(prepare_preserving_caches(&store.0, None, true), Prepared::Memory);
+        assert_eq!(fs::read(store.0.join(MEDIA_DB)).unwrap(), legacy_before);
+
+        let dir = store.0.join(DIR_NAME);
+        ensure_marked(&dir, &KEY_A).unwrap();
+        fs::write(dir.join(MEDIA_DB), MARKER).unwrap();
+        let key_id_before = fs::read(dir.join(KEY_ID_FILE)).unwrap();
+        assert_eq!(prepare_preserving_caches(&store.0, Some(&KEY_B), true), Prepared::Memory);
+        assert_eq!(fs::read(dir.join(MEDIA_DB)).unwrap(), MARKER);
+        assert_eq!(fs::read(dir.join(KEY_ID_FILE)).unwrap(), key_id_before);
+        assert_eq!(fs::read(store.0.join(MEDIA_DB)).unwrap(), legacy_before);
     }
 
     /// Age every pinned row of the old store to `days` ago.

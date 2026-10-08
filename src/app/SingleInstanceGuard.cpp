@@ -379,6 +379,8 @@ SingleInstanceGuard::RootLock::RootLock(const QString &dataRoot,
 
 SingleInstanceGuard::RootLock::~RootLock()
 {
+    if (m_holdLockUntilProcessExit)
+        return;
 #ifdef Q_OS_WIN
     if (m_handle)
         CloseHandle(static_cast<HANDLE>(m_handle));

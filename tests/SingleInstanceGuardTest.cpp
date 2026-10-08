@@ -451,6 +451,50 @@ private Q_SLOTS:
         QCOMPARE(probe.result(), SingleInstanceGuard::LockProbe::HeldByOther);
     }
 
+    void rootLockCanRemainHeldPastDestructionUntilProcessExit()
+    {
+        const QString root = freshRoot();
+        QVERIFY(QDir().mkpath(root));
+        auto held = std::make_unique<SingleInstanceGuard::RootLock>(root, kApp);
+        QCOMPARE(held->result(), SingleInstanceGuard::LockProbe::Acquired);
+        held->holdLockUntilProcessExit();
+        held.reset();
+        SingleInstanceGuard::RootLock next(root, kApp);
+        QCOMPARE(next.result(), SingleInstanceGuard::LockProbe::HeldByOther);
+    }
+
+    void persistentSmokeCannotOpenAProfileWhoseLockIsHeld()
+    {
+#ifndef Q_OS_LINUX
+        QSKIP("XDG profile isolation is Linux-only");
+#else
+        const QString dataHome = freshDir();
+        const QString root = rootForDataHome(dataHome);
+        SingleInstanceGuard primary(root, kApp);
+        QCOMPARE(primary.claim(1000), Claim::Primary);
+        QProcessEnvironment env = isolatedEnv(dataHome);
+        env.insert(QStringLiteral("XDG_CONFIG_HOME"), freshDir());
+        env.insert(QStringLiteral("XDG_CACHE_HOME"), freshDir());
+        env.insert(QStringLiteral("LIGHTNING_TEST_PERSISTENT_STORE"), QStringLiteral("1"));
+        env.insert(QStringLiteral("LIGHTNING_TEST_HOMESERVER"), QStringLiteral("http://127.0.0.1:9"));
+        env.insert(QStringLiteral("LIGHTNING_TEST_USER"), QStringLiteral("@fixture:127.0.0.1:9"));
+        env.insert(QStringLiteral("LIGHTNING_TEST_PASSWORD"), QStringLiteral("synthetic-fixture-only"));
+        QProcess child;
+        child.setProcessEnvironment(env);
+        child.start(binary(), {QStringLiteral("--backend=rust"), QStringLiteral("--rust-sdk-smoke-test")});
+        QVERIFY(child.waitForStarted(10000));
+        QVERIFY(child.waitForFinished(10000));
+        const QByteArray err = child.readAllStandardError();
+        if (err.contains("was not compiled into this build"))
+            QSKIP("Rust backend not compiled into this test's application");
+        QCOMPARE(child.exitStatus(), QProcess::NormalExit);
+        QCOMPARE(child.exitCode(), 5);
+        QVERIFY2(err.contains("profile lock unavailable or held"), err.constData());
+        // Only the root's instance lock may exist; no account store was opened.
+        QCOMPARE(QDir(root).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size(), 0);
+#endif
+    }
+
     // The property --reset-crypto-store's fix depends on: a RootLock that
     // acquired the lock keeps holding it for as long as it lives, so a
     // starting instance waits in claim() rather than seeing the root as

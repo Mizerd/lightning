@@ -22,6 +22,11 @@ char *mx_rust_backend_name(void);
 char *mx_rust_status_string(void);
 char *mx_rust_version(void);
 
+/* Before creating any clients: the caller owns the OS lock covering all of
+ * its profile's account stores and retains it until actual process exit.
+ * Allows SDK SingleProcess store locks. Do not call on an unguarded startup. */
+void mx_rust_profile_lock_held(void);
+
 void *mx_rust_create(const char *store_path);
 void  mx_rust_destroy(void *client);
 /* mx_rust_destroy, then report whether the account store was really released

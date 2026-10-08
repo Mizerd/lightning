@@ -327,6 +327,24 @@ private Q_SLOTS:
         QCoreApplication::setApplicationName(QStringLiteral("rust-retirement-test"));
     }
 
+    void passwordLoginWithoutSettingsFailsNormallyInsteadOfCrashing()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        {
+            // The headless smoke harness intentionally has no SettingsManager.
+            RustSdkMatrixClient client(nullptr);
+            client.setStorePathOverride(dir.path() + QStringLiteral("/store"));
+            QSignalSpy failed(&client, &MatrixClient::loginFailed);
+            client.login(QStringLiteral("http://127.0.0.1:9"),
+                         QStringLiteral("@fixture:127.0.0.1:9"),
+                         QStringLiteral("synthetic-fixture-only"));
+            QTRY_VERIFY_WITH_TIMEOUT(!failed.isEmpty(), 10000);
+            QCOMPARE(client.connectionState(), MatrixClient::Error);
+        }
+        QVERIFY(RustSdkMatrixClient::waitForRustRetirement(30000));
+    }
+
     // The work is still outstanding when the caller returns: done inline, the
     // pool would be empty and `waitForRustRetirement(0)` would report drained.
     // Several clients are handed over so the answer does not depend on
