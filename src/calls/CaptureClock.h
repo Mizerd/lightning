@@ -263,4 +263,18 @@ inline void holdCaptureToClock(GstPad *capturePad, GstPad *rtpPad,
         &detail::holdRtp, hold);
 }
 
+/// The capture half of holdCaptureToClock() alone, for a capture that
+/// replaced the first one mid-call (a device switch): the RTP probe stays on
+/// the payloader and keeps reading the same `hold`.
+inline void watchReplacementCapture(GstPad *capturePad,
+                                    const std::shared_ptr<CaptureClockHold> &hold)
+{
+    if (!capturePad || !hold)
+        return;
+    // The old capture's lead describes a device that is gone.
+    hold->captureLeadNs.store(0);
+    detail::addHoldProbe(capturePad, GST_PAD_PROBE_TYPE_BUFFER,
+                         &detail::watchCapture, hold);
+}
+
 } // namespace lightning::calls

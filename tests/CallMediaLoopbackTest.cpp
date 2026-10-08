@@ -622,6 +622,134 @@ private Q_SLOTS:
         QCOMPARE(callee.teardownsWhileGatheringForTest(), 0);
     }
 
+    /// Rokas, 2026-10-08: "Lightning always used my default microphone, no
+    /// matter which mic I picked in the call's device menu." A pick mid-call
+    /// was stored for the NEXT call only. Now the live call moves: the caller
+    /// starts on a silent fake microphone and switches to a loud one, and the
+    /// far end must hear the loud one; then the callee switches its speaker
+    /// and must keep playing. Neither switch may renegotiate (a second offer
+    /// would reach the peer as a new invite) or end the call.
+    void aDeviceSwitchReachesTheLiveCall()
+    {
+        const QString callId = QStringLiteral("device-switch-1");
+        GstCallMediaBackend caller;
+        GstCallMediaBackend callee;
+        caller.setTestToneMode(true);
+        callee.setTestToneMode(true);
+        bool loudMicrophone = false;
+        bool secondSpeaker = false;
+        caller.setAudioDeviceResolver([&loudMicrophone] {
+            GstCallMediaBackend::AudioDevicePlan plan;
+            plan.microphoneFront = loudMicrophone
+                // Shaped like SfuMediaEngine::microphoneFrontDescription():
+                // it ends in a caps shorthand, which the parser rejects as
+                // the last item of a bin (the first live run failed on it).
+                ? QStringLiteral("audiotestsrc is-live=true wave=sine "
+                                 "freq=1000 volume=0.5 name=micsrc "
+                                 "! audioconvert ! audioresample "
+                                 "! audio/x-raw,channels=1")
+                : QStringLiteral("audiotestsrc is-live=true wave=silence "
+                                 "name=micsrc ! audioconvert ! audioresample");
+            return plan;
+        });
+        callee.setAudioDeviceResolver([&secondSpeaker] {
+            GstCallMediaBackend::AudioDevicePlan plan;
+            plan.speakerSink = secondSpeaker
+                ? QStringLiteral("fakesink sync=false async=false "
+                                 "name=outsink")
+                : QStringLiteral("fakesink sync=false name=outsink");
+            return plan;
+        });
+
+        int offers = 0;
+        bool callerConnected = false;
+        bool calleeConnected = false;
+        QString failure;
+        connect(&caller, &CallMediaBackend::offerReady, &callee,
+                [&](const QString &id, const QString &sdp) {
+                    ++offers;
+                    callee.createAnswer(id, sdp);
+                });
+        connect(&callee, &CallMediaBackend::answerReady, &caller,
+                [&](const QString &id, const QString &sdp) {
+                    caller.setRemoteAnswer(id, sdp);
+                });
+        connect(&caller, &CallMediaBackend::localCandidate, &callee,
+                [&](const QString &id, const QString &candidate,
+                    const QString &mid, int mline) {
+                    callee.addRemoteCandidate(id, candidate, mid, mline);
+                });
+        connect(&callee, &CallMediaBackend::localCandidate, &caller,
+                [&](const QString &id, const QString &candidate,
+                    const QString &mid, int mline) {
+                    caller.addRemoteCandidate(id, candidate, mid, mline);
+                });
+        connect(&caller, &CallMediaBackend::connected, this,
+                [&](const QString &) { callerConnected = true; });
+        connect(&callee, &CallMediaBackend::connected, this,
+                [&](const QString &) { calleeConnected = true; });
+        const auto noteFailure = [&](const QString &, const QString &why) {
+            failure = why;
+        };
+        connect(&caller, &CallMediaBackend::failed, this, noteFailure);
+        connect(&callee, &CallMediaBackend::failed, this, noteFailure);
+
+        caller.createOffer(callId);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            (callerConnected && calleeConnected) || !failure.isEmpty(),
+            qPrintable(QStringLiteral("no connection; failure=%1")
+                           .arg(failure)),
+            45000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        QTRY_VERIFY_WITH_TIMEOUT(callee.receivedAudioPacketsForTest() > 50,
+                                 15000);
+
+        // The silent microphone: what arrives is silence.
+        callee.resetReceivedPeakForTest();
+        QTest::qWait(1000);
+        QVERIFY2(callee.receivedPeakForTest() < 0.02,
+                 qPrintable(QString::number(callee.receivedPeakForTest())));
+
+        // Mid-call pick of the loud microphone.
+        loudMicrophone = true;
+        caller.audioDevicesChanged();
+        QCOMPARE(caller.microphoneSwapsForTest(), 1);
+        callee.resetReceivedPeakForTest();
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            callee.receivedPeakForTest() > 0.2 || !failure.isEmpty(),
+            qPrintable(QStringLiteral("far end peak %1 after the switch; "
+                                      "failure=%2")
+                           .arg(callee.receivedPeakForTest())
+                           .arg(failure)),
+            10000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        // A repeated notice with nothing changed (a camera pick fires the same
+        // signal) must not touch the microphone.
+        caller.audioDevicesChanged();
+        QCOMPARE(caller.microphoneSwapsForTest(), 1);
+
+        // Mid-call pick of another speaker: the track keeps playing through
+        // the new sink (a sink that did not take over would stall the chain
+        // and the peak would stop moving).
+        secondSpeaker = true;
+        callee.audioDevicesChanged();
+        QTRY_COMPARE_WITH_TIMEOUT(callee.speakerSwapsForTest(), 1, 5000);
+        callee.resetReceivedPeakForTest();
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            callee.receivedPeakForTest() > 0.2 || !failure.isEmpty(),
+            qPrintable(QStringLiteral("playback stalled after the speaker "
+                                      "switch; failure=%1")
+                           .arg(failure)),
+            10000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        // Neither switch renegotiated.
+        QCOMPARE(offers, 1);
+
+        caller.close(callId);
+        callee.close(callId);
+    }
+
     /// Element's video call reaches the legacy lane as an audio+video offer.
     /// The answer must accept the audio and decline the video: before the
     /// fix it answered `video recvonly`, promising to play a track this
@@ -657,6 +785,44 @@ private Q_SLOTS:
         QVERIFY(answer.contains(QStringLiteral("a=rtpmap:111 OPUS/48000"),
                                 Qt::CaseInsensitive));
         engine.close(QStringLiteral("video-offer-1"));
+    }
+
+    /// Element's legacy video call heard nothing from Lightning (2026-10-08):
+    /// the answer named no SSRC for our audio, because webrtcbin takes it from
+    /// caps on its sink pad and a real microphone had not delivered a buffer
+    /// yet. Chromium then cannot demux our RTP in a two-section BUNDLE and
+    /// drops all of it. A capture that delivers nothing before the answer is
+    /// exactly that case: the answer must still carry a=ssrc.
+    void anAnswerNamesItsSsrcBeforeTheMicrophoneDelivers()
+    {
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        engine.setAudioDeviceResolver([] {
+            GstCallMediaBackend::AudioDevicePlan plan;
+            // A microphone that has not produced its first buffer.
+            plan.microphoneFront = QStringLiteral(
+                "audiotestsrc is-live=true name=micsrc ! valve drop=true "
+                "! audioconvert ! audioresample ! audio/x-raw,channels=1");
+            return plan;
+        });
+        QString answer;
+        QString failure;
+        connect(&engine, &CallMediaBackend::answerReady, this,
+                [&](const QString &, const QString &sdp) { answer = sdp; });
+        connect(&engine, &CallMediaBackend::failed, this,
+                [&](const QString &, const QString &why) { failure = why; });
+        engine.createAnswer(QStringLiteral("ssrc-1"), crlf(kElementVideoOffer));
+        QTRY_VERIFY2_WITH_TIMEOUT(!answer.isEmpty() || !failure.isEmpty(),
+                                  "no answer", 15000);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        // The audio section (the first) names its SSRC.
+        const int video = answer.indexOf(QStringLiteral("m=video"));
+        const QString audioSection =
+            video > 0 ? answer.left(video) : answer;
+        QVERIFY2(audioSection.contains(QRegularExpression(
+                     QStringLiteral("a=ssrc:[1-9][0-9]* cname:"))),
+                 qPrintable(audioSection));
+        engine.close(QStringLiteral("ssrc-1"));
     }
 
     /// The whole call against an Element-shaped peer: audio must flow both

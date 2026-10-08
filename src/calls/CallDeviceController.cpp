@@ -14,35 +14,6 @@ namespace {
 /// Which device list a resolve checks.
 enum DeviceKind { Microphone, Speaker, Camera };
 
-/// Builds a `<element> device="<id>"` fragment, or empty for the system
-/// default.
-///
-/// Linux only: these are PulseAudio element names, and QAudioDevice ids on
-/// WASAPI or CoreAudio are not what those GStreamer elements accept, so a
-/// foreign id would stop the call from starting. Empty falls back to
-/// `autoaudiosrc`/`autoaudiosink`. Real parity needs GstDeviceMonitor ids.
-QString platformDeviceElement(const QString &element, const QString &id)
-{
-    if (id.isEmpty())
-        return QString();
-#if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
-    Q_UNUSED(element);
-    return QString();
-#else
-    // The result is parsed by gst_parse_bin_from_description, where a quote
-    // ends the value and `!` starts another element. Refuse ids that cannot
-    // be represented literally; the caller then uses the automatic element.
-    // (The SFU engine sets the property on the parsed element instead; see
-    // CaptureDeviceSelection.h.)
-    for (const QChar c : id) {
-        if (c == QLatin1Char('"') || c == QLatin1Char('\\')
-            || c == QLatin1Char('!') || c.category() == QChar::Other_Control) {
-            return QString();
-        }
-    }
-    return QStringLiteral("%1 device=\"%2\"").arg(element, id);
-#endif
-}
 } // namespace
 
 CallDeviceController::CallDeviceController(QObject *parent) : QObject(parent)
@@ -340,21 +311,6 @@ CallDeviceController::Selection CallDeviceController::speakerSelection() const
     ensureBackend();
     const QString id = activeSpeakerId();
     return {id, describe(QMediaDevices::audioOutputs(), id)};
-}
-
-QString CallDeviceController::microphoneElement() const
-{
-    // pulsesrc rather than pipewiresrc: pipewire-pulse exposes the node names
-    // QMediaDevices reports, so no translation is needed. Empty means
-    // autoaudiosrc (system default).
-    return platformDeviceElement(QStringLiteral("pulsesrc"),
-                                 activeMicrophoneId());
-}
-
-QString CallDeviceController::speakerElement() const
-{
-    return platformDeviceElement(QStringLiteral("pulsesink"),
-                                 activeSpeakerId());
 }
 
 void CallDeviceController::onDeviceListChanged()

@@ -1898,8 +1898,7 @@ QStringList speakerElementPreference()
     // `pulsesink` first, for the microphone's reason above: the bundled
     // gst-plugin-pipewire 1.4 mishandles `target-object` against a 1.6
     // daemon, and pipewire-pulse names sinks exactly as QMediaDevices does.
-    // The 1:1 lane already plays through `pulsesink device=`
-    // (CallDeviceController::speakerElement()).
+    // The 1:1 lane resolves through this function too (AppController).
     return {QStringLiteral("pulsesink"), QStringLiteral("pipewiresink")};
 #endif
 }

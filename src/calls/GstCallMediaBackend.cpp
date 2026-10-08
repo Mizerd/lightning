@@ -8,8 +8,10 @@
 #include <QMetaObject>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QSet>
+#include <QTimer>
 #include <QUrl>
 
 #include <gst/gst.h>
@@ -207,6 +209,217 @@ GstPadProbeReturn countPacket(GstPad *, GstPadProbeInfo *, gpointer counter)
     return GST_PAD_PROBE_OK;
 }
 
+GstPadProbeReturn countDecoded(GstPad *, GstPadProbeInfo *, gpointer counter)
+{
+    static_cast<std::atomic<quint64> *>(counter)->fetch_add(1);
+    return GST_PAD_PROBE_OK;
+}
+
+// Test-tone mode, the receive chain's output: the loudest sample, in
+// thousandths of full scale. Reads only the two formats the chain produces
+// (opusdec's S16LE, or F32LE where a sink asks for it).
+GstPadProbeReturn recordPeak(GstPad *pad, GstPadProbeInfo *info,
+                             gpointer peakMilli)
+{
+    GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+    if (!buffer)
+        return GST_PAD_PROBE_OK;
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    const gchar *format = nullptr;
+    if (caps && gst_caps_get_size(caps) > 0)
+        format = gst_structure_get_string(gst_caps_get_structure(caps, 0),
+                                          "format");
+    const bool s16 = g_strcmp0(format, "S16LE") == 0;
+    const bool f32 = g_strcmp0(format, "F32LE") == 0;
+    if (caps)
+        gst_caps_unref(caps);
+    if (!s16 && !f32)
+        return GST_PAD_PROBE_OK;
+    GstMapInfo map;
+    if (!gst_buffer_map(buffer, &map, GST_MAP_READ))
+        return GST_PAD_PROBE_OK;
+    double peak = 0;
+    if (s16) {
+        const auto *samples = reinterpret_cast<const qint16 *>(map.data);
+        for (gsize i = 0; i < map.size / 2; ++i)
+            peak = qMax(peak, qAbs(double(samples[i])) / 32768.0);
+    } else {
+        const auto *samples = reinterpret_cast<const float *>(map.data);
+        for (gsize i = 0; i < map.size / 4; ++i)
+            peak = qMax(peak, qAbs(double(samples[i])));
+    }
+    gst_buffer_unmap(buffer, &map);
+    auto *target = static_cast<std::atomic<int> *>(peakMilli);
+    const int milli = int(qMin(peak, 1.0) * 1000.0);
+    int seen = target->load();
+    while (milli > seen && !target->compare_exchange_weak(seen, milli)) {
+    }
+    return GST_PAD_PROBE_OK;
+}
+
+// Sets a resolved device binding on the element called `name` inside `bin`.
+// Never interpolated into a description: a quote in a device name would be
+// parsed as syntax. Converted to the property's own type (osxaudiosrc's
+// `device` is an int). False when nothing was set; the caller then keeps the
+// element's own default device. Same rule as SfuMediaEngine's.
+bool applyBinding(GstElement *bin, const char *name,
+                  const lightning::calls::DeviceBinding &binding)
+{
+    if (binding.isEmpty())
+        return true;
+    GstElement *element = gst_bin_get_by_name(GST_BIN(bin), name);
+    if (!element)
+        return false;
+    const QByteArray property = binding.property.toUtf8();
+    const QByteArray value = binding.value.toUtf8();
+    GParamSpec *spec = g_object_class_find_property(
+        G_OBJECT_GET_CLASS(element), property.constData());
+    bool set = false;
+    if (spec && (spec->flags & G_PARAM_WRITABLE)
+        && !(spec->flags & G_PARAM_CONSTRUCT_ONLY)) {
+        if (spec->value_type == G_TYPE_STRING) {
+            g_object_set(element, property.constData(), value.constData(),
+                         nullptr);
+            set = true;
+        } else {
+            GValue typed = G_VALUE_INIT;
+            g_value_init(&typed, spec->value_type);
+            // g_param_value_validate() is true when it had to change the
+            // value, i.e. it was out of range.
+            set = gst_value_deserialize(&typed, value.constData())
+                && !g_param_value_validate(spec, &typed);
+            if (set)
+                g_object_set_property(G_OBJECT(element), property.constData(),
+                                      &typed);
+            g_value_unset(&typed);
+        }
+    }
+    // The property and how it matched, never the value (a device name).
+    if (set) {
+        qCInfo(lcCallMedia) << "audio device bound element=" << name
+                            << "property=" << binding.property
+                            << "matched-by=" << binding.reason;
+    } else {
+        qCWarning(lcCallMedia) << "audio element" << name << "did not accept"
+                               << binding.property
+                               << "- using its default device";
+    }
+    gst_object_unref(element);
+    return set;
+}
+
+// A receive track's sink being replaced (a speaker switch), handed to an IDLE
+// probe on the track's `outvol` src pad: the swap runs when no buffer is in
+// flight there, so the decode chain never sees an unlinked pad (a not-linked
+// return posts an error, and an error ends the call).
+struct SinkSwap {
+    GstElement *bin = nullptr; // the receive bin; owns one ref
+    QByteArray description;
+    lightning::calls::DeviceBinding binding;
+    // The backend's test counter, shared: the probe can outlive a call.
+    std::shared_ptr<std::atomic<int>> swaps;
+};
+
+void sinkSwapFree(gpointer data)
+{
+    auto *swap = static_cast<SinkSwap *>(data);
+    if (swap->bin)
+        gst_object_unref(swap->bin);
+    delete swap;
+}
+
+GstPadProbeReturn swapSinkWhenIdle(GstPad *pad, GstPadProbeInfo *,
+                                   gpointer data)
+{
+    auto *swap = static_cast<SinkSwap *>(data);
+    GError *error = nullptr;
+    GstElement *next = gst_parse_bin_from_description(
+        swap->description.constData(), TRUE, &error);
+    if (error) {
+        g_error_free(error);
+        if (next)
+            gst_object_unref(next);
+        qCWarning(lcCallMedia) << "speaker switch: the new output could not "
+                                  "be built; keeping the current one";
+        return GST_PAD_PROBE_REMOVE;
+    }
+    if (!next)
+        return GST_PAD_PROBE_REMOVE;
+    applyBinding(next, "outsink", swap->binding);
+    if (GstPad *peer = gst_pad_get_peer(pad)) {
+        GstElement *old = gst_pad_get_parent_element(peer);
+        gst_pad_unlink(pad, peer);
+        gst_object_unref(peer);
+        if (old) {
+            gst_element_set_state(old, GST_STATE_NULL);
+            gst_bin_remove(GST_BIN(swap->bin), old);
+            gst_object_unref(old);
+        }
+    }
+    if (!gst_bin_add(GST_BIN(swap->bin), next))
+        return GST_PAD_PROBE_REMOVE; // sunk and dropped by gst_bin_add
+    GstPad *sinkPad = gst_element_get_static_pad(next, "sink");
+    const bool linked =
+        sinkPad && gst_pad_link(pad, sinkPad) == GST_PAD_LINK_OK;
+    if (sinkPad)
+        gst_object_unref(sinkPad);
+    gst_element_sync_state_with_parent(next);
+    if (linked && swap->swaps)
+        swap->swaps->fetch_add(1);
+    if (!linked)
+        qCWarning(lcCallMedia) << "speaker switch: the new output did not link";
+    return GST_PAD_PROBE_REMOVE;
+}
+
+// One get-stats walk, reduced to the numbers the 1:1 stats line prints.
+struct StatsTotals {
+    quint64 inboundAudio = 0;
+    quint64 inboundAudioBytes = 0;
+    qint64 inboundLost = 0;
+    quint64 outboundAudio = 0;
+    quint64 inboundOther = 0;
+};
+
+gboolean addStat(GQuark, const GValue *value, gpointer data)
+{
+    auto *totals = static_cast<StatsTotals *>(data);
+    if (!GST_VALUE_HOLDS_STRUCTURE(value))
+        return TRUE;
+    const GstStructure *s = gst_value_get_structure(value);
+    GstWebRTCStatsType type = GST_WEBRTC_STATS_CODEC;
+    if (!s
+        || !gst_structure_get(s, "type", GST_TYPE_WEBRTC_STATS_TYPE, &type,
+                              nullptr))
+        return TRUE;
+    const gchar *kind = gst_structure_has_field(s, "kind")
+        ? gst_structure_get_string(s, "kind")
+        : nullptr;
+    const bool video = g_strcmp0(kind, "video") == 0;
+    guint64 packets = 0;
+    if (type == GST_WEBRTC_STATS_INBOUND_RTP) {
+        if (gst_structure_has_field(s, "packets-received"))
+            gst_structure_get_uint64(s, "packets-received", &packets);
+        if (video) {
+            totals->inboundOther += packets;
+            return TRUE;
+        }
+        totals->inboundAudio += packets;
+        guint64 bytes = 0;
+        if (gst_structure_has_field(s, "bytes-received")
+            && gst_structure_get_uint64(s, "bytes-received", &bytes))
+            totals->inboundAudioBytes += bytes;
+        gint64 lost = 0;
+        if (gst_structure_has_field(s, "packets-lost")
+            && gst_structure_get_int64(s, "packets-lost", &lost))
+            totals->inboundLost += lost;
+    } else if (type == GST_WEBRTC_STATS_OUTBOUND_RTP && !video) {
+        if (gst_structure_has_field(s, "packets-sent")
+            && gst_structure_get_uint64(s, "packets-sent", &packets))
+            totals->outboundAudio += packets;
+    }
+    return TRUE;
+}
+
 struct BusCtx {
     GstCallMediaBackend *backend = nullptr;
     quintptr pipelineToken = 0;
@@ -361,30 +574,44 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
         qCWarning(lcCallMedia) << "session already active; refusing new call";
         return false;
     }
-    const QString source = m_testTone
-        ? QStringLiteral(
-              "audiotestsrc is-live=true wave=sine freq=440 volume=0.05")
-        // A chosen device, or autoaudiosrc for "system default", which keeps
-        // following the default.
-        : (m_audioSourceElement.isEmpty()
-               ? QStringLiteral("autoaudiosrc")
-               : m_audioSourceElement);
+    // The devices this call opens: asked now, so a choice made since the
+    // last call applies (and a live call follows later ones; see
+    // audioDevicesChanged()).
+    const AudioDevicePlan plan = resolveDevices();
+    {
+        QMutexLocker lock(&m_planMutex);
+        m_plan = plan;
+    }
     // As offerer we use 111 (the common convention); as answerer RFC 3264
     // requires the offerer's number, which createAnswer() extracts.
     const int payload = qBound(96, opusPayloadType, 127);
+    // Our SSRC, fixed before any description exists and named in the caps
+    // webrtcbin reads. webrtcbin writes a=ssrc into an ANSWER only from caps
+    // already on its sink pad, and a real capture delivers its first buffer
+    // ~0.7 s after the session starts, so every answer went out without one.
+    // A browser answering a BUNDLE of audio plus a declined video section
+    // then cannot map our unsignalled SSRC to its audio receiver and drops
+    // every packet: Element's legacy VIDEO call heard nothing from Lightning
+    // (2026-10-08; Chromium's webrtc-internals: 2620 packets in on the
+    // transport, no inbound-rtp at all). With a single m-line the browser
+    // falls back to its only receiver, which is why voice calls worked.
+    const quint32 ssrc = QRandomGenerator::global()->bounded(1u, 0xFFFFFFFFu);
+    // The capture is a separate bin (buildMicrophoneFront()) linked in front
+    // of the valve, so a device switch replaces it without touching the rest.
     const QString description = QStringLiteral(
         "webrtcbin name=wb bundle-policy=max-bundle latency=100 "
-        // Bounded and leaky: a default queue holds a second and never drains
-        // it, which becomes permanent latency.
-        "%1 name=micsrc ! queue max-size-buffers=0 max-size-bytes=0 "
-        "max-size-time=100000000 leaky=downstream "
-        "! audioconvert ! audioresample "
         // valve name=micvalve: drop=true stops buffers before the encoder, so
         // nothing is published while muted (lowering volume would still send).
-        "! valve name=micvalve drop=false ! opusenc "
-        "! rtpopuspay name=micpay pt=%2 "
-        "! application/x-rtp,media=audio,encoding-name=OPUS,payload=%2 "
-        "! wb. ").arg(source).arg(payload);
+        "valve name=micvalve drop=false "
+        // Every capture is converted to exactly this before the encoder, so a
+        // device switch mid-call never changes the encoder's or the track's
+        // caps (a caps change on webrtcbin's pad can ask for renegotiation).
+        "! audio/x-raw,format=S16LE,layout=interleaved,rate=48000,channels=1 "
+        "! opusenc "
+        "! rtpopuspay name=micpay pt=%1 ssrc=%2 "
+        "! application/x-rtp,media=audio,encoding-name=OPUS,payload=%1,"
+        "ssrc=(uint)%2 "
+        "! wb. ").arg(payload).arg(ssrc);
     GError *error = nullptr;
     GstElement *pipeline =
         gst_parse_launch(description.toUtf8().constData(), &error);
@@ -401,6 +628,42 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
         gst_object_unref(pipeline);
         return false;
     }
+    // The pipeline runs on the system clock, never on the capture's. An audio
+    // source provides a clock and the pipeline prefers it; a device switch
+    // then removes the clock with the source, and a pipeline whose clock is
+    // gone waits on it for ever: webrtcbin's clocksync held every packet and
+    // the swap's own state change deadlocked behind it (measured live,
+    // 2026-10-08). Nothing here could recover: this bus drops CLOCK_LOST.
+    if (GstClock *clock = gst_system_clock_obtain()) {
+        gst_pipeline_use_clock(GST_PIPELINE(pipeline), clock);
+        gst_object_unref(clock);
+    }
+    GstElement *front = buildMicrophoneFront(plan);
+    if (!front && !plan.microphoneFront.isEmpty()) {
+        // The chosen device's capture would not even build: the default
+        // beats no call.
+        qCWarning(lcCallMedia)
+            << "the chosen microphone's capture could not be built; using "
+               "the system default";
+        front = buildMicrophoneFront(AudioDevicePlan{});
+    }
+    GstElement *valveForFront =
+        gst_bin_get_by_name(GST_BIN(pipeline), "micvalve");
+    bool frontLinked = false;
+    if (front && valveForFront && gst_bin_add(GST_BIN(pipeline), front)) {
+        frontLinked = gst_element_link(front, valveForFront);
+    } else if (front) {
+        gst_object_unref(front); // never added
+        front = nullptr;
+    }
+    if (valveForFront)
+        gst_object_unref(valveForFront);
+    if (!frontLinked) {
+        qCWarning(lcCallMedia) << "pipeline construction failed (capture)";
+        gst_object_unref(webrtc);
+        gst_object_unref(pipeline);
+        return false;
+    }
 
     m_session = Session();
     m_receivedAudioPackets.store(0);
@@ -409,6 +672,7 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
     m_session.pipeline = pipeline;
     m_session.webrtc = webrtc;
     m_session.offerer = offerer;
+    m_session.micFront = front; // borrowed: the pipeline owns it
     // Borrowed: the pipeline owns the valve and outlives the session struct.
     if (GstElement *valve = gst_bin_get_by_name(GST_BIN(pipeline),
                                                 "micvalve")) {
@@ -435,6 +699,8 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
                     << count << ")";
             };
             lightning::calls::holdCaptureToClock(captured, rtp, hold);
+            // A replacement capture re-attaches to the same hold.
+            m_session.clockHold = hold;
         }
         if (captured)
             gst_object_unref(captured);
@@ -479,7 +745,17 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
         return false;
     }
     qCInfo(lcCallMedia) << "media session started offerer=" << offerer
-                        << "testTone=" << m_testTone;
+                        << "testTone=" << m_testTone
+                        << "chosenMicrophone=" << !plan.microphoneFront.isEmpty()
+                        << "chosenSpeaker=" << !plan.speakerSink.isEmpty();
+    m_decodedBuffers.store(0);
+    if (!m_statsTimer) {
+        m_statsTimer = new QTimer(this);
+        m_statsTimer->setInterval(5000);
+        connect(m_statsTimer, &QTimer::timeout, this,
+                &GstCallMediaBackend::requestStats);
+    }
+    m_statsTimer->start();
     return true;
 }
 
@@ -496,6 +772,8 @@ void GstCallMediaBackend::destroySessionLocked()
             gst_object_unref(bus);
         }
     }
+    if (m_statsTimer)
+        m_statsTimer->stop();
     // Never a plain set_state(NULL) (GitHub #3): the pipeline stops here, its
     // webrtcbin once ICE gathering has ended. Takes both references.
     m_retirer.retire(m_session.pipeline, m_session.webrtc);
@@ -657,13 +935,242 @@ void GstCallMediaBackend::addRemoteCandidate(const QString &callId,
                           candidate.toUtf8().constData());
 }
 
-void GstCallMediaBackend::setAudioDevices(const QString &sourceElement,
-                                          const QString &sinkElement)
+void GstCallMediaBackend::setAudioDeviceResolver(AudioDeviceResolver resolver)
 {
-    // Stored for the next session: relinking a live send branch is riskier
-    // than waiting.
-    m_audioSourceElement = sourceElement;
-    m_audioSinkElement = sinkElement;
+    m_resolveDevices = std::move(resolver);
+}
+
+GstCallMediaBackend::AudioDevicePlan GstCallMediaBackend::resolveDevices() const
+{
+    return m_resolveDevices ? m_resolveDevices() : AudioDevicePlan{};
+}
+
+QString GstCallMediaBackend::receiveSinkDescription(
+    const AudioDevicePlan &plan) const
+{
+    if (!plan.speakerSink.isEmpty())
+        return plan.speakerSink;
+    // The test tone plays nowhere; a real call follows the system default.
+    return m_testTone ? QStringLiteral("fakesink sync=false name=outsink")
+                      : QStringLiteral("autoaudiosink name=outsink");
+}
+
+GstElement *GstCallMediaBackend::buildMicrophoneFront(
+    const AudioDevicePlan &plan) const
+{
+    QString front = plan.microphoneFront;
+    if (front.isEmpty()) {
+        front = m_testTone
+            ? QStringLiteral("audiotestsrc is-live=true wave=sine freq=440 "
+                             "volume=0.05 name=micsrc "
+                             "! audioconvert ! audioresample")
+            // autoaudiosrc for "system default", which keeps following the
+            // default. Bounded and leaky: a default queue holds a second and
+            // never drains it, which becomes permanent latency.
+            : QStringLiteral("autoaudiosrc name=micsrc "
+                             "! queue max-size-buffers=0 max-size-bytes=0 "
+                             "max-size-time=100000000 leaky=downstream "
+                             "! audioconvert ! audioresample");
+    }
+    // The shared front ends in a caps shorthand ("! audio/x-raw,..."), which
+    // the parser accepts only BETWEEN two elements: as the last item it is
+    // read as an element called "audio" (GST_PARSE_ERROR_NO_SUCH_ELEMENT).
+    // A pass-through element after it makes the caps a real filter.
+    front += QStringLiteral(" ! identity name=micfrontout");
+    GError *error = nullptr;
+    GstElement *bin =
+        gst_parse_bin_from_description(front.toUtf8().constData(), TRUE,
+                                       &error);
+    if (error) {
+        // The description names elements only (the device is a binding set
+        // after the parse), so it is safe to log; the message is not.
+        qCWarning(lcCallMedia) << "capture description did not parse code="
+                               << error->code << "description=" << front;
+        g_error_free(error);
+        if (bin)
+            gst_object_unref(bin);
+        return nullptr;
+    }
+    if (!bin)
+        return nullptr;
+    // Unique per build, so an outgoing capture and its replacement can share
+    // the pipeline for the moment of the swap.
+    static std::atomic<int> serial{0};
+    const QByteArray name =
+        QByteArray("micfront") + QByteArray::number(serial.fetch_add(1));
+    gst_element_set_name(bin, name.constData());
+    applyBinding(bin, "micsrc", plan.microphoneBinding);
+    return bin;
+}
+
+void GstCallMediaBackend::audioDevicesChanged()
+{
+    if (!m_sessionActive || !m_session.pipeline)
+        return; // the next call resolves at its start
+    const AudioDevicePlan plan = resolveDevices();
+    AudioDevicePlan current;
+    {
+        QMutexLocker lock(&m_planMutex);
+        current = m_plan;
+    }
+    // The signal also fires for a camera change: move only what changed, so a
+    // camera pick never interrupts the microphone.
+    const auto sameBinding = [](const lightning::calls::DeviceBinding &a,
+                                const lightning::calls::DeviceBinding &b) {
+        return a.property == b.property && a.value == b.value;
+    };
+    const bool micChanged = plan.microphoneFront != current.microphoneFront
+        || !sameBinding(plan.microphoneBinding, current.microphoneBinding);
+    const bool speakerChanged = plan.speakerSink != current.speakerSink
+        || !sameBinding(plan.speakerBinding, current.speakerBinding);
+    if (!micChanged && !speakerChanged)
+        return;
+    {
+        QMutexLocker lock(&m_planMutex);
+        if (micChanged) {
+            m_plan.microphoneFront = plan.microphoneFront;
+            m_plan.microphoneBinding = plan.microphoneBinding;
+        }
+        if (speakerChanged) {
+            m_plan.speakerSink = plan.speakerSink;
+            m_plan.speakerBinding = plan.speakerBinding;
+        }
+    }
+    if (micChanged) {
+        const bool ok = swapMicrophoneLocked(plan);
+        qCInfo(lcCallMedia) << "microphone switched mid-call ok=" << ok
+                            << "chosen=" << !plan.microphoneFront.isEmpty();
+    }
+    if (speakerChanged) {
+        swapSpeakersLocked(plan);
+        qCInfo(lcCallMedia) << "speaker switch requested mid-call chosen="
+                            << !plan.speakerSink.isEmpty();
+    }
+}
+
+bool GstCallMediaBackend::swapMicrophoneLocked(const AudioDevicePlan &plan)
+{
+    GstElement *pipeline = m_session.pipeline;
+    GstElement *valve = m_session.micValve;
+    if (!pipeline || !valve)
+        return false;
+    GstElement *next = buildMicrophoneFront(plan);
+    if (!next) {
+        qCWarning(lcCallMedia) << "microphone switch: the new capture could "
+                                  "not be built; keeping the current one";
+        return false;
+    }
+    // Stop the outgoing capture BEFORE unlinking it. Stopped first, its
+    // threads see FLUSHING and end quietly; unlinked first, a live source
+    // gets not-linked, which posts an error, and an error ends the call.
+    if (GstElement *old = m_session.micFront) {
+        gst_element_set_state(old, GST_STATE_NULL);
+        gst_element_unlink(old, valve);
+        gst_bin_remove(GST_BIN(pipeline), old); // drops the pipeline's ref
+        m_session.micFront = nullptr;
+    }
+    const auto install = [&](GstElement *front) {
+        if (!gst_bin_add(GST_BIN(pipeline), front))
+            return false; // sunk and dropped by gst_bin_add
+        if (!gst_element_link(front, valve)
+            || !gst_element_sync_state_with_parent(front)) {
+            gst_element_set_state(front, GST_STATE_NULL);
+            gst_bin_remove(GST_BIN(pipeline), front);
+            return false;
+        }
+        m_session.micFront = front;
+        return true;
+    };
+    bool ok = install(next);
+    if (!ok && !plan.microphoneFront.isEmpty()) {
+        qCWarning(lcCallMedia) << "microphone switch: the chosen device would "
+                                  "not start; using the system default";
+        if (GstElement *fallback = buildMicrophoneFront(AudioDevicePlan{}))
+            install(fallback);
+    }
+    if (!m_session.micFront)
+        return false;
+    // The clock hold watches the capture's own pad (CaptureClock.h); the RTP
+    // half stays on the payloader.
+    if (GstElement *source =
+            gst_bin_get_by_name(GST_BIN(m_session.micFront), "micsrc")) {
+        if (GstPad *pad = gst_element_get_static_pad(source, "src")) {
+            lightning::calls::watchReplacementCapture(pad,
+                                                      m_session.clockHold);
+            gst_object_unref(pad);
+        }
+        gst_object_unref(source);
+    }
+    if (ok)
+        m_micSwaps.fetch_add(1);
+    return ok;
+}
+
+void GstCallMediaBackend::swapSpeakersLocked(const AudioDevicePlan &plan)
+{
+    if (!m_session.pipeline)
+        return;
+    const QByteArray description = receiveSinkDescription(plan).toUtf8();
+    // Every received track's volume element, matched by our name as in
+    // setOutputMuted(); the sink after it is what moves, the volume (and so
+    // the deafen state) stays.
+    QList<GstElement *> volumes;
+    GstIterator *it = gst_bin_iterate_recurse(GST_BIN(m_session.pipeline));
+    if (!it)
+        return;
+    GValue item = G_VALUE_INIT;
+    bool done = false;
+    int resyncsLeft = 8;
+    while (!done) {
+        switch (gst_iterator_next(it, &item)) {
+        case GST_ITERATOR_OK: {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            gchar *name = element ? gst_element_get_name(element) : nullptr;
+            if (g_strcmp0(name, "outvol") == 0)
+                volumes.append(GST_ELEMENT(gst_object_ref(element)));
+            g_free(name);
+            g_value_reset(&item);
+            break;
+        }
+        case GST_ITERATOR_RESYNC:
+            for (GstElement *volume : volumes)
+                gst_object_unref(volume);
+            volumes.clear();
+            if (resyncsLeft-- <= 0) {
+                done = true;
+                break;
+            }
+            gst_iterator_resync(it);
+            break;
+        case GST_ITERATOR_ERROR:
+        case GST_ITERATOR_DONE:
+            done = true;
+            break;
+        }
+    }
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    for (GstElement *volume : volumes) {
+        GstObject *bin = gst_object_get_parent(GST_OBJECT(volume));
+        GstPad *pad = gst_element_get_static_pad(volume, "src");
+        if (bin && pad) {
+            auto *swap = new SinkSwap;
+            swap->bin = GST_ELEMENT(bin); // takes the parent's ref
+            bin = nullptr;
+            swap->description = description;
+            swap->binding = plan.speakerBinding;
+            swap->swaps = m_speakerSwaps;
+            // Runs at once if the pad is idle, otherwise right after the
+            // buffer in flight.
+            gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_IDLE, swapSinkWhenIdle,
+                              swap, sinkSwapFree);
+        }
+        if (bin)
+            gst_object_unref(bin);
+        if (pad)
+            gst_object_unref(pad);
+        gst_object_unref(volume);
+    }
 }
 
 void GstCallMediaBackend::setMicrophoneMuted(const QString &callId,
@@ -758,6 +1265,15 @@ void GstCallMediaBackend::handleLocalDescription(quintptr token, bool offer,
         handleFailure(token, QStringLiteral("description_failed"));
         return;
     }
+    if (offer && m_session.offerSent) {
+        // This lane never renegotiates; a second offer would reach the peer
+        // as a new invite for the same call.
+        qCWarning(lcCallMedia) << "a renegotiation offer was created and "
+                                  "not sent";
+        return;
+    }
+    if (offer)
+        m_session.offerSent = true;
     qCInfo(lcCallMedia) << (offer ? "local offer sections="
                                   : "local answer sections=")
                         << sdpSectionShape(sdp);
@@ -804,10 +1320,96 @@ void GstCallMediaBackend::handleGatheringComplete(quintptr token)
     Q_EMIT gatheringComplete(m_session.callId);
 }
 
+void GstCallMediaBackend::requestStats()
+{
+    if (!m_sessionActive || !m_session.webrtc)
+        return;
+    struct StatsCtx {
+        GstCallMediaBackend *backend = nullptr;
+        quintptr token = 0;
+    };
+    auto *ctx = new StatsCtx{this, reinterpret_cast<quintptr>(m_session.webrtc)};
+    GstPromise *promise = gst_promise_new_with_change_func(
+        [](GstPromise *promise, gpointer data) {
+            auto *ctx = static_cast<StatsCtx *>(data);
+            GstCallMediaBackend *backend = ctx->backend;
+            const quintptr token = ctx->token;
+            StatsTotals totals;
+            if (gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED) {
+                if (const GstStructure *reply = gst_promise_get_reply(promise))
+                    gst_structure_foreach(reply, addStat, &totals);
+            }
+            gst_promise_unref(promise); // may free ctx
+            marshal(backend, [backend, token, totals] {
+                // The ICE state is read here, on the Qt thread.
+                int ice = -1;
+                if (backend->tokenMatchesLiveSession(token)
+                    && backend->m_session.webrtc) {
+                    GstWebRTCICEConnectionState state =
+                        GST_WEBRTC_ICE_CONNECTION_STATE_NEW;
+                    g_object_get(backend->m_session.webrtc,
+                                 "ice-connection-state", &state, nullptr);
+                    ice = int(state);
+                }
+                backend->handleStats(token, totals.inboundAudio,
+                                     totals.inboundAudioBytes,
+                                     totals.inboundLost, totals.outboundAudio,
+                                     totals.inboundOther, ice);
+            });
+        },
+        ctx, [](gpointer data) { delete static_cast<StatsCtx *>(data); });
+    g_signal_emit_by_name(m_session.webrtc, "get-stats", nullptr, promise);
+}
+
+void GstCallMediaBackend::handleStats(quintptr token, quint64 inboundAudio,
+                                      quint64 inboundAudioBytes,
+                                      qint64 inboundLost,
+                                      quint64 outboundAudio,
+                                      quint64 inboundOther, int iceState)
+{
+    if (!tokenMatchesLiveSession(token))
+        return;
+    const int report = m_session.statsReports++;
+    // A stall is news only once the transport is up (ICE connected or
+    // completed), and an unmoving send count is the point of a mute.
+    const bool transportUp = iceState == GST_WEBRTC_ICE_CONNECTION_STATE_CONNECTED
+        || iceState == GST_WEBRTC_ICE_CONNECTION_STATE_COMPLETED;
+    const bool inStalled = report > 0 && transportUp
+        && inboundAudio == m_session.lastInboundAudioPackets;
+    const bool outStalled = report > 0 && transportUp && !m_session.micMuted
+        && outboundAudio == m_session.lastOutboundAudioPackets;
+    m_session.lastInboundAudioPackets = inboundAudio;
+    m_session.lastOutboundAudioPackets = outboundAudio;
+    // The first half minute every 5 s, then once a minute, and whenever audio
+    // stopped arriving or leaving: the line that tells "nothing arrived" from
+    // "arrived and was not decoded" from "never sent". Counts only.
+    if (report >= 6 && report % 12 != 0 && !inStalled && !outStalled)
+        return;
+    const QString counts =
+        QStringLiteral("inbound audio packets=%1 bytes=%2 lost=%3 decoded=%4 "
+                       "outbound audio packets=%5 inbound other packets=%6 "
+                       "ice=%7")
+            .arg(inboundAudio)
+            .arg(inboundAudioBytes)
+            .arg(inboundLost)
+            .arg(m_decodedBuffers.load())
+            .arg(outboundAudio)
+            .arg(inboundOther)
+            .arg(iceState);
+    if (inStalled || outStalled) {
+        qCWarning(lcCallMedia).noquote()
+            << "rtp stats:" << (inStalled ? "no audio arriving;" : "")
+            << (outStalled ? "no audio leaving;" : "") << counts;
+    } else {
+        qCInfo(lcCallMedia).noquote() << "rtp stats" << counts;
+    }
+}
+
 void GstCallMediaBackend::handleConnectionState(quintptr token, int state)
 {
     if (!tokenMatchesLiveSession(token))
         return;
+    qCInfo(lcCallMedia) << "call media connection state=" << state;
     switch (static_cast<GstWebRTCPeerConnectionState>(state)) {
     case GST_WEBRTC_PEER_CONNECTION_STATE_CONNECTED:
         qCInfo(lcCallMedia) << "call media connected";
@@ -1045,11 +1647,15 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         }
         return;
     }
-    // m_testTone and m_audioSinkElement are set before any session and never
-    // changed during one, so reading them here is safe.
-    const QString sink = backend->m_audioSinkElement.isEmpty()
-        ? QStringLiteral("autoaudiosink")
-        : backend->m_audioSinkElement;
+    // The plan can change mid-call (a speaker switch), hence the lock; a
+    // switch racing this pad is caught by the switch's own walk, which
+    // starts after the plan is updated.
+    AudioDevicePlan plan;
+    {
+        QMutexLocker lock(&backend->m_planMutex);
+        plan = backend->m_plan;
+    }
+    const QString sink = backend->receiveSinkDescription(plan);
     // Bounded and leaky: the receive side is where a listener hears delay,
     // and a default queue would keep a stall's second of audio forever. 200 ms
     // absorbs local scheduling jitter. Leaking is safe for Opus (the decoder
@@ -1057,15 +1663,11 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
     const QString recvQueue = QStringLiteral(
         "queue max-size-buffers=0 max-size-bytes=0 "
         "max-size-time=200000000 leaky=downstream ");
-    const QString descriptionString = backend->m_testTone
-        ? recvQueue
-            + QStringLiteral("! rtpopusdepay ! opusdec ! audioconvert "
-                             "! audioresample ! volume name=outvol "
-                             "! fakesink sync=false")
-        : recvQueue
-            + QStringLiteral("! rtpopusdepay ! opusdec ! audioconvert "
-                             "! audioresample ! volume name=outvol ! %1")
-                  .arg(sink);
+    // `outsink` is what a speaker switch replaces (swapSpeakersLocked()).
+    const QString descriptionString = recvQueue
+        + QStringLiteral("! rtpopusdepay ! opusdec name=recvdec ! audioconvert "
+                         "! audioresample ! volume name=outvol ! %1")
+              .arg(sink);
     const QByteArray descriptionUtf8 = descriptionString.toUtf8();
     const char *description = descriptionUtf8.constData();
     GError *error = nullptr;
@@ -1090,12 +1692,30 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         });
         return;
     }
+    applyBinding(bin, "outsink", plan.speakerBinding);
     // Apply the current deafen state before the bin plays, so a new track is
     // never briefly audible.
     if (GstElement *vol = gst_bin_get_by_name(GST_BIN(bin), "outvol")) {
         g_object_set(vol, "mute",
                      backend->m_outputMuted.load() ? TRUE : FALSE, nullptr);
+        if (backend->m_testTone) {
+            if (GstPad *out = gst_element_get_static_pad(vol, "src")) {
+                gst_pad_add_probe(out, GST_PAD_PROBE_TYPE_BUFFER, recordPeak,
+                                  &backend->m_receivedPeakMilli, nullptr);
+                gst_object_unref(out);
+            }
+        }
         gst_object_unref(vol);
+    }
+    // Decoded buffers, for the stats line: RTP that arrived but never reached
+    // a decoder is a different fault from RTP that never arrived.
+    if (GstElement *dec = gst_bin_get_by_name(GST_BIN(bin), "recvdec")) {
+        if (GstPad *out = gst_element_get_static_pad(dec, "src")) {
+            gst_pad_add_probe(out, GST_PAD_PROBE_TYPE_BUFFER, countDecoded,
+                              &backend->m_decodedBuffers, nullptr);
+            gst_object_unref(out);
+        }
+        gst_object_unref(dec);
     }
     gst_element_sync_state_with_parent(bin);
     GstPad *sinkPad = gst_element_get_static_pad(bin, "sink");
@@ -1110,5 +1730,12 @@ void GstCallMediaBackend::onPadAdded(GstElement *webrtc, void *pad,
         marshal(backend, [backend, token] {
             backend->handleFailure(token, QStringLiteral("media_receive"));
         });
+        return;
     }
+    // The pad name ("src_0") only: which received track became audible.
+    gchar *padName = gst_pad_get_name(srcPad);
+    qCInfo(lcCallMedia) << "an Opus receive track is linked pad="
+                        << (padName ? padName : "?")
+                        << "chosenSpeaker=" << !plan.speakerSink.isEmpty();
+    g_free(padName);
 }

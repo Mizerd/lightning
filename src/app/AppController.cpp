@@ -3338,26 +3338,41 @@ void AppController::enableCallMediaEngine()
     if (GstCallMediaBackend::runtimeAvailable(&whyNot)) {
         auto *engine = new GstCallMediaBackend(this);
         m_calls->setMediaBackend(engine);
-        // Apply the chosen devices and follow hotplugs of the active device.
-        // The engine applies them per session, so a change lands on the next
-        // call.
-        const auto applyDevices = [this, engine] {
-            engine->setAudioDevices(m_callDevices->microphoneElement(),
-                                    m_callDevices->speakerElement());
-        };
-        // Only when a preference exists: microphoneElement() initialises Qt
-        // Multimedia, which costs startup time and logs a SPA parse error per
-        // device on PipeWire. Without a preference the engine's empty strings
-        // already mean the platform default.
-        const bool hasDevicePreference =
-            m_settings
-            && (!m_settings->preferredMicrophoneId().isEmpty()
-                || !m_settings->preferredSpeakerId().isEmpty());
-        if (hasDevicePreference)
-            applyDevices();
+        // The chosen microphone and speaker, resolved exactly as the MatrixRTC
+        // lane resolves them (device monitor binding, multi-input matrix), at
+        // the start of each call and again when the choice changes.
+        engine->setAudioDeviceResolver([this] {
+            GstCallMediaBackend::AudioDevicePlan plan;
+            // Nothing to resolve without a preference, and asking would
+            // initialise Qt Multimedia (startup cost, and a SPA parse error
+            // per device on PipeWire): the engine's defaults follow the
+            // system.
+            if (!m_settings || !m_callDevices)
+                return plan;
+            if (!m_settings->preferredMicrophoneId().isEmpty()) {
+                const auto mic = m_callDevices->microphoneSelection();
+                const SfuMediaEngine::MicrophoneCapture capture =
+                    SfuMediaEngine::resolveMicrophoneCapture(
+                        {mic.id, mic.description});
+                plan.microphoneFront =
+                    SfuMediaEngine::microphoneFrontDescription(capture);
+                plan.microphoneBinding = capture.binding;
+            }
+            if (!m_settings->preferredSpeakerId().isEmpty()) {
+                const auto speaker = m_callDevices->speakerSelection();
+                const SfuMediaEngine::OutputSink sink =
+                    SfuMediaEngine::resolveSpeakerSink(
+                        {speaker.id, speaker.description});
+                plan.speakerSink = sink.sink;
+                plan.speakerBinding = sink.binding;
+            }
+            return plan;
+        });
+        // A pick in the call's device menu (or a hotplug that moves the
+        // active device) reaches a live 1:1 call now, not the next one.
         connect(m_callDevices.get(),
                 &CallDeviceController::activeDevicesChanged, engine,
-                applyDevices);
+                [engine] { engine->audioDevicesChanged(); });
         qCInfo(lcApp) << "voice-call media engine active (webrtcbin)";
     }
     // The SFU engine probes a wider element set (video, screen capture), so

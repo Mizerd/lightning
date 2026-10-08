@@ -84,11 +84,6 @@ public:
     Q_INVOKABLE void selectSpeaker(const QString &id);
     Q_INVOKABLE void selectCamera(const QString &id);
 
-    /// GStreamer source/sink descriptions for the active devices; empty means
-    /// the automatic element.
-    QString microphoneElement() const;
-    QString speakerElement() const;
-
     /// The active device's id and description. Qt and GStreamer ids differ,
     /// and the driver-supplied name is what both agree on
     /// (CaptureDeviceSelection.h). An empty id means "system default".
