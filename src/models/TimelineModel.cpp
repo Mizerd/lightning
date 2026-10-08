@@ -326,8 +326,10 @@ void TimelineModel::setProfileResolver(UserProfileResolver *resolver)
     m_profiles = resolver;
     if (m_profiles) {
         connect(m_profiles, &UserProfileResolver::resolved, this,
-                [this](const QString &, const QString &, const QString &) {
+                [this](const QString &userId, const QString &,
+                       const QString &) {
                     refreshStaleMentionRows();
+                    refreshReceiptReader(userId);
                 });
     }
 }
@@ -496,6 +498,63 @@ QString TimelineModel::memberDisplayName(const QString &roomId,
     return matrix::user_lookup::localpartOrUserId(userId);
 }
 
+QString TimelineModel::readerDisplayName(const QString &roomId,
+                                        const QString &userId) const
+{
+    if (userId.isEmpty())
+        return {};
+    if (m_client) {
+        const QString resolved = m_client->displayNameFor(roomId, userId);
+        // The raw user id back means unresolved, not a display name.
+        if (!resolved.isEmpty() && resolved != userId)
+            return resolved;
+    }
+    // The member cache fills only from a roster fetch, which is capped and can
+    // fail; the SDK still named this reader on their own messages, and that is
+    // the name the sender header shows.
+    const QString seen = m_senderNameIndex.value(userId);
+    if (!seen.isEmpty())
+        return seen;
+    if (m_profiles) {
+        const UserProfileResolver::Profile p = m_profiles->profile(userId);
+        if (p.known && !p.displayName.isEmpty())
+            return p.displayName;
+        // Once per user per session, in memory; the answer repaints the chip
+        // through refreshReceiptReader().
+        if (!p.known)
+            m_profiles->request(userId);
+    }
+    return matrix::user_lookup::localpartOrUserId(userId);
+}
+
+QString TimelineModel::readerAvatarMxc(const QString &roomId,
+                                       const QString &userId) const
+{
+    QString avatar =
+        m_client ? m_client->avatarMxcFor(roomId, userId) : QString{};
+    // Member-cache miss: the avatar this timeline has seen on the reader's own
+    // messages, then the global profile if one has arrived (never asked here;
+    // readerDisplayName() asks).
+    if (avatar.isEmpty())
+        avatar = m_senderAvatarIndex.value(userId);
+    if (avatar.isEmpty() && m_profiles)
+        avatar = m_profiles->profile(userId).avatarUrl;
+    return avatar;
+}
+
+void TimelineModel::refreshReceiptReader(const QString &userId)
+{
+    // A reader's chips live on the row hosting their newest receipt.
+    const int row = latestReceiptRows().value(userId, -1);
+    if (row < 0)
+        return;
+    const int host = receiptHostRow(row);
+    if (host < 0 || host >= rowCount())
+        return;
+    const QModelIndex idx = index(host);
+    Q_EMIT dataChanged(idx, idx, { ReadReceiptsRole });
+}
+
 QVariantList TimelineModel::reactionsVariant(const TimelineEvent &e) const
 {
     const QString lookupRoom = memberLookupRoomId(e.roomId);
@@ -546,7 +605,7 @@ QVariantList TimelineModel::readReceiptsVariant(const TimelineEvent &e) const
     // (the SDK's implicit sender receipt), which is how a DM shows "read up to
     // here". This is one presentation rule for every backend. Newest readers
     // first so the bounded chip stack and "+N" show the most recent. Names
-    // resolve like senderDisplayName(): member lookup, then the localpart.
+    // resolve like a mention pill (readerDisplayName()).
     QList<ReadReceipt> receipts;
     receipts.reserve(e.readBy.size());
     for (const auto &r : e.readBy) {
@@ -561,13 +620,8 @@ QVariantList TimelineModel::readReceiptsVariant(const TimelineEvent &e) const
     QVariantList out;
     out.reserve(receipts.size());
     for (const auto &r : receipts) {
-        const QString display = memberDisplayName(lookupRoom, r.userId);
-        QString avatar =
-            m_client ? m_client->avatarMxcFor(lookupRoom, r.userId) : QString{};
-        // Member-cache miss: fall back to the avatar this timeline has seen on
-        // the reader's own messages.
-        if (avatar.isEmpty())
-            avatar = m_senderAvatarIndex.value(r.userId);
+        const QString display = readerDisplayName(lookupRoom, r.userId);
+        const QString avatar = readerAvatarMxc(lookupRoom, r.userId);
         QVariantMap m;
         m.insert(QStringLiteral("userId"),      r.userId);
         m.insert(QStringLiteral("displayName"), display);
@@ -1836,7 +1890,7 @@ void TimelineModel::onEventAppended(const QString &roomId, const TimelineEvent &
     const int publicRow = static_cast<int>(m_events.size());
     beginInsertRows({}, publicRow, publicRow);
     m_events.append(event);
-    noteSenderAvatar(event);
+    noteSenderProfile(event);
     invalidateRowIndex();
     invalidateReceiptIndex();
     // Incremental: an append adds at most one reply to one root.
@@ -1865,7 +1919,7 @@ void TimelineModel::onEventReplaced(const QString &roomId,
     const bool groupingChanged = groupingInputsDiffer(m_events.at(row), newEvent);
     const bool hostedBefore = rowHostsReceipts(row);
     m_events[row] = newEvent;
-    noteSenderAvatar(newEvent);
+    noteSenderProfile(newEvent);
     invalidateRowIndex(); // replacement can rename local: -> remote id
     forgetRenderedHtml(oldEventId);
     forgetRenderedHtml(newEvent.eventId);
@@ -1982,7 +2036,7 @@ void TimelineModel::onEventsPrepended(const QString &roomId,
     beginInsertRows({}, 0, events.size() - 1);
     for (int i = events.size() - 1; i >= 0; --i) {
         m_events.prepend(events.at(i));
-        noteSenderAvatar(events.at(i));
+        noteSenderProfile(events.at(i));
     }
     invalidateRowIndex();
     invalidateReceiptIndex();
@@ -2018,7 +2072,7 @@ void TimelineModel::onEventInsertedAt(const QString &roomId, int index,
     const QHash<QString, QString> receiptsBefore = receiptPositionsByEvent();
     beginInsertRows({}, index, index);
     m_events.insert(index, event);
-    noteSenderAvatar(event);
+    noteSenderProfile(event);
     invalidateRowIndex();
     invalidateReceiptIndex();
     if (!event.threadRootId.isEmpty())
@@ -2044,7 +2098,7 @@ void TimelineModel::onEventsInsertedAt(
     beginInsertRows({}, index, index + events.size() - 1);
     for (int offset = 0; offset < events.size(); ++offset) {
         m_events.insert(index + offset, events.at(offset));
-        noteSenderAvatar(events.at(offset));
+        noteSenderProfile(events.at(offset));
     }
     invalidateRowIndex();
     invalidateReceiptIndex();
@@ -2095,7 +2149,7 @@ void TimelineModel::onEventChangedAt(const QString &roomId, int index,
     forgetRenderedHtml(event.eventId);
     const bool hostedBefore = rowHostsReceipts(index);
     m_events[index] = event;
-    noteSenderAvatar(event);
+    noteSenderProfile(event);
     invalidateRowIndex();
     invalidateReceiptIndex();
     if (threadIndexChanged)
@@ -2180,6 +2234,7 @@ void TimelineModel::onLoggedOut()
     // Session-scoped like every cache here: avatar pairs from account A must
     // not leak into account B's session.
     m_senderAvatarIndex.clear();
+    m_senderNameIndex.clear();
     m_roomId.clear();
     m_realRoomId.clear();
     endResetModel();
@@ -2736,24 +2791,29 @@ void TimelineModel::reload()
     invalidateReceiptIndex();
     clearRenderedHtml();
     rebuildThreadReplyIndex();
-    rebuildSenderAvatarIndex();
+    rebuildSenderProfileIndex();
     endResetModel();
     Q_EMIT countChanged();
 }
 
-void TimelineModel::noteSenderAvatar(const TimelineEvent &event)
+void TimelineModel::noteSenderProfile(const TimelineEvent &event)
 {
-    // Insert-only for non-empty values: an empty senderAvatarUrl means "not
-    // carried on this event", not "avatar removed".
-    if (!event.sender.isEmpty() && !event.senderAvatarUrl.isEmpty())
+    // Insert-only for non-empty values: an empty senderAvatarUrl or
+    // senderDisplayName means "not carried on this event", not "removed".
+    if (event.sender.isEmpty())
+        return;
+    if (!event.senderAvatarUrl.isEmpty())
         m_senderAvatarIndex.insert(event.sender, event.senderAvatarUrl);
+    if (!event.senderDisplayName.isEmpty())
+        m_senderNameIndex.insert(event.sender, event.senderDisplayName);
 }
 
-void TimelineModel::rebuildSenderAvatarIndex()
+void TimelineModel::rebuildSenderProfileIndex()
 {
     m_senderAvatarIndex.clear();
+    m_senderNameIndex.clear();
     for (const auto &event : std::as_const(m_events))
-        noteSenderAvatar(event);
+        noteSenderProfile(event);
 }
 
 // ---------------------------------------------------------------------------

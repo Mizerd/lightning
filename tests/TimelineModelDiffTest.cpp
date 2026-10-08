@@ -5,6 +5,7 @@
 
 #include "matrix/MatrixClient.h"
 #include "models/TimelineModel.h"
+#include "profile/UserProfileResolver.h"
 
 #include <QtTest/QtTest>
 
@@ -113,6 +114,14 @@ public:
     void redactEvent(const QString &, const QString &, const QString &) override {}
     void toggleReaction(const QString &, const QString &, const QString &) override {}
     void sendTyping(const QString &, bool, int) override {}
+    // Global-profile lookups the UserProfileResolver dispatched; the op id is
+    // the 1-based position, so a test can answer a specific request.
+    QStringList profileFetches;
+    quint64 fetchUserProfile(const QString &userId) override
+    {
+        profileFetches.append(userId);
+        return static_cast<quint64>(profileFetches.size());
+    }
     // Recorded: markVisibleAsRead's contract is which room it names and
     // whether it fires.
     QList<QPair<QString, QString>> readReceipts;
@@ -189,6 +198,8 @@ private Q_SLOTS:
     // newest-first order, live Set-diff/member-hydration updates, and
     // ReadMarker-row neutrality.
     void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
+    void aReaderMissingFromTheMemberCacheKeepsTheNameTheTimelineShows();
+    void aReaderKnownNowhereGetsTheirGlobalProfileAndTheChipRepaints();
     void theSentCheckFollowsTheNewestOwnMessageUntilSomeoneReadsIt();
     void theSentCheckGoesWhenTheOtherUserAnswersWithAReceiptOnTheirNewRow();
     void readReceiptsUpdateViaSetDiffAndMemberHydration();
@@ -900,6 +911,100 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
              QByteArrayLiteral("readReceipts"));
     QCOMPARE(m_model->roleNames().value(TimelineModel::ReadReceiptsTotalRole),
              QByteArrayLiteral("readReceiptsTotal"));
+}
+
+// Reported: the sender header read "Grok AI" while the receipt list named the
+// same user "brotato" (the localpart). The header uses the SDK's profile on
+// the event; receipts asked only the member cache, which a roster fetch fills
+// (capped, may fail or not have landed). Old code: "grok".
+void TimelineModelDiffTest::aReaderMissingFromTheMemberCacheKeepsTheNameTheTimelineShows()
+{
+    const QString grok = QStringLiteral("@grok:example.org");
+    TimelineEvent spoke = makeEvent(QStringLiteral("$grok-spoke"),
+                                    QStringLiteral("hello"));
+    spoke.sender = grok;
+    spoke.senderDisplayName = QStringLiteral("Grok AI");
+    spoke.senderAvatarUrl = QStringLiteral("mxc://example.org/grok");
+    m_client->mirror.append(spoke);
+    Q_EMIT m_client->eventAppended(kRoom, spoke);
+
+    TimelineEvent read = makeEvent(QStringLiteral("$read-by-grok"),
+                                   QStringLiteral("answer"));
+    read.readBy = { { grok, Q_INT64_C(1700000009000) } };
+    m_client->mirror.append(read);
+    Q_EMIT m_client->eventAppended(kRoom, read);
+
+    const QModelIndex idx = m_model->index(3);
+    const QVariantList receipts =
+        m_model->data(idx, TimelineModel::ReadReceiptsRole).toList();
+    QCOMPARE(receipts.size(), 1);
+    const QVariantMap reader = receipts.first().toMap();
+    QCOMPARE(reader.value(QStringLiteral("userId")).toString(), grok);
+    // The same name the reader's own row header shows.
+    QCOMPARE(reader.value(QStringLiteral("displayName")).toString(),
+             m_model->data(m_model->index(2),
+                           TimelineModel::SenderDisplayNameRole).toString());
+    QCOMPARE(reader.value(QStringLiteral("displayName")).toString(),
+             QStringLiteral("Grok AI"));
+    QCOMPARE(reader.value(QStringLiteral("avatarMxc")).toString(),
+             QStringLiteral("mxc://example.org/grok"));
+
+    // The member cache, once it knows the reader, still wins.
+    m_client->displayNames.insert(grok, QStringLiteral("Grok (room)"));
+    QCOMPARE(m_model->data(idx, TimelineModel::ReadReceiptsRole).toList()
+                 .first().toMap().value(QStringLiteral("displayName"))
+                 .toString(),
+             QStringLiteral("Grok (room)"));
+}
+
+// A reader who has neither a member-cache entry nor a loaded message gets the
+// global profile, like a mention pill, and the chip repaints when it lands.
+// Old code never asked: the name stayed the localpart for the session.
+void TimelineModelDiffTest::aReaderKnownNowhereGetsTheirGlobalProfileAndTheChipRepaints()
+{
+    auto *profiles = new UserProfileResolver(m_model);
+    profiles->setClient(m_client);
+    m_model->setProfileResolver(profiles);
+
+    const QString bob = QStringLiteral("@bob:example.org");
+    TimelineEvent read = makeEvent(QStringLiteral("$read-by-bob"),
+                                   QStringLiteral("seen"));
+    read.readBy = { { bob, Q_INT64_C(1700000009000) } };
+    m_client->mirror.append(read);
+    Q_EMIT m_client->eventAppended(kRoom, read);
+    const QModelIndex idx = m_model->index(2);
+
+    // Nothing known yet: the localpart, and exactly one lookup however often
+    // the role is read.
+    for (int i = 0; i < 3; ++i) {
+        QCOMPARE(m_model->data(idx, TimelineModel::ReadReceiptsRole).toList()
+                     .first().toMap().value(QStringLiteral("displayName"))
+                     .toString(),
+                 QStringLiteral("bob"));
+    }
+    QCOMPARE(m_client->profileFetches, QStringList{ bob });
+
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    Q_EMIT m_client->userProfileFinished(1, true, bob, QStringLiteral("Bob B."),
+                                         QStringLiteral("mxc://example.org/bob"),
+                                         QString());
+    bool repainted = false;
+    for (const auto &args : std::as_const(changed)) {
+        const auto roles = args.at(2).value<QList<int>>();
+        if (args.at(0).value<QModelIndex>().row() <= idx.row()
+            && args.at(1).value<QModelIndex>().row() >= idx.row()
+            && roles.contains(TimelineModel::ReadReceiptsRole))
+            repainted = true;
+    }
+    QVERIFY2(repainted, "the receipt row was not told its reader resolved");
+    const QVariantMap reader =
+        m_model->data(idx, TimelineModel::ReadReceiptsRole).toList()
+            .first().toMap();
+    QCOMPARE(reader.value(QStringLiteral("displayName")).toString(),
+             QStringLiteral("Bob B."));
+    QCOMPARE(reader.value(QStringLiteral("avatarMxc")).toString(),
+             QStringLiteral("mxc://example.org/bob"));
+    m_model->setProfileResolver(nullptr);
 }
 
 // A reader has one position: the newest row carrying them hosts their

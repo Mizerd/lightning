@@ -512,6 +512,16 @@ private:
     // unresolved, never a display name.
     QString memberDisplayName(const QString &roomId,
                               const QString &userId) const;
+    // A read receipt's reader, resolved like a mention pill: the room member
+    // name (member cache, then the name the SDK attached to the reader's own
+    // loaded messages), the global profile (asked once per session when
+    // unknown), the localpart last.
+    QString readerDisplayName(const QString &roomId,
+                              const QString &userId) const;
+    QString readerAvatarMxc(const QString &roomId,
+                            const QString &userId) const;
+    // A global profile arrived: repaint the receipt chips naming that reader.
+    void refreshReceiptReader(const QString &userId);
     // The row's visible text. Redacted rows read as deleted, and typed
     // profile-change rows are phrased here because the bridge leaves `body`
     // empty.
@@ -633,12 +643,14 @@ private:
     // per row. Rebuilt once per structural mutation.
     QHash<QString, int> m_threadReplyCounts;
     void rebuildThreadReplyIndex();
-    // Newest SDK-profile avatar seen per sender, a fallback for receipt chips
-    // whose reader is missing from the member cache. Rebuilt on reload/room
-    // switch.
+    // SDK-profile avatar and room display name seen per sender, the fallback
+    // for receipt chips whose reader is missing from the member cache (it is
+    // filled only by a roster fetch, capped and failure-prone). Rebuilt on
+    // reload/room switch. Memory only.
     QHash<QString, QString> m_senderAvatarIndex;
-    void noteSenderAvatar(const TimelineEvent &event);
-    void rebuildSenderAvatarIndex();
+    QHash<QString, QString> m_senderNameIndex;
+    void noteSenderProfile(const TimelineEvent &event);
+    void rebuildSenderProfileIndex();
     QString m_typingText;
 
     // Loaded-timeline search (memory-only; never persisted).
