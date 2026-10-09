@@ -4008,6 +4008,18 @@ if(BUILD_TESTING)
     set_tests_properties(convo-ux-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Escape steps back out of a conversation (GitHub #27) in the real shell,
+    # and every earlier owner of Escape (composer reply/edit, other text
+    # fields, dialogs) keeps it.
+    qt_add_executable(escape-navigation-qml-test
+        tests/EscapeNavigationQmlTest.cpp
+    )
+    lightning_configure_qml_test(escape-navigation-qml-test)
+    target_include_directories(escape-navigation-qml-test PRIVATE src)
+    add_test(NAME escape-navigation-qml COMMAND escape-navigation-qml-test)
+    set_tests_properties(escape-navigation-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # A restore that cannot reach the homeserver must read as offline, even
     # though startSync() and the sync lane report Syncing on the way. Drives
     # the real event dispatcher; no FFI handle, store or network.

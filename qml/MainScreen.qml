@@ -5,6 +5,42 @@ import MatrixClient
 // The main shell: SpacesRail, RoomsPanel, and TimelinePane (which hosts the
 // member/thread side panel), in a SplitView.
 Item {
+    id: shellRoot
+
+    // Escape steps back (GitHub #27): the open room closes to its Space's
+    // overview (or Home), and with no room open a Space returns to Home.
+    // A Keys handler, not a Shortcut: Escape is reserved in ShortcutRegistry
+    // and a window Shortcut takes the key before the focused item, so the
+    // composer (closing a completion, cancelling a reply or an edit) and every
+    // other Escape owner would lose it. This handler sees Escape only when
+    // nothing under the focus accepted it; dialogs, menus and the image viewer
+    // are popups, not children of this item, so they never reach it. The
+    // find bar, info panel, search, thread and pinned layers keep their
+    // TimelinePane Shortcut, which runs first while one of them is open.
+    Keys.onEscapePressed: (event) => {
+        // A text field other than the message box keeps Escape to itself:
+        // leaving the room-list search or a settings field must not also
+        // close the conversation.
+        const focused = Window.activeFocusItem
+        if (focused && (focused instanceof TextInput || focused instanceof TextEdit)
+                && !shellRoot.insideComposer(focused)) {
+            event.accepted = false
+            return
+        }
+        event.accepted = app.navigateBack()
+        // The composer is hidden with the room, which drops the keyboard
+        // focus; keep it here so the next Escape (lobby to Home) arrives.
+        if (event.accepted)
+            shellRoot.forceActiveFocus()
+    }
+    function insideComposer(item) {
+        for (var it = item; it; it = it.parent) {
+            if (it.objectName === "messageComposer")
+                return true
+        }
+        return false
+    }
+
     // Panel visibility: Ctrl+B for the room list, Ctrl+Shift+B for the rail by
     // default, both mirrored as switches in Settings -> Appearance. Sequences
     // come from ShortcutRegistry; bindingRevision is read inside each binding

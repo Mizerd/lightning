@@ -4151,6 +4151,21 @@ void AppController::openLobby()
     openSpaceHome(active.startsWith(QLatin1Char('!')) ? active : QString());
 }
 
+bool AppController::navigateBack()
+{
+    if (m_currentScreen != MainScreen)
+        return false;
+    if (!m_currentRoomId.isEmpty()) {
+        openLobby();
+        return true;
+    }
+    if (m_spaces && !m_spaces->activeSpaceId().isEmpty()) {
+        openSpaceHome(QString());
+        return true;
+    }
+    return false;
+}
+
 bool AppController::trimHistoryAndJumpToLive()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND
