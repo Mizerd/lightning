@@ -247,6 +247,10 @@ Item {
         anchors.fill: parent
         contentWidth: width
         contentHeight: panel.y + panel.implicitHeight + AppTheme.spacingXL
+        // The card's visible/height callbacks can run before the outer
+        // layout updates this extent. Retry once scrolling can reach it.
+        onContentHeightChanged: if (repairCard.visible) Qt.callLater(root.revealRepairCard)
+        onHeightChanged: if (repairCard.visible) Qt.callLater(root.revealRepairCard)
         boundsBehavior: Flickable.StopAtBounds
         clip: true
         ScrollBar.vertical: AppScrollBar { policy: ScrollBar.AsNeeded }

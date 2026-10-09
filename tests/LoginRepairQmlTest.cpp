@@ -12,6 +12,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlExpression>
 #include <QQuickItem>
 #include <QScopeGuard>
 
@@ -125,7 +126,17 @@ private:
                 return;
             QTest::qWait(20);
         }
-        QFAIL("loginRepairConfirmDialog never opened");
+        const QPointF center = button->mapToScene(
+            QPointF(button->width() / 2, button->height() / 2));
+        const auto *flick = item("loginFlick");
+        QFAIL(qPrintable(QStringLiteral(
+            "loginRepairConfirmDialog never opened: button=%1 center=(%2,%3) "
+            "window=%4x%5 visible=%6 enabled=%7 contentY=%8 contentHeight=%9")
+            .arg(button->objectName()).arg(center.x()).arg(center.y())
+            .arg(m_window->width()).arg(m_window->height())
+            .arg(button->isVisible()).arg(button->isEnabled())
+            .arg(flick->property("contentY").toReal())
+            .arg(flick->property("contentHeight").toReal())));
     }
 
     // setLocalSessionFailure() is public so a C++ test can drive the
@@ -814,6 +825,61 @@ private slots:
                  qPrintable(QStringLiteral(
                      "the User field moved %1px and the Password field %2px")
                          .arg(userMoved).arg(passMoved)));
+    }
+
+    // Reproduce the outer layout publishing its scroll extent after the
+    // card's own visible/height callbacks. A visible button can still be
+    // clipped; retries at its offscreen coordinates cannot open the dialog.
+    void repairCardIsRevealedWhenTheScrollExtentArrivesLate()
+    {
+        auto *flick = item("loginFlick");
+        QVERIFY(flick);
+        const QSize originalSize = m_window->size();
+        auto restore = qScopeGuard([this, flick, originalSize] {
+            clearFailure();
+            QQmlExpression binding(qmlContext(flick), flick, QStringLiteral(
+                "contentHeight = Qt.binding(function() { "
+                "return panel.y + panel.implicitHeight + AppTheme.spacingXL })"));
+            binding.evaluate();
+            m_window->resize(originalSize);
+        });
+        m_window->resize(640, 420);
+        // Hold the extent unavailable while the card is laid out.
+        QQmlExpression hold(qmlContext(flick), flick,
+                            QStringLiteral("contentHeight = 0; contentY = 0"));
+        hold.evaluate();
+        QVERIFY2(!hold.hasError(), qPrintable(hold.error().toString()));
+        injectFailure(QStringLiteral("access_token_revoked"),
+                      QStringLiteral("@late-layout:example.org"),
+                      QStringLiteral("https://example.org"));
+        auto *remove = item("loginRepairRemoveAccount");
+        QVERIFY(remove);
+        QTest::qWait(100);
+        QVERIFY(remove->isVisible());
+        const auto centerInViewport = [remove, flick] {
+            return remove->mapToItem(flick,
+                QPointF(remove->width() / 2, remove->height() / 2));
+        };
+        QVERIFY2(centerInViewport().y() > flick->height(),
+                 qPrintable(QStringLiteral("clipped premise: y=%1 viewport=%2 extent=%3")
+                     .arg(centerInViewport().y()).arg(flick->height())
+                     .arg(flick->property("contentHeight").toReal())));
+        QCOMPARE(flick->property("contentY").toReal(), 0.0);
+
+        const auto *panel = item("loginPanel");
+        QVERIFY(panel);
+        // Publish a usable extent, as the outer layout does after polish.
+        flick->setProperty("contentHeight", panel->y()
+            + panel->property("implicitHeight").toReal() + 100);
+        QTRY_VERIFY(centerInViewport().y() > 0
+                    && centerInViewport().y() < flick->height());
+        openDialogVia(remove);
+        auto *dialog = waitForObject("loginRepairConfirmDialog");
+        QVERIFY(dialog);
+        auto *cancel = waitForItem("loginRepairCancel");
+        QVERIFY(cancel);
+        clickItem(cancel);
+        QTRY_VERIFY(!dialog->property("visible").toBool());
     }
 
     void noQmlWarnings()
