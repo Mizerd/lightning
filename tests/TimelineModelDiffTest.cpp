@@ -198,6 +198,7 @@ private Q_SLOTS:
     // newest-first order, live Set-diff/member-hydration updates, and
     // ReadMarker-row neutrality.
     void readReceiptsRoleResolvesExcludesSelfAndSortsNewestFirst();
+    void reactorsUseSeenNamesAndResolveProfilesWithRepaint();
     void aReaderMissingFromTheMemberCacheKeepsTheNameTheTimelineShows();
     void aReaderKnownNowhereGetsTheirGlobalProfileAndTheChipRepaints();
     void theSentCheckFollowsTheNewestOwnMessageUntilSomeoneReadsIt();
@@ -911,6 +912,51 @@ void TimelineModelDiffTest::readReceiptsRoleResolvesExcludesSelfAndSortsNewestFi
              QByteArrayLiteral("readReceipts"));
     QCOMPARE(m_model->roleNames().value(TimelineModel::ReadReceiptsTotalRole),
              QByteArrayLiteral("readReceiptsTotal"));
+}
+
+void TimelineModelDiffTest::reactorsUseSeenNamesAndResolveProfilesWithRepaint()
+{
+    auto *profiles = new UserProfileResolver(m_model);
+    profiles->setClient(m_client);
+    m_model->setProfileResolver(profiles);
+    const QString seen = QStringLiteral("@seen:example.org");
+    const QString unknown = QStringLiteral("@unknown:example.org");
+    auto spoke = makeEvent(QStringLiteral("$spoke"), QStringLiteral("hello"));
+    spoke.sender = seen;
+    spoke.senderDisplayName = QStringLiteral("Seen Name");
+    auto reacted = makeEvent(QStringLiteral("$reacted"), QStringLiteral("answer"));
+    Reaction reaction;
+    reaction.key = QStringLiteral("+");
+    reaction.count = 2;
+    reaction.senders = { seen, unknown };
+    reacted.reactions = { reaction };
+    m_client->mirror = { spoke, reacted, reacted };
+    Q_EMIT m_client->timelineReset(kRoom);
+    const auto names = [this](int row) {
+        return m_model->data(m_model->index(row), TimelineModel::ReactionsRole)
+            .toList().first().toMap().value(QStringLiteral("reactorNames")).toStringList();
+    };
+    for (int i = 0; i < 3; ++i)
+        QCOMPARE(names(1), (QStringList{ QStringLiteral("Seen Name"), QStringLiteral("unknown") }));
+    QCOMPARE(m_client->profileFetches, QStringList{ unknown });
+    QSignalSpy changed(m_model, &QAbstractItemModel::dataChanged);
+    Q_EMIT m_client->userProfileFinished(1, true, unknown, QStringLiteral("Global Name"),
+                                         QString(), QString());
+    for (int row : { 1, 2 }) {
+        bool repainted = false;
+        for (const auto &args : std::as_const(changed)) {
+            if (args.at(0).value<QModelIndex>().row() <= row
+                && args.at(1).value<QModelIndex>().row() >= row
+                && args.at(2).value<QList<int>>().contains(TimelineModel::ReactionsRole))
+                repainted = true;
+        }
+        QVERIFY(repainted);
+        QCOMPARE(names(row), (QStringList{ QStringLiteral("Seen Name"), QStringLiteral("Global Name") }));
+    }
+    m_client->displayNames[seen] = QStringLiteral("Room Name");
+    QCOMPARE(names(1).first(), QStringLiteral("Room Name"));
+    QCOMPARE(m_client->profileFetches, QStringList{ unknown });
+    m_model->setProfileResolver(nullptr);
 }
 
 // Reported: the sender header read "Grok AI" while the receipt list named the

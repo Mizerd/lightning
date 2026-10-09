@@ -330,6 +330,16 @@ void TimelineModel::setProfileResolver(UserProfileResolver *resolver)
                        const QString &) {
                     refreshStaleMentionRows();
                     refreshReceiptReader(userId);
+                    // A profile can name a reactor with no message or receipt.
+                    for (int row = 0; row < m_events.size(); ++row) {
+                        for (const auto &reaction : m_events.at(row).reactions) {
+                            if (reaction.senders.contains(userId)) {
+                                const QModelIndex idx = index(row);
+                                Q_EMIT dataChanged(idx, idx, { ReactionsRole });
+                                break;
+                            }
+                        }
+                    }
                 });
     }
 }
@@ -566,13 +576,14 @@ QVariantList TimelineModel::reactionsVariant(const TimelineEvent &e) const
         m.insert(QStringLiteral("count"), r.count);
         m.insert(QStringLiteral("byMe"),  r.byMe);
         // Reactors arrive as a bounded window of user ids (16, the receipt cap)
-        // and are resolved here through the normal member lookup, never a
-        // network call from a role. `reactorTotal` is the uncapped count for
+        // and share receipt readers' memory-only identity resolution.
+        // The resolver deduplicates profile requests per session.
+        // `reactorTotal` is the uncapped count for
         // "and N more".
         QStringList names;
         names.reserve(r.senders.size());
         for (const QString &userId : r.senders) {
-            const QString name = memberDisplayName(lookupRoom, userId);
+            const QString name = readerDisplayName(lookupRoom, userId);
             if (!name.isEmpty())
                 names.append(name);
         }
