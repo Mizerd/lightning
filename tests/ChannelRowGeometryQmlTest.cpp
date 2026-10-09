@@ -548,6 +548,54 @@ private Q_SLOTS:
                     .contains(QStringLiteral("RoomActionsMenu")));
     }
 
+    // GitHub #28: the menu was the only thing a Channels invitation row
+    // offered, and its "Leave room" did nothing. An invitation's menu offers
+    // Accept and Reject instead, and each reaches the row's own signal; a
+    // joined row keeps Leave and offers neither.
+    void anInvitationRowMenuOffersAcceptAndReject()
+    {
+        for (const bool invite : { true, false }) {
+            Harness h;
+            QVERIFY(build(h, QStringLiteral(R"(
+        ChannelDelegate {
+            width: 300
+            roomId: "!room:example.org"
+            channelName: "alx"
+            isInvite: %1
+        })").arg(invite ? QStringLiteral("true") : QStringLiteral("false")),
+                          /*withAppStub=*/true));
+            QQuickItem *row = h.item();
+            QVERIFY(row);
+            QVERIFY(QMetaObject::invokeMethod(row, "openContextMenu"));
+            QCoreApplication::processEvents();
+            QObject *menu =
+                row->findChild<QObject *>(QStringLiteral("channelContextMenu"));
+            QVERIFY(menu);
+            QObject *accept =
+                menu->findChild<QObject *>(QStringLiteral("roomAcceptInviteItem"));
+            QObject *reject =
+                menu->findChild<QObject *>(QStringLiteral("roomRejectInviteItem"));
+            QObject *leave =
+                menu->findChild<QObject *>(QStringLiteral("roomLeaveItem"));
+            QVERIFY2(accept && reject && leave,
+                     "the room menu has no invitation actions");
+            QCOMPARE(accept->property("visible").toBool(), invite);
+            QCOMPARE(reject->property("visible").toBool(), invite);
+            QCOMPARE(leave->property("visible").toBool(), !invite);
+            if (!invite)
+                continue;
+
+            QSignalSpy accepted(row, SIGNAL(acceptInvite()));
+            QSignalSpy rejected(row, SIGNAL(rejectInvite()));
+            QVERIFY(rejected.isValid());
+            QVERIFY(QMetaObject::invokeMethod(reject, "triggered"));
+            QCOMPARE(rejected.count(), 1);
+            QCOMPARE(accepted.count(), 0);
+            QVERIFY(QMetaObject::invokeMethod(accept, "triggered"));
+            QCOMPARE(accepted.count(), 1);
+        }
+    }
+
     // A muted favourite's star must not be drawn over the mute bell. The
     // right-edge marks form an anchor chain (pill, call glyph, mute glyph,
     // star) and the bell must be part of it. Only laid-out geometry shows the

@@ -118,6 +118,18 @@ public:
     QString lastInviteRoom;
     QStringList lastInvitees;
     quint64 lastInviteOpId = 0;
+
+    // 0 = the backend refused before any request (the Rust gate's error
+    // string, as for an invitation before GitHub #28).
+    quint64 leaveRoom(const QString &roomId) override
+    {
+        ++leaveCalls;
+        lastLeaveRoom = roomId;
+        return leaveRefused ? 0 : nextOp++;
+    }
+    bool leaveRefused = false;
+    int leaveCalls = 0;
+    QString lastLeaveRoom;
 };
 
 QVariantMap memberRow(const QString &userId, qlonglong powerLevel,
@@ -518,6 +530,53 @@ private Q_SLOTS:
         QCOMPARE(done.first().at(3).toBool(), false);
         QVERIFY(done.first().at(4).toString().contains(
             QStringLiteral("permission")));
+    }
+
+    // GitHub #28: a leave the backend refused synchronously (op id 0) was
+    // dropped without a word, so "Leave room" on an invitation did nothing.
+    // Both entry points must report it.
+    void aRefusedLeaveIsReportedNotSwallowed()
+    {
+        FakeClient client;
+        client.leaveRefused = true;
+        RoomInfoController controller;
+        controller.setClient(&client);
+
+        QSignalSpy failed(&controller, &RoomInfoController::roomLeaveFailed);
+        QSignalSpy left(&controller, &RoomInfoController::roomLeft);
+        controller.leaveRoom(QStringLiteral("!invite:example.org"));
+        QCOMPARE(client.leaveCalls, 1);
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.at(0).at(0).toString(),
+                 QStringLiteral("!invite:example.org"));
+        QVERIFY(!failed.at(0).at(1).toString().isEmpty());
+        QCOMPARE(left.count(), 0);
+
+        // The info panel's own path carries its error in leaveError.
+        controller.setRoomId(QStringLiteral("!room:example.org"));
+        controller.leaveRoom();
+        QCOMPARE(client.leaveCalls, 2);
+        QVERIFY(!controller.leavePending());
+        QVERIFY(!controller.leaveError().isEmpty());
+    }
+
+    // The accepted path is unchanged: an op id, then the result decides.
+    void anAcceptedLeaveWaitsForItsResult()
+    {
+        FakeClient client;
+        RoomInfoController controller;
+        controller.setClient(&client);
+
+        QSignalSpy failed(&controller, &RoomInfoController::roomLeaveFailed);
+        QSignalSpy left(&controller, &RoomInfoController::roomLeft);
+        const quint64 op = client.nextOp;
+        controller.leaveRoom(QStringLiteral("!invite:example.org"));
+        QCOMPARE(client.leaveCalls, 1);
+        QCOMPARE(failed.count(), 0);
+        Q_EMIT client.roomLeaveFinished(op, QStringLiteral("!invite:example.org"),
+                                        true, QString());
+        QCOMPARE(left.count(), 1);
+        QCOMPARE(failed.count(), 0);
     }
 
     void roomSwitchDropsLateResult()

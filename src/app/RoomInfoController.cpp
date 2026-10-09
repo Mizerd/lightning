@@ -400,6 +400,9 @@ void RoomInfoController::leaveRoom()
         return;
     m_leaveError.clear();
     m_leaveOp = m_client->leaveRoom(m_roomId);
+    // Op id 0 is a refusal before any request; say so rather than nothing.
+    if (m_leaveOp == 0)
+        m_leaveError = tr("Leaving the room failed. Check your connection and retry.");
     Q_EMIT leaveStateChanged();
 }
 
@@ -408,8 +411,14 @@ void RoomInfoController::leaveRoom(const QString &roomId)
     if (!m_client || roomId.isEmpty())
         return;
     const quint64 opId = m_client->leaveRoom(roomId);
-    if (opId != 0)
+    if (opId != 0) {
         m_adhocLeaveOps.insert(opId);
+        return;
+    }
+    // Refused before any request (GitHub #28: the joined-only gate refused
+    // every invitation and the menu item did nothing at all).
+    Q_EMIT roomLeaveFailed(
+        roomId, tr("Leaving the room failed. Check your connection and retry."));
 }
 
 void RoomInfoController::onRoomLeaveFinished(quint64 opId, const QString &roomId,

@@ -5630,6 +5630,14 @@ void RustSdkMatrixClient::handleRustEvent(const QJsonObject &event,
         return;
     }
 
+    // rust/src/invites.rs: invitations the server no longer has (rejected on
+    // another device) were dropped from the store. A count only.
+    if (type == QLatin1String("stale_invites_retired")) {
+        qCInfo(lcRust) << "stale invitations retired count="
+                       << event.value(QStringLiteral("count")).toInt();
+        return;
+    }
+
     if (type == QLatin1String("read_marker_advanced")) {
         Q_EMIT readMarkerAdvanced(event.value(QStringLiteral("room_id")).toString());
         return;

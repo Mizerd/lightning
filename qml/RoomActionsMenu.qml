@@ -15,7 +15,12 @@ AppMenu {
     property string canonicalAlias: ""
     property bool isDirect: false
     property bool isFavourite: false
+    /// A pending invitation: the menu offers Accept and Reject in place of
+    /// Leave (the Channels row has no other invite actions; GitHub #28).
+    property bool isInvite: false
 
+    signal acceptInviteRequested()
+    signal rejectInviteRequested()
     signal markRead()
     signal markUnread()
     // Carries the value to write, not a toggle.
@@ -37,6 +42,7 @@ AppMenu {
     AppMenuItem {
         objectName: "roomFavouriteItem"
         visible: app.roomList.roomFavouritesSupported
+                 && !root.isInvite
         // One glyph for both states: the Material Symbols font is FILL=0, so
         // there is no filled star; the text carries the state.
         iconName: "star"
@@ -44,7 +50,9 @@ AppMenu {
                                : qsTr("Add to favourites")
         onTriggered: root.setFavourite(!root.isFavourite)
     }
-    AppMenuSeparator { visible: app.roomList.roomFavouritesSupported }
+    AppMenuSeparator {
+        visible: app.roomList.roomFavouritesSupported && !root.isInvite
+    }
     AppMenuItem {
         iconName: "check"
         text: qsTr("Mark as read")
@@ -170,9 +178,26 @@ AppMenu {
         onTriggered: root.copyRoomLink()
     }
     AppMenuItem {
+        objectName: "roomLeaveItem"
+        visible: !root.isInvite
         iconName: "logout"
         text: qsTr("Leave room")
         danger: true
         onTriggered: root.leaveRoomRequested()
+    }
+    AppMenuItem {
+        objectName: "roomAcceptInviteItem"
+        visible: root.isInvite
+        iconName: "person_add"
+        text: qsTr("Accept invitation")
+        onTriggered: root.acceptInviteRequested()
+    }
+    AppMenuItem {
+        objectName: "roomRejectInviteItem"
+        visible: root.isInvite
+        iconName: "close"
+        text: qsTr("Reject invitation")
+        danger: true
+        onTriggered: root.rejectInviteRequested()
     }
 }

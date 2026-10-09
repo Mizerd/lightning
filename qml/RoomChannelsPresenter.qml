@@ -198,6 +198,11 @@ Item {
                     onSetNotificationMode: mode => app.setRoomNotificationMode(rowLoader.model.roomId, mode)
                     onCopyRoomLink: root.roomLinkCopyRequested(rowLoader.model.roomId)
                     onLeaveRoomRequested: root.leaveRoomRequested(rowLoader.model.roomId, rowLoader.model.name)
+                    // Reject goes through the leave path so a refusal reaches the
+                    // shared leaveRoomFailedDialog; no confirmation, as rejecting
+                    // an invitation loses nothing.
+                    onAcceptInvite: app.roomList.acceptInvite(rowLoader.model.roomId)
+                    onRejectInvite: app.roomInfo.leaveRoom(rowLoader.model.roomId)
                     onChatBackgroundRequested: root.chatBackgroundRequested(rowLoader.model.roomId, rowLoader.model.name)
                 }
             }

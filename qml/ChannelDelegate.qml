@@ -46,6 +46,9 @@ ItemDelegate {
     signal copyRoomLink()
     signal leaveRoomRequested()
     signal chatBackgroundRequested()
+    // Invitation rows only (GitHub #28): the menu replaces Leave with these.
+    signal acceptInvite()
+    signal rejectInvite()
 
     // roomNotificationMode is Q_INVOKABLE, not bindable, so it's re-queried
     // when the id changes (delegate reuse) and when settings announce a write,
@@ -351,6 +354,9 @@ ItemDelegate {
             roomName: root.channelName
             isDirect: root.isDirect
             isFavourite: root.isFavourite
+            isInvite: root.isInvite
+            onAcceptInviteRequested: root.acceptInvite()
+            onRejectInviteRequested: root.rejectInvite()
             onMarkRead: root.markRead()
             onMarkUnread: root.markUnread()
             onSetFavourite: on => root.setFavourite(on)

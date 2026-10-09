@@ -87,6 +87,7 @@ mod ignore;
 mod imagesend;
 mod linkmedia;
 mod indexall;
+mod invites;
 mod localsearch;
 mod location;
 mod mediafetch;
@@ -1745,11 +1746,20 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
             let _done = done_tx;
             let runtime_events = Arc::clone(&events);
             run_async(runtime_events, "sync", async move {
-                run_authoritative_sync(
-                    sync_client, events, sync_search_index, sync_mode, room_list_slot,
-                    entries_slot, active_subscription, sync_timelines,
-                    sync_media_capable, cancel_rx,
-                ).await;
+                // Sliding sync never reports an invitation rejected on another
+                // device (GitHub #28); this asks the server about pending ones
+                // and lives exactly as long as the sync session.
+                let stale_invites = invites::run_stale_invite_reconciler(
+                    sync_client.clone(), Arc::clone(&events),
+                );
+                tokio::select! {
+                    _ = run_authoritative_sync(
+                        sync_client, events, sync_search_index, sync_mode, room_list_slot,
+                        entries_slot, active_subscription, sync_timelines,
+                        sync_media_capable, cancel_rx,
+                    ) => {}
+                    _ = stale_invites => {}
+                }
             });
         });
         *task_slot = Some(SyncTask {
@@ -3156,7 +3166,15 @@ fn invite_action(ptr: *mut c_void, room_id: *const c_char, accept: bool) -> *mut
                 "type": "invite_state_update", "room_id": room_id,
                 "action": if accept { "accept" } else { "reject" }, "state": "pending"
             }));
-            let result = if accept { room.join().await } else { room.leave().await };
+            // A reject the server refuses for an invitation it already
+            // dropped (rejected on another device) is retired locally once the
+            // server confirms we are out; see invites.rs.
+            let result = if accept {
+                room.join().await.map_err(|err| err.to_string())
+            } else {
+                invites::leave_or_retire(&room, || invites::fetch_server_invites(&client))
+                    .await
+            };
             enqueue(&events, json!({
                 "type": "invite_state_update", "room_id": room_id,
                 "action": if accept { "accept" } else { "reject" },

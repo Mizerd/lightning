@@ -3949,18 +3949,40 @@ pub(crate) fn remove_room_avatar(
     Ok(())
 }
 
+/// Rooms "Leave room" may act on: joined ones, and pending invitations and
+/// knocks, where leaving is rejecting or withdrawing (GitHub #28: the row menu
+/// is the only invite action in the Channels layout, and a joined-only gate
+/// made it do nothing at all).
+pub(crate) fn leavable_room(
+    client: &matrix_sdk::Client,
+    room_id: &str,
+) -> Result<matrix_sdk::Room, String> {
+    RoomId::parse(room_id)
+        .ok()
+        .and_then(|id| client.get_room(&id))
+        .filter(|room| {
+            matches!(room.state(), RoomState::Joined | RoomState::Invited | RoomState::Knocked)
+        })
+        .ok_or_else(|| "unknown or already-left room".to_owned())
+}
+
 pub(crate) fn leave_room(
     bridge: &RustClient,
     room_id: String,
     op_id: u64,
 ) -> Result<(), String> {
     let client = require_client(bridge)?;
-    let room = joined_room(&client, &room_id)?;
+    let room = leavable_room(&client, &room_id)?;
     let events = Arc::clone(&bridge.events);
     let timelines = Arc::clone(&bridge.timelines);
     let lifecycle = timelines.lifecycle();
     bridge.spawn_room_action(async move {
-        let result = room.leave().await;
+        // A pending invitation the server already dropped (rejected on
+        // another device) is retired locally when the server confirms it.
+        let result = crate::invites::leave_or_retire(&room, || {
+            crate::invites::fetch_server_invites(&client)
+        })
+        .await;
         if !timelines.lifecycle_current(lifecycle) {
             return;
         }
@@ -3972,7 +3994,7 @@ pub(crate) fn leave_room(
             "ok": result.is_ok(),
             "category": result
                 .err()
-                .map(|err| classify_room_error(&err.to_string()))
+                .map(|err| classify_room_error(&err))
                 .unwrap_or(""),
         }));
         crate::enqueue_rooms(&events, &client).await;
@@ -5436,6 +5458,74 @@ mod tests {
         )
         .await;
         assert_eq!(quick, Ok(7));
+    }
+
+    // GitHub #28: "Leave room" on an invitation (the only invite action in the
+    // Channels layout) did nothing: the joined-only gate refused it before any
+    // request, the FFI returned an error, and C++ dropped op id 0 silently. It
+    // must reject the invitation through the SDK and report success.
+    #[test]
+    fn leave_room_rejects_a_pending_invitation() {
+        use matrix_sdk::ruma::{api::client::sync::sync_events::v5, room_id};
+        use matrix_sdk::test_utils::mocks::MatrixMockServer;
+        use matrix_sdk_base::RequestedRequiredStates;
+
+        let room = room_id!("!invited:example.org");
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let (server, client) = rt.block_on(async {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+            server.mock_room_leave().ok(room).expect(1).mount().await;
+            server.mock_room_forget().ok().mount().await;
+            let me = client.user_id().unwrap().to_string();
+            let mut response = v5::Response::new("pos-1".to_owned());
+            let mut entry = v5::response::Room::default();
+            entry.invite_state = Some(vec![Raw::from_json_string(
+                json!({
+                    "type": "m.room.member", "state_key": me,
+                    "sender": "@inviter:example.org",
+                    "content": { "membership": "invite" }
+                })
+                .to_string(),
+            )
+            .unwrap()]);
+            response.rooms.insert(room.to_owned(), entry);
+            client
+                .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+                .await
+                .expect("sync processed");
+            (server, client)
+        });
+        assert_eq!(client.get_room(room).unwrap().state(), RoomState::Invited);
+
+        let dir = std::env::temp_dir()
+            .join(format!("lightning-leave-invite-{}", std::process::id()));
+        let bridge = crate::RustClient::new(dir).expect("bridge");
+        *bridge.client.lock().unwrap() = Some(client.clone());
+
+        leave_room(&bridge, room.to_string(), 41).expect("an invitation can be left");
+        let started = std::time::Instant::now();
+        let result = loop {
+            let found = bridge.events.lock().unwrap().iter().find_map(|raw| {
+                let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+                (value["type"] == "room_leave_result").then_some(value)
+            });
+            if let Some(value) = found {
+                break value;
+            }
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "no answer");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        assert_eq!(result["op_id"], json!(41), "{result}");
+        assert_eq!(result["ok"], json!(true), "{result}");
+        // Rejected and forgotten by the SDK: no longer a pending invitation.
+        assert!(!matches!(
+            client.get_room(room).map(|r| r.state()),
+            Some(RoomState::Invited)
+        ));
+        drop(bridge);
+        drop(server);
+        drop(rt);
     }
 
     // A server answer is usable only if it says something: Synapse returns 200
