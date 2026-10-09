@@ -1503,6 +1503,8 @@ Rectangle {
                                             spaceItem.spaceId
                                     app.openRoom(
                                         expansionRoomRow.modelData.roomId)
+                                    app.requestComposerFocus(
+                                        expansionRoomRow.modelData.roomId)
                                 }
                             }
                             // Off the rail, like the Space tile's anchor.

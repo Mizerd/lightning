@@ -279,9 +279,11 @@ Popup {
         // create a new encrypted DM.
         app.conversations.checkExistingDm(userId)
         var existing = app.conversations.existingDms
-        if (existing.length > 0)
+        if (existing.length > 0) {
             app.openRoom(existing[0].roomId)
-        else
+            // "Message" means type now (GitHub #29).
+            app.requestComposerFocus(existing[0].roomId)
+        } else
             app.conversations.startDirectMessage(userId)
         close()
     }
@@ -1137,6 +1139,7 @@ Popup {
                                 onTriggered: {
                                     root.close()
                                     app.openRoom(modelData.roomId)
+                                    app.requestComposerFocus(modelData.roomId)
                                 }
                             }
                         }

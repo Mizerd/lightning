@@ -335,7 +335,19 @@ ItemDelegate {
         enabled: root.roomId.length > 0
         onTapped: root.openContextMenu()
     }
+    // Whether the activation in progress came from a pointer. `clicked` also
+    // fires for Space and for a screen reader's press action, and only a
+    // pointer open may move the keyboard into the message box (GitHub #29).
+    // Passive (the default DragThreshold policy), so the row still gets its
+    // own press; pointer handlers see it first, so this is set before
+    // `clicked`.
+    property bool pointerActivation: false
+    TapHandler {
+        acceptedButtons: Qt.LeftButton
+        onPressedChanged: if (pressed) root.pointerActivation = true
+    }
     Keys.onPressed: event => {
+        root.pointerActivation = false;
         if (root.roomId.length > 0
             && (event.key === Qt.Key_Menu
                 || (event.key === Qt.Key_F10

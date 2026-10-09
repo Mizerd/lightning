@@ -326,6 +326,45 @@ Item {
         activeEditor().forceActiveFocus()
     }
 
+    // A room the user opened by clicking it is ready to type in (GitHub #29).
+    // app.requestComposerFocus() is called only for pointer opens, never for a
+    // notification or keyboard navigation. Refused while the message box is
+    // not there to type in: hidden (no room, read-only context view), or a
+    // thread owns the keyboard.
+    function focusForTyping() {
+        if (!root.visible || app.currentRoomId === ""
+                || app.eventContext.active || app.thread.active)
+            return false
+        const editor = activeEditor()
+        if (!editor || !editor.visible || !editor.enabled || editor.readOnly)
+            return false
+        editor.forceActiveFocus()
+        return true
+    }
+    Connections {
+        target: app
+        function onComposerFocusRequested(roomId) {
+            Qt.callLater(function () { root.focusForTyping() })
+            // A popup the open came from (Ctrl+K, a profile card) hands the
+            // keyboard back as it closes, after the call above; try once more
+            // then, unless the user is already typing somewhere else.
+            composerFocusSettle.restart()
+        }
+    }
+    Timer {
+        id: composerFocusSettle
+        interval: 250
+        onTriggered: {
+            const editor = root.activeEditor()
+            if (editor && editor.activeFocus)
+                return
+            const focused = root.Window.activeFocusItem
+            if (focused && (focused instanceof TextInput || focused instanceof TextEdit))
+                return
+            root.focusForTyping()
+        }
+    }
+
     // Composer buttons the user switched off (Settings › Appearance › Message
     // box). A property rather than a Q_INVOKABLE so `visible` bindings track
     // it; composerButtonShown() reads it, so calling it registers the

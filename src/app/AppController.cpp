@@ -4166,6 +4166,15 @@ bool AppController::navigateBack()
     return false;
 }
 
+void AppController::requestComposerFocus(const QString &roomId)
+{
+    // Only for the room that is actually open: a late request for a room the
+    // user has already left must not pull the keyboard anywhere.
+    if (roomId.isEmpty() || roomId != m_currentRoomId)
+        return;
+    Q_EMIT composerFocusRequested(roomId);
+}
+
 bool AppController::trimHistoryAndJumpToLive()
 {
 #ifdef ENABLE_RUST_SDK_BACKEND

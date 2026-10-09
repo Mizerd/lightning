@@ -6356,7 +6356,11 @@ Rectangle {
                             spaceHome.childFilter = text
                             spaceHome.scheduleRebuild()
                         }
-                        onOpenRoomRequested: (roomId) => app.openRoom(roomId)
+                        // A tap on a lobby row: ready to type (GitHub #29).
+                        onOpenRoomRequested: (roomId) => {
+                            app.openRoom(roomId)
+                            app.requestComposerFocus(roomId)
+                        }
                         // A joined sub-space drills into its own Home.
                         onOpenSpaceRequested: (roomId) =>
                             app.spaces.activeSpaceId = roomId

@@ -658,6 +658,7 @@ Dialog {
                             Accessible.name: qsTr("Open %1").arg(existingRow.dmName)
                             onClicked: {
                                 app.openRoom(existingRow.modelData.roomId)
+                                app.requestComposerFocus(existingRow.modelData.roomId)
                                 root.close()
                             }
                         }

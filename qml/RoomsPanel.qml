@@ -760,6 +760,7 @@ Rectangle {
                 sourceComponent: RoomListClassicPresenter {
                     currentRoomId: app.currentRoomId
                     onRoomActivated: (roomId) => app.openRoom(roomId)
+                    onRoomOpenedByPointer: (roomId) => app.requestComposerFocus(roomId)
                     onCreateRequested: newConversationDialog.openDialog()
                     onDiscoverRequested: discoverJoinDialog.openDialog()
                     onClearSearchRequested: roomSearch.clear()
@@ -789,6 +790,7 @@ Rectangle {
                 sourceComponent: RoomChannelsPresenter {
                     currentRoomId: app.currentRoomId
                     onRoomActivated: (roomId) => app.openRoom(roomId)
+                    onRoomOpenedByPointer: (roomId) => app.requestComposerFocus(roomId)
                     onLobbyActivated: app.openLobby()
                     onMessageSearchRequested: root.messageSearchRequested()
                     // Reuse the host's own dialogs, so there is one create and

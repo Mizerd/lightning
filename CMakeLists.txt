@@ -4020,6 +4020,17 @@ if(BUILD_TESTING)
     set_tests_properties(escape-navigation-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # A room opened by a click puts the keyboard in the message box (GitHub
+    # #29); a notification or keyboard activation leaves it where it was.
+    qt_add_executable(composer-focus-on-open-qml-test
+        tests/ComposerFocusOnOpenQmlTest.cpp
+    )
+    lightning_configure_qml_test(composer-focus-on-open-qml-test)
+    target_include_directories(composer-focus-on-open-qml-test PRIVATE src)
+    add_test(NAME composer-focus-on-open-qml COMMAND composer-focus-on-open-qml-test)
+    set_tests_properties(composer-focus-on-open-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # A restore that cannot reach the homeserver must read as offline, even
     # though startSync() and the sync lane report Syncing on the way. Drives
     # the real event dispatcher; no FFI handle, store or network.

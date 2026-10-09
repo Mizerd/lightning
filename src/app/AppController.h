@@ -784,6 +784,13 @@ public Q_SLOTS:
     // Returns whether it moved, so the key is consumed only then. Closing
     // clears the timeline's room, so nothing more is marked read.
     Q_INVOKABLE bool navigateBack();
+    // The user opened `roomId` by pointing at it (a click in the room list,
+    // the people list, a Space overview, Ctrl+K): the message box should take
+    // the keyboard (GitHub #29). Never called for a notification or for
+    // keyboard navigation, so focus is not moved from under someone typing
+    // elsewhere. Emits composerFocusRequested; the composer decides whether
+    // it can take it (hidden, read-only view, thread).
+    Q_INVOKABLE void requestComposerFocus(const QString &roomId);
 
     // Per-room notification mode (0 = all, 1 = mentions & keywords,
     // 2 = mute). Writes the device-local value first so policy applies
@@ -1117,6 +1124,7 @@ Q_SIGNALS:
     // registry would hang when the name did not change.
     void ownDisplayNameSaved();
     void currentRoomIdChanged();
+    void composerFocusRequested(const QString &roomId);
     void loggedInChanged();
     void connectionStatusChanged();
     void syncModeChanged();

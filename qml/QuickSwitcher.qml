@@ -73,6 +73,8 @@ Popup {
             // Rooms, DMs and invites open the room; an invite opens its
             // accept/decline view, never auto-accepted.
             app.openRoom(r.roomId)
+            // Ctrl+K is a deliberate jump: ready to type (GitHub #29).
+            app.requestComposerFocus(r.roomId)
         }
         switcher.close()
     }

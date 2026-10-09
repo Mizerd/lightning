@@ -21,6 +21,10 @@ Item {
     readonly property bool lobbyActive: app.currentRoomId === ""
 
     signal roomActivated(string roomId)
+    /// After roomActivated, when a pointer did it: the host moves the
+    /// keyboard into the message box (GitHub #29). Space and a screen
+    /// reader's press action activate without it.
+    signal roomOpenedByPointer(string roomId)
     /// Lobby: the selected Space's overview. Navigation only; nothing persisted.
     signal lobbyActivated()
     // Command rows. The model decides which exist in which view and the host
@@ -190,7 +194,13 @@ Item {
                     isFavourite: rowLoader.model.isFavourite
                     depth: rowLoader.model.depth
                     active: rowLoader.model.roomId === root.currentRoomId
-                    onClicked: root.roomActivated(rowLoader.model.roomId)
+                    onClicked: {
+                        const byPointer = pointerActivation
+                        pointerActivation = false
+                        root.roomActivated(rowLoader.model.roomId)
+                        if (byPointer)
+                            root.roomOpenedByPointer(rowLoader.model.roomId)
+                    }
                     // The same mutations as the Classic host.
                     onMarkRead: app.roomList.markRoomRead(rowLoader.model.roomId)
                     onMarkUnread: app.roomList.markRoomUnread(rowLoader.model.roomId)

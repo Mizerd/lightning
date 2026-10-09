@@ -26,6 +26,8 @@ Item {
     // The host owns the dialogs, so rows ask by signal rather than reaching
     // into a parent by id.
     signal roomActivated(string roomId)
+    /// After roomActivated for a pointer open: the host focuses the message box.
+    signal roomOpenedByPointer(string roomId)
 
     // Mirrors RoomListModel's filter modes: 0 all, 1 People, 2 Rooms, 3
     // Unreads. Read once so the section delegate stays a binding.
@@ -111,8 +113,12 @@ Item {
             // Favourites are now interleaved by recency, so the model reports
             // an empty boundary; the binding stays for whatever divides next.
             showGroupDivider: app.roomList.favouritesBoundaryRoomId.length > 0 && model.roomId === app.roomList.favouritesBoundaryRoomId
-            onClicked: if (model.membership === "joined")
+            // RoomDelegate's clicked comes from its TapHandler alone, so it
+            // is always a pointer open (GitHub #29).
+            onClicked: if (model.membership === "joined") {
                 root.roomActivated(model.roomId)
+                root.roomOpenedByPointer(model.roomId)
+            }
             onAcceptInvite: app.roomList.acceptInvite(model.roomId)
             onRejectInvite: app.roomList.rejectInvite(model.roomId)
             onMarkRead: app.roomList.markRoomRead(model.roomId)
