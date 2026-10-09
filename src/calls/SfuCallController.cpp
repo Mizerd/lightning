@@ -4834,6 +4834,10 @@ void SfuCallController::setShareAudioMode(int mode)
     m_shareAudioMode = mode;
     if (mode != 0)
         m_shareAudioLastOnMode = mode;
+    // A choice made after the picker's one-share preselection is the user's
+    // own: ending the share must not put the earlier one back (a "No sound"
+    // picked mid-share would otherwise become "Entire system" again).
+    m_shareAudioRestorePending = false;
     applyShareAudioToRunningShare();
     updateShareAudioAppsPolling();
     Q_EMIT mediaStateChanged();
@@ -4862,6 +4866,8 @@ void SfuCallController::setShareAudioAppChosen(const QString &key,
         m_shareAudioMode = 2;
         m_shareAudioLastOnMode = 2;
     }
+    // The user's own choice; see setShareAudioMode().
+    m_shareAudioRestorePending = false;
     applyShareAudioToRunningShare();
     updateShareAudioAppsPolling();
     Q_EMIT mediaStateChanged();

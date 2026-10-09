@@ -6698,6 +6698,51 @@ private Q_SLOTS:
                  "window's application");
     }
 
+    // #26: a sound choice made DURING the share is the user's own, so the
+    // picker's one-share preselection must not put the earlier choice back
+    // when the share ends. "No sound" picked mid-share must not turn into
+    // "Entire system" for the next share.
+    void aSoundChoiceMadeDuringTheShareOutlivesIt()
+    {
+        RecordingCallClient client;
+        SfuCallController call;
+        call.setClient(&client);
+        call.setShareAudioCanChooseAppsForTest(true);
+        call.setCallStateForTest(SfuCallController::State::Connected);
+        QCOMPARE(call.shareAudioMode(), 1);
+        call.chooseOnlyShareAudioApp(QStringLiteral("vlc.exe"),
+                                     QStringLiteral("VLC"));
+        call.restoreShareAudioChoiceAfterShare(1, {});
+        // Mid-share, from the call bar: no sound.
+        call.setShareAudioMode(0);
+        QVERIFY(QMetaObject::invokeMethod(
+            &call, "onEngineFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("connection_lost"))));
+        QVERIFY2(call.shareAudioMode() == 0,
+                 qPrintable(QStringLiteral(
+                     "\"No sound\" chosen during the share became mode %1 "
+                     "when it ended, so the next share carries sound")
+                     .arg(call.shareAudioMode())));
+
+        // The same for an application ticked mid-share.
+        SfuCallController apps;
+        apps.setClient(&client);
+        apps.setShareAudioCanChooseAppsForTest(true);
+        apps.setCallStateForTest(SfuCallController::State::Connected);
+        apps.chooseOnlyShareAudioApp(QStringLiteral("vlc.exe"),
+                                     QStringLiteral("VLC"));
+        apps.restoreShareAudioChoiceAfterShare(1, {});
+        apps.setShareAudioAppChosen(QStringLiteral("mpv.exe"),
+                                    QStringLiteral("mpv"), true);
+        QVERIFY(QMetaObject::invokeMethod(
+            &apps, "onEngineFailed", Qt::DirectConnection,
+            Q_ARG(QString, QStringLiteral("connection_lost"))));
+        QCOMPARE(apps.shareAudioMode(), 2);
+        QCOMPARE(apps.shareAudioApps(),
+                 (QStringList{ QStringLiteral("vlc.exe"),
+                               QStringLiteral("mpv.exe") }));
+    }
+
     // What the status line says is a pure function of the choice and of what
     // the running share is doing; the cases that matter are the ones a person
     // on the other end would otherwise have to report.
