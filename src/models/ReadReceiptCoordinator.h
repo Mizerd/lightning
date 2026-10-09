@@ -20,7 +20,8 @@ class TimelineModel;
 //   4. the user is at or near the newest messages;
 //   5. the newest readable event has a real remote event id (no local echoes,
 //      failed sends or virtual rows);
-//   6. that event has not already received the same or a newer receipt.
+//   6. that event has not received a newer receipt, and either has not received
+//      the same receipt or the room's manual unread flag needs clearing.
 //
 // Room switches, focus loss, scrolling up, resets and sign-out cancel or
 // re-validate a pending receipt; a generation counter keeps a stale timer
@@ -77,6 +78,9 @@ private:
     // Newest eligible event, or empty when conditions do not allow one.
     QString eligibleEventId(qint64 *timestampMs) const;
     bool conditionsHold() const;
+    bool roomIsMarkedUnread() const;
+    bool clearsMarkedUnread() const;
+    bool m_openedMarkedUnread = false;
     void sendNow(const QString &eventId, qint64 timestampMs);
 
     MatrixClient *m_client = nullptr;

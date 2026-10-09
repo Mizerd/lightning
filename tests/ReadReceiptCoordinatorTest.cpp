@@ -47,6 +47,27 @@ public:
     QHash<QString, QList<TimelineEvent>> timelines;
     QStringList receiptRooms;
     QStringList receiptEvents;
+    QList<RoomInfo> roomInfos;
+    QStringList markedReadRooms;
+    bool markReadSupported = true;
+    bool supportsMarkRoomRead() const override { return markReadSupported; }
+    void setRoomMarkedUnread(const QString &roomId, bool unread) override
+    {
+        for (auto &room : roomInfos) {
+            if (room.id == roomId)
+                room.markedUnread = unread;
+        }
+        Q_EMIT roomsChanged();
+    }
+    void markRoomRead(const QString &roomId) override
+    {
+        markedReadRooms.append(roomId);
+        for (auto &room : roomInfos) {
+            if (room.id == roomId)
+                room.markedUnread = false;
+        }
+        Q_EMIT roomsChanged();
+    }
 
     void appendEvent(const TimelineEvent &event)
     {
@@ -79,7 +100,7 @@ public:
     void startSync() override {}
     void stopSync() override {}
     ConnectionState connectionState() const override { return Syncing; }
-    QList<RoomInfo> rooms() const override { return {}; }
+    QList<RoomInfo> rooms() const override { return roomInfos; }
     QString displayNameFor(const QString &, const QString &id) const override { return id; }
     QString avatarMxcFor(const QString &, const QString &) const override { return {}; }
     QStringList typingUsersFor(const QString &) const override { return {}; }
@@ -299,6 +320,102 @@ private Q_SLOTS:
         rig.coordinator.reevaluate();
         QTest::qWait(20);
         QCOMPARE(rig.client.receiptEvents.size(), 1);
+    }
+
+    void markedUnreadClearsOnOpenWithoutNewMessages()
+    {
+        Rig rig;
+        rig.client.timelines[kRoomA] = { makeEvent(kRoomA, QStringLiteral("$1"), 1000) };
+        rig.model.setRoomId(kRoomA);
+        rig.makeEligible();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
+        rig.model.setRoomId(QString());
+        RoomInfo room;
+        room.id = kRoomA;
+        room.markedUnread = true;
+        rig.client.roomInfos = { room };
+        Q_EMIT rig.client.roomsChanged();
+        QVERIFY(!rig.coordinator.receiptPending());
+        rig.model.setRoomId(kRoomA);
+        QTRY_COMPARE(rig.client.markedReadRooms, QStringList{ kRoomA });
+        QVERIFY(!rig.client.roomInfos.first().markedUnread);
+        QCOMPARE(rig.client.receiptEvents.size(), 1);
+        rig.coordinator.reevaluate();
+        QVERIFY(!rig.coordinator.receiptPending());
+    }
+
+    void markingTheOpenRoomUnreadIsNotUndone()
+    {
+        Rig rig;
+        rig.client.timelines[kRoomA] = { makeEvent(kRoomA, QStringLiteral("$1"), 1000) };
+        rig.model.setRoomId(kRoomA);
+        rig.makeEligible();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
+        // The user marks the room they are reading as unread.
+        RoomInfo room;
+        room.id = kRoomA;
+        room.markedUnread = true;
+        rig.client.roomInfos = { room };
+        Q_EMIT rig.client.roomsChanged();
+        rig.coordinator.reevaluate();
+        QTest::qWait(400);
+        QVERIFY(rig.client.markedReadRooms.isEmpty());
+        QVERIFY(rig.client.roomInfos.first().markedUnread);
+    }
+
+    void markedUnreadFirstOpenUsesMarkReadAction_data()
+    {
+        QTest::addColumn<bool>("supported");
+        QTest::newRow("SDK-mark-read") << true;
+        QTest::newRow("fallback-receipt-and-flag") << false;
+    }
+
+    void markedUnreadFirstOpenUsesMarkReadAction()
+    {
+        QFETCH(bool, supported);
+        Rig rig;
+        rig.client.markReadSupported = supported;
+        RoomInfo room;
+        room.id = kRoomA;
+        room.markedUnread = true;
+        rig.client.roomInfos = { room };
+        rig.client.timelines[kRoomA] = { makeEvent(kRoomA, QStringLiteral("$1"), 1000) };
+        rig.model.setRoomId(kRoomA);
+        rig.makeEligible();
+        QTRY_VERIFY(!rig.client.roomInfos.first().markedUnread);
+        QCOMPARE(rig.client.markedReadRooms, supported ? QStringList{ kRoomA } : QStringList{});
+        QCOMPARE(rig.client.receiptEvents, supported ? QStringList{} : QStringList{ QStringLiteral("$1") });
+    }
+
+    void markedUnreadCloseCancels_data()
+    {
+        QTest::addColumn<int>("cancel");
+        QTest::newRow("Escape-close") << 0;
+        QTest::newRow("hidden") << 1;
+        QTest::newRow("inactive") << 2;
+        QTest::newRow("scroll-away") << 3;
+    }
+
+    void markedUnreadCloseCancels()
+    {
+        QFETCH(int, cancel);
+        Rig rig(60);
+        RoomInfo room;
+        room.id = kRoomA;
+        room.markedUnread = true;
+        rig.client.roomInfos = { room };
+        rig.client.timelines[kRoomA] = { makeEvent(kRoomA, QStringLiteral("$1"), 1000) };
+        rig.model.setRoomId(kRoomA);
+        rig.makeEligible();
+        QVERIFY(rig.coordinator.receiptPending());
+        if (cancel == 0) rig.model.setRoomId(QString());
+        if (cancel == 1) rig.coordinator.setTimelineVisible(false);
+        if (cancel == 2) rig.coordinator.setWindowActive(false);
+        if (cancel == 3) rig.coordinator.setNearBottom(false);
+        QTest::qWait(100);
+        QVERIFY(rig.client.markedReadRooms.isEmpty());
+        QVERIFY(rig.client.receiptEvents.isEmpty());
+        QVERIFY(rig.client.roomInfos.first().markedUnread);
     }
 
     void emptyTimelineSendsNothing()

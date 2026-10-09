@@ -32,6 +32,8 @@ void ReadReceiptCoordinator::setClient(MatrixClient *client)
     if (m_client) {
         connect(m_client, &MatrixClient::loggedOut,
                 this, &ReadReceiptCoordinator::onLoggedOut);
+        connect(m_client, &MatrixClient::roomsChanged,
+                this, &ReadReceiptCoordinator::reevaluate);
     }
     m_debounce.stop();
     ++m_generation;
@@ -101,10 +103,10 @@ QString ReadReceiptCoordinator::eligibleEventId(qint64 *timestampMs) const
         return {};
     const auto last = m_lastSent.constFind(m_model->roomId());
     if (last != m_lastSent.constEnd()) {
-        if (last->eventId == eventId)
-            return {}; // same receipt already sent
         if (ts > 0 && last->timestampMs > 0 && ts < last->timestampMs)
             return {}; // never regress to an older event
+        if (last->eventId == eventId && !clearsMarkedUnread())
+            return {}; // same receipt already sent, no manual flag to clear
     }
     if (timestampMs)
         *timestampMs = ts;
@@ -149,10 +151,37 @@ void ReadReceiptCoordinator::onDebounceElapsed()
     sendNow(eventId, ts);
 }
 
+bool ReadReceiptCoordinator::clearsMarkedUnread() const
+{
+    // Only a flag that was already set when the room was opened: marking the
+    // open room unread must not be undone by the next re-evaluation.
+    return m_openedMarkedUnread && roomIsMarkedUnread();
+}
+
+bool ReadReceiptCoordinator::roomIsMarkedUnread() const
+{
+    for (const auto &room : m_client->rooms()) {
+        if (room.id == m_model->roomId())
+            return room.markedUnread;
+    }
+    return false;
+}
+
 void ReadReceiptCoordinator::sendNow(const QString &eventId, qint64 timestampMs)
 {
     const QString roomId = m_model->roomId();
-    m_client->sendReadReceipt(roomId, eventId);
+    // The SDK mark-read action sends the receipt and clears m.marked_unread.
+    // A receipt alone leaves that flag set, even if there is nothing new.
+    // Keep this behind the same visibility/debounce policy as ordinary reads.
+    const bool clearMark = clearsMarkedUnread();
+    m_openedMarkedUnread = false;
+    if (clearMark && m_client->supportsMarkRoomRead()) {
+        m_client->markRoomRead(roomId);
+    } else {
+        m_client->sendReadReceipt(roomId, eventId);
+        if (clearMark)
+            m_client->setRoomMarkedUnread(roomId, false);
+    }
     m_lastSent.insert(roomId, { eventId, timestampMs });
     qCInfo(lcReceipts) << "read receipt sent event_id=" << eventId;
     Q_EMIT receiptSent(roomId, eventId, timestampMs);
@@ -164,6 +193,7 @@ void ReadReceiptCoordinator::onRoomChanged()
     // map still suppresses duplicates on return.
     m_debounce.stop();
     ++m_generation;
+    m_openedMarkedUnread = m_client && m_model && roomIsMarkedUnread();
     reevaluate();
 }
 
