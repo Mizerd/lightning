@@ -5,7 +5,7 @@
 #
 # Provides:
 #   LIGHTNING_ENABLE_RNNOISE            option, default ON
-#   lightning_rnnoise                   STATIC C library (upstream, unmodified)
+#   lightning_rnnoise                   STATIC C library (see PROVENANCE.md for local fixes)
 #   lightning_noise_rnnoise             STATIC C++ library: calls::noise::RnnoiseSuppressor.
 #                                       Linking it defines HAVE_RNNOISE=1 for the
 #                                       consumer when RNNoise is enabled.

@@ -112,8 +112,8 @@ from them is `lightning_rnnoise` in `cmake/ThirdPartyRnnoise.cmake` (the three
 | `src/rnnoise_data.h` (model) | `09ff880bddd0fc74a2ae0e5ec6c8d65714031b08d0c3f672493acd9e189c5855` |
 | `src/rnnoise_tables.c` | `f81353479c6f8912755a4cf5838590c36ba2c523a4a438e4f949743fb4945623` |
 | `src/vec_avx.h` | `8fb02f2f54822e8bf0189c2ccd7e9071d7654d4c0630e2a6a6b15a3accfa7ac2` |
-| `src/vec.h` | `fbdf49c54d60cfaa81607caef2f2d83bebde51de2a53aee2607b114350425a8e` |
-| `src/vec_neon.h` | `225dbe25b0df10bcb1ee01eabfcc7cab2e27d1b30c0ff2c79bd3a517c918523e` |
+| `src/vec.h` | `250e41e4996393ef5b736a202120d7112a73d72b42301c9d689ca0e9f7800dbe` |
+| `src/vec_neon.h` | `dd9c1578860c58761db5ff05a97453986f770fae937e493204a5f299a4f2394b` |
 | `src/x86/dnn_x86.h` | `8b17955037daf4f9def4975d4b24c343b822abe62f6ad09a9d204ad00eb3aa33` |
 | `src/x86/nnet_avx2.c` | `c49cec6a38ee554660b4dd6958eb12450eac7bb6e28ce07d5a814a4a9d0fbbf2` |
 | `src/x86/nnet_sse4_1.c` | `e32fc91e403fb0c105ae9bcbbcf0339ce0b49e01110d8485520321f4a605f9ba` |
@@ -129,7 +129,13 @@ Left out on purpose: `dump_features.c`, `dump_rnnoise_tables.c`,
 
 ## Local modifications
 
-**None.** Every file above is byte-identical to upstream v0.2 (and, for the two
+`src/vec.h` and `src/vec_neon.h` use RNNoise's `common.h` and
+`RNN_CLEAR` instead of the stale Opus `os_support.h` / `OPUS_CLEAR`
+references in v0.2. This fixes ARM NEON and scalar builds; the vendored
+RNNoise tree has no `os_support.h`. The hashes above describe the vendored
+files including this local fix.
+
+All other files above are byte-identical to upstream v0.2 (and, for the two
 `rnnoise_data` files, to the model tarball). Lightning-specific build settings
 live in `cmake/ThirdPartyRnnoise.cmake`, not in these files:
 `-DRNN_ENABLE_X86_RTCD -DCPU_INFO_BY_ASM` (x86, GCC/Clang/MinGW), per-file
