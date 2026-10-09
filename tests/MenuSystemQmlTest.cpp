@@ -899,6 +899,111 @@ private slots:
 
     // The same properties on the real RoomActionsMenu (the compiled production
     // file), with only the four `app` values it reads stood in for.
+    void theRoomContextMenuFitsBothFavouriteLabels()
+    {
+        QQmlComponent fakeComponent(&m_engine);
+        fakeComponent.setData(QByteArray(R"QML(
+import QtQuick
+QtObject {
+    property QtObject roomList: QtObject {
+        property bool roomFavouritesSupported: true
+    }
+    property QtObject backdrops: QtObject {}
+    property bool serverRoomNotificationModes: false
+    property QtObject settings: QtObject {
+        signal roomNotificationModeChanged(string roomId)
+        function roomNotificationMode(roomId) { return 1 }
+    }
+    signal roomNotificationModeSyncStateChanged(string roomId)
+    function roomNotificationModeSyncFailed(roomId) { return false }
+    function requestRoomNotificationMode(roomId) {}
+}
+)QML"), QUrl(QStringLiteral("menufakeapp.qml")));
+        QScopedPointer<QObject> fake(fakeComponent.create());
+        QVERIFY2(fake, qPrintable(fakeComponent.errorString()));
+
+        QQmlContext ctx(m_engine.rootContext());
+        ctx.setContextProperty(QStringLiteral("app"), fake.data());
+        QQmlComponent sceneComponent(&m_engine);
+        QByteArray fixture(R"QML(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+
+ApplicationWindow {
+    id: w
+    width: 900
+    height: 560
+    visible: true
+    color: AppTheme.background
+    property alias menu: roomMenu
+    RoomActionsMenu {
+        id: roomMenu
+        objectName: "realRoomMenu"
+        roomId: "!room:example.org"
+        roomName: "General"
+    }
+    function openIt() { roomMenu.popup(w.contentItem, 40, 40) }
+}
+)QML" );
+        // Allow the same regression to exercise a scratch copy with a fix
+        // reverted, without changing the worktree or rebuilding the module.
+        const QString copyDir = qEnvironmentVariable("LIGHTNING_REGRESSION_QML_COPY");
+        if (!copyDir.isEmpty()) {
+            fixture.replace("import MatrixClient", QByteArray("import MatrixClient\nimport \"")
+                            + QUrl::fromLocalFile(copyDir).toEncoded() + "\" as Reverted");
+            fixture.replace("RoomActionsMenu {", "Reverted.RoomActionsMenu {");
+        }
+        sceneComponent.setData(fixture, QUrl(QStringLiteral("qrc:/regressionfixture.qml")));
+        QScopedPointer<QObject> scene(sceneComponent.create(&ctx));
+        QVERIFY2(scene, qPrintable(sceneComponent.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(scene.data());
+        QVERIFY(window);
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+
+        auto *menu = scene->findChild<QObject *>(QStringLiteral("realRoomMenu"));
+        QVERIFY(menu);
+        QMetaObject::invokeMethod(scene.data(), "openIt");
+        QTRY_VERIFY(menu->property("opened").toBool());
+
+        // Both room navigation layouts use this component. Measure every
+        // action row, including the submenu delegate, in both tag states.
+        for (bool favourite : {false, true, false}) {
+            menu->setProperty("isFavourite", favourite);
+            // A tag update can arrive while the popup is still visible;
+            // then check the same menu after reopening it for another room.
+            for (bool reopen : {false, true}) {
+                if (reopen) {
+                    QMetaObject::invokeMethod(menu, "close");
+                    QTRY_VERIFY(!menu->property("opened").toBool());
+                    QMetaObject::invokeMethod(scene.data(), "openIt");
+                    QTRY_VERIFY(menu->property("opened").toBool());
+                }
+                auto *fav = scene->findChild<QQuickItem *>(QStringLiteral("roomFavouriteItem"));
+                QVERIFY(fav);
+                QCOMPARE(fav->property("text").toString(), favourite
+                         ? QStringLiteral("Remove from favourites")
+                         : QStringLiteral("Add to favourites"));
+                const int count = menu->property("count").toInt();
+                int measured = 0;
+                for (int i = 0; i < count; ++i) {
+                    QQuickItem *row = nullptr;
+                    QMetaObject::invokeMethod(menu, "itemAt", Q_RETURN_ARG(QQuickItem *, row), Q_ARG(int, i));
+                    if (!row || !row->isVisible() || !row->property("highlighted").isValid())
+                        continue;
+                    auto *text = label(row);
+                    QVERIFY(text);
+                    QTRY_VERIFY(text->width() > 0);
+                    QTRY_VERIFY2(!text->property("truncated").toBool(),
+                                qPrintable(row->property("text").toString()));
+                    QTRY_VERIFY(text->width() + 0.5 >= text->implicitWidth());
+                    ++measured;
+                }
+                QVERIFY(measured >= 6);
+            }
+        }
+    }
+
     void theRealRoomNotificationsFlyoutFitsItsOwnText()
     {
         QQmlComponent fakeComponent(&m_engine);

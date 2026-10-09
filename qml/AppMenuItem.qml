@@ -37,6 +37,17 @@ MenuItem {
                                   : root._active ? AppTheme.stormText
                                   : AppTheme.stormTextSecondary
 
+    // Labels, icon slots and keycaps can change without adding a row (for
+    // example, a room becoming a favourite). Refit after the content layout
+    // has measured its new natural width, including on first show.
+    function requestMenuFit() {
+        var owner = root.menu
+        if (owner && owner.visible && typeof owner.refitWidth === "function")
+            Qt.callLater(owner.refitWidth)
+    }
+    onImplicitWidthChanged: requestMenuFit()
+    onVisibleChanged: requestMenuFit()
+
     implicitHeight: visible ? AppTheme.menuItemHeight : 0
     padding: AppTheme.menuItemPadding
     // Constant content inset clearing the caret gutter, so rows don't shift
