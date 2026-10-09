@@ -290,9 +290,9 @@ Rectangle {
                 AbstractButton {
                     id: shareChevron
                     objectName: "callBarShareOptionsChevron"
-                    visible: !root.compact
-                    // Zero width when hidden, or the RowLayout keeps its slot.
-                    Layout.preferredWidth: visible ? implicitWidth : 0
+                    // Keep options beside Share even in the compact strip:
+                    // sound can be changed while a screen share is running.
+                    Layout.preferredWidth: implicitWidth
                     Layout.alignment: Qt.AlignVCenter
                     Layout.leftMargin: 2
                     implicitWidth: 20

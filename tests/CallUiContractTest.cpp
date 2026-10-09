@@ -3397,6 +3397,57 @@ ApplicationWindow {
                          .arg(offenders.join(QStringLiteral(", ")))));
     }
 
+    void compactCallBarKeepsShareOptionsReachable()
+    {
+        AppController controller(AppController::MockBackend);
+        QQmlApplicationEngine engine;
+        engine.rootContext()->setContextProperty("app", &controller);
+        QQmlComponent component(&engine);
+        QByteArray fixture(R"(
+import QtQuick
+import QtQuick.Controls
+import MatrixClient
+ApplicationWindow {
+    width: 600
+    height: 200
+    visible: true
+    property alias bar: b
+    CallHeaderBar { id: b; anchors.fill: parent; previewMode: true; placement: "dock"; compact: true }
+}
+)" );
+        // Allow the same regression to exercise a scratch copy with a fix
+        // reverted, without changing the worktree or rebuilding the module.
+        const QString copyDir = qEnvironmentVariable("LIGHTNING_REGRESSION_QML_COPY");
+        if (!copyDir.isEmpty()) {
+            fixture.replace("import MatrixClient", QByteArray("import MatrixClient\nimport \"")
+                            + QUrl::fromLocalFile(copyDir).toEncoded() + "\" as Reverted");
+            fixture.replace("CallHeaderBar {", "Reverted.CallHeaderBar {");
+        }
+        component.setData(fixture, QUrl(QStringLiteral("qrc:/regressionfixture.qml")));
+        std::unique_ptr<QObject> owner(component.create());
+        QVERIFY2(owner, qPrintable(component.errorString()));
+        auto *bar = owner->property("bar").value<QQuickItem *>();
+        QVERIFY(bar);
+        auto *chevron = bar->findChild<QQuickItem *>(
+            QStringLiteral("callBarShareOptionsChevron"));
+        QVERIFY(chevron);
+        QTRY_VERIFY(chevron->isVisible());
+        QTRY_VERIFY(chevron->width() > 0);
+        const QPointF start = chevron->mapToItem(bar, QPointF());
+        QVERIFY(start.x() >= 0);
+        QVERIFY(start.x() + chevron->width() <= bar->width());
+        QVERIFY(QMetaObject::invokeMethod(chevron, "clicked"));
+        QObject *menu = nullptr;
+        for (auto *child : chevron->findChildren<QObject *>()) {
+            if (child->metaObject()->indexOfSignal("chooseAppsRequested()") >= 0)
+                menu = child;
+        }
+        QVERIFY(menu);
+        QTRY_VERIFY(menu->property("opened").toBool());
+        QVERIFY(menu->findChild<QObject *>(QStringLiteral("shareAudioOffItem")));
+        QVERIFY(menu->findChild<QObject *>(QStringLiteral("shareAudioMenuItem")));
+    }
+
     void theShareChevronSitsAsCloseAsEveryOtherChevron()
     {
         // The share button/chevron gap must match the camera and microphone
