@@ -122,7 +122,7 @@ pub(crate) fn lightning_event_filter(
     rules: &RoomVersionRules,
 ) -> bool {
     FILTER_OFFERED.fetch_add(1, Ordering::Relaxed);
-    if !default_event_filter(event, rules) && !is_visible_gallery_message(event) {
+    if !default_event_filter(event, rules) && !is_visible_room_message(event) {
         FILTER_DROP_SDK.fetch_add(1, Ordering::Relaxed);
         return false;
     }
@@ -139,17 +139,22 @@ pub(crate) fn shown_by_lightning_filter(
     event: &AnySyncTimelineEvent,
     rules: &RoomVersionRules,
 ) -> bool {
-    (default_event_filter(event, rules) || is_visible_gallery_message(event))
+    (default_event_filter(event, rules) || is_visible_room_message(event))
         && !is_rtc_membership_event(event)
 }
 
-/// MSC4274 galleries (including Sable's unstable `dm.filament.gallery`).
-/// matrix-sdk-ui's default filter keeps a gallery only with its own
-/// `unstable-msc4274` feature, which this build does not enable, so
-/// galleries would never become rows. Accepted under the same rule the
-/// default filter applies to other msgtypes: an `m.replace` is folded into
-/// its target, never a row.
-fn is_visible_gallery_message(event: &AnySyncTimelineEvent) -> bool {
+/// Every `m.room.message` that is not an edit, whatever its msgtype.
+///
+/// matrix-sdk-ui's default filter keeps a fixed list of msgtypes and drops
+/// the rest without a trace (GitHub #30: a message Element showed was simply
+/// absent here). That covered MSC4274 galleries (including Sable's unstable
+/// `dm.filament.gallery`), which it keeps only with its own `unstable-msc4274`
+/// feature, and every custom msgtype a bot, bridge or other client sends.
+/// The spec says a client that does not know a msgtype must show its `body`,
+/// which is what Element does and what `fill_message_content`'s fallback arm
+/// renders. Admitted under the same rule the default filter applies to known
+/// msgtypes: an `m.replace` is folded into its target, never a row.
+fn is_visible_room_message(event: &AnySyncTimelineEvent) -> bool {
     use matrix_sdk::ruma::events::{
         room::message::Relation, AnySyncMessageLikeEvent, SyncMessageLikeEvent,
     };
@@ -159,8 +164,7 @@ fn is_visible_gallery_message(event: &AnySyncTimelineEvent) -> bool {
     else {
         return false;
     };
-    is_gallery_msgtype(message.content.msgtype.msgtype())
-        && !matches!(message.content.relates_to, Some(Relation::Replacement(_)))
+    !matches!(message.content.relates_to, Some(Relation::Replacement(_)))
 }
 
 pub(crate) fn is_rtc_membership_event(event: &AnySyncTimelineEvent) -> bool {
@@ -4828,9 +4832,17 @@ fn fill_message_content(
             );
             None
         }
+        // A msgtype this client does not know (a bot's or bridge's custom
+        // one): the spec's fallback is the plain `body`. Without one the row
+        // would be blank, so it says what it is instead.
         other => {
             out["msgtype"] = "unsupported".into();
-            out["body"] = other.body().to_owned().into();
+            let body = other.body();
+            out["body"] = if body.trim().is_empty() {
+                "[unsupported event]".into()
+            } else {
+                body.to_owned().into()
+            };
             None
         }
     }
@@ -7579,16 +7591,57 @@ mod gallery_tests {
     }
 
     // The default filter's rule for other msgtypes: an edit folds into its
-    // target. An unrelated custom msgtype stays dropped.
+    // target, never a row.
     #[test]
-    fn a_gallery_edit_and_other_custom_msgtypes_stay_out() {
+    fn a_gallery_edit_stays_out() {
         let rules = RoomVersionRules::V11;
         let mut edit = sable_gallery(vec![sable_plain_image_item("a.png", MXC_A, 10, 10)]);
         edit["m.relates_to"] = json!({ "rel_type": "m.replace", "event_id": "$orig:sable.example" });
         edit["m.new_content"] = sable_gallery(vec![sable_plain_image_item("a.png", MXC_A, 10, 10)]);
         assert!(!lightning_event_filter(&event(edit), &rules));
+    }
+
+    // GitHub #30: a message Element showed was absent from the timeline.
+    // matrix-sdk-ui's default filter drops every msgtype outside its fixed
+    // list, so a bot's or bridge's custom msgtype never became a row, while
+    // the spec (and Element) render its `body`.
+    #[test]
+    fn a_custom_msgtype_message_is_admitted_and_its_edit_is_not() {
+        let rules = RoomVersionRules::V11;
         let custom = json!({ "msgtype": "com.example.custom", "body": "hi" });
-        assert!(!lightning_event_filter(&event(custom), &rules));
+        assert!(lightning_event_filter(&event(custom.clone()), &rules));
+        assert!(super::shown_by_lightning_filter(&event(custom), &rules));
+
+        let mut edit = json!({ "msgtype": "com.example.custom", "body": "* hi again" });
+        edit["m.new_content"] = json!({ "msgtype": "com.example.custom", "body": "hi again" });
+        edit["m.relates_to"] = json!({ "rel_type": "m.replace", "event_id": "$orig:sable.example" });
+        assert!(!lightning_event_filter(&event(edit.clone()), &rules));
+        assert!(!super::shown_by_lightning_filter(&event(edit), &rules));
+
+        // Known msgtypes are unchanged, and so is their edit rule.
+        let text = json!({ "msgtype": "m.text", "body": "plain" });
+        assert!(lightning_event_filter(&event(text), &rules));
+        let mut text_edit = json!({ "msgtype": "m.text", "body": "* plain" });
+        text_edit["m.new_content"] = json!({ "msgtype": "m.text", "body": "plain" });
+        text_edit["m.relates_to"] = json!({ "rel_type": "m.replace", "event_id": "$orig:sable.example" });
+        assert!(!lightning_event_filter(&event(text_edit), &rules));
+    }
+
+    // The admitted row shows the spec's fallback, the plain body; a custom
+    // message with no body says what it is rather than rendering blank.
+    #[test]
+    fn a_custom_msgtype_row_carries_its_body() {
+        let custom =
+            content(json!({ "msgtype": "com.example.custom", "body": "line one\nline two" }));
+        let mut out = json!({});
+        assert!(fill_message_content(&mut out, &custom.msgtype).is_none());
+        assert_eq!(out["msgtype"], "unsupported");
+        assert_eq!(out["body"], "line one\nline two");
+
+        let empty = content(json!({ "msgtype": "com.example.custom", "body": " " }));
+        let mut out = json!({});
+        fill_message_content(&mut out, &empty.msgtype);
+        assert_eq!(out["body"], "[unsupported event]");
     }
 
     /// MSC2530: a caption is `body` (different from `filename`), and it may
