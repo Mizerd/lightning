@@ -26,6 +26,9 @@
 #include "stickers/StickerPackModel.h"
 
 #include <QFile>
+#include <QFileInfo>
+#include <QDir>
+#include <QJSEngine>
 #include <QImage>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -562,6 +565,65 @@ private Q_SLOTS:
                    QStringLiteral("Your pack"), images) });
         // A completion popup that can grow without limit covers the composer.
         QCOMPARE(manager.findEmoticons(QString(), 10000).size(), 64);
+    }
+
+    void reactionsIncludeEveryEligiblePackBeyondCompletionLimits()
+    {
+        StickerPackManager manager;
+        QVariantList ownImages;
+        for (int n = 0; n < 80; ++n)
+            ownImages.append(image(QStringLiteral("e%1").arg(n),
+                                   QStringLiteral("mxc://example.org/e%1").arg(n),
+                                   true, true));
+        auto space = pack(QStringLiteral("room:!space:example.org:animals"),
+                          QStringLiteral("room"), QStringLiteral("Space"),
+                          { image(QStringLiteral("e0"), kMxcA, false, true),
+                            image(QStringLiteral("sticker_only"), kMxcB, true, false) });
+        space.insert(QStringLiteral("roomId"), QStringLiteral("!space:example.org"));
+        space.insert(QStringLiteral("enabledGlobally"), true);
+        auto local = pack(QStringLiteral("room:!room:example.org:"),
+                          QStringLiteral("room"), QStringLiteral("Current room"),
+                          { image(QStringLiteral("local"), kMxcC, true, true) });
+        local.insert(QStringLiteral("roomId"), kRoom);
+        local.insert(QStringLiteral("enabledGlobally"), false);
+        manager.applySnapshotForTest(kRoom, false,
+            { pack(QStringLiteral("user"), QStringLiteral("user"),
+                   QStringLiteral("Your pack"), ownImages), space, local });
+
+        // Execute the picker's actual binding against the real C++ manager.
+        // On the old QML this returns only the first 32 account images.
+        QFile picker(QFileInfo(QString::fromUtf8(__FILE__)).dir().filePath(
+            QStringLiteral("../qml/EmojiPicker.qml")));
+        QVERIFY(picker.open(QIODevice::ReadOnly));
+        const QString qml = QString::fromUtf8(picker.readAll());
+        const int propertyAt = qml.indexOf(QStringLiteral("readonly property var customEmoji:"));
+        QVERIFY(propertyAt >= 0);
+        const int bodyAt = qml.indexOf(QLatin1Char('{'), propertyAt);
+        const int bodyEnd = qml.indexOf(QStringLiteral("\n    }"), bodyAt);
+        QVERIFY(bodyAt > propertyAt && bodyEnd > bodyAt);
+        QJSEngine engine;
+        QJSEngine::setObjectOwnership(&manager, QJSEngine::CppOwnership);
+        QJSValue app = engine.newObject();
+        app.setProperty(QStringLiteral("stickers"), engine.newQObject(&manager));
+        engine.globalObject().setProperty(QStringLiteral("app"), app);
+        QJSValue context = engine.newObject();
+        context.setProperty(QStringLiteral("customEmojiOffered"), true);
+        engine.globalObject().setProperty(QStringLiteral("picker"), context);
+        const QJSValue result = engine.evaluate(
+            QStringLiteral("(function() {%1\n})()")
+                .arg(qml.mid(bodyAt + 1, bodyEnd - bodyAt - 1)));
+        QVERIFY2(!result.isError(), qPrintable(result.toString()));
+        const QVariantList reactions = result.toVariant().toList();
+        QCOMPARE(reactions.size(), 82);
+        QCOMPARE(reactions.at(80).toMap().value(QStringLiteral("url")).toString(), kMxcA);
+        QCOMPARE(reactions.at(80).toMap().value(QStringLiteral("packName")).toString(),
+                 QStringLiteral("Space"));
+        QCOMPARE(reactions.at(81).toMap().value(QStringLiteral("url")).toString(), kMxcC);
+        QVERIFY(manager.shortcodeForUrl(kMxcB).isEmpty()); // sticker only
+        QCOMPARE(manager.shortcodeForUrl(kMxcA), QStringLiteral("e0"));
+        QCOMPARE(manager.emoticon(QStringLiteral("local")).value(QStringLiteral("url")).toString(),
+                 kMxcC);
+        QCOMPARE(manager.findEmoticons(QString(), 1000).size(), 64);
     }
 
     // ---- refresh policy and generation isolation ------------------------

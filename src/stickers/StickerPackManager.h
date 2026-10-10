@@ -172,6 +172,12 @@ public:
     // flight.
     Q_INVOKABLE bool canSave(const QString &url) const;
 
+    // Every emoticon in the sticker snapshot (account, active room, globally
+    // enabled room/Space packs). Reactions use mxc keys, so different images
+    // with the same shortcode remain selectable. The backend bounds packs;
+    // the virtualized picker must not apply the composer's completion limit.
+    Q_INVOKABLE QVariantList reactionEmoticons() const;
+
     // Custom-emoji lookup for the composer, case-insensitive on the shortcode.
     // An empty prefix returns the first `limit` emoticons. Rows match the image
     // model's shape plus `packName`.
@@ -231,6 +237,8 @@ private:
     // Narrows the grid to the selected pack and usage.
     void rebuildImages();
     void emitStateChanged();
+    QVariantList collectEmoticons(const QString &prefix, int limit,
+                                  bool uniqueShortcodes) const;
 
     MatrixClient *m_client = nullptr;
     StickerPackModel *m_packs = nullptr;

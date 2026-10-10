@@ -485,26 +485,41 @@ bool StickerPackManager::canSave(const QString &url) const
     return true;
 }
 
+QVariantList StickerPackManager::reactionEmoticons() const
+{
+    return collectEmoticons(QString(), 0, false);
+}
+
 QVariantList StickerPackManager::findEmoticons(const QString &prefix,
                                                int limit) const
 {
     const int bound = limit > 0 ? qMin(limit, kMaxCompletionRows)
                                 : kMaxCompletionRows;
+    return collectEmoticons(prefix, bound, true);
+}
+
+QVariantList StickerPackManager::collectEmoticons(const QString &prefix,
+                                                 int limit,
+                                                 bool uniqueShortcodes) const
+{
     QVariantList rows;
     QSet<QString> seen;
     for (const stickers::Pack &pack : m_packs->packs()) {
         for (const stickers::PackImage &image : pack.images) {
-            if (rows.size() >= bound)
+            if (limit > 0 && rows.size() >= limit)
                 return rows;
             if (!image.isEmoticon)
                 continue;
             if (!prefix.isEmpty()
                 && !image.shortcode.startsWith(prefix, Qt::CaseInsensitive))
                 continue;
-            // First shortcode wins; the account's own pack comes first.
-            if (seen.contains(image.shortcode))
-                continue;
-            seen.insert(image.shortcode);
+            // Completion needs one winner per shortcode (account first).
+            // Reactions select by mxc, so a name collision hides no image.
+            if (uniqueShortcodes) {
+                if (seen.contains(image.shortcode))
+                    continue;
+                seen.insert(image.shortcode);
+            }
             QVariantMap row = image.toVariantMap();
             row.insert(QStringLiteral("packName"), pack.displayName);
             rows.append(row);

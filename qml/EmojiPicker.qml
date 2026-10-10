@@ -160,11 +160,11 @@ AnchoredPopup {
     readonly property bool customEmojiOffered:
         mode === "reaction" && app.stickers.available
     readonly property var customEmoji: {
-        // findEmoticons() is a plain call; reading `revision` re-evaluates this
+        // reactionEmoticons() is a plain call; reading `revision` re-evaluates this
         // when a snapshot lands.
         var _live = app.stickers.revision
         return picker.customEmojiOffered
-            ? app.stickers.findEmoticons("", 32) : []
+            ? app.stickers.reactionEmoticons() : []
     }
     function chooseCustom(url) {
         if (!url || url.indexOf("mxc://") !== 0) return
@@ -221,7 +221,7 @@ AnchoredPopup {
         previewName = ""
         previewCell = null
         quickBar.focusIndex = 0
-        // Reaction mode only: load this account's MSC2545 packs.
+        // Reaction mode only: load account, current-room and enabled room packs.
         // refreshIfStale() is a no-op when a snapshot is already in hand.
         if (picker.customEmojiOffered)
             app.stickers.refreshIfStale()
@@ -598,7 +598,7 @@ AnchoredPopup {
                 anchors.fill: parent
                 spacing: AppTheme.spacing6
 
-                // ── Custom emoji from this account's MSC2545 packs ──
+                // ── Custom emoji from the shared MSC2545 pack snapshot ──
                 // Reaction mode only, and only when a pack holds emoticons.
                 MenuSectionLabel {
                     Layout.fillWidth: true

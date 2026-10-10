@@ -71,6 +71,17 @@ private Q_SLOTS:
             "anchors.bottomMargin: -picker.bottomInset")));
     }
 
+    void customReactionsUseAllPacksAndControlledMedia()
+    {
+        const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
+        QVERIFY(picker.contains(QStringLiteral("app.stickers.reactionEmoticons()")));
+        QVERIFY(!picker.contains(QStringLiteral("app.stickers.findEmoticons(")));
+        QVERIFY(picker.contains(QStringLiteral("app.stickers.revision")));
+        QVERIFY(picker.contains(QStringLiteral("app.stickers.refreshIfStale()")));
+        QVERIFY(picker.contains(QStringLiteral("bridge.mxcImageSource(")));
+        QVERIFY(picker.contains(QStringLiteral("picker.chooseCustom(customCell.modelData.url)")));
+    }
+
     void widthAndPaddingMatchSpec()
     {
         const QString picker = read(QStringLiteral(QML_DIR "/EmojiPicker.qml"));
