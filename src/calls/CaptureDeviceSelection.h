@@ -23,7 +23,8 @@
 //   3. Shape, only when the monitor offered nothing: a `/dev/video*` id for
 //      `v4l2src` is taken at face value. Otherwise no binding.
 //
-// Ambiguity (two candidates with one display name) yields no binding.
+// Ambiguity (different usable device handles with one display name) yields
+// no binding. Duplicate provider listings of the same handle count once.
 //
 // No binding means different things per kind. A microphone or speaker keeps
 // the platform default. A CAMERA is refused (DeviceBinding::refused): the

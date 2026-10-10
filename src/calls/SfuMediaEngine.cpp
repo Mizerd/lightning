@@ -1906,7 +1906,7 @@ QList<lightning::calls::GstDeviceCandidate> monitorCandidates(
 QStringList microphoneElementPreference()
 {
 #if defined(Q_OS_WIN)
-    return {QStringLiteral("wasapisrc")};
+    return {QStringLiteral("wasapi2src"), QStringLiteral("wasapisrc")};
 #elif defined(Q_OS_MACOS)
     return {QStringLiteral("osxaudiosrc")};
 #else
@@ -1922,7 +1922,7 @@ QStringList microphoneElementPreference()
 QStringList speakerElementPreference()
 {
 #if defined(Q_OS_WIN)
-    return {QStringLiteral("wasapisink")};
+    return {QStringLiteral("wasapi2sink"), QStringLiteral("wasapisink")};
 #elif defined(Q_OS_MACOS)
     return {QStringLiteral("osxaudiosink")};
 #else

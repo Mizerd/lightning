@@ -522,6 +522,158 @@ private Q_SLOTS:
         QVERIFY(!mac.preferredMissing);
     }
 
+    // Property sets from GStreamer 1.28.5's wasapi2 and wasapi providers.
+    // Both providers may list the same endpoint under the same friendly name.
+    void windowsAudioProviders_data()
+    {
+        QTest::addColumn<bool>("speaker");
+        QTest::addColumn<bool>("identity");
+        QTest::addColumn<bool>("modernAvailable");
+        QTest::addColumn<bool>("legacyListed");
+        for (bool speaker : {false, true}) {
+            for (bool identity : {false, true}) {
+                for (bool modern : {false, true}) {
+                    for (bool legacy : {false, true}) {
+                        const QByteArray row = QByteArray::number(speaker) + "-"
+                            + QByteArray::number(identity) + "-"
+                            + QByteArray::number(modern) + "-"
+                            + QByteArray::number(legacy);
+                        QTest::newRow(row.constData())
+                            << speaker << identity << modern << legacy;
+                    }
+                }
+            }
+        }
+    }
+
+    void windowsAudioProviders()
+    {
+        QFETCH(bool, speaker);
+        QFETCH(bool, identity);
+        QFETCH(bool, modernAvailable);
+        QFETCH(bool, legacyListed);
+        const QString name = QStringLiteral("USB Audio");
+        const QString id = QStringLiteral("{0.0.1.00000000}.{A1B2}");
+        QList<GstDeviceCandidate> devices{
+            {name, {{QStringLiteral("device.api"), QStringLiteral("wasapi2")},
+                    {QStringLiteral("device.id"), id},
+                    {QStringLiteral("device.default"), QStringLiteral("false")},
+                    {QStringLiteral("wasapi2.device.loopback"), QStringLiteral("false")}}}};
+        if (legacyListed) {
+            devices.append({name,
+                {{QStringLiteral("device.api"), QStringLiteral("wasapi")},
+                 {QStringLiteral("device.strid"), id}}});
+        }
+        const QString modern = speaker ? QStringLiteral("wasapi2sink")
+                                       : QStringLiteral("wasapi2src");
+        const QString legacy = speaker ? QStringLiteral("wasapisink")
+                                       : QStringLiteral("wasapisrc");
+        const auto choice = chooseCaptureElement(
+            speaker ? CaptureKind::Speaker : CaptureKind::Microphone,
+            {modern, legacy}, modernAvailable ? QStringList{modern, legacy}
+                                             : QStringList{legacy},
+            identity ? id.toLower() : QStringLiteral("qt-other-namespace"),
+            name, devices);
+        // A legacy element accepts the same MMDevice endpoint id, even when
+        // only the higher-ranked wasapi2 provider enumerated it.
+        QCOMPARE(choice.element, modernAvailable ? modern : legacy);
+        QCOMPARE(choice.binding.property, QStringLiteral("device"));
+        QCOMPARE(choice.binding.value, id);
+        QCOMPARE(choice.binding.reason, identity ? QStringLiteral("identity")
+                                                : QStringLiteral("display-name"));
+    }
+
+    void aLegacyOnlyProviderCanBindEitherWindowsGeneration()
+    {
+        const QList<GstDeviceCandidate> devices{
+            {QStringLiteral("USB Audio"),
+             {{QStringLiteral("device.api"), QStringLiteral("wasapi")},
+              {QStringLiteral("device.strid"),
+               QStringLiteral("{0.0.1.00000000}.{A1B2}")}}}};
+        for (const QString &element : {QStringLiteral("wasapi2src"),
+                                      QStringLiteral("wasapi2sink"),
+                                      QStringLiteral("wasapisrc"),
+                                      QStringLiteral("wasapisink")}) {
+            const auto binding = resolveDeviceBinding(
+                element.endsWith(QLatin1String("sink")) ? CaptureKind::Speaker
+                                                      : CaptureKind::Microphone,
+                element, QStringLiteral("qt-other-namespace"),
+                QStringLiteral("USB Audio"), devices);
+            QCOMPARE(binding.property, QStringLiteral("device"));
+            QCOMPARE(binding.value, QStringLiteral("{0.0.1.00000000}.{A1B2}"));
+        }
+    }
+
+    void aPulseIdDoesNotCollapseDifferentDevicesWithOneName()
+    {
+        const QList<GstDeviceCandidate> devices{
+            pipewire(QStringLiteral("USB Audio"), QStringLiteral("1"),
+                     QStringLiteral("node-one")),
+            pipewire(QStringLiteral("USB Audio"), QStringLiteral("2"),
+                     QStringLiteral("node-two"))};
+        QVERIFY(resolveDeviceBinding(CaptureKind::Microphone,
+            QStringLiteral("pulsesrc"), QStringLiteral("qt-other-namespace"),
+            QStringLiteral("USB Audio"), devices).isEmpty());
+    }
+
+    void windowsAudioNamesRemainAmbiguousForDifferentEndpoints()
+    {
+        const QList<GstDeviceCandidate> devices{
+            {QStringLiteral("USB Audio"),
+             {{QStringLiteral("device.api"), QStringLiteral("wasapi2")},
+              {QStringLiteral("device.id"), QStringLiteral("endpoint-one")}}},
+            {QStringLiteral("USB Audio"),
+             {{QStringLiteral("device.api"), QStringLiteral("wasapi")},
+              {QStringLiteral("device.strid"), QStringLiteral("endpoint-two")}}}};
+        for (const QString &element : {QStringLiteral("wasapi2src"),
+                                      QStringLiteral("wasapisrc")}) {
+            QVERIFY(resolveDeviceBinding(CaptureKind::Microphone, element,
+                QStringLiteral("qt-other-namespace"), QStringLiteral("USB Audio"),
+                devices).isEmpty());
+            QCOMPARE(resolveDeviceBinding(CaptureKind::Microphone, element,
+                QStringLiteral("endpoint-two"), QStringLiteral("USB Audio"),
+                devices).value, QStringLiteral("endpoint-two"));
+        }
+    }
+
+    void windowsMicrophoneNeverBindsLoopbackOrDefaultAlias()
+    {
+        const QString id = QStringLiteral("endpoint-one");
+        const QList<GstDeviceCandidate> devices{
+            {QStringLiteral("USB Audio"),
+             {{QStringLiteral("device.api"), QStringLiteral("wasapi2")},
+              {QStringLiteral("device.id"), id},
+              {QStringLiteral("wasapi2.device.loopback"), QStringLiteral("true")}}},
+            {QStringLiteral("USB Audio"),
+             {{QStringLiteral("device.api"), QStringLiteral("wasapi2")},
+              {QStringLiteral("device.id"), QStringLiteral("default-alias")},
+              {QStringLiteral("device.actual-id"), id},
+              {QStringLiteral("device.default"), QStringLiteral("true")}}}};
+        for (const QString &element : {QStringLiteral("wasapi2src"),
+                                      QStringLiteral("wasapisrc")}) {
+            QVERIFY(resolveDeviceBinding(CaptureKind::Microphone, element, id,
+                QStringLiteral("USB Audio"), devices).isEmpty());
+        }
+    }
+
+    void macAudioUsesTheProvidersUniqueId()
+    {
+        const QList<GstDeviceCandidate> devices{
+            {QStringLiteral("USB Audio"),
+             {{QStringLiteral("unique-id"), QStringLiteral("CoreAudio-UID")},
+              {QStringLiteral("is-default"), QStringLiteral("false")},
+              {QStringLiteral("transport"), QStringLiteral("usb ")}}}};
+        for (bool speaker : {false, true}) {
+            const auto binding = resolveDeviceBinding(
+                speaker ? CaptureKind::Speaker : CaptureKind::Microphone,
+                speaker ? QStringLiteral("osxaudiosink") : QStringLiteral("osxaudiosrc"),
+                QStringLiteral("CoreAudio-UID"), QStringLiteral("USB Audio"), devices);
+            QCOMPARE(binding.property, QStringLiteral("unique-id"));
+            QCOMPARE(binding.value, QStringLiteral("CoreAudio-UID"));
+            QCOMPARE(binding.reason, QStringLiteral("identity"));
+        }
+    }
+
     // Honouring a microphone choice means picking a concrete element instead
     // of `autoaudiosrc`, but only one that can bind the device.
     void aConcreteElementIsChosenOnlyWhenItCanBindTheDevice()

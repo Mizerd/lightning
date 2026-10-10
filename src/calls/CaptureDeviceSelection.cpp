@@ -48,19 +48,28 @@ constexpr ElementProfile kProfiles[] = {
     // `device.path`.
     {"ksvideosrc", "device-path", {"device.path", nullptr, nullptr},
      {"device.path", "device.strid", nullptr, nullptr}, false, true},
-    {"wasapisrc", "device", {"device.strid", nullptr, nullptr},
+    // Both WASAPI generations take the same MMDevice endpoint id. The
+    // monitor may enumerate only one generation even when both elements exist.
+    {"wasapi2src", "device", {"device.id", "device.strid", nullptr},
+     {"device.id", "device.strid", nullptr, nullptr}, false, true},
+    {"wasapi2sink", "device", {"device.id", "device.strid", nullptr},
+     {"device.id", "device.strid", nullptr, nullptr}, false, true},
+    {"wasapisrc", "device", {"device.strid", "device.id", nullptr},
      {"device.strid", "device.id", nullptr, nullptr}, false, true},
-    {"wasapisink", "device", {"device.strid", nullptr, nullptr},
+    {"wasapisink", "device", {"device.strid", "device.id", nullptr},
      {"device.strid", "device.id", nullptr, nullptr}, false, true},
     // macOS. Qt's id is the AVFoundation unique id, which the avf provider
     // publishes as `avf.unique_id`; `device-index` is a GObject property of
     // the device, copied into `device.index` by the enumeration.
     {"avfvideosrc", "device-index", {"device.index", nullptr, nullptr},
      {"avf.unique_id", "device.unique-id", "device.index", nullptr}, false},
-    {"osxaudiosrc", "device", {"device.id", nullptr, nullptr},
-     {"device.uid", "device.id", nullptr, nullptr}, false},
-    {"osxaudiosink", "device", {"device.id", nullptr, nullptr},
-     {"device.uid", "device.id", nullptr, nullptr}, false},
+    // osxaudio publishes `unique-id`, not device.id/device.uid. Since 1.26
+    // both elements select with that stable CoreAudio UID (as the provider's
+    // own create_element does), rather than a transient numeric device id.
+    {"osxaudiosrc", "unique-id", {"unique-id", nullptr, nullptr},
+     {"unique-id", nullptr, nullptr, nullptr}, false},
+    {"osxaudiosink", "unique-id", {"unique-id", nullptr, nullptr},
+     {"unique-id", nullptr, nullptr, nullptr}, false},
 };
 
 const ElementProfile *profileFor(const QString &element)
@@ -90,6 +99,22 @@ DeviceBinding bindingFrom(const ElementProfile &profile,
                           const QString &reason,
                           const QString &qtDeviceId)
 {
+    const QString element = QString::fromLatin1(profile.element);
+    if (element.startsWith(QLatin1String("wasapi"))) {
+        const QString api = candidate.properties.value(QStringLiteral("device.api"));
+        if (!api.isEmpty() && api != QLatin1String("wasapi")
+            && api != QLatin1String("wasapi2"))
+            return {};
+        // wasapi2's default pseudo-device follows Windows' default even if
+        // its actual-id currently matches the chosen endpoint. Its speaker
+        // loopback candidates are Audio/Source too, but are not microphones.
+        if (candidate.properties.value(QStringLiteral("device.default"))
+                == QLatin1String("true")
+            || (element.endsWith(QLatin1String("src"))
+                && candidate.properties.value(QStringLiteral("wasapi2.device.loopback"))
+                    == QLatin1String("true")))
+            return {};
+    }
     // See ElementProfile::valueIsQtId.
     QString value;
     if (profile.valueIsQtId) {
@@ -266,21 +291,27 @@ DeviceBinding resolveOnce(const ElementProfile &profileRef,
     //    default.
     if (!qtDescription.isEmpty()) {
         const QString wanted = qtDescription.trimmed();
-        const GstDeviceCandidate *match = nullptr;
+        DeviceBinding match;
         for (const GstDeviceCandidate &candidate : candidates) {
             if (candidate.displayName.trimmed() != wanted)
                 continue;
-            if (match)
-                return {}; // ambiguous
-            match = &candidate;
-        }
-        if (match) {
             const DeviceBinding binding =
-                bindingFrom(*profile, *match, QStringLiteral("display-name"),
+                bindingFrom(*profile, candidate, QStringLiteral("display-name"),
                             qtDeviceId);
-            if (!binding.isEmpty())
-                return binding;
+            // A candidate from another subsystem that cannot select this
+            // element does not make a usable candidate ambiguous. Providers
+            // listing the same endpoint twice are also one choice.
+            if (binding.isEmpty())
+                continue;
+            if (!match.isEmpty()
+                && (profile->valueIsQtId
+                    || !sameIdentity(*profile, match.value, binding.value)))
+                return {}; // genuinely different devices with the same name
+            if (match.isEmpty())
+                match = binding;
         }
+        if (!match.isEmpty())
+            return match;
     }
 
     // 3. Shape, only when the monitor returned no candidates at all. With
