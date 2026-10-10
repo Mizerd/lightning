@@ -436,7 +436,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5670"/>
+        <location filename="../src/app/AppController.cpp" line="+5720"/>
         <source>Room invitation</source>
         <translation>Undangan ruang</translation>
     </message>
@@ -451,7 +451,7 @@
         <translation>Anda diundang ke %1</translation>
     </message>
     <message>
-        <location line="-4492"/>
+        <location line="-4540"/>
         <source>Incoming voice call</source>
         <translation>Panggilan suara masuk</translation>
     </message>
@@ -524,13 +524,13 @@
     <message>
         <location line="+1"/>
         <location line="+49"/>
-        <location line="+3179"/>
+        <location line="+3227"/>
         <location line="+715"/>
         <source>Not connected</source>
         <translation>Tidak terhubung</translation>
     </message>
     <message>
-        <location line="-3940"/>
+        <location line="-3988"/>
         <source>Connecting…</source>
         <translation>Menghubungkan…</translation>
     </message>
@@ -591,24 +591,24 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2067"/>
+        <location line="+2115"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning tidak dapat membaca berkas yang dipilih.</translation>
     </message>
     <message>
-        <location line="-2073"/>
+        <location line="-2121"/>
         <source>A room-key import is already in progress.</source>
         <translation>Impor kunci ruang sedang berlangsung.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2878"/>
+        <location line="+2926"/>
         <source>Not signed in.</source>
         <translation>Belum masuk.</translation>
     </message>
     <message>
-        <location line="-2876"/>
+        <location line="-2924"/>
         <source>Room-key import failed.</source>
         <translation>Impor kunci ruang gagal.</translation>
     </message>
@@ -648,7 +648,7 @@
         <translation>Panggilan tidak tersedia di sini.</translation>
     </message>
     <message>
-        <location line="+217"/>
+        <location line="+218"/>
         <source>Modern room list</source>
         <translation>Daftar ruang modern</translation>
     </message>
@@ -679,14 +679,14 @@
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1157"/>
+        <location line="+1204"/>
         <location line="+44"/>
         <location line="+206"/>
         <source>This build has no Rust SDK backend.</source>
         <translation>Build ini tidak memiliki backend Rust SDK.</translation>
     </message>
     <message>
-        <location line="-1177"/>
+        <location line="-1224"/>
         <source>Choose a local image file.</source>
         <translation>Pilih berkas gambar lokal.</translation>
     </message>
@@ -750,7 +750,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+119"/>
+        <location line="+166"/>
         <source>Couldn&apos;t load the image (%1).</source>
         <translation>Gambar tidak dapat dimuat (%1).</translation>
     </message>
@@ -6289,12 +6289,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/IndexAllPrompt.qml" line="+43"/>
         <location line="+23"/>
-        <source>Index all messages now?</source>
+        <source>Index encrypted messages now?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+16"/>
-        <source>So search can find older messages later, including in encrypted rooms. It can take a while, uses bandwidth, and stores the decrypted text on this device. You can also do it later in Settings.</source>
+        <source>So search can find older messages in encrypted rooms later. It can take a while, uses bandwidth, and stores the decrypted text on this device. You can also do it later in Settings.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7225,7 +7225,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+554"/>
+        <location filename="../qml/MainScreen.qml" line="+563"/>
         <source>Signing out…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13531,7 +13531,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+141"/>
-        <source>Index all rooms</source>
+        <source>Index encrypted rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -14389,13 +14389,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Privasi &amp; keamanan · Pengguna yang diabaikan</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <location line="+4227"/>
-        <source>Index all rooms</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="-4226"/>
+        <location line="+3"/>
         <source>message search index all rooms history local encrypted older messages backfill</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14975,12 +14969,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+27"/>
-        <source>Index all rooms fetches older history for every room you are in, one room at a time and up to the same per-room limit as Index this room, so you can search it here. It can take a long time and uses bandwidth, and like the rest of the index it stores the decrypted message text on this device. Messages that cannot be decrypted yet are skipped until their keys arrive — run it again then and they are added. It pauses during calls and continues after a restart.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+36"/>
+        <location line="+63"/>
         <source>%1 of %2 rooms</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16690,7 +16679,13 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+351"/>
+        <location line="+36"/>
+        <location line="+4227"/>
+        <source>Index encrypted rooms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3912"/>
         <source>Go to %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16817,7 +16812,12 @@ Escape, dan satu huruf yang digunakan menu pesan saat terbuka, dicadangkan dan t
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1443"/>
+        <location line="+378"/>
+        <source>Index encrypted rooms fetches older history for every encrypted room you are in, one room at a time and up to the same per-room limit as Index this room, so you can search it here. It can take a long time and uses bandwidth, and like the rest of the index it stores the decrypted message text on this device. Messages that cannot be decrypted yet are skipped until their keys arrive — run it again then and they are added. It pauses during calls and continues after a restart.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1065"/>
         <source>Lightning does not register for push, so its notifications arrive only while it is running, in the window or the tray.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -21248,12 +21248,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-498"/>
         <location filename="../qml/TimelinePane.qml" line="+373"/>
-        <location line="+5022"/>
+        <location line="+5033"/>
         <source>Space</source>
         <translation>Space</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5021"/>
+        <location filename="../qml/TimelinePane.qml" line="-5032"/>
         <source>Home</source>
         <translation>Beranda</translation>
     </message>
@@ -21308,12 +21308,12 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3654"/>
+        <location line="+3665"/>
         <source>Room information</source>
         <translation>Informasi ruang</translation>
     </message>
     <message>
-        <location line="-3638"/>
+        <location line="-3649"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation type="unfinished"></translation>
@@ -21514,7 +21514,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Pencarian tidak dapat diselesaikan.</translation>
     </message>
     <message>
-        <location line="+2703"/>
+        <location line="+2714"/>
         <location line="+395"/>
         <source>Loading older messages…</source>
         <translation>Memuat pesan lama…</translation>
@@ -21940,13 +21940,13 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
         <translation>Batal</translation>
     </message>
     <message>
-        <location line="-5577"/>
+        <location line="-5588"/>
         <location line="+91"/>
         <source>View profile</source>
         <translation type="unfinished">Lihat profil</translation>
     </message>
     <message>
-        <location line="+4808"/>
+        <location line="+4819"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation type="unfinished"></translation>
     </message>
