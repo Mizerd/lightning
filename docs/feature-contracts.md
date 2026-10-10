@@ -1312,26 +1312,40 @@ above. The event cache this index duplicates is unchanged.)
   findable by its own text would be the worst thing this index could do.
 * **Fed from the event cache**, never the live timeline (which exists only for
   the open room). A sweep runs on sync and every five minutes; "Index this
-  room" pages history in, bounded at 50 pages, indexing after EVERY page
+  room" remains available for any room, encrypted or unencrypted, and pages
+  history in, bounded at 50 pages, indexing after EVERY page
   because `events()` returns the in-memory chunk and the history trim shrinks
   it back.
 * **Bounded at 250,000 rows**, evicting oldest first.
-* **"Index all rooms"** (Settings → Privacy & security → Message search index,
-  and a one-time offer after a sign-in made on this device) walks every joined
-  room with the SAME bounded per-room walk, `deep_index_room_gated` — there is
+* **"Index encrypted rooms"** (the background "Index all rooms" action in
+  Settings → Privacy & security → Message search index, also offered once
+  after a sign-in made on this device) walks only encrypted joined rooms
+  with the SAME bounded per-room walk, `deep_index_room_gated` — there is
   no second indexer and no second history bound. Strictly one room and one
-  `/messages` page at a time, 2 s between pages and 2 s between rooms; a
+  `/messages` page at a time, 5 s between pages and 10 s between rooms;
+  each fetched page is persisted by the SDK event cache, so the longer gaps
+  reduce background request/write pressure (60% lower maximum page rate than
+  the former 2 s gap) and give foreground work breathing room. The explicit
+  "Index this room" action keeps its existing speed. Unencrypted rooms can
+  use server search and are excluded before fetching history; a
   rate limit matrix-sdk's own retries did not absorb backs the whole queue off
   by the server's `retry_after_ms`. A call or a scrolling timeline HOLDS it
   between pages. The queue, its position and the rooms already done persist in
   `lightning-index-all.json` in the account's store directory (room ids and
   counters only; 0600; deleted with the account, reset when the index is
   cleared), so a restart continues and a finished room is skipped next time.
+  On start or resume, including a paused resume, the stored queue drops rooms
+  that are
+  no longer encrypted and joined, preserving the remaining position. Old
+  completion markers for currently unencrypted joined rooms are removed, so
+  a room encrypted later is eligible on the next user-started run. Unknown
+  encryption state is excluded until the SDK confirms encryption.
   Undecryptable history is never indexed; a room that still holds any is not
   recorded as done, so the next run revisits it — by then matrix-sdk's
   redecryptor has rewritten whatever keys arrived for, in the event-cache
-  store the walk re-reads. "Finished" means every room was walked to that
-  bound or its start, not that all history is searchable: failed rooms and
+  store the walk re-reads. "Finished" means every eligible room was walked to
+  that bound or its start, not that all history is searchable: failed rooms
+  and
   rooms with undecryptable history are reported and revisited next run. A
   "Clear index" wins over any writer in flight — every writer (this pass,
   "Index this room", the sweep) captures the index generation before its

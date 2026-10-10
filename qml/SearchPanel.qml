@@ -475,7 +475,7 @@ Rectangle {
                                      && app.messageSearch.indexedMessages <= 0
                                      && !app.messageSearch.indexAllActive
                             Layout.alignment: Qt.AlignHCenter
-                            text: qsTr("Index all rooms")
+                            text: qsTr("Index encrypted rooms")
                             onClicked: app.messageSearch.indexAllRooms()
                         }
                         AppButton {

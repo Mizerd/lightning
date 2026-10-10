@@ -2482,7 +2482,7 @@ private slots:
         auto *screen = item("settingsScreenRoot");
         auto *search = item("settingsSearchField");
         QVERIFY(screen && search);
-        search->setProperty("text", QStringLiteral("index all"));
+        search->setProperty("text", QStringLiteral("index encrypted"));
         QCoreApplication::processEvents();
         bool found = false;
         const QVariantList hits =
@@ -2494,8 +2494,8 @@ private slots:
         }
         search->setProperty("text", QString());
         QCoreApplication::processEvents();
-        QVERIFY2(found, "searching Settings for \"index all\" does not find "
-                        "Index all rooms");
+        QVERIFY2(found, "searching Settings for \"index encrypted\" does not find "
+                        "Index encrypted rooms");
 
         m_controller->showSettingsSection(QStringLiteral("privacy"));
         QCoreApplication::processEvents();
@@ -2503,13 +2503,14 @@ private slots:
         auto *help = item("indexAllHelpText");
         QVERIFY2(button && help, "the index-all control is not live");
         const QString disclosure = help->property("text").toString();
-        QVERIFY2(disclosure.contains(QStringLiteral("bandwidth"))
+        QVERIFY2(disclosure.contains(QStringLiteral("every encrypted room"))
+                     && disclosure.contains(QStringLiteral("bandwidth"))
                      && disclosure.contains(QStringLiteral("decrypted"))
                      && disclosure.contains(QStringLiteral("cannot be decrypted")),
                  "the index-all disclosure lost its cost, privacy or "
                  "undecryptable-history sentence");
         QCOMPARE(button->property("text").toString(),
-                 QStringLiteral("Index all rooms"));
+                 QStringLiteral("Index encrypted rooms"));
 
         auto *search_ = m_controller->messageSearch();
         search_->indexAllRooms();
@@ -2520,7 +2521,7 @@ private slots:
         QVERIFY(stop && stop->isVisible());
         search_->cancelIndexAll();
         QTRY_COMPARE(button->property("text").toString(),
-                     QStringLiteral("Index all rooms"));
+                     QStringLiteral("Index encrypted rooms"));
         m_controller->showSettingsSection(QStringLiteral("appearance"));
         QCoreApplication::processEvents();
     }

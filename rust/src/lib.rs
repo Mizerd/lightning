@@ -8352,8 +8352,10 @@ async fn index_all_walk(
     let Some(room) = client.get_room(&parsed) else {
         return indexall::RoomResult::Gone;
     };
-    // Left or banned since the queue was planned: nothing to index for it.
-    if !matches!(room.state(), matrix_sdk::RoomState::Joined) {
+    // Recheck before fetching: only encrypted joined rooms need this background walk.
+    if !matches!(room.state(), matrix_sdk::RoomState::Joined)
+        || !room.encryption_state().is_encrypted()
+    {
         return indexall::RoomResult::Gone;
     }
     match localsearch::deep_index_room_gated(&room, index, gate, localsearch::DEEP_MAX_PAGES)
@@ -8407,7 +8409,7 @@ pub unsafe extern "C" fn mx_rust_search_index_all_start(
                         .latest_event_timestamp()
                         .map(|ts| u64::from(ts.get()))
                         .unwrap_or(0);
-                    (room.room_id().to_string(), stamp)
+                    (room.room_id().to_string(), stamp, room.encryption_state().is_encrypted())
                 })
                 .collect()
         });

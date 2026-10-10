@@ -1511,7 +1511,7 @@ char *mx_rust_search_index_deep(void *client,
 char *mx_rust_search_index_forget_event(void *client, const char *event_id);
 char *mx_rust_search_index_forget_room(void *client, const char *room_id);
 char *mx_rust_search_index_clear(void *client);
-/* "Index all rooms": every joined room walked with the SAME bounded per-room
+/* "Index all rooms": every encrypted joined room walked with the SAME bounded per-room
    walk as mx_rust_search_index_deep, strictly one room and one page at a time,
    paced, backing off on the server's retry_after_ms. The queue and its
    position persist in the account's store directory, so a restart continues.

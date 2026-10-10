@@ -1,4 +1,4 @@
-//! "Index all rooms": one queue over the joined rooms, walked strictly one room
+//! "Index all rooms": one queue over the encrypted joined rooms, walked strictly one room
 //! at a time. Each room is indexed by the SAME bounded backward walk "Index
 //! this room" uses (`localsearch::deep_index_room_gated`, `DEEP_MAX_PAGES`),
 //! so there is one indexer and one history bound; this module only decides
@@ -35,11 +35,13 @@ use crate::localsearch::{DeepOutcome, Gate, PageGate};
 pub(crate) const PROGRESS_FILE: &str = "lightning-index-all.json";
 const PROGRESS_VERSION: u32 = 1;
 
-/// Pause between two pages of one room. Element Desktop's crawler waits 3 s
-/// between requests by default; this stays in that range rather than 4x it.
-pub(crate) const PAGE_GAP_MS: u64 = 2_000;
-/// Pause between two rooms.
-pub(crate) const ROOM_GAP_MS: u64 = 2_000;
+/// Background-only pacing: every fetched page is persisted by the SDK event
+/// cache. A 5 s gap reduces the maximum page rate by 60% versus 2 s, giving
+/// foreground work and disk writes more breathing room. The explicit per-room
+/// action uses its own gate and is unaffected.
+pub(crate) const PAGE_GAP_MS: u64 = 5_000;
+/// An extra 10 s between rooms also slows accounts with many short histories.
+pub(crate) const ROOM_GAP_MS: u64 = 10_000;
 /// How often a held or backing-off queue re-reads its controls.
 pub(crate) const POLL_MS: u64 = 500;
 /// First retry after a failed room; doubles per attempt.
@@ -136,17 +138,19 @@ impl Progress {
 /// The order a new run visits rooms: most recently active first (those are
 /// the ones people search), rooms already complete left out, duplicates
 /// dropped, ties broken on the room id so the order is deterministic.
-/// `rooms` is (room id, latest activity in ms; 0 = unknown). Returns the queue
+/// `rooms` is (room id, latest activity in ms; 0 = unknown, encrypted).
+/// Only encrypted rooms need background history fetching; server search covers
+/// unencrypted rooms. Returns the queue
 /// and how many rooms were skipped as complete.
 pub(crate) fn plan_queue(
-    rooms: Vec<(String, u64)>,
+    rooms: Vec<(String, u64, bool)>,
     complete: &BTreeSet<String>,
 ) -> (Vec<String>, u64) {
     let mut seen = HashSet::new();
     let mut skipped = 0u64;
     let mut wanted: Vec<(String, u64)> = Vec::with_capacity(rooms.len());
-    for (id, stamp) in rooms {
-        if id.is_empty() || !seen.insert(id.clone()) {
+    for (id, stamp, encrypted) in rooms {
+        if !encrypted || id.is_empty() || !seen.insert(id.clone()) {
             continue;
         }
         if complete.contains(&id) {
@@ -206,7 +210,7 @@ pub(crate) enum Begin {
     NothingPending,
     /// `resume_only` and the pending run was paused by the user.
     PausedPending,
-    /// Every joined room is already complete.
+    /// Every encrypted joined room is already complete (or there are none).
     NothingToDo,
 }
 
@@ -339,11 +343,11 @@ impl Control {
     }
 
     /// Start a run, or continue the pending one. `joined` lists the joined
-    /// rooms and is only called when a new queue must be planned.
+    /// rooms with current encryption state, including when resuming a stored queue.
     pub(crate) fn begin(
         &self,
         resume_only: bool,
-        joined: impl FnOnce() -> Vec<(String, u64)>,
+        joined: impl FnOnce() -> Vec<(String, u64, bool)>,
     ) -> Begin {
         let mut inner = self.lock();
         if inner.running {
@@ -355,7 +359,37 @@ impl Control {
             }
             return Begin::AlreadyRunning;
         }
+        let joined = joined();
         let progress = self.loaded(&mut inner);
+        // Old versions queued public rooms too. Reconcile before even a paused
+        // resume, and persist the upgrade so those rooms cannot be fetched later.
+        // Forget their completion markers so enabling encryption later makes
+        // them eligible on the next user-started run.
+        let eligible: HashSet<&str> = joined
+            .iter()
+            .filter(|(_, _, encrypted)| *encrypted)
+            .map(|(id, _, _)| id.as_str())
+            .collect();
+        let before = progress.clone();
+        for (id, _, encrypted) in &joined {
+            if !encrypted {
+                progress.complete.remove(id);
+            }
+        }
+        let old_position = progress.position;
+        progress.position = progress
+            .queue
+            .iter()
+            .take(old_position)
+            .filter(|id| eligible.contains(id.as_str()))
+            .count();
+        progress.queue.retain(|id| eligible.contains(id.as_str()));
+        if !progress.pending() {
+            progress.paused = false;
+        }
+        if *progress != before {
+            self.persist(progress);
+        }
         if progress.pending() {
             if resume_only && progress.paused {
                 return Begin::PausedPending;
@@ -365,7 +399,7 @@ impl Control {
             if resume_only {
                 return Begin::NothingPending;
             }
-            let (queue, skipped) = plan_queue(joined(), &progress.complete);
+            let (queue, skipped) = plan_queue(joined, &progress.complete);
             progress.reset_run();
             progress.queue = queue;
             progress.skipped = skipped;
@@ -808,9 +842,9 @@ mod tests {
         }
     }
 
-    fn rooms(list: &[(&str, u64)]) -> Vec<(String, u64)> {
+    fn rooms(list: &[(&str, u64)]) -> Vec<(String, u64, bool)> {
         list.iter()
-            .map(|(id, ts)| ((*id).to_owned(), *ts))
+            .map(|(id, ts)| ((*id).to_owned(), *ts, true))
             .collect()
     }
 
@@ -864,10 +898,131 @@ mod tests {
         )
     }
 
+    #[test]
+    fn background_queue_filters_unencrypted_rooms_before_sorting_and_completion() {
+        let complete = ["!public-done:x".to_owned(), "!private-done:x".to_owned()]
+            .into_iter()
+            .collect();
+        let (queue, skipped) = plan_queue(
+            vec![
+                ("!public:x".into(), 999, false),
+                ("!private:x".into(), 1, true),
+                ("!public-done:x".into(), 900, false),
+                ("!private-done:x".into(), 2, true),
+            ],
+            &complete,
+        );
+        assert_eq!(queue, vec!["!private:x"]);
+        assert_eq!(skipped, 1, "only eligible complete rooms count as skipped");
+    }
+
+    #[test]
+    fn background_upgrade_drops_public_rooms_and_preserves_resume_position() {
+        let store = Store::new("encrypted-upgrade");
+        // A v1 record from the old all-joined-rooms walk, paused mid-run.
+        let old = Progress {
+            version: 1,
+            queue: vec![
+                "!public-done:x".into(),
+                "!private-done:x".into(),
+                "!public:x".into(),
+                "!private:x".into(),
+            ],
+            position: 2,
+            paused: true,
+            complete: ["!public-done:x".into(), "!private-done:x".into()]
+                .into_iter()
+                .collect(),
+            written: 42,
+            ..Progress::default()
+        };
+        std::fs::write(
+            store.0.join(PROGRESS_FILE),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        let control = Control::new(&store.0);
+        let joined = || {
+            vec![
+                ("!public-done:x".into(), 4, false),
+                ("!private-done:x".into(), 3, true),
+                ("!public:x".into(), 2, false),
+                ("!private:x".into(), 1, true),
+            ]
+        };
+        assert_eq!(control.begin(true, joined), Begin::PausedPending);
+        let upgraded: Progress =
+            serde_json::from_slice(&std::fs::read(store.0.join(PROGRESS_FILE)).unwrap()).unwrap();
+        assert_eq!(upgraded.queue, vec!["!private-done:x", "!private:x"]);
+        assert_eq!(upgraded.position, 1);
+        assert_eq!(upgraded.written, 42);
+        assert!(upgraded.paused);
+        assert_eq!(
+            upgraded.complete,
+            ["!private-done:x".into()].into_iter().collect()
+        );
+        let restarted = Control::new(&store.0);
+        assert_eq!(restarted.begin(false, joined), Begin::Started);
+        assert_eq!(restarted.status(None).current_room, "!private:x");
+    }
+
+    #[test]
+    fn background_upgrade_with_only_public_rooms_leaves_nothing_pending() {
+        let store = Store::new("public-only-upgrade");
+        let old = Progress {
+            version: 1,
+            queue: vec!["!public:x".into()],
+            paused: true,
+            ..Progress::default()
+        };
+        std::fs::write(
+            store.0.join(PROGRESS_FILE),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        let control = Control::new(&store.0);
+        assert_eq!(
+            control.begin(true, || vec![("!public:x".into(), 1, false)]),
+            Begin::NothingPending
+        );
+        let upgraded: Progress =
+            serde_json::from_slice(&std::fs::read(store.0.join(PROGRESS_FILE)).unwrap()).unwrap();
+        assert!(upgraded.queue.is_empty());
+        assert!(!upgraded.paused);
+        assert_eq!(
+            control.begin(false, || vec![("!public:x".into(), 1, false)]),
+            Begin::NothingToDo
+        );
+    }
+
+    #[test]
+    fn background_room_encrypted_later_is_picked_up_even_if_old_walk_completed_it() {
+        let store = Store::new("encrypted-later");
+        let old = Progress {
+            version: 1,
+            complete: ["!later:x".into()].into_iter().collect(),
+            ..Progress::default()
+        };
+        std::fs::write(
+            store.0.join(PROGRESS_FILE),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        let control = Control::new(&store.0);
+        assert_eq!(
+            control.begin(false, || vec![("!later:x".into(), 1, false)]),
+            Begin::NothingToDo
+        );
+        // New SDK encryption state after a restart; no manual clear required.
+        let control = Control::new(&store.0);
+        assert_eq!(
+            control.begin(false, || vec![("!later:x".into(), 2, true)]),
+            Begin::Started
+        );
+        assert_eq!(control.status(None).current_room, "!later:x");
+    }
+
     // ── Ordering and skipping ────────────────────────────────────────────
-    // Old code: there was no queue at all ("Index this room" only), so none
-    // of these can run against it; each asserts a property a naive loop over
-    // `joined_rooms()` (SDK order, no record) does not have.
     #[test]
     fn the_queue_visits_the_most_recent_rooms_first_and_skips_complete_ones() {
         let complete: BTreeSet<String> = ["!done:x".to_owned()].into_iter().collect();
@@ -1004,8 +1159,8 @@ mod tests {
             );
         }
         let control = Control::new(&store.0);
-        // resume_only must not plan a new queue: the joined list is not asked.
-        let begin = control.begin(true, || panic!("a resume re-planned the queue"));
+        // Resume checks eligibility without changing the persisted order.
+        let begin = control.begin(true, || rooms(&[("!r3:x", 9), ("!r2:x", 1), ("!r1:x", 0)]));
         assert_eq!(begin, Begin::Started, "an interrupted run did not resume");
         let status = control.status(None);
         assert_eq!(status.position, 1);
@@ -1030,11 +1185,14 @@ mod tests {
             control.finish(Ending::Paused);
         }
         let control = Control::new(&store.0);
-        assert_eq!(control.begin(true, Vec::new), Begin::PausedPending);
+        assert_eq!(
+            control.begin(true, || rooms(&[("!a:x", 2), ("!b:x", 1)])),
+            Begin::PausedPending
+        );
         assert_eq!(control.status(None).state, "paused");
         // An explicit start continues it, from where it was.
         assert_eq!(
-            control.begin(false, || panic!("re-planned")),
+            control.begin(false, || rooms(&[("!a:x", 2), ("!b:x", 1)])),
             Begin::Started
         );
         assert_eq!(control.status(None).current_room, "!a:x");
@@ -1247,7 +1405,10 @@ mod tests {
         );
         // The next session of the same account picks it up at the same room.
         let next = Control::new(&store.0);
-        assert_eq!(next.begin(true, || panic!("re-planned")), Begin::Started);
+        assert_eq!(
+            next.begin(true, || rooms(&[("!a:x", 2), ("!b:x", 1)])),
+            Begin::Started
+        );
         assert_eq!(next.status(None).current_room, "!a:x");
     }
 
@@ -1276,7 +1437,7 @@ mod tests {
 
         // Resume, then cancel mid-room: the queue goes, complete rooms stay.
         assert_eq!(
-            control.begin(false, || panic!("re-planned")),
+            control.begin(false, || rooms(&[("!a:x", 2), ("!b:x", 1)])),
             Begin::Started
         );
         let cancelled_by = Arc::clone(&control);

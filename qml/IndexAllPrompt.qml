@@ -3,12 +3,12 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import MatrixClient
 
-// One-time "index all messages now?" corner card, offered after a sign-in made
+// One-time "index encrypted messages now?" corner card, offered after a sign-in made
 // on this device (never a restored session) and answered once per account
 // (MessageSearchController::offerIndexAllAfterSignIn). Non-modal, so it never
 // blocks first use, and it waits while a verification or recovery prompt is
 // up: `blocked` is bound by the host to those prompts. "Index now" starts the
-// same pass as Settings → Privacy & security → Index all rooms, which stays
+// same pass as Settings → Privacy & security → Index encrypted rooms, which stays
 // the way to do it later.
 Rectangle {
     id: root
@@ -40,7 +40,7 @@ Rectangle {
     border.width: 1
 
     Accessible.role: Accessible.AlertMessage
-    Accessible.name: qsTr("Index all messages now?")
+    Accessible.name: qsTr("Index encrypted messages now?")
 
     ColumnLayout {
         id: promptColumn
@@ -63,7 +63,7 @@ Rectangle {
             Label {
                 objectName: "indexAllPromptTitle"
                 Layout.fillWidth: true
-                text: qsTr("Index all messages now?")
+                text: qsTr("Index encrypted messages now?")
                 color: AppTheme.stormText
                 font.pixelSize: AppTheme.textBody
                 font.weight: AppTheme.weightBold
@@ -79,8 +79,8 @@ Rectangle {
             wrapMode: Text.WordWrap
             color: AppTheme.stormTextMuted
             font.pixelSize: AppTheme.textMeta
-            text: qsTr("So search can find older messages later, including "
-                       + "in encrypted rooms. It can take a while, uses "
+            text: qsTr("So search can find older messages in encrypted "
+                       + "rooms later. It can take a while, uses "
                        + "bandwidth, and stores the decrypted text on this "
                        + "device. You can also do it later in Settings.")
         }

@@ -394,7 +394,7 @@ Item {
           section: "privacy",
           breadcrumb: qsTr("Privacy & security · Ignored users"),
           anchor: "ignoredUsersCard" },
-        { title: qsTr("Index all rooms"),
+        { title: qsTr("Index encrypted rooms"),
           keywords: qsTr("message search index all rooms history local "
                          + "encrypted older messages backfill"),
           section: "privacy",
@@ -4491,7 +4491,7 @@ Item {
                                 }
 
                                 // "Index all rooms": the per-room history walk
-                                // over every joined room, one at a time. The
+                                // over encrypted joined rooms, one at a time. The
                                 // disclosure repeats the cost and the privacy
                                 // consequence where the button is.
                                 Label {
@@ -4502,9 +4502,9 @@ Item {
                                     lineHeight: AppTheme.lineHeightBody
                                     lineHeightMode: Text.ProportionalHeight
                                     textFormat: Text.PlainText
-                                    text: qsTr("Index all rooms fetches "
-                                        + "older history for every room you "
-                                        + "are in, one room at a time and up "
+                                    text: qsTr("Index encrypted rooms fetches "
+                                        + "older history for every encrypted room "
+                                        + "you are in, one room at a time and up "
                                         + "to the same per-room limit as "
                                         + "Index this room, so you can "
                                         + "search it here. It can "
@@ -4621,7 +4621,7 @@ Item {
                                               ? qsTr("Pause")
                                               : app.messageSearch.indexAllResumable
                                                 ? qsTr("Resume")
-                                                : qsTr("Index all rooms")
+                                                : qsTr("Index encrypted rooms")
                                         kind: app.messageSearch.indexAllActive
                                               ? "secondary" : "primary"
                                         onClicked: {
