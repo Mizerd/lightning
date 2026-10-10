@@ -345,6 +345,9 @@ GstPadProbeReturn swapSinkWhenIdle(GstPad *pad, GstPadProbeInfo *,
     }
     if (!next)
         return GST_PAD_PROBE_REMOVE;
+    // Without it the new sink gets no latency and drops buffers as late:
+    // choppy audio on the new output (measured on the SFU lane).
+    g_object_set(next, "async-handling", TRUE, nullptr);
     applyBinding(next, "outsink", swap->binding);
     if (GstPad *peer = gst_pad_get_peer(pad)) {
         GstElement *old = gst_pad_get_parent_element(peer);
