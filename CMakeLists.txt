@@ -4540,6 +4540,8 @@ if(BUILD_TESTING)
     target_link_libraries(presence-manager-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
     add_test(NAME presence-manager COMMAND presence-manager-test)
+    set_tests_properties(presence-manager PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
     # Chat backgrounds: precedence and opt-outs, stale answers, the scrim's
     # readability floor on all eleven presets, and gradient/depth grading.
