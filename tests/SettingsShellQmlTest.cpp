@@ -17,6 +17,7 @@
 #include <QStringList>
 #include <QGuiApplication>
 #include <QImage>
+#include <QPointer>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlExpression>
@@ -3136,6 +3137,59 @@ private slots:
                                            "recoloured the solid background "
                                            "(%1)").arg(flatAfterPick)));
         QCOMPARE(stopAfterDeselect, -1);
+    }
+
+    // With no custom theme yet, ONE click on "Create a theme" opens the
+    // editor and it stays open. Reported live as needing a second click; NOT
+    // reproduced by this case, which passes on the unfixed tree too.
+    void createAThemeOpensTheEditorOnTheFirstClick()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        store->discard();
+        QCoreApplication::processEvents();
+        QVERIFY(!store->exists());
+
+        // As in the app: Settings is built in the background (asynchronous
+        // Loader) before it is first shown.
+        auto *settingsLoader = item("settingsViewLoader");
+        QVERIFY(settingsLoader);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            settingsLoader->property("item").value<QObject *>(), 10000);
+
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        auto *button = item("customThemeEditButton");
+        auto *loader = item("themeEditorLoader");
+        QVERIFY(button);
+        QVERIFY(loader);
+        QCOMPARE(button->property("text").toString(),
+                 QStringLiteral("Create a theme"));
+        QVERIFY(!loader->property("active").toBool());
+
+        // A real pointer arrives first and hovers the button.
+        ensureVisible(button);
+        const QPoint centre = button->mapToScene(
+            QPointF(button->width() / 2, button->height() / 2)).toPoint();
+        QTest::mouseMove(m_window, centre - QPoint(40, 0));
+        QTest::qWait(50);
+        QTest::mouseMove(m_window, centre);
+        QTest::qWait(50);
+        clickItem(button);
+        QTRY_VERIFY(popup("themeEditorDialog"));
+        QPointer<QObject> dialog = popup("themeEditorDialog");
+        QTRY_VERIFY(dialog && dialog->property("opened").toBool());
+        // Still open once everything the open set off has settled.
+        QTest::qWait(300);
+        const bool stillOpen = dialog && dialog->property("opened").toBool();
+        const bool created = store->exists();
+
+        if (dialog)
+            QMetaObject::invokeMethod(dialog.data(), "close");
+        QTRY_VERIFY(!loader->property("active").toBool());
+
+        QVERIFY2(stillOpen, "the first click's editor closed again");
+        QVERIFY(created);
     }
 
     // "grad" in the editor's role filter lists exactly the surfaces that can

@@ -99,6 +99,7 @@
 
 class MatrixClient;
 class NotificationManager;
+class QQuickItem;
 class ReverseListProxyModel;
 class SecretStore;
 
@@ -784,6 +785,14 @@ public Q_SLOTS:
     // Returns whether it moved, so the key is consumed only then. Closing
     // clears the timeline's room, so nothing more is marked read.
     Q_INVOKABLE bool navigateBack();
+    // Escape's owner of last resort, asked before navigateBack(): a popup that
+    // is open in `within`'s window keeps Escape even when it does not hold
+    // the keyboard focus (a tap that opened it can hand the focus back to the
+    // timeline). The topmost popup whose closePolicy has
+    // CloseOnEscape is closed (a Dialog rejected, as Qt does); an open modal
+    // popup that does not close on Escape still owns the key. Hover tooltips
+    // never do. Returns whether a popup consumed the key.
+    Q_INVOKABLE bool dismissPopupForEscape(QQuickItem *within);
     // The user opened `roomId` by pointing at it (a click in the room list,
     // the people list, a Space overview, Ctrl+K): the message box should take
     // the keyboard (GitHub #29). Never called for a notification or for

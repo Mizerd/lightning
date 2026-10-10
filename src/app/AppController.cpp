@@ -81,6 +81,8 @@
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QPointer>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QTimer>
 #include <QPalette>
 #include <QStyleHints>
@@ -4163,6 +4165,53 @@ bool AppController::navigateBack()
     if (m_spaces && !m_spaces->activeSpaceId().isEmpty()) {
         openSpaceHome(QString());
         return true;
+    }
+    return false;
+}
+
+bool AppController::dismissPopupForEscape(QQuickItem *within)
+{
+    QQuickWindow *window = within ? within->window() : nullptr;
+    if (!window || !window->contentItem())
+        return false;
+    // Every in-scene popup's item is a child of the window's overlay, and its
+    // QObject parent is the QQuickPopup itself (QQuickPopupItem's
+    // constructor). Class names and properties only: no private Qt API.
+    QQuickItem *overlay = nullptr;
+    const auto top = window->contentItem()->childItems();
+    for (QQuickItem *child : top) {
+        if (child->inherits("QQuickOverlay")) {
+            overlay = child;
+            break;
+        }
+    }
+    if (!overlay)
+        return false;
+    // Topmost first: higher z, then later in the overlay's child order.
+    QList<QQuickItem *> stack = overlay->childItems();
+    std::reverse(stack.begin(), stack.end());
+    std::stable_sort(stack.begin(), stack.end(),
+                     [](const QQuickItem *a, const QQuickItem *b) {
+                         return a->z() > b->z();
+                     });
+    constexpr int kCloseOnEscape = 0x10; // QQuickPopup::CloseOnEscape
+    for (QQuickItem *item : std::as_const(stack)) {
+        QObject *popup = item->parent();
+        if (!item->isVisible() || !popup || !popup->inherits("QQuickPopup")
+            || popup->inherits("QQuickToolTip")
+            || !popup->property("visible").toBool())
+            continue;
+        const bool escapable =
+            (popup->property("closePolicy").toInt() & kCloseOnEscape) != 0;
+        if (escapable) {
+            if (popup->inherits("QQuickDialog"))
+                QMetaObject::invokeMethod(popup, "reject");
+            else
+                QMetaObject::invokeMethod(popup, "close");
+            return true;
+        }
+        if (popup->property("modal").toBool())
+            return true;
     }
     return false;
 }

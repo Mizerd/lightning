@@ -3885,10 +3885,21 @@ Rectangle {
                     }
                 }
                 // Clicking the timeline gives it keyboard focus without
-                // stealing focus while typing.
+                // stealing focus while typing. TapHandlers are non-exclusive,
+                // so a tap that opened a popup from a row (the read-receipt
+                // list, a profile card) reaches this one too, after the row's:
+                // leave the focus with the popup, or its Escape goes to the
+                // shell and closes the room.
                 TapHandler {
                     acceptedButtons: Qt.LeftButton
-                    onTapped: timeline.forceActiveFocus()
+                    onTapped: {
+                        for (var it = timeline.Window.activeFocusItem; it;
+                             it = it.parent) {
+                            if (it === timeline.Overlay.overlay)
+                                return
+                        }
+                        timeline.forceActiveFocus()
+                    }
                 }
 
                 // TimelineScrollController drives wheel and keyboard motion;

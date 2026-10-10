@@ -4,7 +4,10 @@
 //   * the room stops being the timeline's room, so nothing more is marked
 //     read (ReadReceiptCoordinator only ever sends for the model's room);
 //   * every earlier owner of Escape keeps it: a reply or an edit in the
-//     composer, another text field, and an open dialog.
+//     composer, another text field, and an open dialog;
+//   * an open popup (the read-receipt list, a profile card, the reaction
+//     picker) takes the first Escape even without the keyboard focus, and a
+//     hover tooltip does not.
 // Keys are sent to the window, so delivery follows real focus and
 // propagation, not a direct call.
 
@@ -17,6 +20,8 @@
 #include <QQuickWindow>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+
+#include <memory>
 
 #include "app/AppController.h"
 #include "auth/AuthManager.h"
@@ -239,6 +244,112 @@ private Q_SLOTS:
         escape();
         QTRY_VERIFY(!dialog->property("visible").toBool());
         QCOMPARE(m_controller->currentRoomId(), kRoom);
+    }
+
+    // The read-receipt list, opened by a real click on a row's facepile. The
+    // same tap reaches the timeline's own TapHandler, which used to take the
+    // focus back from the popover, so one Escape went to the shell and closed
+    // the popover (with its room) AND the room.
+    void theReceiptListTakesTheFirstEscape()
+    {
+        openRoomWithComposerFocused();
+        TimelineEvent read;
+        read.eventId = QStringLiteral("$escape-receipts");
+        read.roomId = kRoom;
+        read.sender = QStringLiteral("@bob:mock.local");
+        read.body = QStringLiteral("Seen by somebody");
+        read.timestamp = QDateTime::currentDateTimeUtc();
+        read.readBy.append({ QStringLiteral("@bob:mock.local"),
+                             QDateTime::currentMSecsSinceEpoch() });
+        read.readByTotal = 1;
+        QVERIFY(QMetaObject::invokeMethod(m_controller->timeline(),
+                                          "onEventAppended",
+                                          Q_ARG(QString, kRoom),
+                                          Q_ARG(TimelineEvent, read)));
+        QQuickItem *facepile = nullptr;
+        QTRY_VERIFY2((facepile = visibleReceiptRow()) != nullptr,
+                     "no row drew a read-receipt facepile");
+        const QPointF centre = facepile->mapToScene(
+            QPointF(facepile->width() / 2, facepile->height() / 2));
+        QTest::mouseClick(m_window, Qt::LeftButton, {}, centre.toPoint());
+        QObject *popover = item("mainScreen")->findChild<QObject *>(
+            QStringLiteral("receiptListPopover"));
+        QVERIFY(popover);
+        QTRY_VERIFY2(popover->property("opened").toBool(),
+                     "the facepile click did not open the reader list");
+
+        escape();
+        QTRY_VERIFY(!popover->property("visible").toBool());
+        QCOMPARE(m_controller->currentRoomId(), kRoom);
+
+        escape();
+        QCOMPARE(m_controller->currentRoomId(), QString());
+    }
+
+    // Every popup a timeline row opens owns Escape even when the keyboard
+    // focus is somewhere else under the shell (here the message box): the
+    // first Escape closes the popup and only the next one leaves the room.
+    void anOpenTimelinePopupKeepsEscapeWithoutTheFocus_data()
+    {
+        QTest::addColumn<QString>("name");
+        QTest::newRow("receipt list") << QStringLiteral("receiptListPopover");
+        QTest::newRow("profile card") << QStringLiteral("senderProfilePopover");
+        QTest::newRow("reaction picker") << QStringLiteral("sharedReactionPicker");
+    }
+    void anOpenTimelinePopupKeepsEscapeWithoutTheFocus()
+    {
+        QFETCH(QString, name);
+        openRoomWithComposerFocused();
+        QObject *popup = item("mainScreen")->findChild<QObject *>(name);
+        QVERIFY2(popup, qPrintable(name));
+        QVERIFY(QMetaObject::invokeMethod(popup, "open"));
+        QTRY_VERIFY(popup->property("opened").toBool());
+        // Wherever the open left the focus, put it back in the message box.
+        QQuickItem *composer = item("messageComposer");
+        QVERIFY(QMetaObject::invokeMethod(composer, "focusEditor"));
+        QTest::qWait(20);
+        QVERIFY(m_window->activeFocusItem());
+
+        escape();
+        QTRY_VERIFY2(!popup->property("visible").toBool(),
+                     "Escape did not close the popup");
+        QCOMPARE(m_controller->currentRoomId(), kRoom);
+    }
+
+    // A hover tooltip is not an Escape owner: it must not cost the user a
+    // keypress.
+    void aToolTipDoesNotKeepEscape()
+    {
+        openRoomWithComposerFocused();
+        QQmlComponent component(m_engine);
+        component.setData("import QtQuick.Controls\nToolTip { text: \"tip\" }\n",
+                          QUrl(QStringLiteral("escapetooltip.qml")));
+        std::unique_ptr<QObject> tip(component.create());
+        QVERIFY2(tip, qPrintable(component.errorString()));
+        tip->setProperty("parent", QVariant::fromValue(item("messageComposer")));
+        QVERIFY(QMetaObject::invokeMethod(tip.get(), "open"));
+        QTRY_VERIFY(tip->property("visible").toBool());
+
+        escape();
+        QCOMPARE(m_controller->currentRoomId(), QString());
+    }
+
+private:
+    QQuickItem *visibleReceiptRow() const
+    {
+        QList<QQuickItem *> stack{ m_window->contentItem() };
+        while (!stack.isEmpty()) {
+            QQuickItem *it = stack.takeLast();
+            if (it->objectName() == QLatin1String("readReceiptRow")
+                && it->isVisible() && it->width() > 0) {
+                const QPointF c = it->mapToScene(
+                    QPointF(it->width() / 2, it->height() / 2));
+                if (c.y() > 0 && c.y() < m_window->height())
+                    return it;
+            }
+            stack.append(it->childItems());
+        }
+        return nullptr;
     }
 };
 

@@ -14,7 +14,8 @@ Item {
     // composer (closing a completion, cancelling a reply or an edit) and every
     // other Escape owner would lose it. This handler sees Escape only when
     // nothing under the focus accepted it; dialogs, menus and the image viewer
-    // are popups, not children of this item, so they never reach it. The
+    // are popups, not children of this item, so they never reach it while
+    // they hold the focus, and one that lost it is asked first. The
     // find bar, info panel, search, thread and pinned layers keep their
     // TimelinePane Shortcut, which runs first while one of them is open.
     Keys.onEscapePressed: (event) => {
@@ -25,6 +26,14 @@ Item {
         if (focused && (focused instanceof TextInput || focused instanceof TextEdit)
                 && !shellRoot.insideComposer(focused)) {
             event.accepted = false
+            return
+        }
+        // An open popup owns Escape even without the focus: the tap that
+        // opened the read-receipt list also reached the timeline's own tap
+        // handler, which took the focus back, so one Escape closed the
+        // popover AND the room. Close the popup; the room stays.
+        if (app.dismissPopupForEscape(shellRoot)) {
+            event.accepted = true
             return
         }
         event.accepted = app.navigateBack()
