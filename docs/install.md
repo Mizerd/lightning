@@ -10,7 +10,7 @@ package is code-signed yet:
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
-Replace `0.10.0` below with the version you downloaded.
+Replace `0.10.1` below with the version you downloaded.
 
 - [Linux](#linux)
 - [NixOS](#nixos)
@@ -66,35 +66,35 @@ install, because its Qt is older than the one the rpm was built with: use the
 Flatpak there. RHEL is **untested**; the Qt 6.11 floor makes any current RHEL
 unlikely to satisfy it.
 
-The rpm installs a package named **`lightning-matrix`** from the release after 0.10.0 (the file
+The rpm installs a package named **`lightning-matrix`** from 0.10.1 on (the file
 keeps its `lightning-…` name; the deb is still `lightning`). Before that the
 rpm was named `lightning`, which is also GNU Lightning, a JIT library in
 Fedora's repositories at a higher version, so on Fedora `dnf upgrade` replaced
-Lightning 0.10.0 or older with that library (issue #19). Installing that release or
+Lightning releases before 0.10.1 with that library (issue #19). Installing that release or
 later, by hand or through the in-app update, takes over the old package
-cleanly. On 0.10.0 or older, keep dnf away from it until you update:
+cleanly. Before 0.10.1, keep dnf away from it until you update:
 
 ```sh
 echo 'excludepkgs=lightning' | sudo tee -a /etc/dnf/dnf.conf
 ```
 
 ```sh
-sudo apt install ./lightning_0.10.0_amd64.deb            # Debian 13+
-sudo apt install ./lightning_0.10.0_ubuntu2604_amd64.deb # Ubuntu 26.04+
-sudo dnf install ./lightning-0.10.0-1.x86_64.rpm         # Fedora 44+
-sudo zypper install --allow-unsigned-rpm ./lightning-0.10.0-1.x86_64.rpm  # openSUSE Tumbleweed
+sudo apt install ./lightning_0.10.1_amd64.deb            # Debian 13+
+sudo apt install ./lightning_0.10.1_ubuntu2604_amd64.deb # Ubuntu 26.04+
+sudo dnf install ./lightning-0.10.1-1.x86_64.rpm         # Fedora 44+
+sudo zypper install --allow-unsigned-rpm ./lightning-0.10.1-1.x86_64.rpm  # openSUSE Tumbleweed
 
 # Keep the version in the pattern: only the suffix is globbed, because some
 # browsers lower-case .AppImage. Lightning-* would match two downloads and run
 # the older one with the newer as its argument.
-chmod +x Lightning-0.10.0-x86_64.*pp[Ii]mage && ./Lightning-0.10.0-x86_64.*pp[Ii]mage
+chmod +x Lightning-0.10.1-x86_64.*pp[Ii]mage && ./Lightning-0.10.1-x86_64.*pp[Ii]mage
 
 flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
 flatpak install --user flathub org.lightning_matrix.Lightning   # from Flathub
-flatpak install --user ./lightning_0.10.0_amd64.flatpak          # or the release file; it fetches its runtime itself
+flatpak install --user ./lightning_0.10.1_amd64.flatpak          # or the release file; it fetches its runtime itself
 flatpak run org.lightning_matrix.Lightning
 
-sudo snap install --dangerous ./lightning_0.10.0_amd64.snap
+sudo snap install --dangerous ./lightning_0.10.1_amd64.snap
 ```
 
 The leading `./` matters for `apt`, `dnf` and `zypper`, or they look for a
@@ -126,7 +126,7 @@ Add lightning-matrix-client as an input:
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     lightning-matrix-client = {
       url = "github:Mizerd/lightning";
-      #url = "github:Mizerd/lightning/v0.10.0"; # Use this if you want a specific version
+      #url = "github:Mizerd/lightning/v0.10.1"; # Use this if you want a specific version
     };
   };
   . . . # Your outputs config
@@ -222,7 +222,7 @@ Details, uninstall switches and exit codes:
 
 Windows packages are **not code-signed**, so Windows shows an "unknown publisher"
 SmartScreen warning. Check the hash first
-(`Get-FileHash .\Lightning-0.10.0-<sha>-windows-x86_64.msi -Algorithm SHA256`),
+(`Get-FileHash .\Lightning-0.10.1-<sha>-windows-x86_64.msi -Algorithm SHA256`),
 then choose *More info → Run anyway*. Signing through
 [SignPath Foundation](https://signpath.org/) is planned but has not been applied
 for or granted — see the [code signing policy](code-signing-policy.md).

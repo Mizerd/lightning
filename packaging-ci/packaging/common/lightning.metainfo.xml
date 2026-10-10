@@ -60,29 +60,40 @@
   <screenshots>
     <!--
       Flathub requires an immutable ref: re-point these at the tag being
-      released in the release commit. A renamed file would 404 until that tag
-      exists (test-metainfo-consistency.py checks it).
+      released in the release commit. A file that is new at that tag 404s
+      until the tag exists (test-metainfo-consistency.py checks it).
 
-      Per Flathub's guidelines: an unedited compositor window capture no
-      larger than 1000x700 logical, default (light) settings, real content,
-      one-sentence captions without a full stop, and no language attribute on
+      Rendered by the screenshot demo (docs/screenshot-demo.md) and captured
+      as a KDE Plasma window with its own decoration and shadow, per Flathub's
+      quality guidelines: a 1000x700 logical window at scale 2 (2000x1400
+      plus the transparent shadow), default settings (Breeze, light: the app
+      follows the system style), fictional people and rooms. Captions: one
+      sentence, no full stop, no leading number, no language attribute on
       English values.
     -->
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.0/docs/screenshots/flathub/01-conversation.png</image>
-      <caption>A room conversation with replies, reactions and a thread</caption>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/01-conversation.png</image>
+      <caption>A room conversation with a shared picture, replies, reactions and a thread</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.0/docs/screenshots/flathub/02-threads.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/02-call.png</image>
+      <caption>A group call in a room with a screen share on the stage</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/03-threads.png</image>
       <caption>A thread and its replies, opened from the conversation it started in</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.0/docs/screenshots/flathub/03-call.png</image>
-      <caption>A four-person video call inside a room</caption>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/04-themes.png</image>
+      <caption>Building a custom theme with a gradient conversation background</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.0/docs/screenshots/flathub/04-themes.png</image>
-      <caption>Building a colour theme against a live sample of the interface</caption>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/05-settings.png</image>
+      <caption>Appearance settings with themes that follow the system light or dark style</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/06-verification.png</image>
+      <caption>Verifying a new session by comparing emoji</caption>
     </screenshot>
   </screenshots>
 
@@ -148,6 +159,18 @@
   </content_rating>
 
   <releases>
+    <release version="0.10.1" date="2026-10-07" type="stable">
+      <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.10.1</url>
+      <description>
+        <p>
+          A release about sharing your screen with the right sound, chats that
+          look the way you set them on every device, and a long list of fixes
+          that came from reports: bubbles whose captions you could not read,
+          muted rooms that were not quiet, a Flatpak that crashed on start, and
+          an rpm that dnf replaced with a different program.
+        </p>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-10-01" type="stable">
       <url type="details">https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.10.0</url>
       <description>

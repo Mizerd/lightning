@@ -487,3 +487,12 @@ signature VERIFIED against the key extracted from the shipped `.deb`
 (`pnNX0yQ…`, key id `lightning-release-2026a`) with a one-field-changed copy
 REJECTED; the GitHub tag peels to `e177135`; 11 mirror assets; and the `.deb`
 fetched FROM THE MIRROR matches the GitLab-signed SHA-256 exactly.
+
+### GIF search keys in the Flathub manifest (Rokas, 2026-10-07)
+
+The root `org.lightning_matrix.Lightning.yaml` carries the GIPHY and KLIPY
+application keys in its build-options env, so a Flathub build has GIF search the
+way Sable's does. This is a deliberate exception to §10's "never embed in
+tracked source": a key compiled into a distributed binary is extractable anyway,
+and Flathub builds from the manifest alone. The keys were inserted by Rokas,
+never by an agent; rotate them at the provider if they are abused.
