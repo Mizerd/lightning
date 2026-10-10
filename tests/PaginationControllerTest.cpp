@@ -407,6 +407,54 @@ private Q_SLOTS:
         QVERIFY(controller.busy());
     }
 
+    void reachedStartWithoutLoadingNotificationClearsPresentation_data()
+    {
+        QTest::addColumn<int>("inserted");
+        QTest::newRow("empty-final-page") << 0;
+        QTest::newRow("final-page-with-rows") << 3;
+    }
+
+    void reachedStartWithoutLoadingNotificationClearsPresentation()
+    {
+        QFETCH(int, inserted);
+        FakeClient client;
+        TimelineModel model;
+        model.setClient(&client);
+        model.setRoomId(kRoomA);
+        PaginationController controller;
+        controller.setClient(&client);
+        controller.setTimelineModel(&model);
+        controller.setRoomId(kRoomA);
+        // Prove completion clears the flight, rather than waiting for the
+        // watchdog to abandon it after the backend already reached the start.
+        controller.setRequestWatchdogForTest(0);
+        QSignalSpy completed(&controller,
+                             &PaginationController::paginationCompleted);
+        QSignalSpy changed(&controller, &PaginationController::stateChanged);
+
+        controller.requestViewportFill();
+        QCOMPARE(controller.presentationState(), PaginationController::Loading);
+        changed.clear();
+        // The terminal state is authoritative even if the intermediate loading
+        // notification was missed (the Rust event queue can drop old events).
+        // FakeClient deliberately does not call beginLoading() here.
+        client.completeBatch(kRoomA, inserted, true);
+        QVERIFY(!model.paginating());
+        QVERIFY(!model.canPaginate());
+        QVERIFY(controller.reachedStart());
+        QTRY_COMPARE_WITH_TIMEOUT(completed.count(), 1, 1000);
+        QCOMPARE(completed.first().at(0).toInt(), inserted);
+        QVERIFY(completed.first().at(1).toBool());
+        QVERIFY(!completed.first().at(2).toBool());
+        QVERIFY(!controller.busy());
+        QCOMPARE(controller.presentationState(), PaginationController::Hidden);
+        // The real pane's header bindings need this notify to collapse.
+        QVERIFY(!changed.isEmpty());
+        controller.requestViewportFill();
+        controller.requestNearTop(true);
+        QCOMPARE(client.loadOlderCalls, 1);
+    }
+
     void duplicateRequestsSuppressedBeforeLoadingEvent()
     {
         FakeClient client;

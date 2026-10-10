@@ -559,7 +559,13 @@ void PaginationController::onPaginationStateChanged(const QString &roomId)
 
     // Neither loading nor failed: the batch completed (or state was reset).
     // Only a tracked batch counts.
-    if (m_requestActive && m_seenLoading && !m_completionPending) {
+    // Reaching the start is terminal even if the intermediate loading event
+    // was missed. Keeping that prerequisite would strand our local flight
+    // (and the Loading presentation) after the backend is already exhausted.
+    // Ordinary idle/readiness notifications still need an observed loading
+    // event so they cannot prematurely complete a dispatched request.
+    if (m_requestActive && (m_seenLoading || reachedStart())
+        && !m_completionPending) {
         m_completionPending = true;
         m_completionReachedStart = reachedStart();
         // If rows are already present, one drain suffices. If idle arrived
