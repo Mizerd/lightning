@@ -18,6 +18,9 @@
 #include <mutex>
 #include <thread>
 
+#if defined(Q_OS_UNIX)
+#include <unistd.h> // ::close in the PipeWire pass, also compiled on macOS
+#endif
 #if defined(Q_OS_UNIX) && !defined(Q_OS_DARWIN)
 #include <poll.h>
 #include <sys/socket.h>
