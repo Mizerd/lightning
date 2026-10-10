@@ -1,6 +1,7 @@
 #include "GstCallMediaBackend.h"
 
 #include "calls/CaptureClock.h"
+#include "calls/RtpVp8Payloader.h"
 #include "calls/GstBootstrap.h"
 
 #include <QCoreApplication>
@@ -24,6 +25,19 @@
 // Coarse lifecycle/category lines only. Never log SDP, candidates, TURN
 // credentials, or GStreamer error details that could embed them.
 Q_LOGGING_CATEGORY(lcCallMedia, "matrix.calls.media")
+
+unsigned int GstCallMediaBackend::microphoneRtpMtuForTest() const
+{
+    if (!m_session.pipeline)
+        return 0;
+    GstElement *pay = gst_bin_get_by_name(GST_BIN(m_session.pipeline), "micpay");
+    if (!pay)
+        return 0;
+    unsigned int mtu = 0;
+    g_object_get(pay, "mtu", &mtu, nullptr);
+    gst_object_unref(pay);
+    return mtu;
+}
 
 namespace {
 
@@ -611,10 +625,10 @@ bool GstCallMediaBackend::startSession(const QString &callId, bool offerer,
         // caps (a caps change on webrtcbin's pad can ask for renegotiation).
         "! audio/x-raw,format=S16LE,layout=interleaved,rate=48000,channels=1 "
         "! opusenc "
-        "! rtpopuspay name=micpay pt=%1 ssrc=%2 "
+        "! rtpopuspay name=micpay pt=%1 ssrc=%2 mtu=%3 "
         "! application/x-rtp,media=audio,encoding-name=OPUS,payload=%1,"
         "ssrc=(uint)%2 "
-        "! wb. ").arg(payload).arg(ssrc);
+        "! wb. ").arg(payload).arg(ssrc).arg(lightning::rtp::kRtpPayloadMtu);
     GError *error = nullptr;
     GstElement *pipeline =
         gst_parse_launch(description.toUtf8().constData(), &error);

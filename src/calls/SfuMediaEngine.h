@@ -892,6 +892,9 @@ public:
     void installDecryptProbeForTest(GstPad *pad, bool video,
                                     const QString &streamId)
     { installDecryptProbe(pad, video, streamId); }
+    /// Test-only: exercise encryption before the real RTP payloader.
+    void installEncryptProbeForTest(GstPad *pad, bool video)
+    { installEncryptProbe(pad, video); }
     /// Require encryption: with no key installed, frames are dropped rather
     /// than sent in the clear.
     void setEncryptionRequired(bool required);

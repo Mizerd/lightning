@@ -7,6 +7,7 @@
 #include <gst/gst.h>
 #include <gst/rtp/gstrtpbasepayload.h>
 #include <gst/rtp/gstrtpbuffer.h>
+#include <gst/rtp/gstrtphdrext.h>
 
 namespace {
 
@@ -71,6 +72,39 @@ gboolean setCaps(GstRTPBasePayload *payload, GstCaps *caps)
     return gst_rtp_base_payload_set_outcaps(payload, nullptr);
 }
 
+gsize headerExtensionBudget(GstRTPBasePayload *payload, GstBuffer *buffer)
+{
+    // GstRTPBasePayload adds extensions in push_list(), AFTER we fragment.
+    // Reserve the four-byte extension prefix, each extension's worst-case
+    // two-byte element header and data, rounded to a four-byte word boundary.
+    gsize bytes = 0;
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(payload), "extensions")) {
+        GValue extensions = G_VALUE_INIT;
+        g_value_init(&extensions, GST_TYPE_ARRAY);
+        g_object_get_property(G_OBJECT(payload), "extensions", &extensions);
+        for (guint i = 0; i < gst_value_array_get_size(&extensions); ++i) {
+            auto *ext = GST_RTP_HEADER_EXTENSION(g_value_get_object(
+                gst_value_array_get_value(&extensions, i)));
+            bytes += 2 + gst_rtp_header_extension_get_max_size(ext, buffer);
+        }
+        g_value_unset(&extensions);
+    } else {
+        // GStreamer 1.20/1.22 exposes negotiated extmaps but not the extension
+        // objects. Bound each by RFC 8285's maximum two-byte data length.
+        GstCaps *caps = gst_pad_get_current_caps(payload->srcpad);
+        if (caps && !gst_caps_is_empty(caps)) {
+            const GstStructure *s = gst_caps_get_structure(caps, 0);
+            for (int i = 0; i < gst_structure_n_fields(s); ++i) {
+                if (g_str_has_prefix(gst_structure_nth_field_name(s, i), "extmap-"))
+                    bytes += 2 + 255;
+            }
+        }
+        if (caps)
+            gst_caps_unref(caps);
+    }
+    return bytes ? 4 + ((bytes + 3) & ~gsize(3)) : 0;
+}
+
 GstFlowReturn handleBuffer(GstRTPBasePayload *payload, GstBuffer *buffer)
 {
     GstMapInfo map;
@@ -80,10 +114,11 @@ GstFlowReturn handleBuffer(GstRTPBasePayload *payload, GstBuffer *buffer)
     }
 
     // `mtu` is the whole packet budget: reserve the RTP header and the
-    // descriptor from it.
+    // descriptor and extensions from it. The encrypted frame (including its
+    // authentication trailer) is already the input and is fragmented here.
     const guint mtu = GST_RTP_BASE_PAYLOAD_MTU(payload);
-    const guint overhead =
-        gst_rtp_buffer_calc_header_len(0) + kDescriptorBytes;
+    const gsize overhead = gst_rtp_buffer_calc_header_len(0)
+        + kDescriptorBytes + headerExtensionBudget(payload, buffer);
     if (mtu <= overhead) {
         gst_buffer_unmap(buffer, &map);
         gst_buffer_unref(buffer);
@@ -169,7 +204,8 @@ void lightning_rtp_vp8_pay_init(LightningRtpVp8Pay *self)
         (g_random_int() & kPictureIdMask) | 1u);
     // `perfect-rtptime` derives timestamps from byte offsets, which only suits
     // audio; video timestamps must follow the frame PTS.
-    g_object_set(self, "perfect-rtptime", FALSE, nullptr);
+    g_object_set(self, "perfect-rtptime", FALSE,
+                 "mtu", lightning::rtp::kRtpPayloadMtu, nullptr);
 }
 
 } // namespace

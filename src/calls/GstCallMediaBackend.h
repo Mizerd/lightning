@@ -74,6 +74,7 @@ public:
     // headless CI can run a real loopback handshake. Set before the first
     // call.
     void setTestToneMode(bool on) { m_testTone = on; }
+    unsigned int microphoneRtpMtuForTest() const;
     /// Test-only, test-tone mode: RTP packets that reached the Opus receive
     /// chain in the current session.
     int receivedAudioPacketsForTest() const

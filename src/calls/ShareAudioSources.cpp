@@ -1,4 +1,5 @@
 #include "calls/ShareAudioSources.h"
+#include "calls/RtpVp8Payloader.h"
 
 #include <QCoreApplication>
 #include <QElapsedTimer>
@@ -393,7 +394,7 @@ QString encodedTrackDescription(const QString &sourceDescription, quint32 ssrc,
                "! valve name=sharevalve drop=false "
                "! opusenc name=shareaudioenc audio-type=generic "
                "bitrate=128000 "
-               "! rtpopuspay pt=111 ssrc=%2 "
+               "! rtpopuspay pt=111 ssrc=%2 mtu=%4 "
                // The ssrc must be in the caps, as for the microphone bin, or
                // the offer has no a=ssrc and the SFU cannot attribute the RTP.
                "! capsfilter caps=\"application/x-rtp,media=audio,"
@@ -404,7 +405,8 @@ QString encodedTrackDescription(const QString &sourceDescription, quint32 ssrc,
                                         "interval=1000000000 "
                                         "post-messages=true ")
                              .arg(levelElementName())
-                       : QString());
+                       : QString())
+        .arg(lightning::rtp::kRtpPayloadMtu);
 }
 
 QSet<qint64> ancestorsOf(qint64 pid, const QHash<qint64, qint64> &parentOf)

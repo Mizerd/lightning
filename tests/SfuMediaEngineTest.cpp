@@ -27,6 +27,8 @@
 #include <gst/base/gstbasesink.h>
 #include <gst/gst.h>
 #include <gst/rtp/gstrtpbuffer.h>
+#include <gst/rtp/gstrtphdrext.h>
+#include <gst/rtp/gstrtpbasepayload.h>
 #include <gst/video/video-event.h>
 
 #include <atomic>
@@ -4170,6 +4172,172 @@ private slots:
         // The stripper must strip, or the ban above is vacuous.
         QVERIFY2(code.contains(QStringLiteral("pipewiresrc fd=")),
                  "the comment stripper ate the code");
+    }
+
+    void allAudioPayloadersUseTheSharedMtu()
+    {
+        SfuMediaEngine engine;
+        engine.setTestSourceMode(true);
+        engine.start();
+        engine.publishAudio(QStringLiteral("mtu-audio"));
+        GstElement *bin = engine.publishedBinForTest(QStringLiteral("mtu-audio"));
+        QVERIFY(bin);
+        GstIterator *it = gst_bin_iterate_recurse(GST_BIN(bin));
+        GValue item = G_VALUE_INIT;
+        int checked = 0;
+        unsigned int micMtu = 0;
+        while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            if (GST_IS_RTP_BASE_PAYLOAD(element)) {
+                g_object_get(element, "mtu", &micMtu, nullptr);
+                ++checked;
+            }
+            g_value_reset(&item);
+        }
+        g_value_unset(&item);
+        gst_iterator_free(it);
+        engine.stop();
+        QCOMPARE(checked, 1);
+        QCOMPARE(micMtu, lightning::rtp::kRtpPayloadMtu);
+
+        const QString share = lightning::shareaudio::encodedTrackDescription(
+            QStringLiteral("audiotestsrc"), 12345u, false);
+        QVERIFY(share.contains(QStringLiteral("mtu=%1").arg(lightning::rtp::kRtpPayloadMtu)));
+        GError *error = nullptr;
+        bin = gst_parse_bin_from_description(share.toUtf8().constData(), TRUE, &error);
+        QVERIFY2(!error, error ? error->message : "");
+        QVERIFY(bin);
+        auto *encoder = gst_bin_get_by_name(GST_BIN(bin), "shareaudioenc");
+        QVERIFY(encoder);
+        auto *src = gst_element_get_static_pad(encoder, "src");
+        auto *peer = gst_pad_get_peer(src);
+        auto *pay = gst_pad_get_parent_element(peer);
+        unsigned int shareMtu = 0;
+        g_object_get(pay, "mtu", &shareMtu, nullptr);
+        gst_object_unref(pay);
+        gst_object_unref(peer);
+        gst_object_unref(src);
+        gst_object_unref(encoder);
+        gst_object_unref(bin);
+        QCOMPARE(shareMtu, lightning::rtp::kRtpPayloadMtu);
+    }
+
+    void videoPacketsStayWithinTheRtpMtu_data()
+    {
+        QTest::addColumn<bool>("encrypted");
+        QTest::addColumn<int>("extensionId");
+        QTest::addColumn<unsigned int>("mtu");
+        QTest::newRow("camera-clear") << false << 0 << lightning::rtp::kRtpPayloadMtu;
+        QTest::newRow("share-encrypted") << true << 0 << lightning::rtp::kRtpPayloadMtu;
+        QTest::newRow("encrypted-one-byte-extension") << true << 3 << lightning::rtp::kRtpPayloadMtu;
+        QTest::newRow("encrypted-two-byte-extension") << true << 20 << lightning::rtp::kRtpPayloadMtu;
+        QTest::newRow("custom-mtu-with-extension") << true << 3 << 400u;
+    }
+
+    void videoPacketsStayWithinTheRtpMtu()
+    {
+        QFETCH(bool, encrypted);
+        QFETCH(int, extensionId);
+        QFETCH(unsigned int, mtu);
+        lightning::rtp::registerVp8Payloader();
+        SfuMediaEngine engine;
+        // Use the production camera/share composer, with a large real keyframe.
+        const QString description = SfuMediaEngine::videoPipelineDescription(
+            QStringLiteral("videotestsrc num-buffers=1 pattern=snow"),
+            QStringLiteral("identity"),
+            QStringLiteral("video/x-raw,width=640,height=480,framerate=30/1"),
+            QStringLiteral("vp8enc deadline=1"), QString(), 12345u,
+            QStringLiteral("videoconvert ! videoscale"),
+            SfuMediaEngine::captureEntryFilter(false));
+        QVERIFY(description.contains(QStringLiteral("mtu=%1").arg(lightning::rtp::kRtpPayloadMtu)));
+        GError *error = nullptr;
+        GstElement *pipeline = gst_parse_launch(
+            (description + QStringLiteral(" ! appsink name=packets sync=false"))
+                .toUtf8().constData(), &error);
+        QVERIFY2(!error, error ? error->message : "");
+        QVERIFY(pipeline);
+        auto pipelineGuard = std::shared_ptr<GstElement>(pipeline, [](GstElement *p) {
+            gst_element_set_state(p, GST_STATE_NULL);
+            gst_object_unref(p);
+        });
+        GstElement *pay = nullptr;
+        GstIterator *it = gst_bin_iterate_elements(GST_BIN(pipeline));
+        GValue element = G_VALUE_INIT;
+        while (gst_iterator_next(it, &element) == GST_ITERATOR_OK) {
+            auto *candidate = GST_ELEMENT(g_value_get_object(&element));
+            if (GST_IS_RTP_BASE_PAYLOAD(candidate))
+                pay = GST_ELEMENT(gst_object_ref(candidate));
+            g_value_reset(&element);
+        }
+        g_value_unset(&element);
+        gst_iterator_free(it);
+        QVERIFY(pay);
+        auto payGuard = std::shared_ptr<GstElement>(pay, gst_object_unref);
+        unsigned int configuredMtu = 0;
+        g_object_get(pay, "mtu", &configuredMtu, nullptr);
+        // This assertion fails on the old production composer (default 1400).
+        QCOMPARE(configuredMtu, lightning::rtp::kRtpPayloadMtu);
+        g_object_set(pay, "mtu", mtu, nullptr);
+        if (extensionId) {
+            GstRTPHeaderExtension *ext = gst_rtp_header_extension_create_from_uri(
+                "urn:ietf:params:rtp-hdrext:sdes:mid");
+            QVERIFY(ext);
+            gst_rtp_header_extension_set_id(ext, extensionId);
+            g_object_set(ext, "mid", "video", nullptr);
+            g_signal_emit_by_name(pay, "add-extension", ext);
+            gst_object_unref(ext);
+        }
+        const QByteArray key(32, 'k');
+        engine.setOutboundKey(0, key);
+        engine.setEncryptionRequired(encrypted);
+        auto *enc = gst_bin_get_by_name(GST_BIN(pipeline), "videoenc");
+        QVERIFY(enc);
+        auto *pad = gst_element_get_static_pad(enc, "src");
+        if (encrypted)
+            engine.installEncryptProbeForTest(pad, true);
+        gst_object_unref(pad);
+        gst_object_unref(enc);
+        auto *sink = gst_bin_get_by_name(GST_BIN(pipeline), "packets");
+        QVERIFY(sink);
+        auto sinkGuard = std::shared_ptr<GstElement>(sink, gst_object_unref);
+        QVERIFY(gst_element_set_state(pipeline, GST_STATE_PLAYING) != GST_STATE_CHANGE_FAILURE);
+        int packets = 0;
+        gsize largest = 0;
+        bool marker = false;
+        bool sawExtension = false;
+        QByteArray frame;
+        for (int i = 0; i < 4096 && !marker; ++i) {
+            GstSample *sample = nullptr;
+            g_signal_emit_by_name(sink, "try-pull-sample", GstClockTime(3 * GST_SECOND), &sample);
+            if (!sample)
+                break;
+            auto *buffer = gst_sample_get_buffer(sample);
+            largest = std::max(largest, gst_buffer_get_size(buffer));
+            GstRTPBuffer rtp = GST_RTP_BUFFER_INIT;
+            QVERIFY(gst_rtp_buffer_map(buffer, GST_MAP_READ, &rtp));
+            sawExtension |= gst_rtp_buffer_get_extension(&rtp);
+            const auto *payload = static_cast<const char *>(gst_rtp_buffer_get_payload(&rtp));
+            frame.append(payload + 4, gst_rtp_buffer_get_payload_len(&rtp) - 4);
+            marker = gst_rtp_buffer_get_marker(&rtp);
+            gst_rtp_buffer_unmap(&rtp);
+            gst_sample_unref(sample);
+            ++packets;
+        }
+        // Stop probes while their engine is still alive.
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+        QVERIFY(marker);
+        QVERIFY(packets > 2);
+        QVERIFY(frame.size() > 10000);
+        QCOMPARE(sawExtension, extensionId != 0);
+        QVERIFY2(largest <= mtu, qPrintable(QStringLiteral("largest RTP packet %1 exceeds MTU %2")
+                                            .arg(largest).arg(mtu)));
+        qInfo() << "largest RTP packet" << largest << "budget" << mtu << "packets" << packets;
+        if (encrypted) {
+            QCOMPARE(engine.framesEncrypted(), 1u);
+            CallFrameCryptor receiver;
+            receiver.setKey(0, key);
+            QVERIFY(!receiver.decryptFrame(frame, CallFrameCryptor::FrameKind::VideoKey).isEmpty());
+        }
     }
 
     void theScreenSharePipelineParsesIncludingItsSelfView()

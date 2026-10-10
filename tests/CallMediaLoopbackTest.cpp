@@ -30,6 +30,7 @@
 #endif
 
 #include "calls/GstCallMediaBackend.h"
+#include "calls/RtpVp8Payloader.h"
 
 namespace {
 
@@ -528,6 +529,17 @@ private Q_SLOTS:
                      "true the reads below the unref would be safe, and this "
                      "case is the record of why they are hoisted")
                                 .arg(refs)));
+    }
+
+    void theMicrophonePayloaderUsesTheSharedMtu()
+    {
+        GstCallMediaBackend engine;
+        engine.setTestToneMode(true);
+        const QString callId = QStringLiteral("mtu-test");
+        engine.createOffer(callId);
+        const unsigned int mtu = engine.microphoneRtpMtuForTest();
+        engine.close(callId);
+        QCOMPARE(mtu, lightning::rtp::kRtpPayloadMtu);
     }
 
     void loopbackCallReachesConnectedBothWays()

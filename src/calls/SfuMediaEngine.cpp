@@ -3660,7 +3660,7 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                          "%5 "
                          "! opusenc name=audioenc "
                          // Explicit ssrc: see nextPublishSsrc().
-                         "! rtpopuspay pt=111 ssrc=%2 "
+                         "! rtpopuspay pt=111 ssrc=%2 mtu=%6 "
                          // A capsfilter, not a bare caps string: gst_parse
                          // reads trailing caps as an element name. webrtcbin
                          // builds the m= section from these caps: the ssrc
@@ -3678,7 +3678,8 @@ void SfuMediaEngine::publishAudio(const QString &cid)
                    QString::number(
                        audioFactorPercent(m_microphoneGain.load()) / 100.0,
                        'f', 3),
-                   captureLevelStage + gainStage, levelStage);
+                   captureLevelStage + gainStage, levelStage)
+              .arg(lightning::rtp::kRtpPayloadMtu);
 
     qCInfo(lcSfuMedia) << "publishing microphone: valve drop="
                        << m_microphoneMuted << "device-channels="
@@ -4579,14 +4580,15 @@ QString SfuMediaEngine::videoPipelineDescription(const QString &source,
                "! valve name=vidvalve drop=false ! %3 name=videoenc "
                // Our payloader, not rtpvp8pay; see RtpVp8Payloader.h.
                // Explicit ssrc: see nextPublishSsrc().
-               "! %6 pt=96 ssrc=%5 "
+               "! %6 pt=96 ssrc=%5 mtu=%10 "
                // The ssrc must be in the caps; see publishAudio().
                "! capsfilter caps=\"application/x-rtp,media=video,"
                "encoding-name=VP8,payload=96,clock-rate=(int)90000,"
                "ssrc=(uint)%5\"")
         .arg(source, limits, encoder, selfView, QString::number(ssrc),
              QLatin1String(lightning::rtp::vp8PayloaderName()), rateStage, scaleStage,
-             entryFilter);
+             entryFilter)
+        .arg(lightning::rtp::kRtpPayloadMtu);
 }
 
 QString SfuMediaEngine::trackSidFromMsid(const QString &msid)
