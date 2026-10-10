@@ -380,6 +380,99 @@ void slow_stop_cam_class_init(SlowStopCamClass *klass)
     GST_ELEMENT_CLASS(klass)->change_state = slowStopCamChangeState;
 }
 
+/// The loudest sample (in thousandths of full scale) of the decoded audio
+/// crossing a pad, and how many buffers did.
+struct PeakMeter {
+    std::atomic<int> peakMilli{0};
+    std::atomic<int> buffers{0};
+};
+
+GstPadProbeReturn meterPeak(GstPad *pad, GstPadProbeInfo *info, gpointer data)
+{
+    auto *meter =
+        static_cast<std::shared_ptr<PeakMeter> *>(data)->get();
+    GstBuffer *buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+    GstCaps *caps = gst_pad_get_current_caps(pad);
+    if (!buffer || !caps) {
+        if (caps)
+            gst_caps_unref(caps);
+        return GST_PAD_PROBE_OK;
+    }
+    const gchar *format =
+        gst_structure_get_string(gst_caps_get_structure(caps, 0), "format");
+    GstMapInfo map;
+    if (format && gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+        double peak = 0;
+        if (g_strcmp0(format, "S16LE") == 0) {
+            const auto *samples = reinterpret_cast<const gint16 *>(map.data);
+            for (gsize i = 0; i < map.size / 2; ++i)
+                peak = qMax(peak, qAbs(double(samples[i])) / 32768.0);
+        } else if (g_strcmp0(format, "F32LE") == 0) {
+            const auto *samples = reinterpret_cast<const float *>(map.data);
+            for (gsize i = 0; i < map.size / 4; ++i)
+                peak = qMax(peak, qAbs(double(samples[i])));
+        }
+        gst_buffer_unmap(buffer, &map);
+        const int milli = int(peak * 1000.0);
+        int seen = meter->peakMilli.load();
+        while (milli > seen
+               && !meter->peakMilli.compare_exchange_weak(seen, milli)) {
+        }
+        meter->buffers.fetch_add(1);
+    }
+    gst_caps_unref(caps);
+    return GST_PAD_PROBE_OK;
+}
+
+void meterPeaksAt(GstPad *pad, const std::shared_ptr<PeakMeter> &meter)
+{
+    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, meterPeak,
+                      new std::shared_ptr<PeakMeter>(meter), [](gpointer data) {
+                          delete static_cast<std::shared_ptr<PeakMeter> *>(
+                              data);
+                      });
+}
+
+/// The first element inside `bin` whose name starts with `prefix`, with a
+/// ref, or null.
+GstElement *elementWithPrefix(GstElement *bin, const char *prefix)
+{
+    if (!bin)
+        return nullptr;
+    GstElement *found = nullptr;
+    GstIterator *it = gst_bin_iterate_recurse(GST_BIN(bin));
+    GValue item = G_VALUE_INIT;
+    while (!found && gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+        auto *element = GST_ELEMENT(g_value_get_object(&item));
+        if (g_str_has_prefix(GST_OBJECT_NAME(element), prefix))
+            found = GST_ELEMENT(gst_object_ref(element));
+        g_value_reset(&item);
+    }
+    if (G_IS_VALUE(&item))
+        g_value_unset(&item);
+    gst_iterator_free(it);
+    return found;
+}
+
+/// The current caps on `pad` of the element `name` inside `bin`, as text.
+QString padCapsOf(GstElement *bin, const char *name, const char *pad)
+{
+    QString text;
+    if (GstElement *element = gst_bin_get_by_name(GST_BIN(bin), name)) {
+        if (GstPad *p = gst_element_get_static_pad(element, pad)) {
+            if (GstCaps *caps = gst_pad_get_current_caps(p)) {
+                gchar *s = gst_caps_to_string(caps);
+                text = QString::fromUtf8(s);
+                g_free(s);
+                gst_caps_unref(caps);
+            }
+            gst_object_unref(p);
+        }
+        gst_object_unref(element);
+    }
+    return text;
+}
+
 /// Wires a sender's publisher to a receiver's subscriber, the way the SFU
 /// relays them, and records the first failure either reports.
 void wireLoopback(SfuMediaEngine &sender, SfuMediaEngine &receiver,
@@ -7118,6 +7211,269 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(engine.microphoneRestartsForTest(), 1, 3000);
         QCOMPARE(trackFailed.count(), 1);
         engine.stop();
+    }
+
+    // A microphone picked during a group call reaches the far end at once,
+    // on the same track: until 2026-10-09 setPreferredDevices() only stored
+    // the choice, and the call kept sending the old device until the next
+    // publish. Silent fake microphone first, a loud one picked mid-call, and
+    // back; the receiver's decoded output is what is measured.
+    void aMicrophonePickedMidCallReachesTheFarEnd()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        sender.setNoiseSuppressionMode(calls::noise::Mode::Off);
+        const QString silent =
+            QStringLiteral("audiotestsrc is-live=true wave=silence");
+        const QString loud = QStringLiteral(
+            "audiotestsrc is-live=true wave=sine freq=440 volume=0.5");
+        sender.setMicrophoneSourceForTest(silent);
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        int offers = 0;
+        connect(&sender, &SfuMediaEngine::localDescription, this,
+                [&](int target, const QString &kind, const QString &) {
+                    if (target == int(SfuMediaEngine::Target::Publisher)
+                        && kind == QStringLiteral("offer"))
+                        ++offers;
+                });
+        QStringList arrived;
+        connect(&receiver, &SfuMediaEngine::remoteTrackAdded, this,
+                [&](const QString &streamId, const QString &,
+                    const QString &) { arrived << streamId; });
+
+        sender.start();
+        receiver.start();
+        const QByteArray key(32, 'k');
+        sender.setEncryptionRequired(true);
+        receiver.setEncryptionRequired(true);
+        sender.setOutboundKey(3, key);
+        receiver.setInboundKey(QStringLiteral("first"), 3, key);
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            !arrived.isEmpty(),
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.framesDecrypted() > 0,
+            qPrintable(QStringLiteral("nothing decrypted; failure=%1")
+                           .arg(failure)),
+            45000);
+
+        // The far end's decoded audio, at the track's volume element.
+        auto meter = std::make_shared<PeakMeter>();
+        GstElement *bin = receiver.receiveBinForTest(QStringLiteral("first"));
+        QVERIFY(bin);
+        GstElement *volume = elementWithPrefix(bin, "outvol_");
+        QVERIFY(volume);
+        GstPad *heard = gst_element_get_static_pad(volume, "src");
+        gst_object_unref(volume);
+        QVERIFY(heard);
+        meterPeaksAt(heard, meter);
+        gst_object_unref(heard);
+        const auto peakOver = [&meter](int ms) {
+            meter->peakMilli.store(0);
+            const int buffers = meter->buffers.load();
+            QTest::qWait(ms);
+            return meter->buffers.load() > buffers ? meter->peakMilli.load()
+                                                   : -1;
+        };
+
+        GstElement *sendBin =
+            sender.publishedBinForTest(QStringLiteral("first"));
+        QVERIFY(sendBin);
+        GstElement *valve = gst_bin_get_by_name(GST_BIN(sendBin), "micvalve");
+        QVERIFY(valve);
+        const QString encoderCaps = padCapsOf(sendBin, "audioenc", "sink");
+        QVERIFY(!encoderCaps.isEmpty());
+
+        QTest::qWait(500);
+        const int before = peakOver(1000);
+        QVERIFY2(before >= 0, "no decoded audio reached the receiver");
+        QVERIFY2(before < 20, qPrintable(QStringLiteral(
+                                   "the silent microphone peaked at %1/1000")
+                                   .arg(before)));
+        const int offersBefore = offers;
+        const quint64 droppedBefore = receiver.framesDropped();
+
+        // The pick, as AppController hands it over on activeDevicesChanged.
+        sender.setMicrophoneSourceForTest(loud);
+        sender.setPreferredDevices({}, {QStringLiteral("loud-mic"),
+                                        QStringLiteral("Loud microphone")},
+                                   {});
+        int during = -1;
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            (during = peakOver(250)) > 100,
+            qPrintable(QStringLiteral("the far end never heard the microphone "
+                                      "picked mid-call: peak %1/1000")
+                           .arg(during)),
+            10000);
+
+        // The same track: nothing renegotiated, no second track, nothing
+        // undecryptable, the encoder's caps and the mute valve unchanged.
+        QCOMPARE(offers, offersBefore);
+        QCOMPARE(arrived.size(), 1);
+        QCOMPARE(receiver.framesDropped(), droppedBefore);
+        QCOMPARE(padCapsOf(sendBin, "audioenc", "sink"), encoderCaps);
+        GstElement *valveNow =
+            gst_bin_get_by_name(GST_BIN(sendBin), "micvalve");
+        QCOMPARE(valveNow, valve);
+        if (valveNow)
+            gst_object_unref(valveNow);
+        gst_object_unref(valve);
+        // The level meter follows the new device.
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            sender.micPeakDbForTest() > -30.0
+                && sender.micPeakDbForTest() < 0.0,
+            qPrintable(QStringLiteral("the meter read %1 dBFS")
+                           .arg(sender.micPeakDbForTest())),
+            5000);
+
+        // The mute valve still governs the new microphone.
+        sender.setMicrophoneMuted(true);
+        QTest::qWait(500);
+        const int muted = peakOver(1000);
+        QVERIFY2(muted < 20, qPrintable(QStringLiteral(
+                                 "muted, the far end still heard %1/1000")
+                                 .arg(muted)));
+        sender.setMicrophoneMuted(false);
+        QTRY_VERIFY2_WITH_TIMEOUT(peakOver(250) > 100,
+                                  "unmuted, the new microphone is not heard",
+                                  10000);
+
+        // And back to the silent one.
+        sender.setMicrophoneSourceForTest(silent);
+        sender.setPreferredDevices({}, {QStringLiteral("quiet-mic"),
+                                        QStringLiteral("Quiet microphone")},
+                                   {});
+        int after = -1;
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            (after = peakOver(250)) >= 0 && after < 20,
+            qPrintable(QStringLiteral("switched back, the far end still "
+                                      "hears %1/1000")
+                           .arg(after)),
+            10000);
+        QCOMPARE(offers, offersBefore);
+        QCOMPARE(arrived.size(), 1);
+        QCOMPARE(receiver.framesDropped(), droppedBefore);
+        QCOMPARE(padCapsOf(sendBin, "audioenc", "sink"), encoderCaps);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+
+        sender.stop();
+        receiver.stop();
+    }
+
+    // A microphone that will not deliver costs the call nothing: the switch
+    // is abandoned and the old microphone keeps being heard.
+    void aMicrophoneThatNeverDeliversLeavesTheCallOnTheOldOne()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        sender.setNoiseSuppressionMode(calls::noise::Mode::Off);
+        sender.setMicrophoneSwapTimeoutForTest(1500);
+        sender.setMicrophoneSourceForTest(QStringLiteral(
+            "audiotestsrc is-live=true wave=sine freq=440 volume=0.5"));
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.receiveBinForTest(QStringLiteral("first")) != nullptr,
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        auto meter = std::make_shared<PeakMeter>();
+        GstElement *volume = elementWithPrefix(
+            receiver.receiveBinForTest(QStringLiteral("first")), "outvol_");
+        QVERIFY(volume);
+        GstPad *heard = gst_element_get_static_pad(volume, "src");
+        gst_object_unref(volume);
+        meterPeaksAt(heard, meter);
+        gst_object_unref(heard);
+        QTRY_VERIFY_WITH_TIMEOUT(meter->peakMilli.load() > 100, 10000);
+
+        // A live source that never produces a buffer.
+        sender.setMicrophoneSourceForTest(
+            QStringLiteral("appsrc is-live=true format=time "
+                           "caps=audio/x-raw,format=S16LE,layout=interleaved,"
+                           "rate=48000,channels=1"));
+        sender.setPreferredDevices({}, {QStringLiteral("dead-mic"),
+                                        QStringLiteral("Dead microphone")},
+                                   {});
+        QTRY_COMPARE_WITH_TIMEOUT(sender.microphoneSwapsAbandonedForTest(), 1,
+                                  5000);
+        QCOMPARE(sender.microphoneSwapsForTest(), 0);
+        meter->peakMilli.store(0);
+        QTRY_VERIFY2_WITH_TIMEOUT(meter->peakMilli.load() > 100,
+                                  "the old microphone stopped being heard",
+                                  5000);
+        sender.stop();
+        receiver.stop();
+    }
+
+    // A speaker picked during a group call moves every received track to it
+    // at once; until 2026-10-09 only tracks arriving later used it.
+    void aSpeakerPickedMidCallMovesTheReceivedTracks()
+    {
+        SfuMediaEngine sender;
+        SfuMediaEngine receiver;
+        sender.setTestSourceMode(true);
+        receiver.setTestSourceMode(true);
+        receiver.setSpeakerSinkForTest(QStringLiteral("fakesink sync=false"));
+        QString failure;
+        wireLoopback(sender, receiver, this, &failure);
+        sender.start();
+        receiver.start();
+        sender.publishAudio(QStringLiteral("first"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            receiver.receiveBinForTest(QStringLiteral("first")) != nullptr,
+            qPrintable(QStringLiteral("no track arrived; failure=%1")
+                           .arg(failure)),
+            45000);
+        GstElement *bin = receiver.receiveBinForTest(QStringLiteral("first"));
+        GstElement *volume = elementWithPrefix(bin, "outvol_");
+        QVERIFY(volume);
+        QVERIFY(!gst_bin_get_by_name(GST_BIN(bin), "outsink"));
+
+        receiver.setPreferredDevices({}, {}, {QStringLiteral("other-output"),
+                                              QStringLiteral("Other output")});
+        QTRY_COMPARE_WITH_TIMEOUT(receiver.speakerSwapsForTest(), 1, 5000);
+        GstElement *outsink = gst_bin_get_by_name(GST_BIN(bin), "outsink");
+        QVERIFY(outsink);
+        static std::atomic<int> reached{0};
+        reached.store(0);
+        countBuffersAt(outsink, &reached);
+        gst_object_unref(outsink);
+        QTRY_VERIFY2_WITH_TIMEOUT(reached.load() > 10,
+                                  "nothing reached the new output", 10000);
+        // The same chain: its volume element (level, deafen) stays, and one
+        // output is left.
+        QCOMPARE(receiver.receiveBinForTest(QStringLiteral("first")), bin);
+        GstElement *volumeNow = elementWithPrefix(bin, "outvol_");
+        QCOMPARE(volumeNow, volume);
+        if (volumeNow)
+            gst_object_unref(volumeNow);
+        gst_object_unref(volume);
+        int sinks = 0;
+        GstIterator *it = gst_bin_iterate_sinks(GST_BIN(bin));
+        GValue item = G_VALUE_INIT;
+        while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+            ++sinks;
+            g_value_reset(&item);
+        }
+        if (G_IS_VALUE(&item))
+            g_value_unset(&item);
+        gst_iterator_free(it);
+        QCOMPARE(sinks, 1);
+        QVERIFY2(failure.isEmpty(), qPrintable(failure));
+        sender.stop();
+        receiver.stop();
     }
 
     // Lightning's microphone carries the RFC 6464 audio level, which is what

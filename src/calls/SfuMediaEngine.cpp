@@ -1154,6 +1154,7 @@ void SfuMediaEngine::teardown(bool endOfCall)
         QMutexLocker lock(&m_receiveBinMutex);
         m_freshPulseClient.clear();
     }
+    forgetMicrophoneSwap();
     m_micCid.clear();
     m_micRestarts = 0;
     m_micRestartPending = false;
@@ -1380,9 +1381,28 @@ GstBusSyncReply onBusMessage(GstBus *, GstMessage *message, void *userData)
             // (`micsrc-actual-src-puls`).
             const bool captureSource =
                 element.startsWith(QLatin1String("micsrc"));
-            marshal(engine, [engine, publishCid, captureSource] {
+            // Which capture front: a replacement still starting is told
+            // apart from the one carrying the call (swapMicrophoneFront()).
+            QString front;
+            if (captureSource) {
+                GstObject *up = GST_MESSAGE_SRC(message)
+                    ? gst_object_get_parent(GST_MESSAGE_SRC(message))
+                    : nullptr;
+                while (up && front.isEmpty()) {
+                    gchar *name = gst_object_get_name(up);
+                    if (name && g_str_has_prefix(name, "micfront"))
+                        front = QString::fromUtf8(name);
+                    g_free(name);
+                    GstObject *next = gst_object_get_parent(up);
+                    gst_object_unref(up);
+                    up = next;
+                }
+                if (up)
+                    gst_object_unref(up);
+            }
+            marshal(engine, [engine, publishCid, captureSource, front] {
                 if (captureSource)
-                    engine->handleCaptureError(publishCid);
+                    engine->handleCaptureError(publishCid, front);
                 engine->handlePublishError(publishCid);
             });
         }
@@ -1427,6 +1447,17 @@ bool SfuMediaEngine::ensurePeer(Target target)
         if (GstBus *bus = gst_element_get_bus(pipeline)) {
             gst_bus_set_sync_handler(bus, onBusMessage, this, nullptr);
             gst_object_unref(bus);
+        }
+        // The system clock, never a device's. An audio source or sink
+        // provides a clock and a pipeline prefers it; a live device switch
+        // (swapMicrophoneFront(), swapReceiveSinks()) then removes the clock
+        // with the element, and a pipeline whose clock is gone waits on it
+        // for ever: webrtcbin's clocksync holds every packet. The 1:1 lane
+        // deadlocked exactly so (measured 2026-10-08), and nothing here could
+        // recover, because this bus drops CLOCK_LOST.
+        if (GstClock *clock = gst_system_clock_obtain()) {
+            gst_pipeline_use_clock(GST_PIPELINE(pipeline), clock);
+            gst_object_unref(clock);
         }
     }
         // Named per peer connection so diagnostics can identify it without
@@ -2166,19 +2197,26 @@ void SfuMediaEngine::setPreferredDevices(const DeviceChoice &camera,
                                          const DeviceChoice &speaker)
 {
     bool speakerChanged = false;
+    bool microphoneChanged = false;
     {
         QMutexLocker lock(&m_deviceMutex);
         speakerChanged = speaker.id != m_speakerChoice.id
             || speaker.description != m_speakerChoice.description;
+        microphoneChanged = microphone.id != m_microphoneChoice.id
+            || microphone.description != m_microphoneChoice.description;
         m_cameraChoice = camera;
         m_microphoneChoice = microphone;
         m_speakerChoice = speaker;
     }
+    // The signal behind this also fires for a camera pick: only what changed
+    // moves, so a camera pick never interrupts the microphone.
     if (speakerChanged)
-        refreshSpeakerSink();
+        refreshSpeakerSink(/*applyLive=*/true);
+    if (microphoneChanged)
+        refreshMicrophoneCapture();
 }
 
-void SfuMediaEngine::refreshSpeakerSink()
+void SfuMediaEngine::refreshSpeakerSink(bool applyLive)
 {
     DeviceChoice choice;
     quint64 seq = 0;
@@ -2188,16 +2226,25 @@ void SfuMediaEngine::refreshSpeakerSink()
         seq = ++m_speakerSeq;
         m_resolvedSpeaker = OutputSink{};
     }
-    if (choice.id.isEmpty() || testSourceMode())
+    if (choice.id.isEmpty() || testSourceMode()) {
+        // Nothing to resolve: the default (or the test's sink) applies now.
+        if (applyLive)
+            swapReceiveSinks();
         return;
+    }
     // The device monitor can block for seconds: a worker thread, never the
     // GUI thread and never a GStreamer streaming thread.
-    QThreadPool::globalInstance()->start([this, choice, seq] {
+    QThreadPool::globalInstance()->start([this, choice, seq, applyLive] {
         const OutputSink resolved = resolveSpeakerSink(choice);
-        marshal(this, [this, resolved, seq] {
-            QMutexLocker lock(&m_deviceMutex);
-            if (seq == m_speakerSeq)
+        marshal(this, [this, resolved, seq, applyLive] {
+            {
+                QMutexLocker lock(&m_deviceMutex);
+                if (seq != m_speakerSeq)
+                    return; // a newer pick is resolving
                 m_resolvedSpeaker = resolved;
+            }
+            if (applyLive)
+                swapReceiveSinks();
         });
     });
 }
@@ -3493,6 +3540,58 @@ int SfuMediaEngine::shareAudioBranchIndexForTest(const QString &id) const
     return it == m_shareAudioRecords.cend() ? -2 : it->index;
 }
 
+namespace {
+/// On the `micsrc` inside `bin`: EOS is dropped (a failed source pushes EOS,
+/// and reaching webrtcbin it would end the track, RTCP BYE, for good; the
+/// source is restarted instead, see handleCaptureError()), and each buffer
+/// counts into `captured`.
+void instrumentMicrophoneSource(
+    GstElement *bin, const std::shared_ptr<std::atomic<quint64>> &captured)
+{
+    GstElement *micsrc = gst_bin_get_by_name(GST_BIN(bin), "micsrc");
+    if (!micsrc)
+        return;
+    if (GstPad *out = gst_element_get_static_pad(micsrc, "src")) {
+        gst_pad_add_probe(
+            out, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
+            [](GstPad *, GstPadProbeInfo *info, gpointer) {
+                GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
+                return event && GST_EVENT_TYPE(event) == GST_EVENT_EOS
+                    ? GST_PAD_PROBE_DROP
+                    : GST_PAD_PROBE_OK;
+            },
+            nullptr, nullptr);
+        if (captured) {
+            gst_pad_add_probe(
+                out, GST_PAD_PROBE_TYPE_BUFFER,
+                [](GstPad *, GstPadProbeInfo *, gpointer data) {
+                    static_cast<std::shared_ptr<std::atomic<quint64>> *>(data)
+                        ->get()
+                        ->fetch_add(1, std::memory_order_relaxed);
+                    return GST_PAD_PROBE_OK;
+                },
+                new std::shared_ptr<std::atomic<quint64>>(captured),
+                [](gpointer data) {
+                    delete static_cast<std::shared_ptr<std::atomic<quint64>> *>(
+                        data);
+                });
+        }
+        gst_object_unref(out);
+    }
+    gst_object_unref(micsrc);
+}
+} // namespace
+
+SfuMediaEngine::MicrophoneCapture SfuMediaEngine::testMicrophoneCapture() const
+{
+    MicrophoneCapture capture;
+    capture.source = !m_testMicSource.isEmpty()
+        ? QStringLiteral("%1 name=micsrc").arg(m_testMicSource)
+        : QStringLiteral("audiotestsrc is-live=true wave=sine freq=440 "
+                         "volume=0.05 name=micsrc");
+    return capture;
+}
+
 void SfuMediaEngine::publishAudio(const QString &cid)
 {
     if (!ensurePeer(Target::Publisher) || cid.isEmpty())
@@ -3502,15 +3601,9 @@ void SfuMediaEngine::publishAudio(const QString &cid)
 
     // The capture, resolved as the Settings microphone test resolves it; see
     // resolveMicrophoneCapture().
-    MicrophoneCapture capture;
-    if (m_testSources) {
-        capture.source = !m_testMicSource.isEmpty()
-            ? QStringLiteral("%1 name=micsrc").arg(m_testMicSource)
-            : QStringLiteral("audiotestsrc is-live=true wave=sine freq=440 "
-                             "volume=0.05 name=micsrc");
-    } else {
-        capture = resolveMicrophoneCapture(microphoneChoice());
-    }
+    MicrophoneCapture capture = m_testSources
+        ? testMicrophoneCapture()
+        : resolveMicrophoneCapture(microphoneChoice());
     if (m_testDeviceChannels > 0)
         capture.channels = m_testDeviceChannels;
     // The valve is the real mute: drop=true stops buffers before the encoder.
@@ -3642,39 +3735,12 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     // A failed source pushes EOS; reaching webrtcbin it would end the track
     // (RTCP BYE) for good. The source is restarted instead; see
     // handleCaptureError().
-    if (GstElement *micsrc = gst_bin_get_by_name(GST_BIN(bin), "micsrc")) {
-        if (GstPad *out = gst_element_get_static_pad(micsrc, "src")) {
-            gst_pad_add_probe(
-                out, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
-                [](GstPad *, GstPadProbeInfo *info, gpointer) {
-                    GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
-                    return event && GST_EVENT_TYPE(event) == GST_EVENT_EOS
-                        ? GST_PAD_PROBE_DROP
-                        : GST_PAD_PROBE_OK;
-                },
-                nullptr, nullptr);
-            // What the device delivers, upstream of the mute valve: a restart
-            // that delivered is a restart that worked, muted or not (see
-            // micRestartBudgetResets()).
-            m_micCaptured = std::make_shared<std::atomic<quint64>>(0);
-            m_micCapturedAtRestart = 0;
-            gst_pad_add_probe(
-                out, GST_PAD_PROBE_TYPE_BUFFER,
-                [](GstPad *, GstPadProbeInfo *, gpointer data) {
-                    static_cast<std::shared_ptr<std::atomic<quint64>> *>(data)
-                        ->get()
-                        ->fetch_add(1, std::memory_order_relaxed);
-                    return GST_PAD_PROBE_OK;
-                },
-                new std::shared_ptr<std::atomic<quint64>>(m_micCaptured),
-                [](gpointer data) {
-                    delete static_cast<std::shared_ptr<std::atomic<quint64>> *>(
-                        data);
-                });
-            gst_object_unref(out);
-        }
-        gst_object_unref(micsrc);
-    }
+    // What the device delivers, upstream of the mute valve: a restart that
+    // delivered is a restart that worked, muted or not (see
+    // micRestartBudgetResets()).
+    m_micCaptured = std::make_shared<std::atomic<quint64>>(0);
+    m_micCapturedAtRestart = 0;
+    instrumentMicrophoneSource(bin, m_micCaptured);
     // A capture ahead of the clock must not stall webrtcbin's clocksync; see
     // CaptureClock.h. Seen at the capture, corrected on the RTP, so the RTP
     // timestamps stay sample-accurate.
@@ -5490,8 +5556,10 @@ void SfuMediaEngine::unpublish(const QString &cid)
         releaseKeepAlive(dead.state);
     }
     updateShareKeepAliveTimer();
-    if (cid == m_micCid)
+    if (cid == m_micCid) {
+        forgetMicrophoneSwap();
         m_micCid.clear();
+    }
     if (cid == m_shareAudioCid || cid == m_shareAudioAnyCid) {
         // Stop the device scan and release the monitor's PipeWire connection.
         resetShareAudioState();
@@ -7607,10 +7675,23 @@ bool SfuMediaEngine::audioLevelExtensionAvailable()
     return available;
 }
 
-void SfuMediaEngine::handleCaptureError(const QString &cid)
+void SfuMediaEngine::handleCaptureError(const QString &cid,
+                                        const QString &front)
 {
     if (!m_active || cid.isEmpty() || cid != m_micCid)
         return;
+    if (m_micSwap.front) {
+        if (!front.isEmpty() && front == m_micSwap.name) {
+            // The device just picked would not start: the call keeps the
+            // microphone it has.
+            abandonMicrophoneSwap("the chosen microphone failed to start");
+            return;
+        }
+        // The capture being replaced failed: the switch under way replaces
+        // it; should that switch be abandoned, the restart runs then.
+        m_micSwap.currentFailed = true;
+        return;
+    }
     // One failure posts several errors (the source's own, then "Internal
     // data stream error"); one restart answers them all. Given up: the slow
     // retry is running.
@@ -7682,7 +7763,10 @@ void SfuMediaEngine::scheduleMicSlowRetry(const QString &cid)
                                   "it is delivering nothing";
             m_micLastRestartMs = QDateTime::currentMSecsSinceEpoch();
             m_micCapturedAtRestart = now;
-            if (GstElement *bin = m_publishedBins.value(cid))
+            // Not while a switch is starting another device; see
+            // restartMicrophone().
+            if (GstElement *bin = m_publishedBins.value(cid);
+                bin && !m_micSwap.front)
                 gst_element_call_async(bin, restartSourceAsync, nullptr,
                                        nullptr);
             scheduleMicSlowRetry(cid);
@@ -7698,6 +7782,13 @@ void SfuMediaEngine::restartMicrophone(const QString &cid, quint64 generation)
     GstElement *bin = m_publishedBins.value(cid);
     if (!bin)
         return;
+    if (m_micSwap.front) {
+        // A switch is starting another device: it replaces this one, and
+        // restarts this one if it is abandoned. (Restarting by name now could
+        // also find the replacement's `micsrc`.)
+        m_micSwap.currentFailed = true;
+        return;
+    }
     ++m_micRestarts;
     m_micLastRestartMs = QDateTime::currentMSecsSinceEpoch();
     m_micCapturedAtRestart = m_micCaptured ? m_micCaptured->load() : 0;
@@ -9073,4 +9164,548 @@ void SfuMediaEngine::onPadAdded(GstElement *webrtc, void *pad, void *userData)
         // says who is actually sending, and on which track.
         Q_EMIT engine->remoteTrackAdded(streamId, trackMid, mediaKind);
     });
+}
+
+// ---------------------------------------------------------------------------
+// Live device switches. A microphone or speaker picked during a group call
+// reaches it now; until 2026-10-09 it waited for the next publish.
+
+namespace {
+/// The block on a replacement capture's output. Its first buffer says the
+/// device delivers; the GUI thread then swaps it in.
+struct MicSwapBlock {
+    SfuMediaEngine *engine = nullptr; // only handed to marshal()
+    quint64 serial = 0;
+    std::atomic<bool> reported{false};
+};
+
+GstPadProbeReturn onMicSwapReady(GstPad *, GstPadProbeInfo *, gpointer data)
+{
+    auto *block = static_cast<MicSwapBlock *>(data);
+    if (!block->reported.exchange(true)) {
+        SfuMediaEngine *engine = block->engine;
+        const quint64 serial = block->serial;
+        marshal(engine,
+                [engine, serial] { engine->completeMicrophoneSwap(serial); });
+    }
+    // Stays blocked until the GUI thread removes the probe.
+    return GST_PAD_PROBE_OK;
+}
+
+/// The children of `bin` upstream of `pad` (the valve's sink pad), nearest
+/// first, each with a ref: the capture front. publishAudio()'s front is a run
+/// of the bin's own elements; one swapMicrophoneFront() built is a single
+/// sub-bin.
+QList<GstElement *> captureFrontOf(GstElement *bin, GstPad *pad)
+{
+    QList<GstElement *> chain;
+    GstPad *peer = gst_pad_get_peer(pad);
+    while (peer) {
+        GstElement *element = gst_pad_get_parent_element(peer);
+        gst_object_unref(peer);
+        peer = nullptr;
+        if (!element)
+            break;
+        GstObject *parent = gst_object_get_parent(GST_OBJECT(element));
+        const bool child = parent == GST_OBJECT(bin);
+        if (parent)
+            gst_object_unref(parent);
+        if (!child || chain.contains(element) || chain.size() >= 16) {
+            gst_object_unref(element);
+            break;
+        }
+        chain.append(element);
+        // The front is linear: one sink pad, none on the source.
+        GstIterator *it = gst_element_iterate_sink_pads(element);
+        GValue item = G_VALUE_INIT;
+        if (gst_iterator_next(it, &item) == GST_ITERATOR_OK)
+            peer = gst_pad_get_peer(GST_PAD(g_value_get_object(&item)));
+        if (G_IS_VALUE(&item))
+            g_value_unset(&item);
+        gst_iterator_free(it);
+    }
+    return chain;
+}
+
+/// The outgoing capture front, stopped and removed on a pool thread: a
+/// source's stop can block on a stalled sound server.
+struct FrontRetire {
+    GstElement *bin = nullptr;    // owns a ref
+    QList<GstElement *> elements; // each owns a ref
+};
+
+void retireFront(GstElement *, gpointer data)
+{
+    auto *job = static_cast<FrontRetire *>(data);
+    for (GstElement *element : std::as_const(job->elements))
+        gst_element_set_state(element, GST_STATE_NULL);
+    for (GstElement *element : std::as_const(job->elements)) {
+        GstObject *parent = gst_object_get_parent(GST_OBJECT(element));
+        if (parent == GST_OBJECT(job->bin))
+            gst_bin_remove(GST_BIN(job->bin), element);
+        if (parent)
+            gst_object_unref(parent);
+    }
+}
+
+void frontRetireFree(gpointer data)
+{
+    auto *job = static_cast<FrontRetire *>(data);
+    for (GstElement *element : std::as_const(job->elements))
+        gst_object_unref(element);
+    if (job->bin)
+        gst_object_unref(job->bin);
+    delete job;
+}
+
+GstPadProbeReturn dropEverything(GstPad *, GstPadProbeInfo *, gpointer)
+{
+    return GST_PAD_PROBE_DROP;
+}
+} // namespace
+
+void SfuMediaEngine::refreshMicrophoneCapture()
+{
+    if (!m_active || m_micCid.isEmpty() || !m_publishedBins.contains(m_micCid))
+        return; // the next publish resolves the choice
+    const quint64 seq = ++m_micResolveSeq;
+    const int channels = m_testDeviceChannels;
+    if (m_testSources) {
+        MicrophoneCapture capture = testMicrophoneCapture();
+        if (channels > 0)
+            capture.channels = channels;
+        swapMicrophoneFront(capture);
+        return;
+    }
+    const DeviceChoice choice = microphoneChoice();
+    const quint64 generation = m_generation.load();
+    const QString cid = m_micCid;
+    // The device monitor can block for seconds: a worker thread, as for the
+    // speaker (refreshSpeakerSink()).
+    QThreadPool::globalInstance()->start(
+        [this, choice, seq, generation, cid, channels] {
+            MicrophoneCapture capture = resolveMicrophoneCapture(choice);
+            if (channels > 0)
+                capture.channels = channels;
+            marshal(this, [this, capture, seq, generation, cid] {
+                if (seq != m_micResolveSeq || generation != m_generation.load()
+                    || cid != m_micCid)
+                    return; // a newer pick, or the call moved on
+                swapMicrophoneFront(capture);
+            });
+        });
+}
+
+void SfuMediaEngine::swapMicrophoneFront(const MicrophoneCapture &capture)
+{
+    // The capture front is everything upstream of the mute valve: source,
+    // channel pin, bounded queue, convert (with the multi-input mix-matrix)
+    // and resample. Only it is replaced. The valve, both level meters, noise
+    // suppression, input volume, the encoder, its encrypt probe, the
+    // payloader (its SSRC and sequence numbers) and the webrtcbin pad all
+    // stay, so the published track is the same track and nothing is
+    // renegotiated.
+    //
+    // The new front is started beside the old one with its output blocked,
+    // and swapped in once it delivers (completeMicrophoneSwap()): the call
+    // hears the old microphone until the new one is really capturing, and a
+    // device that will not open costs nothing (abandonMicrophoneSwap()).
+    GstElement *bin =
+        m_micCid.isEmpty() ? nullptr : m_publishedBins.value(m_micCid);
+    if (!m_active || !bin)
+        return;
+    if (m_micSwap.front)
+        abandonMicrophoneSwap("a newer pick replaces it");
+    GstElement *valve = gst_bin_get_by_name(GST_BIN(bin), "micvalve");
+    GstPad *valveIn =
+        valve ? gst_element_get_static_pad(valve, "sink") : nullptr;
+    if (valve)
+        gst_object_unref(valve);
+    if (!valveIn)
+        return;
+    // Pinned to what the chain carries now, so the encoder is never asked to
+    // reconfigure and the track's caps never change. Nothing is negotiated
+    // before the first buffer; the new front then negotiates as the first.
+    GstCaps *carried = gst_pad_get_current_caps(valveIn);
+    gst_object_unref(valveIn);
+
+    const QString description = microphoneFrontDescription(capture)
+        + QStringLiteral(" ! capsfilter name=micfrontcaps");
+    GError *error = nullptr;
+    GstElement *front = gst_parse_bin_from_description(
+        description.toUtf8().constData(), TRUE, &error);
+    if (error || !front) {
+        // Element names only (the device is a binding set after the parse).
+        qCWarning(lcSfuMedia)
+            << "microphone switch: the new capture did not parse code="
+            << (error ? error->code : -1) << "description=" << description
+            << "- keeping the current microphone";
+        if (error)
+            g_error_free(error);
+        if (front)
+            gst_object_unref(gst_object_ref_sink(front));
+        if (carried)
+            gst_caps_unref(carried);
+        return;
+    }
+    front = GST_ELEMENT(gst_object_ref_sink(front));
+    const quint64 serial = ++m_micSwapSerial;
+    // Unique, so the bus handler can tell a front still starting from the
+    // live one (handleCaptureError()).
+    const QByteArray name = QByteArray("micfront") + QByteArray::number(serial);
+    gst_element_set_name(front, name.constData());
+    const bool pinned = carried != nullptr;
+    if (carried) {
+        if (GstElement *pin =
+                gst_bin_get_by_name(GST_BIN(front), "micfrontcaps")) {
+            g_object_set(pin, "caps", carried, nullptr);
+            gst_object_unref(pin);
+        }
+        gst_caps_unref(carried);
+    }
+    applyBindingTo(front, "micsrc", capture.binding);
+    // The EOS guard and the capture counter, as on the first front.
+    instrumentMicrophoneSource(front, m_micCaptured);
+    GstPad *out = gst_element_get_static_pad(front, "src");
+    if (!out) {
+        qCWarning(lcSfuMedia) << "microphone switch: the new capture has no "
+                                 "output; keeping the current microphone";
+        gst_object_unref(front);
+        return;
+    }
+    auto *block = new MicSwapBlock;
+    block->engine = this;
+    block->serial = serial;
+    // Buffers only: the stream-start, caps and segment events pass, stay
+    // sticky on the unlinked pad, and are resent once it is linked.
+    const gulong probe = gst_pad_add_probe(
+        out,
+        GstPadProbeType(GST_PAD_PROBE_TYPE_BLOCK | GST_PAD_PROBE_TYPE_BUFFER
+                        | GST_PAD_PROBE_TYPE_BUFFER_LIST),
+        onMicSwapReady, block,
+        [](gpointer data) { delete static_cast<MicSwapBlock *>(data); });
+    gst_object_unref(out);
+    if (!gst_bin_add(GST_BIN(bin), front)) {
+        qCWarning(lcSfuMedia) << "microphone switch: the new capture could "
+                                 "not be added; keeping the current one";
+        gst_object_unref(front);
+        return;
+    }
+    m_micSwap.bin = GST_ELEMENT(gst_object_ref(bin));
+    m_micSwap.front = front; // our ref
+    m_micSwap.name = QString::fromLatin1(name);
+    m_micSwap.blockProbe = probe;
+    m_micSwap.serial = serial;
+    m_micSwap.currentFailed = false;
+    qCInfo(lcSfuMedia) << "microphone switch: starting the new capture beside "
+                          "the live one; chosen="
+                       << !capture.binding.isEmpty()
+                       << "device-channels=" << capture.channels
+                       << "caps-pinned=" << pinned;
+    // Started off this thread: a source's start can block (a stalled sound
+    // server holds pulsesrc's connect for 30 s).
+    gst_element_call_async(
+        front,
+        [](GstElement *element, gpointer) {
+            gst_element_sync_state_with_parent(element);
+        },
+        nullptr, nullptr);
+    QTimer::singleShot(m_micSwapTimeoutMs, this, [this, serial] {
+        if (m_micSwap.front && m_micSwap.serial == serial)
+            abandonMicrophoneSwap("the chosen microphone delivered nothing");
+    });
+}
+
+void SfuMediaEngine::completeMicrophoneSwap(quint64 serial)
+{
+    if (!m_micSwap.front || m_micSwap.serial != serial)
+        return; // abandoned or superseded meanwhile
+    GstElement *bin = m_micSwap.bin;
+    if (!m_active || m_micCid.isEmpty()
+        || m_publishedBins.value(m_micCid) != bin) {
+        forgetMicrophoneSwap();
+        return;
+    }
+    GstElement *front = m_micSwap.front;
+    GstElement *valve = gst_bin_get_by_name(GST_BIN(bin), "micvalve");
+    GstPad *valveIn =
+        valve ? gst_element_get_static_pad(valve, "sink") : nullptr;
+    if (valve)
+        gst_object_unref(valve);
+    GstPad *next = gst_element_get_static_pad(front, "src");
+    if (!valveIn || !next) {
+        if (valveIn)
+            gst_object_unref(valveIn);
+        if (next)
+            gst_object_unref(next);
+        abandonMicrophoneSwap("the send chain has no valve to link to");
+        return;
+    }
+    const QList<GstElement *> old = captureFrontOf(bin, valveIn);
+    GstPad *oldOut = gst_pad_get_peer(valveIn);
+    gulong dropProbe = 0;
+    if (oldOut) {
+        // Whatever the outgoing capture still pushes is dropped from here on:
+        // it must not reach the valve, nor an unlinked pad (not-linked posts
+        // an error, and a capture error restarts the capture).
+        dropProbe = gst_pad_add_probe(oldOut, GST_PAD_PROBE_TYPE_DATA_DOWNSTREAM,
+                                      dropEverything, nullptr, nullptr);
+        gst_pad_unlink(oldOut, valveIn);
+    }
+    const GstPadLinkReturn linked = gst_pad_link(next, valveIn);
+    if (linked != GST_PAD_LINK_OK) {
+        // The call keeps its microphone.
+        if (oldOut) {
+            gst_pad_link(oldOut, valveIn);
+            gst_pad_remove_probe(oldOut, dropProbe);
+            gst_object_unref(oldOut);
+        }
+        gst_object_unref(valveIn);
+        gst_object_unref(next);
+        for (GstElement *element : old)
+            gst_object_unref(element);
+        qCWarning(lcSfuMedia) << "microphone switch: link code=" << linked;
+        abandonMicrophoneSwap("the new capture would not link");
+        return;
+    }
+    // Unblocked: the new capture's sticky events, then its audio, reach the
+    // valve. Caps equal to the old ones leave the encoder as it is.
+    gst_pad_remove_probe(next, m_micSwap.blockProbe);
+    gst_object_unref(next);
+    gst_object_unref(valveIn);
+    if (oldOut)
+        gst_object_unref(oldOut);
+    if (!old.isEmpty()) {
+        auto *job = new FrontRetire;
+        job->bin = GST_ELEMENT(gst_object_ref(bin));
+        job->elements = old; // the refs move
+        gst_element_call_async(bin, retireFront, job, frontRetireFree);
+    }
+    // The clock hold now watches the new capture (CaptureClock.h); its RTP
+    // half stays on the payloader.
+    if (GstElement *source = gst_bin_get_by_name(GST_BIN(front), "micsrc")) {
+        if (GstPad *pad = gst_element_get_static_pad(source, "src")) {
+            lightning::calls::watchReplacementCapture(pad, m_micClockHold);
+            gst_object_unref(pad);
+        }
+        gst_object_unref(source);
+    }
+    // A new device starts with a fresh restart budget. It has delivered, so a
+    // failure the old one reported is over.
+    const bool wasFailed = m_micFailureReported;
+    m_micRestarts = 0;
+    m_micFailureReported = false;
+    m_micCapturedAtRestart = m_micCaptured ? m_micCaptured->load() : 0;
+    gst_object_unref(m_micSwap.front);
+    gst_object_unref(m_micSwap.bin);
+    m_micSwap = PendingMicSwap{};
+    ++m_micSwaps;
+    // The level judgement starts over for the new device.
+    resetMicLevelState();
+    qCInfo(lcSfuMedia) << "microphone switched mid-call: the new capture is "
+                          "live; track, encoder and encryption unchanged "
+                          "(outgoing elements:"
+                       << old.size() << ")";
+    if (wasFailed)
+        Q_EMIT microphoneRecovered(m_micCid);
+}
+
+void SfuMediaEngine::abandonMicrophoneSwap(const char *why)
+{
+    if (!m_micSwap.front)
+        return;
+    qCWarning(lcSfuMedia) << "microphone switch abandoned:" << why
+                          << "- the call keeps the microphone it has";
+    GstElement *front = m_micSwap.front;
+    GstElement *bin = m_micSwap.bin;
+    const bool currentFailed = m_micSwap.currentFailed;
+    m_micSwap = PendingMicSwap{};
+    ++m_micSwapsAbandoned;
+    // Unlinked, its output blocked: removed and stopped off this thread. The
+    // stop flushes the blocked pad, which releases its thread.
+    stopDetachedBinAsync(front);
+    gst_object_unref(front);
+    if (bin)
+        gst_object_unref(bin);
+    // The live capture failed while the switch was pending: restart it now.
+    if (currentFailed)
+        handleCaptureError(m_micCid);
+}
+
+void SfuMediaEngine::forgetMicrophoneSwap()
+{
+    if (m_micSwap.front)
+        gst_object_unref(m_micSwap.front);
+    if (m_micSwap.bin)
+        gst_object_unref(m_micSwap.bin);
+    m_micSwap = PendingMicSwap{};
+}
+
+namespace {
+/// A received track's output being replaced (a speaker switch), handed to an
+/// IDLE probe on the track's volume src pad: the swap runs when no buffer is
+/// in flight there, so the decoder never meets an unlinked pad (not-linked
+/// would isolate the chain and rebuild it).
+struct ReceiveSinkSwap {
+    QByteArray description;
+    lightning::calls::DeviceBinding binding;
+    /// A fresh Pulse connection's client name (rebuildReceiveBin()), or empty.
+    QByteArray clientName;
+    std::shared_ptr<std::atomic<int>> swaps;
+};
+
+GstPadProbeReturn swapReceiveSinkWhenIdle(GstPad *pad, GstPadProbeInfo *,
+                                          gpointer data)
+{
+    auto *swap = static_cast<ReceiveSinkSwap *>(data);
+    GstElement *volume = gst_pad_get_parent_element(pad);
+    GstObject *bin =
+        volume ? gst_object_get_parent(GST_OBJECT(volume)) : nullptr;
+    if (volume)
+        gst_object_unref(volume);
+    if (!bin)
+        return GST_PAD_PROBE_REMOVE;
+    // A chain on its way down (retired, or the call ended) is left alone.
+    if (GST_STATE_TARGET(GST_ELEMENT(bin)) != GST_STATE_PLAYING) {
+        gst_object_unref(bin);
+        return GST_PAD_PROBE_REMOVE;
+    }
+    GError *error = nullptr;
+    GstElement *next = gst_parse_bin_from_description(
+        swap->description.constData(), TRUE, &error);
+    if (error || !next) {
+        if (error)
+            g_error_free(error);
+        if (next)
+            gst_object_unref(gst_object_ref_sink(next));
+        gst_object_unref(bin);
+        qCWarning(lcSfuMedia) << "speaker switch: the new output could not be "
+                                 "built; this track keeps its current one";
+        return GST_PAD_PROBE_REMOVE;
+    }
+    next = GST_ELEMENT(gst_object_ref_sink(next));
+    // Settles its own preroll and, like a receive bin (buildReceiveBin()),
+    // takes the upstream latency when it reaches PLAYING. A sink added to a
+    // running bin otherwise syncs with no latency at all: every buffer is
+    // late and the output plays in bursts (measured live, 2026-10-10: a few
+    // 100 ms of sound per second).
+    g_object_set(next, "async-handling", TRUE, nullptr);
+    applyBindingTo(next, "outsink", swap->binding);
+    if (!swap->clientName.isEmpty()) {
+        // As buildReceiveBin() does: the fresh connection, the app's name.
+        const QByteArray app = QString::fromUtf8(swap->clientName)
+                                   .section(QStringLiteral(" (reconnected"), 0, 0)
+                                   .toUtf8();
+        GstIterator *it = gst_bin_iterate_recurse(GST_BIN(next));
+        GValue item = G_VALUE_INIT;
+        while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+            auto *element = GST_ELEMENT(g_value_get_object(&item));
+            if (g_object_class_find_property(G_OBJECT_GET_CLASS(element),
+                                             "client-name")) {
+                GstStructure *props = gst_structure_new(
+                    "props", "application.name", G_TYPE_STRING,
+                    app.constData(), nullptr);
+                g_object_set(element, "client-name",
+                             swap->clientName.constData(), "stream-properties",
+                             props, nullptr);
+                gst_structure_free(props);
+            }
+            g_value_reset(&item);
+        }
+        if (G_IS_VALUE(&item))
+            g_value_unset(&item);
+        gst_iterator_free(it);
+    }
+    if (GstPad *peer = gst_pad_get_peer(pad)) {
+        GstElement *old = gst_pad_get_parent_element(peer);
+        gst_pad_unlink(pad, peer);
+        gst_object_unref(peer);
+        if (old) {
+            gst_element_set_state(old, GST_STATE_NULL);
+            gst_bin_remove(GST_BIN(bin), old);
+            gst_object_unref(old);
+        }
+    }
+    bool linked = false;
+    if (gst_bin_add(GST_BIN(bin), next)) {
+        GstPad *sinkPad = gst_element_get_static_pad(next, "sink");
+        linked = sinkPad && gst_pad_link(pad, sinkPad) == GST_PAD_LINK_OK;
+        if (sinkPad)
+            gst_object_unref(sinkPad);
+        gst_element_sync_state_with_parent(next);
+    }
+    gst_object_unref(next);
+    gst_object_unref(bin);
+    if (linked && swap->swaps)
+        swap->swaps->fetch_add(1);
+    if (!linked)
+        qCWarning(lcSfuMedia) << "speaker switch: the new output did not link";
+    return GST_PAD_PROBE_REMOVE;
+}
+} // namespace
+
+void SfuMediaEngine::swapReceiveSinks()
+{
+    if (!m_active || !m_subscriber.pipeline)
+        return;
+    QByteArray description;
+    lightning::calls::DeviceBinding binding;
+    QByteArray client;
+    if (testSourceMode()) {
+        if (m_testSpeakerSink.isEmpty())
+            return;
+        description =
+            (m_testSpeakerSink + QStringLiteral(" name=outsink")).toUtf8();
+    } else {
+        QString fresh;
+        {
+            QMutexLocker lock(&m_receiveBinMutex);
+            fresh = m_freshPulseClient;
+        }
+        const OutputSink speaker = cachedSpeakerSink();
+        const bool chosen = !speaker.binding.isEmpty();
+        description =
+            receiveSinkDescription(fresh, chosen ? &speaker : nullptr).toUtf8();
+        if (chosen)
+            binding = speaker.binding;
+        client = fresh.toUtf8();
+    }
+    // Playing audio chains only: a failed one is being rebuilt, and a rebuild
+    // reads the new choice anyway (prepareReceiveChain()).
+    QList<GstPad *> pads;
+    {
+        QMutexLocker lock(&m_receiveBinMutex);
+        for (const ReceiveBin &entry : std::as_const(m_receiveBins)) {
+            if (!entry.bin || entry.kind == QLatin1String("video")
+                || entry.rebuilding || entry.isolateProbe != 0)
+                continue;
+            const QByteArray volumeName =
+                outputVolumeElementName(
+                    volumeKeyFor(entry.streamId, entry.trackKey))
+                    .toUtf8();
+            if (GstElement *volume = gst_bin_get_by_name(
+                    GST_BIN(entry.bin), volumeName.constData())) {
+                if (GstPad *pad = gst_element_get_static_pad(volume, "src"))
+                    pads.append(pad);
+                gst_object_unref(volume);
+            }
+        }
+    }
+    for (GstPad *pad : std::as_const(pads)) {
+        auto *swap = new ReceiveSinkSwap;
+        swap->description = description;
+        swap->binding = binding;
+        swap->clientName = client;
+        swap->swaps = m_speakerSwaps;
+        // At once if the pad is idle, otherwise right after the buffer in
+        // flight. Volume, deafen and the decrypt probe stay where they are.
+        gst_pad_add_probe(
+            pad, GST_PAD_PROBE_TYPE_IDLE, swapReceiveSinkWhenIdle, swap,
+            [](gpointer data) { delete static_cast<ReceiveSinkSwap *>(data); });
+        gst_object_unref(pad);
+    }
+    qCInfo(lcSfuMedia) << "speaker switched mid-call: moving" << pads.size()
+                       << "received track(s) to the"
+                       << (binding.isEmpty() ? "default" : "chosen")
+                       << "output";
 }

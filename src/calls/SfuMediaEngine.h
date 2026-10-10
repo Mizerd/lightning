@@ -76,10 +76,13 @@ public:
     /// (15/30/60). Both are encoder cost, so the user chooses.
     void setShareQuality(int maxHeight, int fps);
 
-    /// The device the user chose, as QMediaDevices names it. Applied when a
-    /// capture is built, never to a live one: relinking a running send branch
-    /// is riskier than waiting for the next publish. An empty id means
-    /// "system default", which keeps following the platform default.
+    /// The device the user chose, as QMediaDevices names it. A camera choice
+    /// is applied when a capture is built. A microphone or speaker choice also
+    /// reaches a running call: the microphone's capture is swapped in front of
+    /// the live send chain (swapMicrophoneFront()), and every received track's
+    /// output is replaced (swapReceiveSinks()); the track, its encoder and its
+    /// encryption stay. An empty id means "system default", which keeps
+    /// following the platform default.
     struct DeviceChoice {
         QString id;
         QString description;
@@ -405,7 +408,11 @@ public:
     /// Resolves the chosen speaker on a worker thread and caches it. Called
     /// when the choice changes and when a call starts; never from a
     /// streaming thread.
-    void refreshSpeakerSink();
+    void refreshSpeakerSink(bool applyLive = false);
+    /// GUI thread: the microphone choice changed. Resolves the new capture
+    /// (off the GUI thread for a chosen device) and swaps it in front of the
+    /// published microphone's chain; nothing when no microphone is published.
+    void refreshMicrophoneCapture();
     /// The cached resolution (empty binding when none yet). Cheap; safe from
     /// any thread.
     OutputSink cachedSpeakerSink() const;
@@ -536,7 +543,27 @@ public:
     /// failed (measured: pulsesrc "Failed to connect stream: Timeout" while
     /// the sound server stalled) never retries by itself, so the track stays
     /// declared and silent for the whole call. Restarted with backoff.
-    void handleCaptureError(const QString &cid);
+    /// `front` names the capture front the failing element sits in
+    /// ("micfront<N>", empty for the one publishAudio() built): an error from
+    /// a replacement that is still starting abandons that switch instead.
+    void handleCaptureError(const QString &cid,
+                            const QString &front = QString());
+    /// Test-only: microphone switches completed and abandoned, and received
+    /// tracks moved to a new output.
+    int microphoneSwapsForTest() const { return m_micSwaps; }
+    int microphoneSwapsAbandonedForTest() const { return m_micSwapsAbandoned; }
+    int speakerSwapsForTest() const { return m_speakerSwaps->load(); }
+    /// Test-only: in test-source mode, the output a speaker choice switches
+    /// received tracks to (e.g. "fakesink sync=false"); empty switches none.
+    void setSpeakerSinkForTest(const QString &description)
+    {
+        m_testSpeakerSink = description;
+    }
+    void setMicrophoneSwapTimeoutForTest(int ms) { m_micSwapTimeoutMs = ms; }
+    /// GUI thread, marshalled from the streaming thread: the replacement
+    /// capture `serial` delivered its first buffer; swap it in. See
+    /// swapMicrophoneFront().
+    void completeMicrophoneSwap(quint64 serial);
     /// Test-only: the receive bin of the first track from `streamId`
     /// (borrowed), or null.
     GstElement *receiveBinForTest(const QString &streamId) const
@@ -1403,6 +1430,36 @@ private:
     int m_receiveRebuildAttempts = 0;
     int m_receiveRearms = 0;
     void restartMicrophone(const QString &cid, quint64 generation);
+    /// The microphone capture in test-source mode.
+    MicrophoneCapture testMicrophoneCapture() const;
+    /// A live microphone switch: the new capture front is built, added and
+    /// started with its output blocked, and swapped in front of the valve once
+    /// it delivers; see swapMicrophoneFront().
+    void swapMicrophoneFront(const MicrophoneCapture &capture);
+    void abandonMicrophoneSwap(const char *why);
+    /// Drops the pending switch's references without touching its elements:
+    /// they go down with the publish bin (unpublish, teardown).
+    void forgetMicrophoneSwap();
+    /// GUI thread: every playing audio receive chain's output replaced by the
+    /// currently chosen one, the volume (level, deafen) kept.
+    void swapReceiveSinks();
+    struct PendingMicSwap {
+        GstElement *bin = nullptr;   // the publish bin; owns a ref
+        GstElement *front = nullptr; // in `bin`, output blocked; owns a ref
+        QString name;                // `front`'s name
+        unsigned long blockProbe = 0; // a gulong probe id
+        quint64 serial = 0;
+        bool currentFailed = false;  // the old capture erred meanwhile
+    };
+    PendingMicSwap m_micSwap;
+    quint64 m_micSwapSerial = 0;
+    quint64 m_micResolveSeq = 0;
+    int m_micSwaps = 0;
+    int m_micSwapsAbandoned = 0;
+    int m_micSwapTimeoutMs = 5000;
+    std::shared_ptr<std::atomic<int>> m_speakerSwaps =
+        std::make_shared<std::atomic<int>>(0);
+    QString m_testSpeakerSink;
     static constexpr int kMaxMicRestarts = 5;
     QString m_micCid;
     QString m_testMicSource;

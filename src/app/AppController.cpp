@@ -3383,8 +3383,9 @@ void AppController::enableCallMediaEngine()
         m_groupCall->setMediaEngine(sfu);
         // The Settings device test builds on the same chain and elements.
         m_audioTester->setRuntimeAvailable(true);
-        // Chosen camera, microphone and speaker for the MatrixRTC lane,
-        // applied per publish so a change lands on the next capture.
+        // Chosen camera, microphone and speaker for the MatrixRTC lane. The
+        // camera lands on the next capture; a microphone or speaker pick also
+        // reaches a running call (SfuMediaEngine::setPreferredDevices()).
         const auto applySfuDevices = [this, sfu] {
             const auto camera = m_callDevices->cameraSelection();
             const auto microphone = m_callDevices->microphoneSelection();
