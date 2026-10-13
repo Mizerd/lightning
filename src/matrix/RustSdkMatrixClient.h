@@ -528,6 +528,9 @@ public:
     quint64 localSearch(const QString &query, const QString &roomId,
                         int limit, int offset) override;
     quint64 clearStoredMedia() override;
+    quint64 clearEventCache() override;
+    quint64 requestHomeserverInfo() override;
+    quint64 requestAccountDataListing(const QString &roomId) override;
     QString mediaKeepState() const override { return m_mediaKeepState; }
     quint64 searchIndexStats() override;
     quint64 sweepSearchIndex() override;

@@ -506,6 +506,15 @@ public:
     void forgetIndexedEvent(const QString &eventId) override;
     void forgetIndexedRoom(const QString &roomId) override;
     void clearSearchIndex() override;
+    // About page: canned answers one event-loop turn later, and a record of
+    // what was asked.
+    quint64 clearEventCache() override;
+    quint64 requestHomeserverInfo() override;
+    quint64 requestAccountDataListing(const QString &roomId) override;
+    int eventCacheClears = 0;
+    int homeserverInfoRequests = 0;
+    QStringList accountDataRequests;
+    quint64 m_aboutOp = 9000;
     // "Index all rooms": records every call and answers like the bridge does
     // (a status at once; a running pass stays "running" until a test emits
     // more progress itself).

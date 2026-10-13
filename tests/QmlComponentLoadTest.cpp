@@ -41,6 +41,8 @@ namespace {
 constexpr const char *kComponents[] = {
     "StickerPackEditor",     // pack CRUD dialog
     "QrLoginDialog",         // MSC4108 sign-in-another-device
+    "AboutToolsSection",     // About: copy version, homeserver, reset cache
+    "DeveloperToolsSection", // About: developer switch, account-data browser
     "PolicyListDialog",      // Mjolnir-style moderation lists
     "AddWidgetDialog",       // widget kind picker
     "MemberProfilePopover",  // carries the policy-list notice and its Connections

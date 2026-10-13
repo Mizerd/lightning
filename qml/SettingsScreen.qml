@@ -8965,6 +8965,9 @@ Item {
                             }
                         }
 
+                        AboutToolsSection { }
+                        DeveloperToolsSection { }
+
                         // Reserve the Storm Band's height so content can scroll
                         // clear of its opaque lower part.
                         Item {

@@ -794,6 +794,8 @@ set(APP_SOURCES
     src/crypto/QrImageProvider.cpp
     src/crypto/QrLoginController.h
     src/crypto/QrLoginController.cpp
+    src/app/AboutController.h
+    src/app/AboutController.cpp
     src/app/PolicyListController.h
     src/app/PolicyListController.cpp
     src/spaces/SpaceManager.h
@@ -953,6 +955,8 @@ set(APP_QML_FILES
     qml/MiddleClickScroller.qml
     qml/VoicePreviewBar.qml
     qml/UpdatesSettingsSection.qml
+    qml/AboutToolsSection.qml
+    qml/DeveloperToolsSection.qml
     qml/UpdateAvailableDialog.qml
     qml/MainScreen.qml
     qml/HomePane.qml
@@ -3651,6 +3655,20 @@ if(BUILD_TESTING)
     target_link_libraries(location-message-test PRIVATE Qt6::Test)
     add_test(NAME location-message COMMAND location-message-test)
     set_tests_properties(location-message PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # About page: version summary, homeserver card, Reset local cache and the
+    # read-only account-data browser.
+    qt_add_executable(about-controller-test
+        tests/AboutControllerTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(about-controller-test)
+    target_link_libraries(about-controller-test PRIVATE Qt6::Test)
+    target_compile_definitions(about-controller-test PRIVATE
+        REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME about-controller COMMAND about-controller-test)
+    set_tests_properties(about-controller PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Policy lists: op discipline, and following a list does not enforce it.

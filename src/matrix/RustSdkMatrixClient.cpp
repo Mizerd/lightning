@@ -7719,6 +7719,37 @@ quint64 RustSdkMatrixClient::closeRoom(const QString &roomId,
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::clearEventCache()
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QString result = takeRustString(mx_rust_event_cache_clear(
+        m_rustHandle, static_cast<unsigned long long>(opId)));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::requestHomeserverInfo()
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QString result = takeRustString(mx_rust_homeserver_info(
+        m_rustHandle, static_cast<unsigned long long>(opId)));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::requestAccountDataListing(const QString &roomId)
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray room = roomId.toUtf8();
+    const QString result = takeRustString(mx_rust_account_data_listing(
+        m_rustHandle, room.constData(), static_cast<unsigned long long>(opId)));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::requestServerAdminStatus()
 {
     if (!m_rustHandle)
@@ -11336,6 +11367,60 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                       event.value(QStringLiteral("category")).toString());
         Q_EMIT roomClosureFinished(
             opId(), event.value(QStringLiteral("room_id")).toString(), result);
+        return true;
+    }
+
+    if (type == QLatin1String("event_cache_cleared")) {
+        Q_EMIT eventCacheCleared(opId(),
+                                 event.value(QStringLiteral("ok")).toBool());
+        return true;
+    }
+    if (type == QLatin1String("homeserver_info")) {
+        QVariantMap info;
+        info.insert(QStringLiteral("ok"), event.value(QStringLiteral("ok")).toBool());
+        info.insert(QStringLiteral("address"),
+                    event.value(QStringLiteral("address")).toString());
+        info.insert(QStringLiteral("category"),
+                    event.value(QStringLiteral("category")).toString());
+        info.insert(QStringLiteral("softwareName"),
+                    event.value(QStringLiteral("software_name")).toString());
+        info.insert(QStringLiteral("softwareVersion"),
+                    event.value(QStringLiteral("software_version")).toString());
+        QStringList versions;
+        for (const QJsonValue &v : event.value(QStringLiteral("versions")).toArray())
+            versions.append(v.toString());
+        info.insert(QStringLiteral("versions"), versions);
+        QVariantList features;
+        for (const QJsonValue &v : event.value(QStringLiteral("features")).toArray()) {
+            const QJsonObject f = v.toObject();
+            features.append(QVariantMap{
+                {QStringLiteral("name"), f.value(QStringLiteral("name")).toString()},
+                {QStringLiteral("enabled"), f.value(QStringLiteral("enabled")).toBool()}});
+        }
+        info.insert(QStringLiteral("features"), features);
+        Q_EMIT homeserverInfoReceived(opId(), info);
+        return true;
+    }
+    if (type == QLatin1String("account_data_listing")) {
+        QVariantMap listing;
+        listing.insert(QStringLiteral("ok"), event.value(QStringLiteral("ok")).toBool());
+        listing.insert(QStringLiteral("roomId"),
+                       event.value(QStringLiteral("room_id")).toString());
+        listing.insert(QStringLiteral("truncated"),
+                       event.value(QStringLiteral("truncated")).toBool());
+        listing.insert(QStringLiteral("category"),
+                       event.value(QStringLiteral("category")).toString());
+        QVariantList entries;
+        for (const QJsonValue &v : event.value(QStringLiteral("entries")).toArray()) {
+            const QJsonObject e = v.toObject();
+            entries.append(QVariantMap{
+                {QStringLiteral("type"), e.value(QStringLiteral("type")).toString()},
+                {QStringLiteral("redacted"), e.value(QStringLiteral("redacted")).toBool()},
+                {QStringLiteral("json"), e.value(QStringLiteral("json")).toString()},
+                {QStringLiteral("cut"), e.value(QStringLiteral("cut")).toBool()}});
+        }
+        listing.insert(QStringLiteral("entries"), entries);
+        Q_EMIT accountDataListed(opId(), listing);
         return true;
     }
 

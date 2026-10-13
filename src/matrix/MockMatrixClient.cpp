@@ -3186,6 +3186,74 @@ void MockMatrixClient::forgetIndexedRoom(const QString &roomId)
         forgottenIndexRooms.append(roomId);
 }
 
+quint64 MockMatrixClient::clearEventCache()
+{
+    ++eventCacheClears;
+    const quint64 op = m_aboutOp++;
+    QTimer::singleShot(0, this, [this, op] { Q_EMIT eventCacheCleared(op, true); });
+    return op;
+}
+
+quint64 MockMatrixClient::requestHomeserverInfo()
+{
+    ++homeserverInfoRequests;
+    const quint64 op = m_aboutOp++;
+    QTimer::singleShot(0, this, [this, op] {
+        QVariantMap info{
+            {QStringLiteral("ok"), true},
+            {QStringLiteral("address"), QStringLiteral("https://matrix.mock.local")},
+            {QStringLiteral("category"), QString()},
+            {QStringLiteral("softwareName"), QStringLiteral("Synapse")},
+            {QStringLiteral("softwareVersion"), QStringLiteral("1.120.0")},
+            {QStringLiteral("versions"), QStringList{QStringLiteral("v1.1"),
+                                                     QStringLiteral("v1.11")}},
+            {QStringLiteral("features"), QVariantList{
+                QVariantMap{{QStringLiteral("name"), QStringLiteral("org.matrix.msc3881")},
+                            {QStringLiteral("enabled"), true}},
+                QVariantMap{{QStringLiteral("name"), QStringLiteral("org.matrix.msc4140")},
+                            {QStringLiteral("enabled"), false}}}},
+        };
+        Q_EMIT homeserverInfoReceived(op, info);
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::requestAccountDataListing(const QString &roomId)
+{
+    accountDataRequests.append(roomId);
+    const quint64 op = m_aboutOp++;
+    QTimer::singleShot(0, this, [this, op, roomId] {
+        QVariantList entries;
+        if (roomId.isEmpty()) {
+            entries.append(QVariantMap{
+                {QStringLiteral("type"), QStringLiteral("m.cross_signing.master")},
+                {QStringLiteral("redacted"), true},
+                {QStringLiteral("json"), QString()},
+                {QStringLiteral("cut"), false}});
+            entries.append(QVariantMap{
+                {QStringLiteral("type"), QStringLiteral("m.direct")},
+                {QStringLiteral("redacted"), false},
+                {QStringLiteral("json"), QStringLiteral("{\n  \"@friend:mock.local\": [\n    \"!dm:mock.local\"\n  ]\n}")},
+                {QStringLiteral("cut"), false}});
+        } else {
+            entries.append(QVariantMap{
+                {QStringLiteral("type"), QStringLiteral("m.fully_read")},
+                {QStringLiteral("redacted"), false},
+                {QStringLiteral("json"), QStringLiteral("{\n  \"event_id\": \"$mock\"\n}")},
+                {QStringLiteral("cut"), false}});
+        }
+        QVariantMap listing{
+            {QStringLiteral("ok"), true},
+            {QStringLiteral("roomId"), roomId},
+            {QStringLiteral("truncated"), false},
+            {QStringLiteral("category"), QString()},
+            {QStringLiteral("entries"), entries},
+        };
+        Q_EMIT accountDataListed(op, listing);
+    });
+    return op;
+}
+
 void MockMatrixClient::clearSearchIndex()
 {
     indexCleared = true;

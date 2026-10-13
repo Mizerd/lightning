@@ -1634,6 +1634,19 @@ void SettingsManager::setStrictDeviceTrust(bool v)
     Q_EMIT strictDeviceTrustChanged();
 }
 
+bool SettingsManager::developerTools() const
+{
+    return m_store->value(QStringLiteral("about/developerTools"), false).toBool();
+}
+
+void SettingsManager::setDeveloperTools(bool v)
+{
+    if (developerTools() == v)
+        return;
+    m_store->setValue(QStringLiteral("about/developerTools"), v);
+    Q_EMIT developerToolsChanged();
+}
+
 bool SettingsManager::keepMediaOnDevice() const
 {
     return m_store->value(QStringLiteral("privacy/keepMediaOnDevice"), true)

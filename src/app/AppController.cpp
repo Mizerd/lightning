@@ -227,6 +227,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // MSC4108 QR login shares the verification code store: both show one
     // code at a time and a stale token renders nothing.
     m_policy       = std::make_unique<PolicyListController>(this);
+    m_about        = std::make_unique<AboutController>(this);
     m_qrLogin      = std::make_unique<QrLoginController>(this);
     m_qrLogin->setQrStore(&m_qrCodeStore);
     m_richComposer = std::make_unique<RichComposerBridge>(this);
@@ -344,6 +345,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Application updates: not account-scoped, so sign-in, sign-out and
     // account switches never disturb a check or download.
     m_updateManager = std::make_unique<lightning::update::UpdateManager>(this);
+    m_about->setPackageKind(m_updateManager->installTypeLabel());
     // The automatic check is delayed so it never stands between the user and
     // a usable app (the privacy notes promise nothing in the first 30 s).
     // maybeCheckAutomatically() enforces the preference and the 24 h rate
@@ -370,6 +372,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_conversations= std::make_unique<ConversationController>(this);
     m_discovery = std::make_unique<RoomDiscoveryController>(this);
     m_messageSearch = std::make_unique<MessageSearchController>(this);
+    m_about->setSearch(m_messageSearch.get());
     m_uia = std::make_unique<UiaController>(this);
     m_passwordChange = std::make_unique<PasswordChangeController>(this);
     // OAuth (MAS) accounts change their password on the account page.
@@ -987,6 +990,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_mediaHistory->setClient(m_client.get());
     m_qrLogin->setClient(m_client.get());
     m_policy->setClient(m_client.get());
+    m_about->setClient(m_client.get());
     // A fresh client starts with public receipts, so push the stored choice
     // on every attachment.
     applyPrivacyPreferences();

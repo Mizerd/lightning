@@ -1851,6 +1851,12 @@ char *mx_rust_change_password(void *client,
                               bool logout_devices,
                               unsigned long long op_id);
 char *mx_rust_password_change_probe(void *client, unsigned long long op_id);
+/* About page: homeserver software/features; read-only account-data listing
+   (secret types redacted in Rust); SDK event-cache clear. */
+char *mx_rust_homeserver_info(void *client, unsigned long long op_id);
+char *mx_rust_account_data_listing(void *client, const char *room_id,
+                                   unsigned long long op_id);
+char *mx_rust_event_cache_clear(void *client, unsigned long long op_id);
 /* v0.7.x server-side message search (POST /_matrix/client/v3/search).
  * Unencrypted rooms ONLY — the server cannot search ciphertext, and the UI
  * must disclose that. room_id empty = all rooms; next_batch pages.

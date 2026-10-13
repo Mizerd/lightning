@@ -136,6 +136,7 @@ private Q_SLOTS:
     // Microphone noise suppression (#20): one of four keys, never clamped.
     void noiseSuppressionDefaultsToOffPersistsAndFallsBack();
     void keepMediaOnDeviceDefaultsOnAndPersists();
+    void developerToolsDefaultOffAndPersist();
     void theKeepMediaCheckboxSaysWhereEncryptedMediaIsKept();
     // Every account-scoped value is re-announced on an account switch.
     void switchingAccountsReAnnouncesEveryAccountScopedAppearanceValue();
@@ -1469,6 +1470,24 @@ void SettingsSessionTest::noiseSuppressionDefaultsToOffPersistsAndFallsBack()
         SettingsManager settings;
         QCOMPARE(settings.noiseSuppressionMode(), QStringLiteral("off"));
     }
+}
+
+// The Developer tools switch reveals read-only panels; off until chosen, and
+// kept across a restart so a developer is not asked again each launch.
+void SettingsSessionTest::developerToolsDefaultOffAndPersist()
+{
+    {
+        SettingsManager settings;
+        QVERIFY(!settings.developerTools());
+        QSignalSpy spy(&settings, &SettingsManager::developerToolsChanged);
+        settings.setDeveloperTools(true);
+        QVERIFY(settings.developerTools());
+        QCOMPARE(spy.count(), 1);
+        settings.setDeveloperTools(true);
+        QCOMPARE(spy.count(), 1);
+    }
+    SettingsManager reopened;
+    QVERIFY(reopened.developerTools());
 }
 
 void SettingsSessionTest::keepMediaOnDeviceDefaultsOnAndPersists()

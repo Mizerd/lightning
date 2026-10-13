@@ -116,6 +116,7 @@ mod push_verdict;
 mod rooms;
 mod roomaction;
 mod rtc;
+mod aboutinfo;
 mod serveradmin;
 mod sfu;
 mod storeclose;

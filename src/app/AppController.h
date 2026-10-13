@@ -24,6 +24,7 @@
 #include "crypto/CryptoHealthModel.h"
 #include "crypto/CryptoManager.h"
 #include "crypto/QrImageProvider.h"
+#include "app/AboutController.h"
 #include "app/PolicyListController.h"
 #include "crypto/QrLoginController.h"
 #include "crypto/OwnDeviceKeyWatch.h"
@@ -328,6 +329,9 @@ class AppController : public QObject
     Q_PROPERTY(QrLoginController* qrLogin READ qrLogin CONSTANT)
     // Mjolnir-style policy lists.
     Q_PROPERTY(PolicyListController* policy READ policy CONSTANT)
+    // About page: version summary, homeserver card, reset local cache, and
+    // the Developer tools' account-data browser.
+    Q_PROPERTY(AboutController* about READ about CONSTANT)
     // Read-only E2EE health/readiness.
     Q_PROPERTY(CryptoHealthModel* cryptoHealth READ cryptoHealth CONSTANT)
     // Key backup and recovery management.
@@ -608,6 +612,7 @@ public:
     CryptoManager *crypto() const;
     QrLoginController *qrLogin() const { return m_qrLogin.get(); }
     PolicyListController *policy() const { return m_policy.get(); }
+    AboutController *about() const { return m_about.get(); }
     CryptoHealthModel *cryptoHealth() const { return m_cryptoHealth.get(); }
     QObject *backup() const;
     QObject *scheduledSends() const;
@@ -1526,6 +1531,7 @@ private:
     QrCodeStore m_qrCodeStore;
     std::unique_ptr<QrLoginController> m_qrLogin;
     std::unique_ptr<PolicyListController> m_policy;
+    std::unique_ptr<AboutController> m_about;
     StagedImageStore m_stagedImages;
     ImageCropper m_imageCrop;
     TrayIcon m_tray;

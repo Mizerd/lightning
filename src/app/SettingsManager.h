@@ -89,6 +89,10 @@ class SettingsManager : public QObject
     // SENDS are kept by matrix-sdk's send queue whatever this says.
     Q_PROPERTY(bool keepMediaOnDevice READ keepMediaOnDevice
                    WRITE setKeepMediaOnDevice NOTIFY keepMediaOnDeviceChanged)
+    // About -> Developer tools: reveals the read-only developer panels. Off by
+    // default and per device; it turns on nothing that runs by itself.
+    Q_PROPERTY(bool developerTools READ developerTools
+                   WRITE setDeveloperTools NOTIFY developerToolsChanged)
     // Downloads: Element's "Download" saves straight to the downloads folder
     // unless this is on, in which case every download asks where to save.
     Q_PROPERTY(bool alwaysAskWhereToSave READ alwaysAskWhereToSave
@@ -484,6 +488,8 @@ public:
     bool strictDeviceTrust() const;
     void setStrictDeviceTrust(bool v);
     bool keepMediaOnDevice() const;
+    bool developerTools() const;
+    void setDeveloperTools(bool v);
     void setKeepMediaOnDevice(bool v);
     bool alwaysAskWhereToSave() const;
     void setAlwaysAskWhereToSave(bool v);
@@ -970,6 +976,7 @@ Q_SIGNALS:
     void noiseSuppressionModeChanged();
     void strictDeviceTrustChanged();
     void keepMediaOnDeviceChanged();
+    void developerToolsChanged();
     void alwaysAskWhereToSaveChanged();
     void downloadFolderChanged();
     void readReceiptModeChanged();

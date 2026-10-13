@@ -1047,6 +1047,18 @@ public:
     /// Remove the media this account keeps on disk between sessions. Answers
     /// on storedMediaCleared. 0 means this backend keeps none.
     virtual quint64 clearStoredMedia() { return 0; }
+    /// Clear the SDK's event cache (never the crypto store, never the
+    /// credentials). Answers on eventCacheCleared. 0 means this backend has
+    /// none.
+    virtual quint64 clearEventCache() { return 0; }
+    /// What the homeserver says about itself (About page). Answers on
+    /// homeserverInfoReceived. 0 means this backend cannot ask.
+    virtual quint64 requestHomeserverInfo() { return 0; }
+    /// Read-only account-data listing, global when `roomId` is empty. Secret
+    /// types arrive already redacted to their type name. Answers on
+    /// accountDataListed. 0 means this backend cannot list.
+    virtual quint64 requestAccountDataListing(const QString &roomId)
+    { Q_UNUSED(roomId); return 0; }
     /// Whether media opened this session is kept between sessions, and why
     /// not: "kept", "keptExceptEncrypted" (the key is not in a secure
     /// keyring), "keptExceptEncryptedPendingUpload" (this session only, the
@@ -2163,6 +2175,13 @@ Q_SIGNALS:
     // staying, membersRead, canKick, left, category }.
     void roomClosureFinished(quint64 opId, const QString &roomId,
                              const QVariantMap &result);
+    // `info`: { ok, address, versions[], features[{name, enabled}],
+    // softwareName, softwareVersion, category }.
+    void homeserverInfoReceived(quint64 opId, const QVariantMap &info);
+    // `listing`: { ok, roomId, truncated, entries[{type, redacted, json,
+    // cut}], category }.
+    void accountDataListed(quint64 opId, const QVariantMap &listing);
+    void eventCacheCleared(quint64 opId, bool ok);
     // `detail`: "" (admin), "not_admin" or "unavailable".
     void serverAdminStatusReceived(quint64 opId, bool admin,
                                    const QString &detail);
