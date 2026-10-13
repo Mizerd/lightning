@@ -1037,7 +1037,10 @@ public:
         Q_UNUSED(replaceRecoveryKeyConfirmed);
         return 0;
     }
-    virtual void requestBackupProgress() {}
+    // Returns the id the answer will carry (backupProgress.requestId), so a
+    // late answer to an earlier request is told apart. 0 for a client that
+    // does not number them.
+    virtual quint64 requestBackupProgress() { return 0; }
 
     // Two standard account-data preferences, nothing else: "m.media_preview_config"
     // (MSC4278) and "m.recent_emoji". readAccountPref answers from the SDK's
@@ -2102,7 +2105,7 @@ Q_SIGNALS:
     // plain web page (not authenticated media); the operation keeps polling.
     void crossSigningApprovalRequired(quint64 opId, const QString &url);
     void backupProgress(const QString &backupState, const QString &uploadState,
-                        qint64 backedUp, qint64 total);
+                        qint64 backedUp, qint64 total, quint64 requestId = 0);
     // `present` is false when the account holds no such data (not the same as
     // an empty object).
     void accountPrefRead(const QString &prefType, bool present,

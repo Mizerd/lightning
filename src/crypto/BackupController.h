@@ -107,7 +107,10 @@ public:
     // list) and returns {level, pendingKeys, totalKeys, otherVerifiedDevices,
     // warns}; level is ok | checking | unknown | uploading | no_recovery |
     // no_backup. Never blocks sign-out; the dialog only warns.
+    // `backupOnServer` is CryptoHealthModel::keyBackupAvailable (0 unknown,
+    // 1 no, 2 yes).
     Q_INVOKABLE QVariantMap signOutKeyRisk(const QString &recoveryState,
+                                           int backupOnServer,
                                            const QVariantList &devices) const;
     Q_INVOKABLE void dismissRecoveryKey();
 
@@ -145,4 +148,5 @@ private:
     qint64 m_backedUp = 0;
     qint64 m_total = 0;
     bool m_progressAnswered = false;
+    quint64 m_progressRequest = 0;
 };

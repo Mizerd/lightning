@@ -571,7 +571,7 @@ public:
     quint64 backupAction(const QString &action) override;
     quint64 crossSigningAction(const QString &action, const QString &recoveryKey,
                                bool replaceRecoveryKeyConfirmed) override;
-    void requestBackupProgress() override;
+    quint64 requestBackupProgress() override;
     void readAccountPref(const QString &prefType) override;
     void writeAccountPref(const QString &prefType,
                           const QVariantMap &content) override;

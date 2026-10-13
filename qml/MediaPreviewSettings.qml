@@ -44,7 +44,7 @@ ColumnLayout {
                 objectName: "mediaPreviewModeCombo"
                 storm: true
                 Layout.fillWidth: true
-                enabled: !!section.prefs
+                enabled: !!section.prefs && section.prefs.mediaPreviewKnown
                 textRole: "label"
                 valueRole: "value"
                 model: [
@@ -85,7 +85,7 @@ ColumnLayout {
                 id: inviteCheck
                 objectName: "inviteAvatarsCheck"
                 palette.windowText: AppTheme.stormText
-                enabled: !!section.prefs
+                enabled: !!section.prefs && section.prefs.mediaPreviewKnown
                 text: qsTr("Show avatars in room invitations")
                 checked: section.prefs ? section.prefs.inviteAvatars : true
                 onToggled: {

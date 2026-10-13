@@ -42,6 +42,8 @@ public:
         return acceptSubmit;
     }
     void uiaCancel(quint64 uiaId) override { cancelledFor = uiaId; }
+    quint64 requestBackupProgress() override { return nextProgressId; }
+    quint64 nextProgressId = 0;
 
     QStringList actions;
     QStringList crossSigningCalls;
@@ -428,22 +430,41 @@ private Q_SLOTS:
         };
     }
 
+    // The backup_exists_on_server argument is CryptoHealthModel::TriState:
+    // 0 unknown, 1 no, 2 yes. State strings are the ones Rust really emits
+    // (backup_state_name): the SDK has no "disabled" backup state.
     void signOutRiskIsCheckingUntilTheSdkAnswers()
     {
         FakeBackupClient client;
         BackupController c;
         c.setClient(&client);
-        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), {})
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), 2, {})
                      .value("level").toString(), QStringLiteral("checking"));
         Q_EMIT client.backupProgress(QStringLiteral("enabled"),
                                      QStringLiteral("done"), 0, 0);
-        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), {})
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), 2, {})
                      .value("level").toString(), QStringLiteral("ok"));
         // A new request invalidates the old answer: a stale "ok" must not
         // describe the next dialog opening.
         c.requestProgress();
-        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), {})
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), 2, {})
                      .value("level").toString(), QStringLiteral("checking"));
+    }
+
+    void aLateAnswerToAnEarlierRequestCannotAnswerTheCurrentOne()
+    {
+        FakeBackupClient client;
+        client.nextProgressId = 7;
+        BackupController c;
+        c.setClient(&client);
+        c.requestProgress(); // request 7
+        // An answer to request 6 arrives first: ignored.
+        Q_EMIT client.backupProgress(QStringLiteral("enabled"),
+                                     QStringLiteral("done"), 0, 0, 6);
+        QVERIFY(!c.progressAnswered());
+        Q_EMIT client.backupProgress(QStringLiteral("enabled"),
+                                     QStringLiteral("done"), 0, 0, 7);
+        QVERIFY(c.progressAnswered());
     }
 
     void signOutRiskNamesEachWayKeysCanBeLost()
@@ -452,30 +473,40 @@ private Q_SLOTS:
         BackupController c;
         c.setClient(&client);
         const auto level = [&](const QString &backup, const QString &upload,
-                               qint64 done, qint64 total,
+                               qint64 done, qint64 total, int onServer,
                                const QString &recovery) {
             Q_EMIT client.backupProgress(backup, upload, done, total);
-            return c.signOutKeyRisk(recovery, {});
+            return c.signOutKeyRisk(recovery, onServer, {});
         };
-        QCOMPARE(level("disabled", "idle", 0, 0, "disabled").value("level"),
+        // No backup at all: the server holds none. Rust reports the local
+        // state as "unknown" then, which must NOT hide it.
+        QCOMPARE(level("unknown", "unknown", 0, 0, 1, "disabled").value("level"),
                  QVariant("no_backup"));
-        QVERIFY(level("disabled", "idle", 0, 0, "disabled").value("warns").toBool());
-        const auto up = level("enabled", "uploading", 3, 10, "enabled");
+        QVERIFY(level("unknown", "unknown", 0, 0, 1, "enabled").value("warns").toBool());
+        const auto up = level("enabled", "uploading", 3, 10, 2, "enabled");
         QCOMPARE(up.value("level"), QVariant("uploading"));
         QCOMPARE(up.value("pendingKeys").toLongLong(), qint64(7));
-        QCOMPARE(level("enabled", "done", 0, 0, "disabled").value("level"),
+        QCOMPARE(level("enabled", "done", 0, 0, 2, "disabled").value("level"),
                  QVariant("no_recovery"));
-        // "Not known" is never reported as "no backup" nor as "fine".
-        QCOMPARE(level("unknown", "unknown", 0, 0, "enabled").value("level"),
+        // "Not known" is never reported as "no backup" nor as "fine": a state
+        // we could not read, an upload the SDK did not report in time, an
+        // upload that failed, a backup still being set up.
+        QCOMPARE(level("unknown", "unknown", 0, 0, 0, "enabled").value("level"),
                  QVariant("unknown"));
-        QCOMPARE(level("enabled", "unknown", 0, 0, "unknown").value("level"),
+        QCOMPARE(level("unknown", "unknown", 0, 0, 2, "enabled").value("level"),
                  QVariant("unknown"));
-        QCOMPARE(level("creating", "idle", 0, 0, "enabled").value("level"),
+        QCOMPARE(level("enabled", "unknown", 0, 0, 2, "enabled").value("level"),
+                 QVariant("unknown"));
+        QCOMPARE(level("enabled", "error", 0, 0, 2, "enabled").value("level"),
+                 QVariant("unknown"));
+        QCOMPARE(level("enabled", "done", 0, 0, 2, "unknown").value("level"),
+                 QVariant("unknown"));
+        QCOMPARE(level("creating", "idle", 0, 0, 2, "enabled").value("level"),
                  QVariant("unknown"));
         // Backed up and recoverable: no warning. "incomplete" is a recovery
         // key held elsewhere, so signing out loses nothing more.
-        QVERIFY(!level("enabled", "done", 0, 0, "enabled").value("warns").toBool());
-        QVERIFY(!level("enabled", "idle", 0, 0, "incomplete").value("warns").toBool());
+        QVERIFY(!level("enabled", "done", 0, 0, 2, "enabled").value("warns").toBool());
+        QVERIFY(!level("enabled", "idle", 0, 0, 2, "incomplete").value("warns").toBool());
     }
 
     void signOutRiskCountsOnlyOtherTrustedSessions()
@@ -483,13 +514,13 @@ private Q_SLOTS:
         FakeBackupClient client;
         BackupController c;
         c.setClient(&client);
-        Q_EMIT client.backupProgress(QStringLiteral("disabled"),
-                                     QStringLiteral("idle"), 0, 0);
-        QCOMPARE(c.signOutKeyRisk(QStringLiteral("disabled"), sessions(false))
+        Q_EMIT client.backupProgress(QStringLiteral("unknown"),
+                                     QStringLiteral("unknown"), 0, 0);
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("disabled"), 1, sessions(false))
                      .value("otherVerifiedDevices").toInt(), 0);
         // The current session is "verified" by construction in the SDK and
         // must never count as a second copy of the keys.
-        QCOMPARE(c.signOutKeyRisk(QStringLiteral("disabled"), sessions(true))
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("disabled"), 1, sessions(true))
                      .value("otherVerifiedDevices").toInt(), 1);
     }
 
@@ -502,7 +533,7 @@ private Q_SLOTS:
                                      QStringLiteral("done"), 0, 0);
         Q_EMIT client.loggedOut();
         QVERIFY(!c.progressAnswered());
-        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), {})
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), 2, {})
                      .value("level").toString(), QStringLiteral("checking"));
     }
 };

@@ -8312,11 +8312,14 @@ quint64 RustSdkMatrixClient::crossSigningAction(const QString &action,
     return result.isEmpty() ? opId : 0;
 }
 
-void RustSdkMatrixClient::requestBackupProgress()
+quint64 RustSdkMatrixClient::requestBackupProgress()
 {
     if (!m_rustHandle)
-        return;
-    takeRustString(mx_rust_request_backup_progress(m_rustHandle));
+        return 0;
+    static quint64 sequence = 0;
+    const quint64 id = ++sequence;
+    takeRustString(mx_rust_request_backup_progress(m_rustHandle, id));
+    return id;
 }
 
 void RustSdkMatrixClient::readAccountPref(const QString &prefType)
@@ -11327,7 +11330,9 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("backup_state")).toString(),
             event.value(QStringLiteral("upload_state")).toString(),
             event.value(QStringLiteral("backed_up")).toVariant().toLongLong(),
-            event.value(QStringLiteral("total")).toVariant().toLongLong());
+            event.value(QStringLiteral("total")).toVariant().toLongLong(),
+            static_cast<quint64>(
+                event.value(QStringLiteral("request_id")).toDouble(0)));
         return true;
     }
 

@@ -215,6 +215,44 @@ private Q_SLOTS:
         QVERIFY(!c.writeFailed());
     }
 
+    void aWriteBeforeTheAccountsCopyWasReadIsRefused()
+    {
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setClient(&client);
+        c.setMediaPreviews(QStringLiteral("off"));
+        c.setInviteAvatars(false);
+        // Composed from nothing it would drop the fields we do not own.
+        QVERIFY(client.writes.isEmpty());
+        QCOMPARE(c.mediaPreviews(), QStringLiteral("on"));
+    }
+
+    void anEchoInsideTheFlushWindowKeepsUnwrittenBumps()
+    {
+        SettingsManager settings;
+        settings.clearRecentEmoji();
+        EmojiCatalog catalog(&settings);
+        FakePrefsClient client;
+        AccountPrefsController c;
+        c.setEmojiCatalog(&catalog);
+        c.setClient(&client);
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.recent_emoji"), true,
+            { { "recent_emoji", QVariantList{ pair("👍", 2) } } });
+        catalog.recordUse(QStringLiteral("🎉")); // bump pending, not written
+        QVERIFY(client.writes.isEmpty());
+        // An older echo (still without the new emoji) arrives meanwhile.
+        Q_EMIT client.accountPrefRead(QStringLiteral("m.recent_emoji"), true,
+            { { "recent_emoji", QVariantList{ pair("👍", 2) } } });
+        QTRY_COMPARE_WITH_TIMEOUT(client.writes.size(), 1, 5000);
+        const auto rows = client.writes.at(0).second.value("recent_emoji").toList();
+        QCOMPARE(rows.size(), 2);
+        bool hasNew = false;
+        for (const QVariant &r : rows)
+            hasNew = hasNew || r.toList().at(0).toString() == QStringLiteral("🎉");
+        QVERIFY2(hasNew, "the echo replaced a bump that was not written yet");
+        settings.clearRecentEmoji();
+    }
+
     void signingOutReturnsToTheDefaults()
     {
         FakePrefsClient client;

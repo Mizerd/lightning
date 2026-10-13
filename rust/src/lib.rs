@@ -5932,7 +5932,10 @@ pub unsafe extern "C" fn mx_rust_cross_signing_action(
 
 /// Snapshot of the room-key upload state for the backup card. Counts only.
 #[no_mangle]
-pub unsafe extern "C" fn mx_rust_request_backup_progress(ptr: *mut c_void) -> *mut c_char {
+pub unsafe extern "C" fn mx_rust_request_backup_progress(
+    ptr: *mut c_void,
+    request_id: u64,
+) -> *mut c_char {
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         let Some(client) = bridge.client.lock().ok().and_then(|g| g.clone()) else {
@@ -5970,6 +5973,7 @@ pub unsafe extern "C" fn mx_rust_request_backup_progress(ptr: *mut c_void) -> *m
                 &events,
                 json!({
                     "type": "backup_progress", "lifecycle": lifecycle,
+                    "request_id": request_id,
                     "backup_state": state, "upload_state": upload,
                     "backed_up": backed_up, "total": total,
                 }),

@@ -139,7 +139,10 @@ void BackupController::setClient(MatrixClient *client)
     });
     connect(m_client, &MatrixClient::backupProgress, this,
             [this](const QString &backupState, const QString &uploadState,
-                   qint64 backedUp, qint64 total) {
+                   qint64 backedUp, qint64 total, quint64 requestId) {
+        // A late answer to an earlier request describes an older moment.
+        if (requestId != m_progressRequest)
+            return;
         m_backupState = backupState;
         m_uploadState = uploadState;
         m_backedUp = backedUp;
@@ -161,6 +164,7 @@ void BackupController::setClient(MatrixClient *client)
         m_backedUp = 0;
         m_total = 0;
         m_progressAnswered = false;
+        m_progressRequest = 0;
         Q_EMIT stateChanged();
         Q_EMIT progressChanged();
     });
@@ -344,15 +348,16 @@ void BackupController::requestProgress()
             m_progressAnswered = false;
             Q_EMIT progressChanged();
         }
-        m_client->requestBackupProgress();
+        m_progressRequest = m_client->requestBackupProgress();
     }
 }
 
 QVariantMap BackupController::signOutKeyRisk(const QString &recoveryState,
+                                             int backupOnServer,
                                              const QVariantList &devices) const
 {
     const auto a = SignOutKeyRisk::assess(m_backupState, m_uploadState,
-                                          m_backedUp, m_total, recoveryState,
+                                          m_backedUp, m_total, backupOnServer, recoveryState,
                                           m_progressAnswered, devices);
     return {
         { QStringLiteral("level"), a.name },

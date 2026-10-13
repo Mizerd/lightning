@@ -3,6 +3,8 @@
 #include "matrix/MatrixClient.h"
 #include "models/EmojiCatalog.h"
 
+#include <algorithm>
+
 using namespace AccountPrefs;
 
 AccountPrefsController::AccountPrefsController(QObject *parent)
@@ -110,7 +112,9 @@ void AccountPrefsController::setInviteAvatars(bool on)
 
 void AccountPrefsController::writeMedia(const MediaPreview &next)
 {
-    if (!m_client)
+    // Never compose a write before the account's own copy was read: it would
+    // be built from nothing and drop the fields this build does not own.
+    if (!m_client || !m_mediaKnown)
         return;
     m_media = next;
     m_writeFailed = false;
@@ -135,8 +139,30 @@ void AccountPrefsController::onRead(const QString &type, bool present,
     }
     if (type == QLatin1String(kRecentEmojiType)) {
         m_emojiContent = present ? content : QVariantMap();
-        m_emojiServer = present ? parseRecentEmoji(content)
-                                : QList<EmojiCount>();
+        QList<EmojiCount> incoming = present ? parseRecentEmoji(content)
+                                             : QList<EmojiCount>();
+        // An echo of an earlier write can arrive inside the flush window; it
+        // must not replace bumps that were not written yet. Keep the higher
+        // count per emoji.
+        if (m_emojiFlush.isActive()) {
+            for (const EmojiCount &mine : std::as_const(m_emojiServer)) {
+                bool found = false;
+                for (EmojiCount &theirs : incoming) {
+                    if (theirs.first == mine.first) {
+                        theirs.second = std::max(theirs.second, mine.second);
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                    incoming.append(mine);
+            }
+            std::stable_sort(incoming.begin(), incoming.end(),
+                             [](const EmojiCount &a, const EmojiCount &b) {
+                                 return a.second > b.second;
+                             });
+        }
+        m_emojiServer = incoming;
         const bool firstRead = !m_emojiRead;
         m_emojiRead = true;
         if (m_emoji) {

@@ -31,26 +31,27 @@ static Assessment make(Level level, const QString &name)
 }
 
 Assessment assess(const QString &backupState, const QString &uploadState,
-                  qint64 backedUp, qint64 total, const QString &recoveryState,
-                  bool answered, const QVariantList &devices)
+                  qint64 backedUp, qint64 total, int backupOnServer,
+                  const QString &recoveryState, bool answered, const QVariantList &devices)
 {
     Assessment a;
     if (!answered || backupState.isEmpty()) {
         a = make(Level::Checking, QStringLiteral("checking"));
-    } else if (backupState == QLatin1String("unknown")) {
-        // "Not known" is not "no backup" (CryptoHealthModel's rule).
-        a = make(Level::Unknown, QStringLiteral("unknown"));
-    } else if (backupState == QLatin1String("disabled")) {
+    } else if (backupOnServer == 1) {
+        // The server was asked and holds no backup version.
         a = make(Level::NoBackup, QStringLiteral("no_backup"));
     } else if (backupState != QLatin1String("enabled")) {
-        // creating / enabling / resuming / downloading / disabling: the
-        // backup is in flux, so nothing can be promised about the keys.
+        // unknown / creating / enabling / resuming / downloading / disabling:
+        // the backup is not (yet) in use, so nothing can be promised.
         a = make(Level::Unknown, QStringLiteral("unknown"));
     } else if (uploadState == QLatin1String("uploading") && total > backedUp) {
         a = make(Level::Uploading, QStringLiteral("uploading"));
         a.pendingKeys = total - backedUp;
         a.totalKeys = total;
-    } else if (uploadState == QLatin1String("error")) {
+    } else if (uploadState != QLatin1String("done")
+               && uploadState != QLatin1String("idle")
+               && uploadState != QLatin1String("uploading")) {
+        // "unknown" (the SDK did not report within the bound) and "error".
         a = make(Level::Unknown, QStringLiteral("unknown"));
     } else if (recoveryState == QLatin1String("disabled")) {
         a = make(Level::NoRecovery, QStringLiteral("no_recovery"));

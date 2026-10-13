@@ -579,7 +579,8 @@ char *mx_rust_rename_device(void *client,
 char *mx_rust_backup_action(void *client,
                             const char *action,
                             unsigned long long op_id);
-char *mx_rust_request_backup_progress(void *client);
+char *mx_rust_request_backup_progress(void *client,
+                                      unsigned long long request_id);
 /* Cross-signing setup ("setup_cross_signing") or last-resort reset
  * ("reset_cross_signing"). recovery_key ("" = not given) is the user's
  * CURRENT recovery key or passphrase: with secret storage present the new

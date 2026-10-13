@@ -602,11 +602,11 @@ Popup {
         // and never blocks. The arguments exist so the binding re-evaluates
         // when any of those facts changes: a function call is not bound to
         // what it reads.
-        function assessKeys(answered, bs, us, done, total, recovery, devices) {
+        function assessKeys(answered, bs, us, done, total, onServer, recovery, devices) {
             if (!app.backup || !app.cryptoHealth || !app.cryptoHealth.cryptoSupported)
                 return { level: "ok", warns: false, pendingKeys: 0,
                          totalKeys: 0, otherVerifiedDevices: 0 }
-            return app.backup.signOutKeyRisk(recovery, devices)
+            return app.backup.signOutKeyRisk(recovery, onServer, devices)
         }
         readonly property var keyRisk: assessKeys(
             app.backup ? app.backup.progressAnswered : false,
@@ -614,6 +614,7 @@ Popup {
             app.backup ? app.backup.uploadState : "",
             app.backup ? app.backup.backedUp : 0,
             app.backup ? app.backup.total : 0,
+            app.cryptoHealth ? app.cryptoHealth.keyBackupAvailable : 0,
             app.cryptoHealth ? app.cryptoHealth.recoveryState : "",
             app.sessionDevices)
         onAboutToShow: {

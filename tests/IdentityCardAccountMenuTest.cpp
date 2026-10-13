@@ -370,8 +370,13 @@ private slots:
         QCOMPARE(confirm->property("text").toString(), QStringLiteral("Sign out"));
 
         // No backup: says what is lost, offers recovery and "Sign out anyway".
-        Q_EMIT client->backupProgress(QStringLiteral("disabled"),
-                                      QStringLiteral("idle"), 0, 0);
+        // Rust reports the local backup state as "unknown" when the account has
+        // none; what says "no backup" is the server's answer in the snapshot.
+        health->applySnapshot({ { "recovery_state", "enabled" },
+                                { "backup_exists_on_server", false } },
+                              health->generation());
+        Q_EMIT client->backupProgress(QStringLiteral("unknown"),
+                                      QStringLiteral("unknown"), 0, 0);
         QTRY_VERIFY(warning->property("text").toString().contains(
             QStringLiteral("not backed up")));
         QVERIFY(warning->property("text").toString().contains(
@@ -381,6 +386,9 @@ private slots:
                  QStringLiteral("Sign out anyway"));
 
         // Keys still uploading: names how many.
+        health->applySnapshot({ { "recovery_state", "enabled" },
+                                { "backup_exists_on_server", true } },
+                              health->generation());
         Q_EMIT client->backupProgress(QStringLiteral("enabled"),
                                       QStringLiteral("uploading"), 3, 10);
         QTRY_VERIFY(warning->property("text").toString().contains(
