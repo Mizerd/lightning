@@ -75,7 +75,7 @@ Rectangle {
     radius: AppTheme.radiusMd
     border.width: 1
     // The border doubles as the focus ring.
-    border.color: root.focusWithin ? AppTheme.focusRing : AppTheme.border
+    border.color: root.focusWithin ? AppTheme.focusRing : AppTheme.codeBlockBorder
 
     readonly property bool focusWithin:
         root.activeFocus || codeArea.activeFocus || copyButton.activeFocus
@@ -280,7 +280,7 @@ Rectangle {
                     activeFocusOnTab: false
                     padding: 0
                     textMargin: 0
-                    color: AppTheme.textPrimary
+                    color: AppTheme.codeText
                     selectionColor: AppTheme.accent
                     selectedTextColor: AppTheme.accentText
                     font.family: AppTheme.monoFont

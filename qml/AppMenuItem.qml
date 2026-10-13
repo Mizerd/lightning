@@ -33,9 +33,9 @@ MenuItem {
 
     readonly property bool _active: root.highlighted || root.hovered
     readonly property color _ink: !root.enabled ? AppTheme.stormTextFaint
-                                  : root.danger ? AppTheme.stormDanger
-                                  : root._active ? AppTheme.stormText
-                                  : AppTheme.stormTextSecondary
+                                  : root.danger ? AppTheme.menuDangerText
+                                  : root._active ? AppTheme.menuItemActiveText
+                                  : AppTheme.menuItemText
 
     // Labels, icon slots and keycaps can change without adding a row (for
     // example, a room becoming a favourite). Refit after the content layout
@@ -112,7 +112,7 @@ MenuItem {
     background: Rectangle {
         radius: AppTheme.menuItemRadius
         color: root._active && root.enabled
-               ? (root.danger ? AppTheme.stormDangerSoft
+               ? (root.danger ? Qt.alpha(AppTheme.menuDangerTint, 0.10)
                               : AppTheme.menuHighlight)
                : root.radio && root.radioSelected ? AppTheme.menuHighlight
                : "transparent"

@@ -10,7 +10,14 @@ import MatrixClient
 // and the composer sends only through the SDK thread path.
 Rectangle {
     id: panel
-    color: AppTheme.sidebar
+    color: AppTheme.sidePanel
+    // The side panel's own gradient, when a custom theme gives it one; draws
+    // nothing otherwise. First among the children, so everything is above.
+    ThemedSurface {
+        anchors.fill: parent
+        role: "sidePanel"
+        flatFill: false
+    }
 
     signal closeRequested()
     // Media entry points supplied by TimelinePane.
@@ -246,7 +253,7 @@ Rectangle {
                 }
             }
         }
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
+        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.headerDivider }
 
         // Threads list (Threads view mode)
         Item {

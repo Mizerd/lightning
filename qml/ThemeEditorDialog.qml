@@ -310,12 +310,22 @@ Popup {
             for (var k in own)
                 out[k] = own[k]
         }
+        // An element of a gradient group shows the group's gradient until it
+        // has a colour of its own (the rule the live shell paints by).
+        var overrides = root.overrideColors
+        for (var el in AppTheme.gradientGroups) {
+            if (out[el])
+                continue
+            var inherited = AppTheme.inheritedGradient(el, own, overrides)
+            if (inherited)
+                out[el] = inherited
+        }
         if (AppTheme.surfaceDepth === 1 && typeof app !== "undefined" && app
                 && app.backdrops) {
             var pal = root.previewPalette
             var dark = AppTheme.relativeLuminance(
                            AppTheme._asColor(pal.background)) < 0.18
-            var grounds = ["background", "sidebar", "rail"]
+            var grounds = AppTheme._depthRoles
             for (var i = 0; i < grounds.length; ++i) {
                 var r = grounds[i]
                 if (out[r] || pal[r] === undefined)
@@ -440,6 +450,54 @@ Popup {
         }
         return ""
     }
+    // The group the open role belongs to (its declared `follows`), whether or
+    // not it currently takes the group's colour: "Apply to all <group>" is
+    // offered on it either way.
+    readonly property string editingGroup: {
+        var key = root.editingRole
+        if (key.length === 0)
+            return ""
+        var list = root.store.roles
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i].key === key)
+                return list[i].follows ? list[i].follows : ""
+        }
+        return ""
+    }
+    // True while the open role has a colour or a gradient of its own, so
+    // "Reset to group" has something to drop.
+    readonly property bool editingHasOwn:
+        root.editingRole.length > 0
+        && (root.isOverridden(root.editingRole)
+            || (root.storeGradients
+                && root.storeGradients[root.editingRole] !== undefined))
+
+    // "Reset to group": the open element drops its own colour and gradient
+    // and shows its group's again.
+    function resetToGroup() {
+        var key = root.editingRole
+        if (key.length === 0)
+            return
+        root.store.sealUndoStep()
+        root.store.resetGradient(key)
+        root.store.resetColor(key)
+        root.editingStop = root.startingStop(key, -1)
+        picker.show(root.pickerColourFor(key, root.editingStop))
+    }
+    // "Apply to all <group>": the group takes this element's colour (and
+    // gradient) and every element of the group follows it again.
+    function applyToGroup() {
+        var key = root.editingRole
+        if (key.length === 0 || root.editingGroup.length === 0)
+            return
+        root.store.sealUndoStep()
+        var hex = root.toHex(Qt.color(String(root.effectiveColor(key))))
+        if (root.store.applyToGroup(key, hex)) {
+            root.editingStop = root.startingStop(key, -1)
+            picker.show(root.pickerColourFor(key, root.editingStop))
+        }
+    }
+
     // What the open role is currently following, or "".
     readonly property string editingParent: {
         var p = root.liveLinks[root.editingRole]
@@ -529,6 +587,14 @@ Popup {
     readonly property string gradientWord: qsTr("gradient").toLowerCase()
 
     // Groups narrowed by the filter; empty groups are dropped.
+    //
+    // Within a section every element role sits under the group it inherits
+    // from (its `follows`), indented by `depth`, so "Panels and cards" lists
+    // the room header, the side panel and the menus beneath it. A section is
+    // the one its top-level group names; an element whose group lives in
+    // another section is listed there, under that group. A filter hit on an
+    // element keeps its group above it for context; a hit on a group keeps
+    // its elements (typing "panels" shows everything that follows it).
     readonly property var roleGroups: {
         var out = []
         var seen = {}
@@ -540,12 +606,27 @@ Popup {
                         ? (needle.charAt(0) === "#" ? needle : "#" + needle)
                         : ""
         var list = root.store.roles
-        for (var i = 0; i < list.length; ++i) {
-            var hit = needle.length === 0
-                || list[i].label.toLowerCase().indexOf(needle) >= 0
-                || list[i].group.toLowerCase().indexOf(needle) >= 0
-                || list[i].hint.toLowerCase().indexOf(needle) >= 0
-                || list[i].key.toLowerCase().indexOf(needle) >= 0
+        var byKey = {}
+        var children = {}
+        var i
+        for (i = 0; i < list.length; ++i) {
+            byKey[list[i].key] = list[i]
+            var parentKey = list[i].follows
+            if (parentKey && parentKey.length > 0) {
+                if (children[parentKey] === undefined)
+                    children[parentKey] = []
+                children[parentKey].push(list[i].key)
+            }
+        }
+        var shown = {}
+        for (i = 0; i < list.length; ++i) {
+            var textHit = needle.length > 0
+                && (list[i].label.toLowerCase().indexOf(needle) >= 0
+                    || list[i].group.toLowerCase().indexOf(needle) >= 0
+                    || list[i].hint.toLowerCase().indexOf(needle) >= 0
+                    || list[i].key.toLowerCase().indexOf(needle) >= 0)
+            var wordHit = textHit && hexNeedle.length === 0
+            var hit = needle.length === 0 || textHit
             // "grad…" lists the surfaces that can be a gradient.
             if (!hit && needle.length >= 3
                     && root.gradientWord.indexOf(needle) === 0
@@ -558,12 +639,53 @@ Popup {
             }
             if (!hit)
                 continue
+            shown[list[i].key] = true
+            // A word hit on a group's own name brings its elements; a colour
+            // hit, or the "grad…" shortcut, is about this role alone.
+            if (wordHit) {
+                var stack = (children[list[i].key] || []).slice()
+                for (var guard = 0; stack.length > 0 && guard < 400; ++guard) {
+                    var c = stack.pop()
+                    shown[c] = true
+                    var grand = children[c]
+                    if (grand)
+                        stack = stack.concat(grand)
+                }
+            }
+        }
+        // Context: every shown element keeps the chain of groups above it.
+        for (var key in shown) {
+            var p = byKey[key] ? byKey[key].follows : ""
+            for (var hops = 0; p && p.length > 0 && hops < 8; ++hops) {
+                shown[p] = true
+                p = byKey[p] ? byKey[p].follows : ""
+            }
+        }
+        var emit = function (k, depth, section) {
+            var r = byKey[k]
+            out[seen[section]].items.push({
+                key: r.key, label: r.label, hint: r.hint, group: r.group,
+                follows: r.follows, depth: depth,
+                members: children[k] ? children[k].length : 0
+            })
+            var kids = children[k] || []
+            for (var j = 0; j < kids.length; ++j) {
+                if (shown[kids[j]] && depth < 6)
+                    emit(kids[j], depth + 1, section)
+            }
+        }
+        for (i = 0; i < list.length; ++i) {
+            var k = list[i].key
+            var parent = list[i].follows
+            // Elements are emitted under their group.
+            if (!shown[k] || (parent && parent.length > 0 && byKey[parent]))
+                continue
             var g = list[i].group
             if (seen[g] === undefined) {
                 seen[g] = out.length
                 out.push({ name: g, items: [] })
             }
-            out[seen[g]].items.push(list[i])
+            emit(k, 0, g)
         }
         return out
     }
@@ -603,6 +725,7 @@ Popup {
         contentItem: Label {
             id: btnLabel
             text: btn.text
+            elide: Text.ElideRight
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             color: btn.primary ? AppTheme.editorAccentInk
@@ -1651,6 +1774,11 @@ Popup {
                                                 return p !== undefined ? p : ""
                                             }
                                             Layout.fillWidth: true
+                                            // An element sits under the group it
+                                            // inherits from.
+                                            Layout.leftMargin:
+                                                Math.min(3, modelData.depth || 0)
+                                                * AppTheme.spacing12
                                             implicitHeight: 38
                                             radius: AppTheme.radiusSm
                                             color: editing ? AppTheme.editorSelection
@@ -2176,6 +2304,7 @@ Popup {
                         objectName: "themeRoleLinks"
                         Layout.fillWidth: true
                         visible: root.editingParent.length > 0
+                                 || root.editingGroup.length > 0
                                  || root.editingDependents.length > 0
                         spacing: AppTheme.spacing4
 
@@ -2191,11 +2320,61 @@ Popup {
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
                         }
+                        // An element with a colour of its own still belongs
+                        // to its group; say which, so "Apply to all" is clear.
+                        Label {
+                            objectName: "themeRoleGroupNote"
+                            Layout.fillWidth: true
+                            visible: root.editingParent.length === 0
+                                     && root.editingGroup.length > 0
+                            wrapMode: Text.WordWrap
+                            textFormat: Text.PlainText
+                            text: qsTr("Part of %1, with a colour of its own.")
+                                  .arg(root.labelForRole(root.editingGroup))
+                            color: AppTheme.editorTextSecondary
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                        }
                         Flow {
                             Layout.fillWidth: true
                             visible: root.editingParent.length > 0
+                                     || root.editingGroup.length > 0
                             spacing: AppTheme.spacing4
-                            RoleChip { roleKey: root.editingParent }
+                            RoleChip {
+                                roleKey: root.editingParent.length > 0
+                                         ? root.editingParent : root.editingGroup
+                            }
+                        }
+                        // Reset to group / Apply to all <group>.
+                        Flow {
+                            objectName: "themeRoleGroupActions"
+                            Layout.fillWidth: true
+                            visible: root.editingGroup.length > 0
+                            spacing: AppTheme.spacing6
+                            EditorButton {
+                                objectName: "themeResetToGroup"
+                                visible: root.editingHasOwn
+                                         && root.editingFollowsDeclared.length > 0
+                                implicitHeight: 28
+                                text: qsTr("Reset to group")
+                                Accessible.description:
+                                    qsTr("Take the colour of %1 again")
+                                    .arg(root.labelForRole(root.editingGroup))
+                                onClicked: root.resetToGroup()
+                            }
+                            EditorButton {
+                                objectName: "themeApplyToGroup"
+                                implicitHeight: 28
+                                // A long group name must not push the button
+                                // past the panel.
+                                width: Math.min(implicitWidth, parent.width)
+                                text: qsTr("Apply to all %1")
+                                      .arg(root.labelForRole(root.editingGroup))
+                                Accessible.description:
+                                    qsTr("Give this colour to %1 and everything in it")
+                                    .arg(root.labelForRole(root.editingGroup))
+                                onClicked: root.applyToGroup()
+                            }
                         }
 
                         Label {

@@ -1858,11 +1858,21 @@ private slots:
             QStringLiteral("timestampInk"),    QStringLiteral("placeholderInk"),
             QStringLiteral("settingsPage"),    QStringLiteral("settingsNav"),
         };
+        // And every editable role, the per-element ones included: on every
+        // preset, the colour the editor shows for an element is the one the
+        // app paints it with (its pre-split token, Storm's own included).
+        QStringList all = keys;
+        for (const QString &role : CustomThemeStore::editableRoles()) {
+            const QString key = m_controller->customTheme()->paletteKeyForRole(role);
+            if (!all.contains(key))
+                all << key;
+        }
+        QVERIFY2(all.size() > 120, qPrintable(QString::number(all.size())));
         const int original = int(m_controller->settings()->theme());
         for (int id = 1; id <= 11; ++id) {
             m_controller->settings()->setTheme(SettingsManager::Theme(id));
             QCoreApplication::processEvents();
-            for (const QString &key : keys) {
+            for (const QString &key : all) {
                 QQmlExpression expr(
                     qmlContext(m_window), m_window,
                     QStringLiteral("AppTheme.paletteForTheme(%1).%2")
@@ -3117,7 +3127,8 @@ private slots:
         auto *store = m_controller->customTheme();
         store->resetAll();
         for (const char *role : { "background", "sidebar", "rail", "surface",
-                                  "settingsPage", "settingsNav" })
+                                  "settingsPage", "settingsNav", "timelineBackground",
+                                  "roomList", "sidePanel" })
             store->resetGradient(QLatin1String(role));
         store->setBaseTheme(base);
         QCoreApplication::processEvents();
@@ -3413,15 +3424,70 @@ private slots:
 
         const QList<QQuickItem *> regions = previewRegions();
         QSet<QString> roles;
-        for (QQuickItem *r : regions)
-            roles.insert(r->property("role").toString());
+        for (QQuickItem *r : regions) {
+            if (r->isVisible())
+                roles.insert(r->property("role").toString());
+        }
+        // A role is in the preview through a Region of its own, or (a group
+        // whose every element has its own role) through its elements.
+        QHash<QString, QStringList> children;
+        for (const QVariant &r : store->roles()) {
+            const QVariantMap m = r.toMap();
+            const QString parent = m.value(QStringLiteral("follows")).toString();
+            if (!parent.isEmpty())
+                children[parent] << m.value(QStringLiteral("key")).toString();
+        }
+        std::function<bool(const QString &, int)> shown =
+            [&](const QString &key, int depth) {
+            if (roles.contains(key))
+                return true;
+            for (const QString &child : children.value(key)) {
+                if (depth < 6 && shown(child, depth + 1))
+                    return true;
+            }
+            return false;
+        };
         QStringList missing;
         for (const QVariant &r : store->roles()) {
             const QString key = r.toMap().value(QStringLiteral("key")).toString();
             // Room rows are Channels-only or room-list-only, and the preview
             // follows the user's layout; both are covered by one pass each.
-            if (!roles.contains(key))
+            if (!shown(key, 0))
                 missing.append(key);
+        }
+
+        // One element, one role: a role painted by several visible Regions
+        // must be one element drawn several times (`repeated`), never two
+        // different elements that would light up together. Before the split
+        // the room header and the people panel were both "surface".
+        QHash<QString, QList<QQuickItem *>> byRole;
+        for (QQuickItem *r : regions) {
+            if (r->isVisible() && r->width() > 0 && r->height() > 0)
+                byRole[r->property("role").toString()].append(r);
+        }
+        QStringList shared;
+        for (auto it = byRole.constBegin(); it != byRole.constEnd(); ++it) {
+            if (it.value().size() < 2)
+                continue;
+            for (QQuickItem *r : it.value()) {
+                if (!r->property("repeated").toBool()) {
+                    shared.append(QStringLiteral("%1 (%2 targets)")
+                                      .arg(it.key()).arg(it.value().size()));
+                    break;
+                }
+            }
+        }
+        // Every target names a leaf: nothing currently follows it, so editing
+        // it recolours that element alone.
+        QStringList notLeaf;
+        for (auto it = byRole.constBegin(); it != byRole.constEnd(); ++it) {
+            QVariant deps;
+            QMetaObject::invokeMethod(dialog, "dependentsOf",
+                                      Q_RETURN_ARG(QVariant, deps),
+                                      Q_ARG(QVariant, it.key()));
+            if (!deps.toList().isEmpty())
+                notLeaf.append(it.key() + QStringLiteral(" -> ")
+                               + deps.toStringList().join(QStringLiteral("/")));
         }
 
         // Which Region a click at `scene` reaches: the topmost one, children
@@ -3454,6 +3520,7 @@ private slots:
         QStringList unreachable;
         QStringList wrong;
         QStringList notLit;
+        QSet<QString> alsoLit;
         int clicked = 0;
         const QRectF stage(0, 0, preview->width(), preview->height());
         for (QQuickItem *r : regions) {
@@ -3508,24 +3575,18 @@ private slots:
                 notLit.append(role);
             if (dialog->property("editingRole").toString() != got)
                 wrong.append(role + QStringLiteral(" did not open its editor"));
-        }
-
-        // The inks and lines that used to share their fill's target: how many
-        // separate targets each role has (before the split a badge count, a
-        // button label and a hairline were part of the box they sat on).
-        QHash<QString, int> perRole;
-        for (QQuickItem *r : regions)
-            ++perRole[r->property("role").toString()];
-        QStringList notOwn;
-        const QPair<const char *, int> wanted[] = {
-            { "accentText", 5 }, { "border", 6 }, { "borderStrong", 2 },
-            { "textPrimary", 16 }, { "textMuted", 5 }, { "selected", 2 } };
-        for (const auto &w : wanted) {
-            if (perRole.value(QLatin1String(w.first)) < w.second)
-                notOwn.append(QStringLiteral("%1 has %2 targets, wants %3")
-                                  .arg(QLatin1String(w.first))
-                                  .arg(perRole.value(QLatin1String(w.first)))
-                                  .arg(w.second));
+            // What the click outlined: this element (and its repeats) only.
+            // Moved off the preview first, so the pointer's own 0.5 is gone.
+            QTest::mouseMove(m_window, QPoint(1, 1));
+            QCoreApplication::processEvents();
+            for (QQuickItem *other : regions) {
+                if (!other->isVisible()
+                        || other->property("emphasis").toReal() < 1.0)
+                    continue;
+                if (other->property("role").toString() != got)
+                    alsoLit.insert(got + QStringLiteral(" also outlines ")
+                                   + other->property("role").toString());
+            }
         }
 
         closeThemeEditor();
@@ -3534,8 +3595,13 @@ private slots:
         QVERIFY2(missing.isEmpty(),
                  qPrintable(QStringLiteral("editable roles with no place in the "
                                            "preview: %1").arg(missing.join(", "))));
-        QVERIFY2(clicked >= 60,
+        QVERIFY2(clicked >= 90,
                  qPrintable(QStringLiteral("only %1 regions could be clicked").arg(clicked)));
+        // The element roles themselves: far more distinct targets than the
+        // 2026-10-06 preview's ~50 shared roles.
+        QVERIFY2(byRole.size() >= 90,
+                 qPrintable(QStringLiteral("only %1 distinct roles have a target")
+                                .arg(byRole.size())));
         QVERIFY2(unreachable.isEmpty(),
                  qPrintable(QStringLiteral("covered by another target: %1")
                                 .arg(unreachable.join(", "))));
@@ -3543,12 +3609,247 @@ private slots:
         QVERIFY2(notLit.isEmpty(),
                  qPrintable(QStringLiteral("hover did not outline: %1")
                                 .arg(notLit.join(", "))));
-        QVERIFY2(notOwn.isEmpty(), qPrintable(notOwn.join(", ")));
+        QVERIFY2(shared.isEmpty(),
+                 qPrintable(QStringLiteral("two different elements share a role: %1")
+                                .arg(shared.join(", "))));
+        QVERIFY2(notLeaf.isEmpty(),
+                 qPrintable(QStringLiteral("a target recolours other elements too: %1")
+                                .arg(notLeaf.join(", "))));
+        QVERIFY2(alsoLit.isEmpty(),
+                 qPrintable(QStringLiteral("a click outlined more than its element:\n  %1")
+                                .arg(QStringList(alsoLit.values()).join(QStringLiteral("\n  ")))));
     }
 
     // With no custom theme yet, ONE click on "Create a theme" opens the
     // editor and it stays open. Reported live as needing a second click; NOT
     // reproduced by this case, which passes on the unfixed tree too.
+    // The whole resolved palette of theme `id`, read in one evaluation:
+    // key -> colour.
+    QHash<QString, QColor> resolvedPaletteOf(int id) const
+    {
+        QQmlExpression expr(
+            qmlContext(m_window), m_window,
+            QStringLiteral("(function () { var p = AppTheme.paletteForTheme(%1);"
+                           " var out = []; for (var k in p)"
+                           " out.push(k + '=' + String(p[k])); return out.join(';') })()")
+                .arg(id));
+        const QString flat = expr.evaluate().toString();
+        QHash<QString, QColor> out;
+        for (const QString &pair : flat.split(QLatin1Char(';'), Qt::SkipEmptyParts)) {
+            const int eq = pair.indexOf(QLatin1Char('='));
+            if (eq > 0)
+                out.insert(pair.left(eq), QColor::fromString(pair.mid(eq + 1)));
+        }
+        return out;
+    }
+
+    bool baseDefines(int base, const QString &key) const
+    {
+        QQmlExpression expr(qmlContext(m_window), m_window,
+                            QStringLiteral("AppTheme.rawPaletteForTheme(%1)['%2'] !== undefined")
+                                .arg(base).arg(key));
+        return expr.evaluate().toBool();
+    }
+
+    // Every element role resolves, by default, to the group it follows: in
+    // the palette the editor and the preview paint (paletteForTheme(12)) and
+    // in the live token the app paints with, on a custom theme over each of
+    // the eleven presets. So splitting a shared role changed no theme, and
+    // the editor's "follows <group>" is the truth. Counted, so a short sweep
+    // fails. (A role the base preset sets itself, such as `rail`, is its own
+    // colour on that base and is skipped, as the editor's links skip it.)
+    //
+    // Fails on the old tree: it has no element roles, so the count is far
+    // below the floor.
+    void everyElementRoleFollowsItsGroupOnEveryBase()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        const int restoreTheme = int(m_controller->settings()->theme());
+        QObject *backdrops = m_controller->backdrops();
+        const QVariant restoreDepth = backdrops ? backdrops->property("surfaceDepth")
+                                                : QVariant();
+        if (backdrops)
+            backdrops->setProperty("surfaceDepth", 0);
+
+        // role -> group, as palette keys.
+        QList<QPair<QString, QString>> pairs;
+        for (const QVariant &v : store->roles()) {
+            const QVariantMap m = v.toMap();
+            const QString parent = m.value(QStringLiteral("follows")).toString();
+            if (parent.isEmpty())
+                continue;
+            pairs.append({ store->paletteKeyForRole(m.value(QStringLiteral("key")).toString()),
+                           store->paletteKeyForRole(parent) });
+        }
+        QVERIFY2(pairs.size() >= 80,
+                 qPrintable(QStringLiteral("only %1 roles follow a group").arg(pairs.size())));
+
+        QStringList wrong;
+        int compared = 0;
+        int bases = 0;
+        for (int base = 1; base <= 11; ++base) {
+            resetThemeFixture(base);
+            m_controller->settings()->setTheme(SettingsManager::CustomTheme);
+            QCoreApplication::processEvents();
+            ++bases;
+            const QHash<QString, QColor> pal = resolvedPaletteOf(12);
+            for (const auto &[element, group] : pairs) {
+                if (baseDefines(base, element))
+                    continue;
+                // Four presets set the online dot under its older key.
+                if (element == QLatin1String("presenceOnline")
+                        && baseDefines(base, QStringLiteral("online")))
+                    continue;
+                const QColor e = pal.value(element);
+                const QColor g = pal.value(group);
+                if (!e.isValid() || e != g)
+                    wrong << QStringLiteral("base %1: palette %2 %3 != %4 %5")
+                                 .arg(base).arg(element, e.name(QColor::HexArgb),
+                                                group, g.name(QColor::HexArgb));
+                const QColor le = themeColor(element.toUtf8().constData());
+                const QColor lg = themeColor(group.toUtf8().constData());
+                if (!le.isValid() || le != lg)
+                    wrong << QStringLiteral("base %1: live %2 %3 != %4 %5")
+                                 .arg(base).arg(element, le.name(QColor::HexArgb),
+                                                group, lg.name(QColor::HexArgb));
+                compared += 2;
+            }
+        }
+
+        m_controller->settings()->setTheme(SettingsManager::Theme(restoreTheme));
+        resetThemeFixture(restoreBase);
+        if (backdrops)
+            backdrops->setProperty("surfaceDepth", restoreDepth);
+        QCoreApplication::processEvents();
+
+        QCOMPARE(bases, 11);
+        // ~80 elements, both sides, eleven bases, less the few a base sets.
+        QVERIFY2(compared >= 11 * 2 * 75,
+                 qPrintable(QStringLiteral("only %1 comparisons were made").arg(compared)));
+        QVERIFY2(wrong.isEmpty(),
+                 qPrintable(QStringLiteral("%1 of %2 comparisons differ:\n  %3")
+                                .arg(wrong.size()).arg(compared)
+                                .arg(wrong.mid(0, 40).join(QStringLiteral("\n  ")))));
+    }
+
+    // Giving one element a colour changes that element and nothing else: in
+    // the resolved palette (every other key keeps its colour), in the live
+    // token the app reads, and in the preview (no Region of another role
+    // changes colour). Run for every element role.
+    //
+    // Fails on the old tree: setColor refuses the element roles, so none
+    // changes; and the room header shared `surface` with the people panel.
+    void anElementOverrideChangesOnlyThatElement()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        const int restoreTheme = int(m_controller->settings()->theme());
+        resetThemeFixture(11);
+        m_controller->settings()->setTheme(SettingsManager::CustomTheme);
+        QCoreApplication::processEvents();
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+
+        const auto regionColour = [](QQuickItem *r) {
+            QQuickItem *p = r->parentItem();
+            const QVariant c = p ? p->property("color") : QVariant();
+            return c.isValid() ? c.value<QColor>() : QColor();
+        };
+        const QList<QQuickItem *> regions = previewRegions();
+        QVERIFY(regions.size() > 90);
+
+        // Leaves only: a role others follow (`accentSoft`, `unreadBadge`) is
+        // a group, and recolouring its elements is its job.
+        QStringList elements;
+        for (const QVariant &v : store->roles()) {
+            const QVariantMap m = v.toMap();
+            const QString key = m.value(QStringLiteral("key")).toString();
+            if (!m.value(QStringLiteral("follows")).toString().isEmpty()
+                    && store->groupMembers(key).isEmpty())
+                elements << key;
+        }
+        QVERIFY(elements.size() >= 80);
+        const auto liveTokens = [&]() {
+            QHash<QString, QColor> out;
+            for (const QString &e : elements) {
+                const QString k = store->paletteKeyForRole(e);
+                out.insert(k, themeColor(k.toUtf8().constData()));
+            }
+            return out;
+        };
+
+        const QColor mark(QStringLiteral("#FE01FD"));
+        QStringList leaked;
+        QStringList notApplied;
+        int previewChanged = 0;
+        int checked = 0;
+        for (const QString &role : elements) {
+            const QString key = store->paletteKeyForRole(role);
+            const QHash<QString, QColor> before = resolvedPaletteOf(12);
+            const QHash<QString, QColor> liveBefore = liveTokens();
+            QHash<QQuickItem *, QColor> regionBefore;
+            for (QQuickItem *r : regions)
+                regionBefore.insert(r, regionColour(r));
+
+            if (!store->setColor(role, mark.name())) {
+                notApplied << role + QStringLiteral(" (refused)");
+                continue;
+            }
+            QCoreApplication::processEvents();
+            ++checked;
+
+            const QHash<QString, QColor> after = resolvedPaletteOf(12);
+            if (after.value(key) != mark)
+                notApplied << role + QStringLiteral(" (palette)");
+            if (themeColor(key.toUtf8().constData()) != mark)
+                notApplied << role + QStringLiteral(" (live token)");
+            for (auto it = before.constBegin(); it != before.constEnd(); ++it) {
+                if (it.key() != key && after.value(it.key()) != it.value())
+                    leaked << role + QStringLiteral(" also changed palette ") + it.key();
+            }
+            const QHash<QString, QColor> liveAfter = liveTokens();
+            for (auto it = liveBefore.constBegin(); it != liveBefore.constEnd(); ++it) {
+                if (it.key() != key && liveAfter.value(it.key()) != it.value())
+                    leaked << role + QStringLiteral(" also changed live ") + it.key();
+            }
+            bool own = false;
+            for (QQuickItem *r : regions) {
+                const QColor now = regionColour(r);
+                if (now == regionBefore.value(r))
+                    continue;
+                if (r->property("role").toString() == role)
+                    own = true;
+                else
+                    leaked << role + QStringLiteral(" also changed the preview's ")
+                                  + r->property("role").toString();
+            }
+            if (own)
+                ++previewChanged;
+            store->resetColor(role);
+            QCoreApplication::processEvents();
+        }
+
+        closeThemeEditor();
+        m_controller->settings()->setTheme(SettingsManager::Theme(restoreTheme));
+        resetThemeFixture(restoreBase);
+
+        QCOMPARE(checked, elements.size());
+        QVERIFY2(notApplied.isEmpty(), qPrintable(notApplied.join(QStringLiteral(", "))));
+        leaked.removeDuplicates();
+        QVERIFY2(leaked.isEmpty(),
+                 qPrintable(QStringLiteral("an element override reached other "
+                                           "elements:\n  %1")
+                                .arg(leaked.mid(0, 40).join(QStringLiteral("\n  ")))));
+        // Most elements paint their own fill or ink; lines drawn as a
+        // border and the identity-derived ones are seen in the palette only.
+        QVERIFY2(previewChanged >= 60,
+                 qPrintable(QStringLiteral("only %1 elements changed in the preview")
+                                .arg(previewChanged)));
+    }
+
     void createAThemeOpensTheEditorOnTheFirstClick()
     {
         auto *store = m_controller->customTheme();

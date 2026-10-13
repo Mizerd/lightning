@@ -80,7 +80,7 @@ Item {
             required property string section
             width: roomList.width
             height: 28
-            color: AppTheme.sidebar
+            color: AppTheme.roomList
 
             Label {
                 anchors {
@@ -99,7 +99,7 @@ Item {
                       : (section === "favourite"
                          ? qsTr("Favourites")
                          : root.conversationSectionLabel)
-                color: AppTheme.sectionLabelColor
+                color: AppTheme.roomListSection
                 font.family: AppTheme.menuSectionFont
                 font.pixelSize: AppTheme.menuSectionSize
                 font.weight: AppTheme.menuSectionWeight

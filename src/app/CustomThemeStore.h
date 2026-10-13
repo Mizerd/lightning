@@ -83,6 +83,14 @@ public:
     // Whether a role may carry a gradient (surfaces only: ink and states stay
     // flat, since a gradient under text is graded at its worst stop).
     Q_INVOKABLE bool isGradientRole(const QString &role) const;
+    // "Apply to all <group>": the role's group (roleFollows) takes `hex`, and
+    // the group's element roles (this one included) drop their own colours so
+    // every element of the group shows it. One undo step. A gradient the role
+    // carries moves to the group too when the group takes gradients. Refused
+    // (false, nothing stored) for a role with no group or an invalid colour.
+    Q_INVOKABLE bool applyToGroup(const QString &role, const QString &hex);
+    // The element roles that follow `group` directly, in editor order.
+    Q_INVOKABLE QStringList groupMembers(const QString &group) const;
     // Drops every override and every gradient, keeping the base theme and name.
     Q_INVOKABLE void resetAll();
     // Forgets every custom theme.

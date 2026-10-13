@@ -368,7 +368,9 @@ Item {
     // Mention chips render inside sanitized rich text, so the models need the
     // theme inks (AppTheme is QML-only). Re-pushed on every theme change.
     function _pushMentionStyle() {
-        var accent = "" + AppTheme.accent
+        // A mention of you (and @room): its own theme role since 2026-10-13,
+        // the accent until a theme sets it.
+        var accent = "" + AppTheme.selfMentionInk
         var soft = "" + AppTheme.accentSoft
         var code = "" + AppTheme.codeBlock
         // The fourth argument matters: MessageHtml paints a mention of you in
@@ -385,7 +387,7 @@ Item {
     Component.onCompleted: _pushMentionStyle()
     Connections {
         target: AppTheme
-        function onAccentChanged() { _pushMentionStyle() }
+        function onSelfMentionInkChanged() { _pushMentionStyle() }
         function onAccentSoftChanged() { _pushMentionStyle() }
         function onCodeBlockChanged() { _pushMentionStyle() }
         // Some themes change only the link ink.

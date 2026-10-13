@@ -41,7 +41,14 @@ Rectangle {
             tabs.push({ label: qsTr("Widgets"), value: "widgets" })
         return tabs
     }
-    color: AppTheme.sidebar
+    color: AppTheme.sidePanel
+    // The side panel's own gradient, when a custom theme gives it one; draws
+    // nothing otherwise. First among the children, so everything is above.
+    ThemedSurface {
+        anchors.fill: parent
+        role: "sidePanel"
+        flatFill: false
+    }
     visible: width > 0
     // A last line of defence: stops a control that fails to wrap or elide from
     // painting over the timeline or off the window.
@@ -336,7 +343,7 @@ Rectangle {
                 }
             }
         }
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
+        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.headerDivider }
 
         SegmentedControl {
             id: roomInfoTabs
@@ -1902,6 +1909,8 @@ Rectangle {
                             // Group heading, sized to its text.
                             height: Math.max(24, AppTheme.scaled(AppTheme.textSubtitle) + 10)
                             MenuSectionLabel {
+                                // Its own theme role (2026-10-13).
+                                color: AppTheme.sidePanelSection
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 anchors.leftMargin: AppTheme.spacing12
@@ -1948,7 +1957,7 @@ Rectangle {
                                 anchors.leftMargin: AppTheme.spacing8
                                 anchors.rightMargin: AppTheme.spacing8
                                 radius: AppTheme.radiusSm
-                                color: parent.hovered ? AppTheme.hover
+                                color: parent.hovered ? AppTheme.memberRowHover
                                                       : "transparent"
                             }
                             contentItem: RowLayout {
@@ -1977,7 +1986,7 @@ Rectangle {
                                         anchors.bottom: parent.bottom
                                         anchors.margins: -1
                                         dotSize: 8
-                                        ring: AppTheme.sidebar
+                                        ring: AppTheme.sidePanel
                                         userId: root.visible
                                                 && root.section === "people"
                                                 && member.membership !== "banned"

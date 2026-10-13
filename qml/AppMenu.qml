@@ -93,7 +93,7 @@ Menu {
             id: menuPanel
             anchors.fill: parent
             color: AppTheme.popoverSurface
-            border.color: AppTheme.stormBorderStrong
+            border.color: AppTheme.menuBorder
             border.width: 1
             radius: AppTheme.menuRadius
 

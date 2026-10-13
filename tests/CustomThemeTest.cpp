@@ -18,6 +18,8 @@
 #include <QTemporaryDir>
 #include <QtTest>
 
+#include <functional>
+
 namespace {
 
 QString appTheme()
@@ -50,6 +52,28 @@ QSet<QString> paletteKeys(const QString &qml)
     return keys;
 }
 
+// AppTheme's `elementGroups` table: element role -> the paletteForTheme() key
+// of its group, which the resolver uses for every per-element role it does not
+// spell out.
+QHash<QString, QString> elementGroupsTable(const QString &qml)
+{
+    QHash<QString, QString> out;
+    static const QRegularExpression block(
+        QStringLiteral("readonly\\s+property\\s+var\\s+elementGroups:\\s*\\(\\{(.*?)\\}\\)"),
+        QRegularExpression::DotMatchesEverythingOption);
+    const auto m = block.match(qml);
+    if (!m.hasMatch())
+        return out;
+    static const QRegularExpression pair(
+        QStringLiteral("(\\w+)\\s*:\\s*\"(\\w+)\""));
+    auto it = pair.globalMatch(m.captured(1));
+    while (it.hasNext()) {
+        const auto p = it.next();
+        out.insert(p.captured(1), p.captured(2));
+    }
+    return out;
+}
+
 // Every key the object `AppTheme.paletteForTheme()` returns. A role split out
 // of a shared token has no value in any preset block and reaches the editor
 // and the preview through this object alone.
@@ -59,11 +83,12 @@ QSet<QString> resolverKeys(const QString &qml)
     const int fn = qml.indexOf(QStringLiteral("function paletteForTheme("));
     if (fn < 0)
         return keys;
-    const int ret = qml.indexOf(QStringLiteral("return {"), fn);
-    const int end = qml.indexOf(QStringLiteral("\n        }\n    }"), ret);
+    const QString open = QStringLiteral("var out = {");
+    const int ret = qml.indexOf(open, fn);
+    const int end = qml.indexOf(QStringLiteral("\n        }\n"), ret);
     if (ret < 0 || end < 0)
         return keys;
-    QString body = qml.mid(ret + 8, end - ret - 8);
+    QString body = qml.mid(ret + open.size(), end - ret - open.size());
     body.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
     // A key starts a line: `name:`. Ternary colons sit mid-line.
     static const QRegularExpression key(
@@ -72,6 +97,10 @@ QSet<QString> resolverKeys(const QString &qml)
     auto it = key.globalMatch(body);
     while (it.hasNext())
         keys.insert(it.next().captured(1));
+    // The per-element roles the resolver adds from `elementGroups`.
+    const QHash<QString, QString> elements = elementGroupsTable(qml);
+    for (auto e = elements.constBegin(); e != elements.constEnd(); ++e)
+        keys.insert(e.key());
     return keys;
 }
 
@@ -147,6 +176,26 @@ QString colorLiteral(const QString &qml, const QString &name)
     return m.hasMatch() ? m.captured(1).toUpper() : QString();
 }
 
+// The per-element roles (and the few split roles the table grades) as
+// paletteForTheme() resolves them: an element takes its group's colour unless
+// `own` (the palette or the user) names it. Run again after a test lays
+// overrides over a palette, as the resolver runs after the merge. Storm's
+// `embedSurface` is its panel in the app; the fixture uses the group, which
+// is the custom-theme rule and only matters for Storm.
+void fillElements(QVariantMap &p, const QVariantMap &own, const QString &qml)
+{
+    QHash<QString, QString> groups = elementGroupsTable(qml);
+    groups.insert(QStringLiteral("embedSurface"), QStringLiteral("cardElevated"));
+    groups.insert(QStringLiteral("roomSelected"), QStringLiteral("selected"));
+    groups.insert(QStringLiteral("popoverSurface"), QStringLiteral("surface"));
+    for (auto it = groups.constBegin(); it != groups.constEnd(); ++it) {
+        if (own.contains(it.key()))
+            continue;
+        if (p.contains(it.value()))
+            p.insert(it.key(), p.value(it.value()));
+    }
+}
+
 // One preset as paletteForTheme() hands it to QML: semantic names plus the
 // same fallbacks, since the audit reads that object.
 QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
@@ -180,6 +229,8 @@ QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
     fallback("link", raw.value(QStringLiteral("accent")));
     fallback("selectedText", raw.value(QStringLiteral("textPrimary")));
     fallback("otherBubble", raw.value(QStringLiteral("cardElevated")));
+    fallback("unreadBadge", raw.value(QStringLiteral("accent")));
+    fillElements(p, QVariantMap(), appTheme());
     return p;
 }
 
@@ -624,12 +675,14 @@ private Q_SLOTS:
                                 "theme, which would make it noise:\n  %1")
                                 .arg(failures.join(QStringLiteral("\n  ")))));
 
-        // 11 presets x 27 checks = 297, minus exactly one: Storm's `hover` is
+        // 11 presets x 34 checks = 374, minus exactly one: Storm's `hover` is
         // Qt.alpha(...), which the parser cannot resolve. `selectedHover` is
         // deliberately unchecked (see the .cpp). The bound is exact so a
-        // renamed key or a parser regression cannot pass quietly.
-        QCOMPARE(CustomThemeStore::readabilityCheckCount(), 27);
-        QCOMPARE(evaluated, 11 * 27 - 1);
+        // renamed key or a parser regression cannot pass quietly. 34 = the 27
+        // group checks (several now naming the element actually drawn) plus
+        // seven element pairs added with the per-element split.
+        QCOMPARE(CustomThemeStore::readabilityCheckCount(), 34);
+        QCOMPARE(evaluated, 11 * 34 - 1);
 
         // The unevaluated check is named, not just counted: auditSkipped says
         // which pair and why.
@@ -710,8 +763,8 @@ private Q_SLOTS:
 
         const int start = qml.indexOf(QStringLiteral("function paletteForTheme"));
         QVERIFY2(start >= 0, "paletteForTheme is gone from AppTheme.qml");
-        const int open = qml.indexOf(QStringLiteral("return {"), start);
-        QVERIFY2(open >= 0, "paletteForTheme no longer returns an object");
+        const int open = qml.indexOf(QStringLiteral("var out = {"), start);
+        QVERIFY2(open >= 0, "paletteForTheme no longer builds an object");
         const int close = qml.indexOf(QStringLiteral("\n        }"), open);
         QVERIFY2(close > open, "could not find the end of the returned object");
         QString body = qml.mid(open, close - open);
@@ -723,6 +776,11 @@ private Q_SLOTS:
         auto it = key.globalMatch(body);
         while (it.hasNext())
             returned.insert(it.next().captured(1));
+        // Per-element roles come from the `elementGroups` loop after it.
+        const QHash<QString, QString> elements = elementGroupsTable(qml);
+        QVERIFY2(elements.size() > 50, "the elementGroups scan found almost nothing");
+        for (auto e = elements.constBegin(); e != elements.constEnd(); ++e)
+            returned.insert(e.key());
         QVERIFY2(returned.size() > 25,
                  qPrintable(QStringLiteral("the return-object scan found only "
                                            "%1 keys — it has stopped working")
@@ -785,6 +843,8 @@ private Q_SLOTS:
                                             dangerFill);
             for (auto it = over.constBegin(); it != over.constEnd(); ++it)
                 p.insert(it.key(), it.value());
+            // Elements follow the overridden groups, as in the resolver.
+            fillElements(p, over, qml);
             return p;
         };
         const auto findPair = [](const QVariantList &rows, const char *fg,
@@ -802,26 +862,30 @@ private Q_SLOTS:
 
         const QVariantList sandReport =
             store.audit(merged(QStringLiteral("Moss Light"), sand));
-        QCOMPARE(sandReport.size(), 18);
+        // 18 group findings, plus six of the seven element pairs added on
+        // 2026-10-13 (each repeats a failing group pair on the element drawn).
+        QCOMPARE(sandReport.size(), 24);
         // Rendered "Send" button: 1.62:1; arithmetic: 1.63.
         QVERIFY(qAbs(findPair(sandReport, "accentText", "accent") - 1.63)
                 < 0.01);
         // Rendered room-list name: 3.08:1; the audit grades the same pair.
-        QVERIFY(qAbs(findPair(sandReport, "textPrimary", "sidebar") - 3.15)
+        QVERIFY(qAbs(findPair(sandReport, "roomNameUnread", "roomList") - 3.15)
                 < 0.01);
 
         const QVariantList inkReport =
             store.audit(merged(QStringLiteral("Lightning Dark"), ink));
         // Ink darkens `accentText` but keeps the base `accentPressed`, so the
         // label is unreadable only while the button is held down.
-        QCOMPARE(inkReport.size(), 20);
+        // 20, plus all seven element pairs (header title, typed text, menu
+        // items, link preview title, primary and send labels, unread number).
+        QCOMPARE(inkReport.size(), 27);
         QVERIFY(qAbs(findPair(inkReport, "accentText", "accent") - 2.68)
                 < 0.01);
-        QVERIFY(qAbs(findPair(inkReport, "accentText", "accentPressed") - 2.77)
+        QVERIFY(qAbs(findPair(inkReport, "buttonPrimaryInk", "accentPressed") - 2.77)
                 < 0.01);
         // The hovered state still passes, so the new pair is not just following
         // its neighbour.
-        QCOMPARE(findPair(inkReport, "accentText", "accentHover"), -1.0);
+        QCOMPARE(findPair(inkReport, "buttonPrimaryInk", "accentHover"), -1.0);
         // `hover` was inherited, not overridden, and now clashes with the new
         // ink: only an audit over the resolved palette catches that.
         QVERIFY(qAbs(findPair(inkReport, "textPrimary", "hover") - 1.92)
@@ -857,16 +921,16 @@ private Q_SLOTS:
         // Storm passes everything, so the narrowed report is all passes and
         // must not be empty.
         const QVariantList rows =
-            store.auditForRole(storm, QStringLiteral("background"));
+            store.auditForRole(storm, QStringLiteral("timelineBackground"));
         QVERIFY2(!rows.isEmpty(),
                  "a role with no problems must still report its numbers");
         for (const QVariant &row : rows) {
             const QVariantMap m = row.toMap();
             QVERIFY(m.value(QStringLiteral("passes")).toBool());
             QVERIFY(m.value(QStringLiteral("fg")).toString()
-                        == QLatin1String("background")
+                        == QLatin1String("timelineBackground")
                     || m.value(QStringLiteral("bg")).toString()
-                        == QLatin1String("background"));
+                        == QLatin1String("timelineBackground"));
         }
         QCOMPARE(store.audit(storm).size(), 0);
 
@@ -1265,6 +1329,100 @@ private Q_SLOTS:
                  QStringLiteral("#102030"));
     }
 
+    // Per-element roles (2026-10-13) are stored sparsely like every role: a
+    // theme that sets one element and one element gradient writes exactly
+    // those keys, they survive the share round trip, and the group they
+    // belong to is not written for them. A file from a newer build carrying
+    // an element this build does not know imports with that key dropped (the
+    // element then shows its group's colour), which is how an older build
+    // reads this build's files.
+    void elementRolesAreSparseAndSurviveTheShareRoundTrip()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("elements"));
+        QVERIFY(store.isEditableRole(QStringLiteral("roomHeader")));
+        QCOMPARE(CustomThemeStore::roleFollows(QStringLiteral("roomHeader")),
+                 QStringLiteral("sidebar"));
+        QCOMPARE(CustomThemeStore::roleFollows(QStringLiteral("sidePanel")),
+                 QStringLiteral("sidebar"));
+        QVERIFY(store.setColor(QStringLiteral("roomHeader"), QStringLiteral("#123456")));
+        QVERIFY(store.setColor(QStringLiteral("menuItemText"), QStringLiteral("#ABCDEF")));
+        QVERIFY(store.isGradientRole(QStringLiteral("timelineBackground")));
+        QVERIFY(store.setGradient(QStringLiteral("timelineBackground"),
+            { { QStringLiteral("type"), QStringLiteral("linear") },
+              { QStringLiteral("angle"), 90 },
+              { QStringLiteral("stops"),
+                QStringList{ QStringLiteral("#101010"), QStringLiteral("#202020") } } }));
+        // Not every element takes a gradient: only the grounds do.
+        QVERIFY(!store.setGradient(QStringLiteral("roomHeader"),
+            { { QStringLiteral("stops"),
+                QStringList{ QStringLiteral("#101010"), QStringLiteral("#202020") } } }));
+
+        QCOMPARE(store.colors().size(), 2);
+        QVERIFY(!store.colors().contains(QStringLiteral("sidebar")));
+        QVERIFY(!store.colors().contains(QStringLiteral("sidePanel")));
+
+        const QString file = store.exportTheme(store.activeThemeId());
+        QVERIFY(file.contains(QStringLiteral("\"roomHeader\":\"#123456\"")));
+        QVERIFY(!file.contains(QStringLiteral("sidePanel")));
+        QCOMPARE(store.importTheme(file), QString());
+        QCOMPARE(store.colors().size(), 2);
+        QCOMPARE(store.colors().value(QStringLiteral("roomHeader")).toString(),
+                 QStringLiteral("#123456"));
+        QCOMPARE(store.colors().value(QStringLiteral("menuItemText")).toString(),
+                 QStringLiteral("#ABCDEF"));
+        QCOMPARE(store.gradients().value(QStringLiteral("timelineBackground"))
+                     .toMap().value(QStringLiteral("angle")).toInt(), 90);
+
+        // A newer build's element: dropped, the rest kept.
+        QString newer = file;
+        newer.replace(QStringLiteral("\"roomHeader\""),
+                      QStringLiteral("\"someFutureElement\":\"#FF0000\",\"roomHeader\""));
+        QVERIFY(newer.contains(QStringLiteral("someFutureElement")));
+        QCOMPARE(store.importTheme(newer), QString());
+        QVERIFY(!store.colors().contains(QStringLiteral("someFutureElement")));
+        QCOMPARE(store.colors().value(QStringLiteral("roomHeader")).toString(),
+                 QStringLiteral("#123456"));
+    }
+
+    // "Apply to all <group>": the group takes the colour, every element of
+    // the group drops its own (so all of them show it), and it is one undo
+    // step. Elements of OTHER groups keep theirs.
+    void applyToGroupRecoloursTheGroupAndFreesItsElements()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("apply"));
+        const QStringList members = store.groupMembers(QStringLiteral("sidebar"));
+        QVERIFY2(members.contains(QStringLiteral("roomHeader"))
+                     && members.contains(QStringLiteral("sidePanel"))
+                     && members.contains(QStringLiteral("roomList")),
+                 qPrintable(members.join(QStringLiteral(", "))));
+        store.setColor(QStringLiteral("roomHeader"), QStringLiteral("#111111"));
+        store.setColor(QStringLiteral("sidePanel"), QStringLiteral("#222222"));
+        store.setColor(QStringLiteral("menuItemText"), QStringLiteral("#333333"));
+        store.sealUndoStep();
+        const QVariantMap before = store.colors();
+
+        // Refused for a role with no group, and for a bad colour.
+        QVERIFY(!store.applyToGroup(QStringLiteral("textPrimary"), QStringLiteral("#444444")));
+        QVERIFY(!store.applyToGroup(QStringLiteral("roomHeader"), QStringLiteral("red")));
+        QCOMPARE(store.colors(), before);
+
+        QVERIFY(store.applyToGroup(QStringLiteral("roomHeader"), QStringLiteral("#abcdef")));
+        QCOMPARE(store.colors().value(QStringLiteral("sidebar")).toString(),
+                 QStringLiteral("#ABCDEF"));
+        QVERIFY(!store.colors().contains(QStringLiteral("roomHeader")));
+        QVERIFY(!store.colors().contains(QStringLiteral("sidePanel")));
+        QCOMPARE(store.colors().value(QStringLiteral("menuItemText")).toString(),
+                 QStringLiteral("#333333"));
+
+        // One step back restores all three.
+        QVERIFY(store.undo());
+        QCOMPARE(store.colors(), before);
+    }
+
     // A role nothing reads is a row that edits nothing: split roles exist so a
     // view can read them, and the split is only real once one does. Greps the
     // views for the live token (not AppTheme.qml, not the editor itself).
@@ -1290,14 +1448,41 @@ private Q_SLOTS:
         }
         QVERIFY2(files > 100, "the view scan found almost no QML files");
         const QVariantMap aliases = CustomThemeStore::paletteKeyAliases();
-        QStringList unread;
-        for (const QString &role : CustomThemeStore::editableRoles()) {
+        const auto read = [&](const QString &role) {
             const QString key = aliases.value(role, role).toString();
-            const QRegularExpression use(
-                QStringLiteral("AppTheme\\.%1\\b").arg(key));
-            if (!all.contains(use))
+            return all.contains(QRegularExpression(
+                QStringLiteral("AppTheme\\.%1\\b").arg(key)));
+        };
+        // A group whose elements all have roles of their own (`dangerTint`:
+        // the destructive menu tint and the error chip) is read through
+        // them: it is what those elements show until they are set.
+        QHash<QString, QStringList> children;
+        for (const QString &role : CustomThemeStore::editableRoles()) {
+            const QString parent = CustomThemeStore::roleFollows(role);
+            if (!parent.isEmpty())
+                children[parent] << role;
+        }
+        std::function<bool(const QString &, int)> readThrough =
+            [&](const QString &role, int depth) {
+            if (read(role))
+                return true;
+            for (const QString &child : children.value(role)) {
+                if (depth < 6 && readThrough(child, depth + 1))
+                    return true;
+            }
+            return false;
+        };
+        QStringList unread;
+        int direct = 0;
+        for (const QString &role : CustomThemeStore::editableRoles()) {
+            if (read(role))
+                ++direct;
+            else if (!readThrough(role, 0))
                 unread << role;
         }
+        QVERIFY2(direct > 100,
+                 qPrintable(QStringLiteral("only %1 roles are read by a view")
+                                .arg(direct)));
         QVERIFY2(unread.isEmpty(),
                  qPrintable(QStringLiteral("no view reads the live token for: "
                                            "%1").arg(unread.join(QStringLiteral(", ")))));
@@ -1315,18 +1500,51 @@ private Q_SLOTS:
         QString src = QString::fromUtf8(preview.readAll());
         src.remove(QRegularExpression(QStringLiteral("//[^\n]*")));
 
+        // A group whose every element has a role of its own (Panels and
+        // cards: the search field, the message box, menus) is painted through
+        // those elements: the preview names only per-element roles, so that a
+        // click edits one element (2026-10-13). Such a group counts as painted
+        // when some role following it, at any depth, has a Region.
+        const auto named = [&src](const QString &role) {
+            // `role: "x"`, or a ternary that names it before the next `}`.
+            const QRegularExpression re(
+                QStringLiteral("\\b(?:role|inkRole):[^}]{0,500}?\"%1\"").arg(role),
+                QRegularExpression::DotMatchesEverythingOption);
+            return src.contains(re);
+        };
+        QHash<QString, QStringList> children;
+        for (const QString &role : CustomThemeStore::editableRoles()) {
+            const QString parent = CustomThemeStore::roleFollows(role);
+            if (!parent.isEmpty())
+                children[parent] << role;
+        }
+        std::function<bool(const QString &, int)> paintedThrough =
+            [&](const QString &role, int depth) {
+            if (named(role))
+                return true;
+            if (depth > 6)
+                return false;
+            for (const QString &child : children.value(role)) {
+                if (paintedThrough(child, depth + 1))
+                    return true;
+            }
+            return false;
+        };
         QStringList missing;
         int checked = 0;
+        int direct = 0;
         for (const QString &role : CustomThemeStore::editableRoles()) {
-            // `role: "x"`, or a ternary that names it before the next `}`.
-            const QRegularExpression named(
-                QStringLiteral("\\brole:[^}]{0,500}?\"%1\"").arg(role),
-                QRegularExpression::DotMatchesEverythingOption);
-            if (!src.contains(named))
+            if (named(role))
+                ++direct;
+            else if (!paintedThrough(role, 0))
                 missing << role;
             ++checked;
         }
-        QVERIFY2(checked > 30, "the role table shrank");
+        QVERIFY2(checked > 100, "the role table shrank");
+        // Most roles are elements with a Region of their own.
+        QVERIFY2(direct > 90,
+                 qPrintable(QStringLiteral("only %1 roles have a Region")
+                                .arg(direct)));
         QVERIFY2(missing.isEmpty(),
                  qPrintable(QStringLiteral("these roles can be edited but the "
                                            "preview paints no region for "
@@ -1351,14 +1569,14 @@ private Q_SLOTS:
 
         // The resolver's body, flattened the same way.
         const int fn = flat.indexOf(QStringLiteral("function paletteForTheme("));
-        const int ret = flat.indexOf(QStringLiteral("return {"), fn);
+        const int ret = flat.indexOf(QStringLiteral("var out = {"), fn);
         QVERIFY2(fn >= 0 && ret > fn, "paletteForTheme() not found");
         const QString resolver = flat.mid(ret);
 
         // Names a parent goes by in a fallback expression: its own token, or
         // the live alias that resolves to it for a custom theme (custom is
         // never Storm, so the storm* aliases resolve to the plain token).
-        const QHash<QString, QStringList> tokens{
+        QHash<QString, QStringList> tokens{
             {QStringLiteral("sidebar"), {QStringLiteral("sidebar")}},
             {QStringLiteral("surface"),
              {QStringLiteral("surface"), QStringLiteral("stormPanel")}},
@@ -1376,7 +1594,31 @@ private Q_SLOTS:
              {QStringLiteral("textMuted"), QStringLiteral("stormTextMuted")}},
             {QStringLiteral("success"), {QStringLiteral("success")}},
             {QStringLiteral("mention"), {QStringLiteral("mentionBadge")}},
+            // Groups of the per-element roles (2026-10-13).
+            {QStringLiteral("border"),
+             {QStringLiteral("border"), QStringLiteral("stormBorder")}},
+            {QStringLiteral("cardElevated"), {QStringLiteral("cardElevated")}},
+            {QStringLiteral("unreadBadge"), {QStringLiteral("unreadBadge")}},
+            {QStringLiteral("accentText"), {QStringLiteral("accentText")}},
+            {QStringLiteral("textPrimary"),
+             {QStringLiteral("textPrimary"), QStringLiteral("stormText")}},
+            {QStringLiteral("textSecondary"),
+             {QStringLiteral("textSecondary"),
+              QStringLiteral("stormTextSecondary")}},
+            {QStringLiteral("selectedText"), {QStringLiteral("selectedText")}},
+            {QStringLiteral("textDisabled"), {QStringLiteral("textDisabled")}},
+            {QStringLiteral("presenceOnline"), {QStringLiteral("presenceOnline")}},
+            {QStringLiteral("warning"), {QStringLiteral("warning")}},
+            {QStringLiteral("dangerTint"), {QStringLiteral("dangerTint")}},
+            {QStringLiteral("danger"),
+             {QStringLiteral("danger"), QStringLiteral("stormDanger")}},
         };
+        tokens[QStringLiteral("borderStrong")] << QStringLiteral("stormBorderStrong");
+        tokens[QStringLiteral("textMuted")] << QStringLiteral("sectionLabelColor");
+        // The resolver's table for the per-element roles.
+        const QHash<QString, QString> elementTable = elementGroupsTable(qml);
+        QVERIFY2(elementTable.size() > 50, "the elementGroups scan found almost nothing");
+        const QVariantMap aliases = CustomThemeStore::paletteKeyAliases();
         const auto namesParent = [&](const QString &fallback,
                                      const QString &parent) {
             for (const QString &t : tokens.value(parent)) {
@@ -1432,18 +1674,39 @@ private Q_SLOTS:
                              + QStringLiteral(" (live property: ")
                              + live.left(160) + QStringLiteral(")");
 
-            // Resolver: `<role>: p.<role> !== undefined ? p.<role> : ...`, up
-            // to the next key.
+            // Resolver: a per-element role resolves through the
+            // `elementGroups` table, which must name the parent's palette
+            // key; any other role is spelled out as `<role>: p.<role> !==
+            // undefined ? p.<role> : ...`, up to the next key.
+            if (elementTable.contains(role)) {
+                const QString want = aliases.value(parent, parent).toString();
+                if (elementTable.value(role) != want)
+                    wrong << role + QStringLiteral(" -> ") + parent
+                                 + QStringLiteral(" (elementGroups names ")
+                                 + elementTable.value(role) + QStringLiteral(")");
+                continue;
+            }
             const QRegularExpression key(
                 QStringLiteral("[{,] %1: (p\\.%1 !== undefined \\? p\\.%1)(.*?)"
-                               "(?=, \\w+:|\\} \\})").arg(role));
+                               "(?=, \\w+:|\\} )").arg(role));
             const auto m = key.match(resolver);
             if (!m.hasMatch() || !namesParent(m.captured(2), parent))
                 wrong << role + QStringLiteral(" -> ") + parent
                              + QStringLiteral(" (paletteForTheme)");
         }
-        // Not vacuous: the split roles alone are twenty.
-        QVERIFY2(following >= 20,
+        // The other direction: every row of the resolver's table is a role
+        // the store says follows that same group, so the two copies of the
+        // relation cannot drift apart.
+        for (auto e = elementTable.constBegin(); e != elementTable.constEnd(); ++e) {
+            const QString parent = CustomThemeStore::roleFollows(e.key());
+            if (aliases.value(parent, parent).toString() != e.value())
+                wrong << e.key() + QStringLiteral(" (elementGroups says ")
+                             + e.value() + QStringLiteral(", the store says ")
+                             + parent + QStringLiteral(")");
+        }
+        // Not vacuous: the 2026-10-06 split roles are twenty, the per-element
+        // roles of 2026-10-13 another sixty and more.
+        QVERIFY2(following >= 80,
                  qPrintable(QStringLiteral("only %1 roles declare what they "
                                            "follow").arg(following)));
         QVERIFY2(wrong.isEmpty(),

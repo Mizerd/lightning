@@ -175,7 +175,7 @@ ItemDelegate {
                 width: 12
                 height: 12
                 radius: 6
-                color: AppTheme.sidebar
+                color: AppTheme.roomList
                 Icon {
                     anchors.centerIn: parent
                     name: root.isInvite ? "person_add" : "lock"

@@ -96,7 +96,7 @@ Item {
         // cached bytes then.
         var _ready = picture.status
         return app.backdrops.scrimFor(root.resolved.statsKey || "",
-                                      AppTheme.background, AppTheme.textPrimary,
+                                      AppTheme.timelineBackground, AppTheme.textPrimary,
                                       AppTheme.textSecondary, AppTheme.textMuted,
                                       root.resolved.tint !== undefined
                                           ? root.resolved.tint : 0.25,
@@ -125,7 +125,7 @@ Item {
         Rectangle {
             anchors.fill: parent
             color: root.resolved && root.resolved.color
-                   ? root.resolved.color : AppTheme.background
+                   ? root.resolved.color : AppTheme.timelineBackground
         }
 
         Image {
@@ -177,7 +177,7 @@ Item {
     Rectangle {
         objectName: "chatBackdropScrim"
         anchors.fill: parent
-        color: root.scrim ? root.scrim.color : AppTheme.background
+        color: root.scrim ? root.scrim.color : AppTheme.timelineBackground
         opacity: root.scrimAlpha
     }
 
@@ -191,7 +191,7 @@ Item {
         gradient: Gradient {
             GradientStop {
                 position: 0.0
-                color: AppTheme.surfaceColorAt("background", root.edgeTop)
+                color: AppTheme.surfaceColorAt("timelineBackground", root.edgeTop)
             }
             GradientStop { position: 1.0; color: "transparent" }
         }
@@ -206,7 +206,7 @@ Item {
             GradientStop { position: 0.0; color: "transparent" }
             GradientStop {
                 position: 1.0
-                color: AppTheme.surfaceColorAt("background", root.edgeBottom)
+                color: AppTheme.surfaceColorAt("timelineBackground", root.edgeBottom)
             }
         }
     }

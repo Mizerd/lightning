@@ -124,7 +124,7 @@ Item {
         anchors.bottomMargin: root.showGroupDivider ? 1 : 0
         // An 8px rounded highlight chip from the semantic tokens.
         radius: AppTheme.radiusMd
-        color: selected ? (hover.hovered ? AppTheme.selectedHover : AppTheme.roomSelected)
+        color: selected ? (hover.hovered ? AppTheme.roomSelectedHover : AppTheme.roomSelected)
              : hover.hovered ? AppTheme.roomHover
              : root.needsAttention ? AppTheme.chipAccentFill
              : "transparent"
@@ -200,7 +200,7 @@ Item {
                 dotSize: 10
                 // The ring must be the colour behind the dot (the sidebar, or
                 // the selected chip).
-                ring: selected ? AppTheme.selected : AppTheme.sidebar
+                ring: selected ? AppTheme.selected : AppTheme.roomList
                 userId: model.isDirect === true
                         && (model.identityColorKey || "").charAt(0) === "@"
                         ? model.identityColorKey : ""
@@ -219,9 +219,9 @@ Item {
                     textFormat: Text.PlainText
                     // Read rows dim; unread and selected keep full ink. A muted
                     // room never claims unread emphasis.
-                    color: selected ? AppTheme.selectedText
-                         : (root.isUnread && !root.muted) ? AppTheme.textPrimary
-                                                          : AppTheme.textSecondary
+                    color: selected ? AppTheme.roomSelectedName
+                         : (root.isUnread && !root.muted) ? AppTheme.roomNameUnread
+                                                          : AppTheme.roomName
                     font.pixelSize: AppTheme.scaled(AppTheme.textBody)
                     font.weight: (selected || (root.isUnread && !root.muted))
                                  ? AppTheme.weightBold : AppTheme.weightMedium
@@ -303,7 +303,7 @@ Item {
                 Label {
                     objectName: "roomPreviewLabel"
                     text: model.lastMessagePreview
-                    color: selected ? AppTheme.selectedText : AppTheme.textMuted
+                    color: selected ? AppTheme.roomSelectedPreview : AppTheme.roomPreview
                     opacity: selected ? 0.9 : 1.0
                     // The same emoji-capable font as the composer and message
                     // body: a preview is message text and hits the same Qt 6.8
@@ -335,7 +335,7 @@ Item {
                     radius: 4
                     Layout.alignment: Qt.AlignVCenter
                     // Muted rooms keep the dot in muted ink.
-                    color: root.muted ? root.metaInk : AppTheme.unreadBadge
+                    color: root.muted ? root.metaInk : AppTheme.roomUnreadBadge
                 }
                 ThreadUnreadBadge {
                     kind: root.threadOnly ? model.threadUnreadKind : 0
@@ -348,13 +348,13 @@ Item {
                                                    : model.unreadCount
                     // Mentions keep their colour even when muted; a muted plain
                     // count becomes an outline pill in muted ink.
-                    color: model.highlightCount > 0 ? AppTheme.dangerText
+                    color: model.highlightCount > 0 ? AppTheme.mentionBadgeText
                          : root.muted ? root.metaInk
-                                      : AppTheme.accentText
+                                      : AppTheme.unreadBadgeText
                     background: Rectangle {
-                        color: model.highlightCount > 0 ? AppTheme.mentionBadge
+                        color: model.highlightCount > 0 ? AppTheme.roomMentionBadge
                              : root.muted ? "transparent"
-                                          : AppTheme.unreadBadge
+                                          : AppTheme.roomUnreadBadge
                         border.width: root.muted && model.highlightCount === 0
                                       ? 1 : 0
                         border.color: AppTheme.chipNeutralBorder
@@ -379,7 +379,7 @@ Item {
                     Layout.preferredHeight: 8
                     Layout.alignment: Qt.AlignVCenter
                     radius: 4
-                    color: root.muted ? root.metaInk : AppTheme.unreadBadge
+                    color: root.muted ? root.metaInk : AppTheme.roomUnreadBadge
                 }
             }
 

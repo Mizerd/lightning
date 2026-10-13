@@ -8,7 +8,7 @@ import MatrixClient
 // this column has no footer.
 Rectangle {
     id: root
-    color: AppTheme.sidebar
+    color: AppTheme.roomList
 
     // The room list's ground when the theme gives `sidebar` a gradient (Depth
     // or a custom theme); draws nothing otherwise. The header strips below
@@ -18,7 +18,7 @@ Rectangle {
     ThemedSurface {
         id: sidebarGround
         anchors.fill: parent
-        role: "sidebar"
+        role: "roomList"
         flatFill: false
         // The Spaces rail sits above this column in Depth.
         innerShadowEdge: "left"
@@ -136,7 +136,7 @@ Rectangle {
         // column headers.
         Rectangle {
             Layout.fillWidth: true
-            color: sidebarGround.hasGradient ? "transparent" : AppTheme.sidebar
+            color: sidebarGround.hasGradient ? "transparent" : AppTheme.roomList
             implicitHeight: Math.max(AppTheme.headerBandHeight,
                 headerRow.implicitHeight + AppTheme.spacing12 * 2)
 
@@ -190,7 +190,7 @@ Rectangle {
                             return qsTr("Other rooms")
                         return app.spaces.spaceName(id) || qsTr("Lightning")
                     }
-                    color: AppTheme.textPrimary
+                    color: AppTheme.roomListTitle
                     font.pixelSize: AppTheme.textTitle
                     font.weight: AppTheme.weightBold
                     elide: Label.ElideRight
@@ -233,14 +233,14 @@ Rectangle {
         Rectangle {
             Layout.fillWidth: true
             implicitHeight: 1
-            color: AppTheme.border
+            color: AppTheme.headerDivider
         }
 
         // Search bar + new-conversation button
         Rectangle {
             id: searchHeader
             Layout.fillWidth: true
-            color: sidebarGround.hasGradient ? "transparent" : AppTheme.sidebar
+            color: sidebarGround.hasGradient ? "transparent" : AppTheme.roomList
             implicitHeight: searchRow.implicitHeight + AppTheme.spacing8 * 2
 
             // The header wraps to two rows below a derived threshold rather
@@ -282,11 +282,11 @@ Rectangle {
                     Layout.minimumWidth: 120
                     implicitHeight: 34
                     radius: AppTheme.radiusMd
-                    color: AppTheme.surface
+                    color: AppTheme.searchField
                     border.width: roomSearch.activeFocus ? 2 : 1
                     border.color: roomSearch.activeFocus ? AppTheme.focusRing
                                   : searchCardHover.hovered ? AppTheme.borderStrong
-                                  : AppTheme.border
+                                  : AppTheme.searchFieldBorder
                     HoverHandler { id: searchCardHover }
                     // The whole pill focuses the field.
                     TapHandler {
@@ -491,7 +491,7 @@ Rectangle {
         // which the model follows through the Binding below.
         Rectangle {
             Layout.fillWidth: true
-            color: sidebarGround.hasGradient ? "transparent" : AppTheme.sidebar
+            color: sidebarGround.hasGradient ? "transparent" : AppTheme.roomList
             implicitHeight: filterChips.implicitHeight + AppTheme.spacing6 * 2
             // storm: false, like MenuKeycap here.
             SegmentedControl {

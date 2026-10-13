@@ -732,7 +732,7 @@ QtObject {
         var textMuted = p.textMuted
         var accent = p.accent
         var mentionBadge = p.mention !== undefined ? p.mention : _accentDanger
-        return {
+        var out = {
             background:      p.background,
             rail:            p.rail !== undefined ? p.rail : p.sidebar,
             sidebar:         p.sidebar,
@@ -766,13 +766,29 @@ QtObject {
             ownBubbleText:   p.ownBubbleText !== undefined ? p.ownBubbleText
                                                            : _ownBubbleTextDefault,
             otherBubble:     p.otherBubble,
-            otherBubbleText: textPrimary,
-            embedSurface:    isStorm ? _stoPanel : cardElevated,
-            embedBorder:     isStorm ? _stoBorder : p.border,
+            // Element roles whose stock colour is not their group's on Storm
+            // (or that have no group) are spelled out; the rest come from
+            // `elementGroups` below.
+            embedSurface:    p.embedSurface !== undefined ? p.embedSurface
+                             : (isStorm ? _stoPanel : cardElevated),
             reactionBackground: p.reaction !== undefined ? p.reaction
                                                          : cardElevated,
-            reactionBorder:  p.border,
-            reactionInk:     p.textSecondary,
+            reactionBorder:  p.reactionBorder !== undefined ? p.reactionBorder
+                             : (isDark ? p.border : p.borderStrong),
+            mentionBadgeText: p.mentionBadgeText !== undefined
+                              ? p.mentionBadgeText : dangerText,
+            chipDanger:      p.chipDanger !== undefined ? p.chipDanger
+                             : (isStorm ? _stoDanger
+                                : (p.dangerTint !== undefined ? p.dangerTint
+                                                              : mentionBadge)),
+            menuDangerTint:  p.menuDangerTint !== undefined ? p.menuDangerTint
+                             : (isStorm ? _stoDanger
+                                : (p.dangerTint !== undefined ? p.dangerTint
+                                                              : mentionBadge)),
+            menuDangerText:  p.menuDangerText !== undefined ? p.menuDangerText
+                             : (isStorm ? _stoDanger
+                                : (p.danger !== undefined ? p.danger
+                                   : (isDark ? _dangerInkDark : _dangerInkLight))),
             unreadBadge:     p.unreadBadge !== undefined ? p.unreadBadge
                                                          : accent,
             mentionHighlight: p.mentionHighlight !== undefined
@@ -832,6 +848,15 @@ QtObject {
             settingsNav:     p.settingsNav !== undefined ? p.settingsNav
                              : (isStorm ? p.sidebar : p.background)
         }
+        // Per-element roles (2026-10-13): the palette's own value, else the
+        // resolved colour of the group the element follows. One loop over one
+        // table, run once per palette build (not per frame).
+        var groups = elementGroups
+        for (var e in groups) {
+            if (out[e] === undefined)
+                out[e] = p[e] !== undefined ? p[e] : out[groups[e]]
+        }
+        return out
     }
 
     readonly property var _p: rawPaletteForTheme(effectiveTheme)
@@ -854,6 +879,10 @@ QtObject {
     readonly property color channelCategoryText:
         _p.channelCategoryText !== undefined ? _p.channelCategoryText
                                              : textMuted
+    /// A folder's open/close arrow: its own role since 2026-10-13, falling
+    /// back to what the category text falls back to.
+    readonly property color channelChevron:
+        _p.channelChevron !== undefined ? _p.channelChevron : textMuted
     /// Channel name at rest; dimmer than a Classic row since unread earns
     /// full-strength ink.
     readonly property color channelText:
@@ -1038,7 +1067,10 @@ QtObject {
     readonly property color onAccentMuted:       "#DCE4FF"
     readonly property color otherMessageBubble:  _p.otherBubble
     readonly property color otherBubble:         otherMessageBubble
-    readonly property color otherBubbleText:     textPrimary
+    // Message words everywhere but on your own bubble (an element role since
+    // 2026-10-13; it was `text`).
+    readonly property color otherBubbleText:     _p.otherBubbleText !== undefined
+                                                 ? _p.otherBubbleText : textPrimary
     readonly property color incomingBubble:      otherMessageBubble
     readonly property color outgoingBubble:      ownMessageBubble
     readonly property color bubbleOverlay:       "#26000000"
@@ -1046,18 +1078,35 @@ QtObject {
     // In-timeline embed cards (voice, polls, link previews, file and video
     // placeholders) sit on the timeline ground, not a panel, so they use a
     // raised-but-dark step rather than a pale block.
-    readonly property color embedSurface: storm ? _stoPanel : cardElevated
-    readonly property color embedBorder:  storm ? _stoBorder : border
+    readonly property color embedSurface:        _p.embedSurface !== undefined
+                                                 ? _p.embedSurface
+                                                 : (storm ? _stoPanel : cardElevated)
+    // The card's edge and title. The cards always drew `border` and `text`
+    // (the Storm panel edge this used to name had no reader).
+    readonly property color embedBorder:         _p.embedBorder !== undefined
+                                                 ? _p.embedBorder : border
+    readonly property color embedText:           _p.embedText !== undefined
+                                                 ? _p.embedText : textPrimary
 
     readonly property color reactionBackground:  _p.reaction !== undefined
                                                  ? _p.reaction : cardElevated
-    readonly property color reactionBorder:      border
-    readonly property color reactionInk:         textSecondary
+    // Someone else's pill at rest: a hairline on dark themes and a strong
+    // line on light ones, so it follows no single group.
+    readonly property color reactionBorder:      _p.reactionBorder !== undefined
+                                                 ? _p.reactionBorder
+                                                 : (dark ? border : borderStrong)
+    readonly property color reactionInk:         _p.reactionInk !== undefined
+                                                 ? _p.reactionInk : textSecondary
     readonly property color reactionSelectedBackground:
         _p.reactionSelectedBackground !== undefined
         ? _p.reactionSelectedBackground : accentSoft
-    readonly property color reactionSelectedBorder:     accentBorder
-    readonly property color reactionSelectedInk:        textPrimary
+    // Your own pill's 2px edge (the pill always drew `accent`).
+    readonly property color reactionSelectedBorder:
+        _p.reactionSelectedBorder !== undefined ? _p.reactionSelectedBorder
+                                                : accent
+    readonly property color reactionSelectedInk:
+        _p.reactionSelectedInk !== undefined ? _p.reactionSelectedInk
+                                             : textPrimary
     readonly property color reactionHighlight:   selected
     // Unread pill fill. Storm uses periwinkle so a busy list isn't all bolt.
     readonly property color unreadBadge:         _p.unreadBadge !== undefined
@@ -1078,6 +1127,10 @@ QtObject {
     // The chip when the reader is the one mentioned.
     readonly property color mentionSelfFill:     accentSoft
     readonly property color mentionSelfInk:      textPrimary
+    // What MessageHtml actually paints for a mention of you (and @room): bold
+    // ink, no chip. MainScreen hands it to the timeline as the mention accent.
+    readonly property color selfMentionInk:      _p.selfMentionInk !== undefined
+                                                 ? _p.selfMentionInk : accent
     readonly property color undecryptableText:   textMuted
     // Jumped-to message rows and active thread affordances.
     readonly property color pressedSurface:      selectedHover
@@ -1117,10 +1170,18 @@ QtObject {
     // ---- Control surfaces ----
     // Theme-routed hover/pressed steps for buttons, icon chips and segmented
     // controls. Use these rather than Qt.darker()/lighter() at call sites.
-    readonly property color buttonPrimaryFill:    accent
+    readonly property color buttonPrimaryFill:    _p.buttonPrimaryFill !== undefined
+                                                  ? _p.buttonPrimaryFill : accent
     readonly property color buttonPrimaryHover:   accentHover
     readonly property color buttonPrimaryPressed: accentPressed
-    readonly property color buttonPrimaryInk:     accentText
+    readonly property color buttonPrimaryInk:     _p.buttonPrimaryInk !== undefined
+                                                  ? _p.buttonPrimaryInk : accentText
+    // The composer's send button: a filled IconButton, primary until a theme
+    // gives it its own colours.
+    readonly property color sendButton:           _p.sendButton !== undefined
+                                                  ? _p.sendButton : accent
+    readonly property color sendButtonInk:        _p.sendButtonInk !== undefined
+                                                  ? _p.sendButtonInk : accentText
     readonly property color buttonNeutralFill:    cardElevated
     readonly property color buttonNeutralHover:   selected
     readonly property color buttonNeutralPressed: selectedHover
@@ -1130,7 +1191,8 @@ QtObject {
     readonly property color buttonGhostHover:     _p.buttonGhostHover !== undefined
                                                   ? _p.buttonGhostHover : hover
     readonly property color buttonGhostPressed:   selected
-    readonly property color buttonGhostInk:       textSecondary
+    readonly property color buttonGhostInk:       _p.buttonGhostInk !== undefined
+                                                  ? _p.buttonGhostInk : textSecondary
     readonly property color buttonDangerFill:     dangerFill
     readonly property color buttonDangerHover:    dangerFillHover
     readonly property color buttonDangerPressed:  dangerFillPressed
@@ -1138,8 +1200,10 @@ QtObject {
     // Disabled controls are exempt from WCAG contrast, so textDisabled is
     // allowed here and nowhere else.
     readonly property color buttonDisabledFill:   cardElevated
-    readonly property color buttonDisabledInk:    textDisabled
-    readonly property color buttonDisabledBorder: border
+    readonly property color buttonDisabledInk:    _p.buttonDisabledInk !== undefined
+                                                  ? _p.buttonDisabledInk : textDisabled
+    readonly property color buttonDisabledBorder: _p.buttonDisabledBorder !== undefined
+                                                  ? _p.buttonDisabledBorder : border
     // Three heights, one radius, one horizontal rhythm.
     readonly property int   buttonHeightSm:       26
     readonly property int   buttonHeight:         32
@@ -1235,26 +1299,251 @@ QtObject {
     readonly property color settingsNav:        _p.settingsNav !== undefined
                                                 ? _p.settingsNav : stormCanvas
 
+    // ---- Per-element roles (2026-10-13) ----
+    //
+    // One token per element the theme editor's preview draws, so each can be
+    // recoloured alone. Each falls back to EXACTLY the token its views read
+    // before it existed, so every preset paints as it did; for a custom theme
+    // (never Storm, so a storm* token is its plain twin) that fallback is the
+    // group CustomThemeStore's kRoleFollows names. paletteForTheme() resolves
+    // the same roles through `elementGroups` below.
+
+    // Shell surfaces.
+    readonly property color roomList:           _p.roomList !== undefined
+                                                ? _p.roomList : sidebar
+    // The header band meets the side columns' top edge, gradient included.
+    // Read from the group, not from `roomList`, so giving the room list a
+    // colour of its own leaves the header alone.
+    readonly property color roomHeader:         _p.roomHeader !== undefined
+                                                ? _p.roomHeader
+                                                : surfaceColorAt("sidebar", 0)
+    readonly property color sidePanel:          _p.sidePanel !== undefined
+                                                ? _p.sidePanel : sidebar
+    readonly property color timelineBackground: _p.timelineBackground !== undefined
+                                                ? _p.timelineBackground : background
+    readonly property color searchField:        _p.searchField !== undefined
+                                                ? _p.searchField : surface
+    readonly property color composerField:      _p.composerField !== undefined
+                                                ? _p.composerField : surface
+
+    // Lines.
+    readonly property color headerDivider:      _p.headerDivider !== undefined
+                                                ? _p.headerDivider : border
+    readonly property color searchFieldBorder:  _p.searchFieldBorder !== undefined
+                                                ? _p.searchFieldBorder : border
+    readonly property color composerBorder:     _p.composerBorder !== undefined
+                                                ? _p.composerBorder : border
+    readonly property color fieldBorder:        _p.fieldBorder !== undefined
+                                                ? _p.fieldBorder : border
+    // A field drawn in the Storm style reads the Storm edge under Storm.
+    readonly property color stormFieldBorder:   storm ? _stoBorder : fieldBorder
+    readonly property color codeBlockBorder:    _p.codeBlockBorder !== undefined
+                                                ? _p.codeBlockBorder : border
+    readonly property color channelFolderBorder: _p.channelFolderBorder !== undefined
+                                                 ? _p.channelFolderBorder : border
+    readonly property color settingsDivider:    _p.settingsDivider !== undefined
+                                                ? _p.settingsDivider : stormBorder
+    readonly property color menuBorder:         _p.menuBorder !== undefined
+                                                ? _p.menuBorder : stormBorderStrong
+
+    // States.
+    readonly property color railTile:           _p.railTile !== undefined
+                                                ? _p.railTile : cardElevated
+    readonly property color roomSelectedHover:  _p.roomSelectedHover !== undefined
+                                                ? _p.roomSelectedHover : selectedHover
+    readonly property color settingsNavSelected:
+        _p.settingsNavSelected !== undefined ? _p.settingsNavSelected
+                                             : selectedHover
+    readonly property color memberRowHover:     _p.memberRowHover !== undefined
+                                                ? _p.memberRowHover : hover
+    readonly property color roomUnreadBadge:    _p.roomUnreadBadge !== undefined
+                                                ? _p.roomUnreadBadge : unreadBadge
+    readonly property color railUnreadDot:      _p.railUnreadDot !== undefined
+                                                ? _p.railUnreadDot : unreadBadge
+
+    // Accent.
+    readonly property color railTileActive:     _p.railTileActive !== undefined
+                                                ? _p.railTileActive : accentSoft
+    readonly property color callBanner:         _p.callBanner !== undefined
+                                                ? _p.callBanner : accentSoft
+    readonly property color railActiveRing:     _p.railActiveRing !== undefined
+                                                ? _p.railActiveRing : accent
+    readonly property color unreadBadgeText:    _p.unreadBadgeText !== undefined
+                                                ? _p.unreadBadgeText : accentText
+
+    // Mention counts.
+    readonly property color roomMentionBadge:   _p.roomMentionBadge !== undefined
+                                                ? _p.roomMentionBadge : mentionBadge
+    readonly property color mentionBadgeText:   _p.mentionBadgeText !== undefined
+                                                ? _p.mentionBadgeText : dangerText
+
+    // Inks.
+    readonly property color roomListTitle:      _p.roomListTitle !== undefined
+                                                ? _p.roomListTitle : textPrimary
+    readonly property color roomHeaderTitle:    _p.roomHeaderTitle !== undefined
+                                                ? _p.roomHeaderTitle : textPrimary
+    readonly property color roomNameUnread:     _p.roomNameUnread !== undefined
+                                                ? _p.roomNameUnread : textPrimary
+    readonly property color codeText:           _p.codeText !== undefined
+                                                ? _p.codeText : textPrimary
+    readonly property color composerText:       _p.composerText !== undefined
+                                                ? _p.composerText : textPrimary
+    readonly property color fieldText:          _p.fieldText !== undefined
+                                                ? _p.fieldText : textPrimary
+    readonly property color stormFieldText:     storm ? _stoText : fieldText
+    readonly property color menuItemActiveText: _p.menuItemActiveText !== undefined
+                                                ? _p.menuItemActiveText : stormText
+    readonly property color callBannerText:     _p.callBannerText !== undefined
+                                                ? _p.callBannerText : textPrimary
+    readonly property color settingsHeading:    _p.settingsHeading !== undefined
+                                                ? _p.settingsHeading : stormText
+    readonly property color roomName:           _p.roomName !== undefined
+                                                ? _p.roomName : textSecondary
+    readonly property color menuItemText:       _p.menuItemText !== undefined
+                                                ? _p.menuItemText : stormTextSecondary
+    readonly property color settingsNavText:    _p.settingsNavText !== undefined
+                                                ? _p.settingsNavText : stormTextSecondary
+    readonly property color roomPreview:        _p.roomPreview !== undefined
+                                                ? _p.roomPreview : textMuted
+    readonly property color roomListSection:    _p.roomListSection !== undefined
+                                                ? _p.roomListSection : sectionLabelColor
+    readonly property color sidePanelSection:   _p.sidePanelSection !== undefined
+                                                ? _p.sidePanelSection : stormTextMuted
+    readonly property color settingsText:       _p.settingsText !== undefined
+                                                ? _p.settingsText : stormTextMuted
+    readonly property color roomSelectedName:   _p.roomSelectedName !== undefined
+                                                ? _p.roomSelectedName : selectedText
+    readonly property color roomSelectedPreview:
+        _p.roomSelectedPreview !== undefined ? _p.roomSelectedPreview
+                                             : selectedText
+    readonly property color paletteHighlightText:
+        _p.paletteHighlightText !== undefined ? _p.paletteHighlightText
+                                              : selectedText
+
+    // Status.
+    readonly property color presenceDot:        _p.presenceDot !== undefined
+                                                ? _p.presenceDot : presenceOnline
+    readonly property color chipSuccess:        _p.chipSuccess !== undefined
+                                                ? _p.chipSuccess
+                                                : (storm ? stormSuccess : presenceOnline)
+    // A chip drawn in the Storm style keeps the Storm ink it always had until
+    // a theme sets the chip itself.
+    readonly property color stormChipSuccess:   _p.chipSuccess !== undefined
+                                                ? _p.chipSuccess : stormSuccess
+    readonly property color stormChipDanger:    _p.chipDanger !== undefined
+                                                ? _p.chipDanger : stormDanger
+    readonly property color chipWarning:        _p.chipWarning !== undefined
+                                                ? _p.chipWarning : warning
+    readonly property color chipDanger:         _p.chipDanger !== undefined
+                                                ? _p.chipDanger
+                                                : (storm ? stormDanger : dangerTint)
+    readonly property color menuDangerTint:     _p.menuDangerTint !== undefined
+                                                ? _p.menuDangerTint
+                                                : (storm ? _stoDanger : dangerTint)
+    readonly property color menuDangerText:     _p.menuDangerText !== undefined
+                                                ? _p.menuDangerText : stormDanger
+
+    // Element role -> the paletteForTheme() key of its group: the resolver's
+    // copy of CustomThemeStore's kRoleFollows for these roles (the suite holds
+    // the two equal). Parents before children: a group here is never itself
+    // an element of this table.
+    readonly property var elementGroups: ({
+        roomList: "sidebar", roomHeader: "sidebar", sidePanel: "sidebar",
+        timelineBackground: "background",
+        searchField: "surface", composerField: "surface",
+        headerDivider: "border", searchFieldBorder: "border",
+        composerBorder: "border", fieldBorder: "border",
+        embedBorder: "border", codeBlockBorder: "border",
+        channelFolderBorder: "border", settingsDivider: "border",
+        buttonDisabledBorder: "border",
+        menuBorder: "borderStrong",
+        railTile: "cardElevated",
+        roomSelectedHover: "selectedHover", settingsNavSelected: "selectedHover",
+        memberRowHover: "hover",
+        roomUnreadBadge: "unreadBadge", railUnreadDot: "unreadBadge",
+        railTileActive: "accentSoft", callBanner: "accentSoft",
+        railActiveRing: "accent", reactionSelectedBorder: "accent",
+        selfMentionInk: "accent", buttonPrimaryFill: "accent",
+        sendButton: "accent",
+        unreadBadgeText: "accentText", buttonPrimaryInk: "accentText",
+        sendButtonInk: "accentText",
+        roomMentionBadge: "mentionBadge",
+        otherBubbleText: "textPrimary", roomListTitle: "textPrimary",
+        roomHeaderTitle: "textPrimary", roomNameUnread: "textPrimary",
+        codeText: "textPrimary", embedText: "textPrimary",
+        reactionSelectedInk: "textPrimary", composerText: "textPrimary",
+        fieldText: "textPrimary", menuItemActiveText: "textPrimary",
+        callBannerText: "textPrimary", settingsHeading: "textPrimary",
+        roomName: "textSecondary", channelText: "textSecondary",
+        menuItemText: "textSecondary", reactionInk: "textSecondary",
+        buttonGhostInk: "textSecondary", settingsNavText: "textSecondary",
+        roomPreview: "textMuted", roomListSection: "textMuted",
+        sidePanelSection: "textMuted", channelCategoryText: "textMuted",
+        channelChevron: "textMuted", settingsText: "textMuted",
+        roomSelectedName: "selectedText", roomSelectedPreview: "selectedText",
+        channelSelectedText: "selectedText",
+        paletteHighlightText: "selectedText",
+        buttonDisabledInk: "textDisabled",
+        presenceDot: "presenceOnline", chipSuccess: "presenceOnline",
+        chipWarning: "warning",
+        menuDangerTint: "dangerTint", chipDanger: "dangerTint",
+        menuDangerText: "danger"
+    })
+
     // ---- Surface gradients ("Depth" and custom-theme gradients) ----
     //
     // ThemedSurface paints through gradientFor(); everything else keeps
     // reading the flat token, which stays the role's colour of record (and
     // what the readability table grades alongside the worst stop).
 
-    // The roles "Depth" moves: the shell's three large grounds.
-    readonly property var _depthRoles: ["background", "sidebar", "rail"]
+    // The roles "Depth" moves: the shell's large grounds. The conversation's
+    // ground is `timelineBackground` since it became its own element; the
+    // `background` group keeps Depth for anything still painted in it.
+    readonly property var _depthRoles: ["background", "timelineBackground",
+                                        "sidebar", "roomList", "rail"]
+
+    // Element surfaces that show their group's gradient until they have a
+    // colour or a gradient of their own: the two grounds that painted the
+    // group's gradient before they were split out of it, so a theme saved
+    // before the split paints exactly as it did. (`sidePanel` takes a
+    // gradient too, but only its own: it never painted the group's.)
+    readonly property var gradientGroups: ({
+        timelineBackground: "background",
+        roomList: "sidebar"
+    })
 
     // The flat colour of a gradient-capable role.
     function surfaceFlat(role) {
         switch (role) {
         case "background":   return background
+        case "timelineBackground": return timelineBackground
         case "sidebar":      return sidebar
+        case "roomList":     return roomList
         case "rail":         return rail
         case "surface":      return surface
+        case "sidePanel":    return sidePanel
         case "settingsPage": return settingsPage
         case "settingsNav":  return settingsNav
         default:             return background
         }
+    }
+
+    // The gradient a role shows in a custom theme: its own, else (for an
+    // element of a gradient group that has no colour of its own) its
+    // group's. `gradients` and `overrides` are CustomThemeStore's sparse
+    // maps. Shared by the live shell and the editor's preview, so the two
+    // cannot disagree about inheritance.
+    function inheritedGradient(role, gradients, overrides) {
+        if (!gradients)
+            return null
+        var own = gradients[role]
+        if (own && own.stops && own.stops.length >= 2)
+            return own
+        var group = gradientGroups[role]
+        if (group === undefined || (overrides && overrides[role] !== undefined))
+            return null
+        var g = gradients[group]
+        return g && g.stops && g.stops.length >= 2 ? g : null
     }
 
     // { type: "linear"|"radial", angle, stops: ["#RRGGBB", ...] } or null for
@@ -1264,8 +1553,8 @@ QtObject {
     // harness) the surface stays flat.
     function gradientFor(role) {
         if (effectiveTheme === 12 && customGradients) {
-            var own = customGradients[role]
-            if (own && own.stops && own.stops.length >= 2)
+            var own = inheritedGradient(role, customGradients, customOverrides)
+            if (own)
                 return own
         }
         if (surfaceDepth !== 1 || _depthRoles.indexOf(role) < 0)

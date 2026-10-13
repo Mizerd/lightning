@@ -50,7 +50,7 @@ ItemDelegate {
         color: root.hovered || root.activeFocus ? AppTheme.channelHover : "transparent"
         // An open folder keeps a quiet outline, so the column reads as groups.
         border.width: root.activeFocus ? 2 : (root.collapsed ? 0 : 1)
-        border.color: root.activeFocus ? AppTheme.focusRing : AppTheme.border
+        border.color: root.activeFocus ? AppTheme.focusRing : AppTheme.channelFolderBorder
     }
 
     contentItem: Item {
@@ -62,7 +62,7 @@ ItemDelegate {
             x: 12
             name: "expand_more"
             size: 14
-            color: AppTheme.channelCategoryText
+            color: AppTheme.channelChevron
             // Rotation rather than two glyphs, so it reads as one control
             // changing state.
             rotation: root.collapsed ? -90 : 0

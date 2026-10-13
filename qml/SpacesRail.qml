@@ -848,7 +848,7 @@ Rectangle {
                     // exactly N.
                     radius: root.railTileRadius + root.tileRingOutset
                     color: "transparent"
-                    border.color: AppTheme.accent
+                    border.color: AppTheme.railActiveRing
                     border.width: 2
                     visible: spaceItem.isActive
                 }
@@ -1097,9 +1097,9 @@ Rectangle {
                     radius: root.tileRadiusFor(spaceItem.rowTileSize)
                     // Active: the accent ring plus a soft accent wash.
                     color: spaceItem.dropTarget ? AppTheme.accentSoft
-                           : spaceItem.isActive ? AppTheme.accentSoft
-                           : spaceItem.isFolder ? AppTheme.cardElevated
-                           : spaceItem.pseudo ? AppTheme.cardElevated
+                           : spaceItem.isActive ? AppTheme.railTileActive
+                           : spaceItem.isFolder ? AppTheme.railTile
+                           : spaceItem.pseudo ? AppTheme.railTile
                                               : "transparent"
                     // No border here (see railSpaceDropRing): a Qt border
                     // paints inside the bounds, under the children. Full
@@ -1189,7 +1189,7 @@ Rectangle {
                                   ? "99+" : spaceItem.mentionCount.toString()
                             font.pixelSize: AppTheme.textMicro
                             font.weight: AppTheme.weightBold
-                            color: AppTheme.dangerText
+                            color: AppTheme.mentionBadgeText
                         }
                     }
                     // Same size and ring as a revealed room's dot.
@@ -1201,7 +1201,7 @@ Rectangle {
                         width: AppTheme.scaled(10)
                         height: AppTheme.scaled(10)
                         radius: height / 2
-                        color: AppTheme.unreadBadge
+                        color: AppTheme.railUnreadDot
                         border.color: AppTheme.rail
                         border.width: 2
                         anchors.bottom: parent.bottom
@@ -1498,7 +1498,7 @@ Rectangle {
                                     color: (expansionRoomRow.modelData
                                                 .highlightCount || 0) > 0
                                            ? AppTheme.mentionBadge
-                                           : AppTheme.unreadBadge
+                                           : AppTheme.railUnreadDot
                                     border.color: AppTheme.rail
                                     border.width: 2
                                     anchors.bottom: parent.bottom

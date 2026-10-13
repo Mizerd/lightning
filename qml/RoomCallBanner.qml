@@ -83,7 +83,7 @@ Rectangle {
     // Collapse when there is no call.
     implicitHeight: visible ? content.implicitHeight + AppTheme.spacing12 * 2 : 0
     height: implicitHeight
-    color: AppTheme.accentSoft
+    color: AppTheme.callBanner
     radius: AppTheme.radiusMd
     border.width: 1
     border.color: AppTheme.accentBorder
@@ -178,7 +178,7 @@ Rectangle {
                         return qsTr("You are in a call");
                     return n === 1 ? qsTr("1 person in call") : qsTr("%1 people in call").arg(n);
                 }
-                color: AppTheme.textPrimary
+                color: AppTheme.callBannerText
                 font.pixelSize: 13
                 font.weight: Font.Medium
                 elide: Text.ElideRight

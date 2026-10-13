@@ -157,7 +157,7 @@ Item {
         anchors.fill: parent
         radius: AppTheme.radiusSm
         color: AppTheme.embedSurface
-        border.color: AppTheme.border
+        border.color: AppTheme.embedBorder
         border.width: 1
         clip: true
         visible: !root.playerActive
@@ -224,7 +224,7 @@ Item {
                 visible: root.tooLarge
                 text: root.isVideo ? qsTr("Too large to play here")
                                    : qsTr("Too large to show here")
-                color: AppTheme.text
+                color: AppTheme.embedText
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                 font.weight: AppTheme.weightStrong
                 horizontalAlignment: Text.AlignHCenter

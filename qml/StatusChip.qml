@@ -27,16 +27,16 @@ Rectangle {
         if (storm) {
             if (_boltChip) return AppTheme.bolt
             if (tone === "accent") return AppTheme.stormLink
-            if (tone === "success") return AppTheme.stormSuccess
-            if (tone === "warning") return AppTheme.warning
-            if (tone === "danger") return AppTheme.stormDanger
+            if (tone === "success") return AppTheme.stormChipSuccess
+            if (tone === "warning") return AppTheme.chipWarning
+            if (tone === "danger") return AppTheme.stormChipDanger
             if (tone === "info") return AppTheme.info
             return AppTheme.stormTextMuted
         }
         return tone === "accent" ? AppTheme.accent
-             : tone === "success" ? AppTheme.presenceOnline
-             : tone === "warning" ? AppTheme.warning
-             : tone === "danger" ? AppTheme.dangerTint
+             : tone === "success" ? AppTheme.chipSuccess
+             : tone === "warning" ? AppTheme.chipWarning
+             : tone === "danger" ? AppTheme.chipDanger
              : tone === "info" ? AppTheme.info
              : tone === "onAccent" ? AppTheme.accentText
              : AppTheme.textMuted

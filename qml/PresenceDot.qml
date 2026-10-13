@@ -127,7 +127,7 @@ Rectangle {
         readonly property bool _offline:
             dot.presenceState !== "online"
             && dot.presenceState !== "unavailable"
-        color: dot.presenceState === "online" ? AppTheme.presenceOnline
+        color: dot.presenceState === "online" ? AppTheme.presenceDot
              : dot.presenceState === "unavailable" ? AppTheme.presenceAway
                                                    : "transparent"
         // Whole pixels: a fractional border renders soft at 1.0 DPR.

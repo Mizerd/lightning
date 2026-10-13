@@ -27,9 +27,9 @@ Label {
     visible: root.count > 0 || root.dot
     text: root.dot && root.count <= 0 ? "" : root.count
 
-    color: root.mention ? AppTheme.dangerText : root.muted ? root.mutedInk : AppTheme.accentText
+    color: root.mention ? AppTheme.mentionBadgeText : root.muted ? root.mutedInk : AppTheme.unreadBadgeText
     background: Rectangle {
-        color: root.mention ? AppTheme.mentionBadge : root.muted ? "transparent" : AppTheme.unreadBadge
+        color: root.mention ? AppTheme.roomMentionBadge : root.muted ? "transparent" : AppTheme.roomUnreadBadge
         border.width: root.muted && !root.mention ? 1 : 0
         border.color: AppTheme.chipNeutralBorder
         radius: AppTheme.radiusPill

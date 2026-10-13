@@ -1137,7 +1137,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
                 color: navRow.highlighted ? AppTheme.stormText
-                                          : AppTheme.stormTextSecondary
+                                          : AppTheme.settingsNavText
                 font.family: AppTheme.menuFont
                 font.pixelSize: AppTheme.textBody
                 font.weight: navRow.highlighted ? AppTheme.weightBold : AppTheme.weightStrong
@@ -1164,8 +1164,8 @@ Item {
             // the light palettes, and `selected` equals accentSoft on Moss
             // Light. The storm namespace has no strong selection role; adding
             // stormSelectionStrong to AppTheme is the tidier follow-up.
-            color: navRow.highlighted ? AppTheme.selectedHover
-                 : navRow.hovered ? Qt.alpha(AppTheme.selectedHover, 0.55)
+            color: navRow.highlighted ? AppTheme.settingsNavSelected
+                 : navRow.hovered ? Qt.alpha(AppTheme.settingsNavSelected, 0.55)
                  : "transparent"
             Icon {
                 objectName: "settingsNavCaret"
@@ -1445,7 +1445,7 @@ Item {
                 Label {
                     objectName: "settingsHeaderTitle"
                     text: qsTr("Settings — %1").arg(root.sectionTitle(root.section))
-                    color: AppTheme.stormText
+                    color: AppTheme.settingsHeading
                     font.family: AppTheme.menuFont
                     font.pixelSize: AppTheme.textTitle
                     font.weight: AppTheme.weightBold
@@ -1465,7 +1465,7 @@ Item {
                 }
             }
         }
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.stormBorder }
+        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.settingsDivider }
 
         RowLayout {
             Layout.fillWidth: true
@@ -1502,7 +1502,7 @@ Item {
                         }
                         Label {
                             text: qsTr("Settings")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.family: AppTheme.menuFont
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightBold
@@ -1985,7 +1985,7 @@ Item {
                     }
                 }
             }
-            Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: AppTheme.stormBorder }
+            Rectangle { Layout.fillHeight: true; implicitWidth: 1; color: AppTheme.settingsDivider }
 
             // Right content pane, wrapped in an Item so the About page's Storm
             // Band can overlay the pane's bottom edge without changing the
@@ -2102,7 +2102,7 @@ Item {
 
                         Label {
                             text: qsTr("Appearance")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightBold
                         }
@@ -2111,7 +2111,7 @@ Item {
                             Layout.topMargin: -AppTheme.spacing8
                             text: qsTr("Theme, colours and gradients, chat background, "
                                        + "layout, text and fonts — per account.")
-                            color: AppTheme.stormTextMuted
+                            color: AppTheme.settingsText
                             font.pixelSize: AppTheme.textBody
                             wrapMode: Text.WordWrap
                             lineHeight: AppTheme.lineHeightBody
@@ -2487,9 +2487,13 @@ Item {
                                 Row {
                                     spacing: 2
                                     Repeater {
+                                        // The elements themselves (2026-10-13),
+                                        // resolved as the theme paints them, so
+                                        // an element inheriting its group's
+                                        // colour shows that colour.
                                         model: app.customTheme.exists
-                                               ? ["rail", "sidebar", "background",
-                                                  "surface", "accent"]
+                                               ? ["rail", "roomList", "timelineBackground",
+                                                  "sidePanel", "accent"]
                                                : []
                                         delegate: Rectangle {
                                             id: stripSwatch
@@ -2498,21 +2502,20 @@ Item {
                                             height: 28
                                             radius: 2
                                             color: {
+                                                // Read so the swatch follows edits.
                                                 var o = app.customTheme.colors
-                                                if (o && o[modelData] !== undefined)
-                                                    return o[modelData]
-                                                var pal = AppTheme.paletteForTheme(
-                                                    app.customTheme.baseTheme)
+                                                var pal = AppTheme.paletteForTheme(12)
                                                 return pal[modelData] !== undefined
                                                        ? pal[modelData]
                                                        : AppTheme.stormTextMuted
                                             }
-                                            // A region with a gradient shows it.
-                                            readonly property var gradientSpec: {
-                                                var g = app.customTheme.gradients
-                                                return g && g[modelData] ? g[modelData]
-                                                                         : null
-                                            }
+                                            // A region with a gradient (its own or
+                                            // its group's) shows it.
+                                            readonly property var gradientSpec:
+                                                AppTheme.inheritedGradient(
+                                                    modelData,
+                                                    app.customTheme.gradients,
+                                                    app.customTheme.colors)
                                             ThemedSurface {
                                                 anchors.fill: parent
                                                 visible: stripSwatch.gradientSpec !== null
@@ -4337,7 +4340,7 @@ Item {
                         Label {
                             objectName: "shortcutsHeading"
                             text: qsTr("Keyboard shortcuts")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightBold
                         }
@@ -4349,7 +4352,7 @@ Item {
                             lineHeightMode: Text.ProportionalHeight
                             text: qsTr("Per account, like your theme. Press Change "
                                        + "and then the combination you want.")
-                            color: AppTheme.stormTextMuted
+                            color: AppTheme.settingsText
                             font.pixelSize: AppTheme.textMeta
                         }
 
@@ -4481,7 +4484,7 @@ Item {
 
                         Label {
                             text: qsTr("Privacy & security")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightBold
                         }
@@ -4499,7 +4502,7 @@ Item {
                         // who you talk to, and can make messages unreadable.
                         Label {
                             text: qsTr("Device trust")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                             Layout.topMargin: AppTheme.spacing8
@@ -4556,7 +4559,7 @@ Item {
                         // What this device discloses while reading and typing.
                         Label {
                             text: qsTr("Reading and typing")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                             Layout.topMargin: AppTheme.spacing8
@@ -4638,7 +4641,7 @@ Item {
                         Label {
                             visible: app.presence && app.presence.supported
                             text: qsTr("Presence")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                             Layout.topMargin: AppTheme.spacing8
@@ -4679,7 +4682,7 @@ Item {
                         Label {
                             visible: app.moderation.supported
                             text: qsTr("Ignored users")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                             Layout.topMargin: AppTheme.spacing8
@@ -4794,7 +4797,7 @@ Item {
                         // user must be able to see it and clear it.
                         Label {
                             text: qsTr("Message search index")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                             Layout.topMargin: AppTheme.spacing8
@@ -5016,7 +5019,7 @@ Item {
                         // Link-preview and GIF policy.
                         Label {
                             text: qsTr("Link previews & media")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                             Layout.topMargin: AppTheme.spacing8
@@ -5708,7 +5711,7 @@ Item {
 
                         Label {
                             text: qsTr("Notifications")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                         }
@@ -5974,7 +5977,7 @@ Item {
 
                         Label {
                             text: qsTr("Sound & video")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                         }
@@ -6280,7 +6283,7 @@ Item {
 
                         Label {
                             text: qsTr("Account")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                         }
@@ -7731,7 +7734,7 @@ Item {
 
                         Label {
                             text: qsTr("Sessions")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightBold
                         }
@@ -9156,7 +9159,7 @@ Item {
 
                         Label {
                             text: qsTr("Labs")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightBold
                         }
@@ -9296,7 +9299,7 @@ Item {
 
                         Label {
                             text: qsTr("About")
-                            color: AppTheme.stormText
+                            color: AppTheme.settingsHeading
                             font.pixelSize: AppTheme.textTitle
                             font.weight: AppTheme.weightStrong
                         }

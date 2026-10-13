@@ -20,7 +20,7 @@ Rectangle {
         else
             app.downloads.download(mediaKey, filename || "", mime || "")
     }
-    color: AppTheme.background
+    color: AppTheme.timelineBackground
 
     // The pane's ground when the theme gives `background` a gradient (Depth or
     // a custom theme); draws nothing otherwise. Under every child.
@@ -30,7 +30,7 @@ Rectangle {
     ThemedSurface {
         id: paneGround
         anchors.fill: parent
-        role: "background"
+        role: "timelineBackground"
         flatFill: false
         // The room list sits above this pane in Depth.
         innerShadowEdge: "left"
@@ -859,7 +859,7 @@ Rectangle {
             // The pane tone, not the card tone, so the composer card lifts off
             // it and the header runs continuous with the room list (whose
             // top, under Depth, is the gradient's first stop).
-            color: AppTheme.surfaceColorAt("sidebar", 0)
+            color: AppTheme.roomHeader
             RowLayout {
                 id: header
                 anchors.fill: parent
@@ -1008,7 +1008,7 @@ Rectangle {
                                         app.spaces.activeSpaceId) || qsTr("Space")
                                 return qsTr("Home")
                             }
-                            color: AppTheme.text
+                            color: AppTheme.roomHeaderTitle
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.scaled(AppTheme.textTitle)
                             font.weight: AppTheme.weightBold
@@ -1408,7 +1408,7 @@ Rectangle {
             }
         }
 
-        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.border }
+        Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: AppTheme.headerDivider }
 
         // In-call controls under the room header, for both the legacy 1:1 lane
         // and MatrixRTC. Zero height when no call is live in this room.
@@ -5195,7 +5195,7 @@ Rectangle {
             visible: app.currentRoomId !== ""
             // Transparent over a gradient ground, which a flat strip would
             // cut across.
-            color: paneGround.hasGradient ? "transparent" : AppTheme.background
+            color: paneGround.hasGradient ? "transparent" : AppTheme.timelineBackground
             FontMetrics {
                 id: typingMetrics
                 font.family: AppTheme.uiFont
@@ -5487,7 +5487,7 @@ Rectangle {
             objectName: "spaceHomePane"
             // The pane ground, not the raised card tone; cards inside use
             // surface/cardElevated.
-            color: AppTheme.background
+            color: AppTheme.timelineBackground
 
             readonly property string spaceId:
                 app.spaces ? app.spaces.activeSpaceId : ""

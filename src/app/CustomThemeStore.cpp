@@ -33,15 +33,37 @@ constexpr Role kRoles[] = {
     { "rail",          QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Spaces rail"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "The narrow strip of Spaces down the far edge") },
+    // Groups since 2026-10-13: each element they used to paint has its own
+    // role below, which follows the group until it is given a colour.
     { "sidebar",       QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "Room list"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "The column of rooms and people") },
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Side columns"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The room list, the room header and the side panel take this until they have their own") },
     { "background",    QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "Conversation background"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "The ground the timeline sits on — the largest area on screen") },
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Backgrounds"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The conversation and Settings take this until they have their own") },
     { "surface",       QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Panels and cards"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "Side panels, dialogs, the composer") },
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The search field, the message box, menus and dialogs") },
+
+    // ---- per-element shell surfaces (2026-10-13) ----
+    { "roomList", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Room list"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The column of rooms and people") },
+    { "roomHeader", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Room header"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The bar above the conversation with the room's name") },
+    { "sidePanel", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Side panel"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "People, room details and threads beside the conversation") },
+    { "timelineBackground", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Conversation background"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The ground the timeline sits on — the largest area on screen") },
+    { "searchField", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Search field"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The filter box at the top of the room list") },
+    { "composerField", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Message box"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The field you type messages into") },
     { "popoverSurface", QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Menus and dialogs"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Context menus, pop-up menus and dialog boxes") },
@@ -53,7 +75,7 @@ constexpr Role kRoles[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore", "The column of sections down the left of Settings") },
     { "inputBg",       QT_TRANSLATE_NOOP("CustomThemeStore", "Shell"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Text fields"),
-      QT_TRANSLATE_NOOP("CustomThemeStore", "The inside of the message box and every input") },
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The inside of text fields in dialogs and panels") },
 
     // ---- row states ----
     { "hover",         QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
@@ -200,6 +222,224 @@ constexpr Role kRoles[] = {
     { "dangerTint", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Error tint"),
       QT_TRANSLATE_NOOP("CustomThemeStore", "Behind destructive menu rows and the danger chip") },
+
+    // ---- per-element roles (2026-10-13) --------------------------------
+    // One role per element the editor's preview draws, so a click there
+    // edits that element alone. Each follows the shared role the element
+    // used to read (kRoleFollows) until it is given a colour of its own, and
+    // the editor lists it under that group. Stored sparsely like every role,
+    // so an older build drops the key and paints the element in its group's
+    // colour.
+
+    // Lines.
+    { "headerDivider", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Header divider"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The line under the room list, room and side-panel headers") },
+    { "searchFieldBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Search field outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of the room list's filter box") },
+    { "composerBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Message box outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of the field you type messages into") },
+    { "fieldBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Text field outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of text fields in dialogs and panels") },
+    { "embedBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Link preview outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of link previews and other cards in messages") },
+    { "codeBlockBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Code block outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of fenced code in a message") },
+    { "channelFolderBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Open folder outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of an open folder in the Channels layout") },
+    { "settingsDivider", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Settings divider"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The lines between Settings' navigation, header and page") },
+    { "buttonDisabledBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Disabled button outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of a button that cannot be used right now") },
+    { "menuBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Menu outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of context menus and pop-up menus") },
+    // No group: dark themes draw it as a hairline and light ones as a strong
+    // line, which is no single role's colour.
+    { "reactionBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Lines"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Reaction pill outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of someone else's reaction") },
+
+    // States.
+    { "railTile", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Spaces rail tile"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Home, People and folder tiles on the Spaces rail") },
+    { "embedSurface", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Link previews"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Link previews, files and other cards inside messages") },
+    { "roomSelectedHover", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Open room row, hovered"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The room you are in, with the pointer on it") },
+    { "settingsNavSelected", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Open Settings section"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The section you are in, in Settings' navigation") },
+    { "memberRowHover", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Person row, hovered"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "A person in the side panel under the pointer") },
+    { "roomUnreadBadge", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Room unread count"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The count or dot of new messages on a room") },
+    { "railUnreadDot", QT_TRANSLATE_NOOP("CustomThemeStore", "States"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Space unread dot"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The dot on a Space with something new in it") },
+
+    // Accent.
+    { "railTileActive", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Open Space tile"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The wash behind the Space you are in") },
+    { "callBanner", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Call banner"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The strip above the conversation while a call is on") },
+    { "railActiveRing", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Open Space ring"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The ring around the Space you are in") },
+    { "reactionSelectedBorder", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Your reaction outline"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The edge of a reaction you added yourself") },
+    { "selfMentionInk", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Mentions of you"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Your name, and @room, where a message mentions it") },
+    { "buttonPrimaryFill", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Primary button"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The main button of a dialog or form, at rest") },
+    { "sendButton", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Send button"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The button that sends a message") },
+    { "unreadBadgeText", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Unread count number"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The number on a room's unread count") },
+    { "buttonPrimaryInk", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Primary button label"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The words on a primary button") },
+    { "sendButtonInk", QT_TRANSLATE_NOOP("CustomThemeStore", "Accent"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Send button icon"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The arrow on the send button") },
+
+    // Messages.
+    { "roomMentionBadge", QT_TRANSLATE_NOOP("CustomThemeStore", "Messages"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Room mention count"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The count on a room where someone named you") },
+    // No group: the stock ink is a white literal, like `ownBubbleText`.
+    { "mentionBadgeText", QT_TRANSLATE_NOOP("CustomThemeStore", "Messages"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Mention count number"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The number on a mention count") },
+
+    // Text.
+    { "otherBubbleText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Message text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The words of messages, except on your own bubbles") },
+    { "roomListTitle", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Room list heading"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The name at the top of the room list") },
+    { "roomHeaderTitle", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Room name in the header"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The room's name above the conversation") },
+    { "roomNameUnread", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Unread room names"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The name of a room with something new in it") },
+    { "codeText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Code text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The text inside a code block") },
+    { "embedText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Link preview title"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The title of a link preview or media card") },
+    { "reactionSelectedInk", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Your reaction count"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The count on a reaction you added yourself") },
+    { "composerText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Typed text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "What you type in the message box") },
+    { "fieldText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Text field text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "What you type in text fields in dialogs and panels") },
+    { "menuItemActiveText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Highlighted menu item"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The menu entry under the pointer or the keyboard") },
+    { "callBannerText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Call banner text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The words on the strip above a conversation with a call on") },
+    { "settingsHeading", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Settings headings"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The title of Settings and of each of its pages") },
+    { "roomName", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Room names"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The name of a room with nothing new in it") },
+    { "channelText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Channel names"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Room names in the Channels layout") },
+    { "menuItemText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Menu items"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The entries of context menus and pop-up menus") },
+    { "reactionInk", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Reaction count"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The count on someone else's reaction") },
+    { "buttonGhostInk", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Quiet button label"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The words on a button with no fill") },
+    { "settingsNavText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Settings navigation labels"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The section names down the left of Settings") },
+    { "roomPreview", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Message previews"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The last message under each room's name") },
+    { "roomListSection", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Room list sections"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Labels such as Invites and Favourites in the room list") },
+    { "sidePanelSection", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Side panel sections"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Headings over groups of people in the side panel") },
+    { "channelCategoryText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Channel categories"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Folder and category names in the Channels layout") },
+    { "channelChevron", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Folder arrows"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The arrow that opens a folder in the Channels layout") },
+    { "settingsText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Settings descriptions"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The explanation under each Settings page's title") },
+    { "roomSelectedName", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Open room's name"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The name in the open room's row") },
+    { "roomSelectedPreview", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Open room's preview"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The last message in the open room's row") },
+    { "channelSelectedText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Open channel's name"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The name in the open row of the Channels layout") },
+    { "paletteHighlightText", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Text on a system selection"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Selected text in the message box and standard controls") },
+    { "buttonDisabledInk", QT_TRANSLATE_NOOP("CustomThemeStore", "Text"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Disabled button label"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The words on a button that cannot be used right now") },
+
+    // Status.
+    { "presenceDot", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Online dot on people"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The dot on someone's picture while they are online") },
+    { "chipSuccess", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Success chip"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "A small \"verified\" or \"done\" label") },
+    { "chipWarning", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Warning chip"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "A small caution label, such as Invited") },
+    { "menuDangerTint", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Destructive menu item, highlighted"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "The tint behind Delete or Leave under the pointer") },
+    { "chipDanger", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Error chip"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "A small \"failed\" or Banned label") },
+    { "menuDangerText", QT_TRANSLATE_NOOP("CustomThemeStore", "Status"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Destructive menu item"),
+      QT_TRANSLATE_NOOP("CustomThemeStore", "Delete, Leave and other menu entries that cannot be undone") },
 };
 
 // ---- the readability table -------------------------------------------------
@@ -243,12 +483,18 @@ constexpr auto kOwnBubbleInk =
     QT_TRANSLATE_NOOP("CustomThemeStore", "Text on your messages");
 
 constexpr ReadabilityCheck kReadability[] = {
+    // Since the per-element split (2026-10-13) a check names the element
+    // that is actually drawn (`timelineBackground`, not the `background`
+    // group), so an element given its own colour is graded and a click opens
+    // that element. On every preset an element resolves to its group, so the
+    // margins below are the groups' and did not move.
+    //
     // ---- ink on a surface: WCAG 4.5:1 -------------------- worst preset ----
-    { "textPrimary", "textPrimary", "background", "background",
+    { "textPrimary", "textPrimary", "timelineBackground", "timelineBackground",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text on the conversation background"),
       4.5, false }, //  9.13 Warm
-    { "textPrimary", "textPrimary", "sidebar", "sidebar",
+    { "roomNameUnread", "roomNameUnread", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text in the room list"),
       4.5, false }, // 10.04 Warm
@@ -256,15 +502,15 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text on panels and cards"),
       4.5, false }, //  8.73 Nordic
-    { "textPrimary", "textPrimary", "otherBubble", "otherBubble",
+    { "otherBubbleText", "otherBubbleText", "otherBubble", "otherBubble",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text on their messages"),
       4.5, false }, //  8.10 Nordic
-    { "textPrimary", "textPrimary", "inputBackground", "inputBg",
+    { "fieldText", "fieldText", "inputBackground", "inputBg",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text inside a text field"),
       4.5, false }, // 10.24 Lightning Dark
-    { "textPrimary", "textPrimary", "codeBlock", "codeBlock",
+    { "codeText", "codeText", "codeBlock", "codeBlock",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text inside a code block"),
       4.5, false }, //  8.92 Warm
@@ -276,20 +522,19 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Main text on a raised chip"),
       4.5, false }, //  7.35 Nordic
-    // Grades `reactionInk` (textSecondary), the ink reaction pills actually
-    // use.
-    { "textSecondary", "textSecondary", "reactionBackground", "reaction",
+    // The ink reaction pills actually use.
+    { "reactionInk", "reactionInk", "reactionBackground", "reaction",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Reaction text on a reaction pill"),
       // Guarded by `everyReadabilityCheckPassesOnEveryShippedPreset`.
       4.5, false },
-    { "textSecondary", "textSecondary", "background", "background",
+    { "textSecondary", "textSecondary", "timelineBackground", "timelineBackground",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Secondary text on the conversation background"),
       4.5, false }, //  5.05 Warm
-    { "textSecondary", "textSecondary", "sidebar", "sidebar",
+    { "roomName", "roomName", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
-          "Message previews in the room list"),
+          "Room names in the room list"),
       4.5, false }, //  5.55 Warm
     { "textSecondary", "textSecondary", "surface", "surface",
       QT_TRANSLATE_NOOP("CustomThemeStore",
@@ -299,19 +544,19 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Secondary text inside a text field"),
       4.5, false }, //  5.81 Warm
-    { "textMuted", "textMuted", "background", "background",
+    { "textMuted", "textMuted", "timelineBackground", "timelineBackground",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Timestamps on the conversation background"),
       4.5, false }, //  4.59 Warm
-    { "textMuted", "textMuted", "sidebar", "sidebar",
+    { "roomPreview", "roomPreview", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
-          "Timestamps in the room list"),
+          "Message previews in the room list"),
       4.5, false }, //  5.05 Warm
     { "textMuted", "textMuted", "surface", "surface",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Timestamps on panels and cards"),
       4.5, false }, //  4.59 Deep Teal
-    { "selectedText", "selectedText", "selected", "selected",
+    { "roomSelectedName", "roomSelectedName", "roomSelected", "roomSelected",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The open room's name in the room list"),
       4.5, false }, //  5.40 Nordic
@@ -325,6 +570,24 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Text on your own messages"),
       4.5, false }, //  6.22 Moss Light
+    // Element pairs added with the split: each is a group pair above on every
+    // preset (or, for the embed card and the menu, Storm's own panel).
+    { "roomHeaderTitle", "roomHeaderTitle", "roomHeader", "roomHeader",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "The room's name in the room header"),
+      4.5, false },
+    { "composerText", "composerText", "composerField", "composerField",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Typed text in the message box"),
+      4.5, false },
+    { "menuItemText", "menuItemText", "popoverSurface", "popoverSurface",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "Menu items on a menu"),
+      4.5, false },
+    { "embedText", "embedText", "embedSurface", "embedSurface",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "A link preview's title on its card"),
+      4.5, false },
     // 3:1 is a calibration choice, not WCAG large text (these labels are
     // body sized). AppTheme pins white-on-accent at 3:1, capping the accent's
     // luminance, and shipped presets sit below 4.5 (Nordic 4.03, Purple Dusk
@@ -336,14 +599,26 @@ constexpr ReadabilityCheck kReadability[] = {
     // The same button's hover and pressed states, at the same bar: at 4.5
     // the hover pair fails on Purple Dusk (3.18), Nordic (3.35) and Graphite
     // (3.77).
-    { "accentText", "accentText", "accentHover", "accentHover",
+    { "buttonPrimaryInk", "buttonPrimaryInk", "accentHover", "accentHover",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A button's label while the pointer is on it"),
       3.0, false }, //  3.18 Purple Dusk
-    { "accentText", "accentText", "accentPressed", "accentPressed",
+    { "buttonPrimaryInk", "buttonPrimaryInk", "accentPressed", "accentPressed",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A button's label while it is held down"),
       3.0, false }, //  4.73 Purple Dusk
+    { "buttonPrimaryInk", "buttonPrimaryInk", "buttonPrimaryFill", "buttonPrimaryFill",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "A primary button's label"),
+      3.0, false },
+    { "sendButtonInk", "sendButtonInk", "sendButton", "sendButton",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "The send button's arrow"),
+      3.0, false },
+    { "unreadBadgeText", "unreadBadgeText", "roomUnreadBadge", "roomUnreadBadge",
+      QT_TRANSLATE_NOOP("CustomThemeStore",
+          "The number on a room's unread count"),
+      3.0, false },
     // ---- surface against surface: CIE L* separation -------------------------
     { "border", "border", "surface", "surface",
       QT_TRANSLATE_NOOP("CustomThemeStore",
@@ -353,17 +628,19 @@ constexpr ReadabilityCheck kReadability[] = {
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A field's outline against its inside"),
       6.0, true  }, // 20.30 Warm
-    { "surface", "surface", "background", "background",
+    { "surface", "surface", "timelineBackground", "timelineBackground",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "Panels against the conversation background"),
       2.5, true  }, //  6.34 Nordic
-    { "rail", "rail", "sidebar", "sidebar",
+    { "rail", "rail", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "The Spaces rail against the room list"),
       2.0, true  }, //  4.23 Nordic
     // The mention badge against the room list it sits on. An edge check,
-    // since the badge is a filled pill; every preset clears 30.
-    { "mentionBadge", "mention", "sidebar", "sidebar",
+    // since the badge is a filled pill; every preset clears 30. Graded on
+    // the `mention` group, which the Spaces rail's badge paints directly
+    // (the room row's own badge resolves to it until set).
+    { "mentionBadge", "mention", "roomList", "roomList",
       QT_TRANSLATE_NOOP("CustomThemeStore",
           "A mention badge against the room list"),
       6.0, true  }, // 30.02 Nordic
@@ -384,8 +661,15 @@ constexpr RoleAlias kRoleAliases[] = {
 // Roles that may carry a gradient: the large surfaces. Ink, states and bubbles
 // stay flat (a bubble gradient would put every message's text over two
 // colours; see the 2026-10-06 backdrop note for why that waits).
+//
+// The element surfaces split out of `background` and `sidebar` take gradients
+// too. `timelineBackground` and `roomList` show their group's gradient until
+// they have a colour or gradient of their own (AppTheme.gradientGroups), so a
+// theme saved before the split paints exactly as it did; `sidePanel` never
+// painted one and only shows its own.
 constexpr const char *kGradientRoles[] = {
     "background", "sidebar", "rail", "surface", "settingsPage", "settingsNav",
+    "timelineBackground", "roomList", "sidePanel",
 };
 
 // Role -> the editable role it falls back to while it is unset: the same
@@ -425,6 +709,82 @@ constexpr RoleFollows kRoleFollows[] = {
     { "placeholderInk",             "textMuted" },
     { "presenceOnline",             "success" },
     { "dangerTint",                 "mention" },
+
+    // Per-element roles (2026-10-13). The parent is the shared role whose
+    // live token the element read before it had a role of its own, as it
+    // resolves for a custom theme (never Storm, so storm* tokens are their
+    // plain twins). AppTheme.qml's `elementGroups` is the same table for the
+    // resolver; `everyElementRoleFollowsItsGroupOnEveryBase` (settings-shell
+    // QML suite) checks both sides on all eleven bases.
+    { "roomList",                   "sidebar" },
+    { "roomHeader",                 "sidebar" },
+    { "sidePanel",                  "sidebar" },
+    { "timelineBackground",         "background" },
+    { "searchField",                "surface" },
+    { "composerField",              "surface" },
+    { "headerDivider",              "border" },
+    { "searchFieldBorder",          "border" },
+    { "composerBorder",             "border" },
+    { "fieldBorder",                "border" },
+    { "embedBorder",                "border" },
+    { "codeBlockBorder",            "border" },
+    { "channelFolderBorder",        "border" },
+    { "settingsDivider",            "border" },
+    { "buttonDisabledBorder",       "border" },
+    { "menuBorder",                 "borderStrong" },
+    { "railTile",                   "cardElevated" },
+    { "embedSurface",               "cardElevated" },
+    { "roomSelectedHover",          "selectedHover" },
+    { "settingsNavSelected",        "selectedHover" },
+    { "memberRowHover",             "hover" },
+    { "roomUnreadBadge",            "unreadBadge" },
+    { "railUnreadDot",              "unreadBadge" },
+    { "railTileActive",             "accentSoft" },
+    { "callBanner",                 "accentSoft" },
+    { "railActiveRing",             "accent" },
+    { "reactionSelectedBorder",     "accent" },
+    { "selfMentionInk",             "accent" },
+    { "buttonPrimaryFill",          "accent" },
+    { "sendButton",                 "accent" },
+    { "unreadBadgeText",            "accentText" },
+    { "buttonPrimaryInk",           "accentText" },
+    { "sendButtonInk",              "accentText" },
+    { "roomMentionBadge",           "mention" },
+    { "otherBubbleText",            "textPrimary" },
+    { "roomListTitle",              "textPrimary" },
+    { "roomHeaderTitle",            "textPrimary" },
+    { "roomNameUnread",             "textPrimary" },
+    { "codeText",                   "textPrimary" },
+    { "embedText",                  "textPrimary" },
+    { "reactionSelectedInk",        "textPrimary" },
+    { "composerText",               "textPrimary" },
+    { "fieldText",                  "textPrimary" },
+    { "menuItemActiveText",         "textPrimary" },
+    { "callBannerText",             "textPrimary" },
+    { "settingsHeading",            "textPrimary" },
+    { "roomName",                   "textSecondary" },
+    { "channelText",                "textSecondary" },
+    { "menuItemText",               "textSecondary" },
+    { "reactionInk",                "textSecondary" },
+    { "buttonGhostInk",             "textSecondary" },
+    { "settingsNavText",            "textSecondary" },
+    { "roomPreview",                "textMuted" },
+    { "roomListSection",            "textMuted" },
+    { "sidePanelSection",           "textMuted" },
+    { "channelCategoryText",        "textMuted" },
+    { "channelChevron",             "textMuted" },
+    { "settingsText",               "textMuted" },
+    { "roomSelectedName",           "selectedText" },
+    { "roomSelectedPreview",        "selectedText" },
+    { "channelSelectedText",        "selectedText" },
+    { "paletteHighlightText",       "selectedText" },
+    { "buttonDisabledInk",          "textDisabled" },
+    { "presenceDot",                "presenceOnline" },
+    { "chipSuccess",                "presenceOnline" },
+    { "chipWarning",                "warning" },
+    { "menuDangerTint",             "dangerTint" },
+    { "chipDanger",                 "dangerTint" },
+    { "menuDangerText",             "danger" },
 };
 
 // Bound on the editor's undo history: one step is two small colour maps.
@@ -1396,6 +1756,58 @@ void CustomThemeStore::resetColor(const QString &role)
         store(next);
         recordStep(idBefore, baseBefore, before, QString());
     }
+}
+
+QStringList CustomThemeStore::groupMembers(const QString &group) const
+{
+    QStringList out;
+    if (group.isEmpty())
+        return out;
+    for (const Role &r : kRoles) {
+        const QString key = QLatin1String(r.key);
+        if (roleFollows(key) == group)
+            out << key;
+    }
+    return out;
+}
+
+bool CustomThemeStore::applyToGroup(const QString &role, const QString &hex)
+{
+    const QString group = roleFollows(role);
+    if (!roleIsEditable(role) || group.isEmpty() || !colorIsValid(hex))
+        return false;
+    const QStringList members = groupMembers(group);
+
+    // The gradient half first (it is not in the undo history): the role's own
+    // gradient becomes the group's when the group can carry one, and every
+    // member's own gradient goes, so they all show the group's.
+    const QVariantMap gradientsBefore = gradients();
+    const QVariantMap ownGradient = gradientsBefore.value(role).toMap();
+    QVariantMap nextGradients = gradientsBefore;
+    if (!ownGradient.isEmpty() && roleTakesGradient(group))
+        nextGradients.insert(group, ownGradient);
+    for (const QString &member : members)
+        nextGradients.remove(member);
+
+    const QString idBefore = activeThemeId();
+    const int baseBefore = baseTheme();
+    const QVariantMap before = colors();
+    QVariantMap next = before;
+    next.insert(group, hex.toUpper());
+    for (const QString &member : members)
+        next.remove(member);
+
+    if (nextGradients != gradientsBefore) {
+        QList<Theme> themes = load();
+        const int index = activeIndex();
+        if (index >= 0) {
+            themes[index].gradients = sanitizeGradients(nextGradients);
+            save(themes, themes.at(index).id);
+        }
+    }
+    store(next);
+    recordStep(idBefore, baseBefore, before, QString());
+    return true;
 }
 
 void CustomThemeStore::resetAll()

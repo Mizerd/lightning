@@ -1989,7 +1989,7 @@ Item {
                                   ? root.ownBubbleSecondaryInk : AppTheme.muted)
                                : bodyLabel.isMediaCaption ? root.captionInk
                                : root.drawsOnOwnBubble
-                                 ? AppTheme.ownBubbleText : AppTheme.text
+                                 ? AppTheme.ownBubbleText : AppTheme.otherBubbleText
                         // TextEdit does not inherit the Controls font. A whole
                         // font so the colour emoji face is a real per-character
                         // fallback (QML has no families list, and Qt 6.8's
@@ -2165,7 +2165,7 @@ Item {
                                                    : root.bubbleMode
                                                      && segmentsLoader.ownMessage
                                                    ? AppTheme.ownBubbleText
-                                                   : AppTheme.text
+                                                   : AppTheme.otherBubbleText
                                             font.family: AppTheme.uiFont
                                             font.pixelSize: AppTheme.scaled(
                                                 root.mediaCaptionBody ? 12
@@ -2915,12 +2915,13 @@ Item {
                     // the outline is borderStrong. Dark palettes' border is
                     // already 12-33 L* off the canvas and stays.
                     border.color: modelData.byMe
-                                  ? AppTheme.accent
+                                  ? AppTheme.reactionSelectedBorder
                                   : reactionHover.hovered
                                     ? (AppTheme.dark ? AppTheme.borderStrong
                                                      : AppTheme.textMuted)
-                                    : (AppTheme.dark ? AppTheme.border
-                                                     : AppTheme.borderStrong)
+                                    // At rest: its own theme role, which
+                                    // stands for this same dark/light pair.
+                                    : AppTheme.reactionBorder
                     // Whole pixels only: a fractional border blurs at DPR 1.
                     border.width: modelData.byMe ? 2 : 1
                     // A focus stop, so Tab reaches the chip (not in the
@@ -4617,7 +4618,7 @@ Item {
             color: cardHover.hovered && card.st === "loaded"
                    ? AppTheme.hover : AppTheme.embedSurface
             radius: AppTheme.radiusMd
-            border.color: AppTheme.border
+            border.color: AppTheme.embedBorder
             border.width: 1
 
             HoverHandler { id: cardHover }
@@ -4927,7 +4928,7 @@ Item {
                         visible: card.p.isDirectMedia !== true
                                  && (card.p.title || "").length > 0
                         text: card.p.title || ""
-                        color: AppTheme.text
+                        color: AppTheme.embedText
                         font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
                         font.weight: AppTheme.weightStrong
                         wrapMode: Text.WordWrap

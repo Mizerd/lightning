@@ -94,7 +94,7 @@ ApplicationWindow {
             "button": AppTheme.cardElevated,
             "buttonText": AppTheme.textPrimary,
             "highlight": AppTheme.paletteHighlight,
-            "highlightedText": AppTheme.selectedText,
+            "highlightedText": AppTheme.paletteHighlightText,
             "placeholderText": AppTheme.textMuted,
             "toolTipBase": AppTheme.cardElevated,
             "toolTipText": AppTheme.textPrimary,
@@ -124,7 +124,7 @@ ApplicationWindow {
         button: AppTheme.cardElevated
         buttonText: AppTheme.textPrimary
         highlight: AppTheme.paletteHighlight
-        highlightedText: AppTheme.selectedText
+        highlightedText: AppTheme.paletteHighlightText
         placeholderText: AppTheme.textMuted
         toolTipBase: AppTheme.cardElevated
         toolTipText: AppTheme.textPrimary

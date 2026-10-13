@@ -11,10 +11,19 @@ import MatrixClient
 // is clickable and reports the role it paints, so a user can point at what to
 // recolour.
 //
-// Every editable role must be painted by at least one Region below (the suite
-// `everyEditableRoleHasARegionInThePreview` scans for `role: "<key>"`), or the
-// role would be editable but impossible to see change. Add the surface here
-// first when adding a role to CustomThemeStore.
+// One element, one role (2026-10-13). Each Region names the per-element role
+// the real view of that element reads (CustomThemeStore's element roles), never
+// a shared group such as "Panels and cards": a click opens that element alone
+// and outlines nothing else, and editing it changes nothing else. Two Regions
+// share a role only when they are the same element drawn twice (two rows of
+// one list); those say `repeated: true`, and the suite holds every other role
+// to a single Region (`everyElementOfThePreviewIsItsOwnClickTarget`).
+//
+// Every editable role must be painted here, by a Region of its own or (for a
+// group) through its elements (`everyEditableRoleHasARegionInThePreview`).
+// Avatars and sender names wear each person's identity colour, derived from
+// the theme as the app derives it; they are content, like a picture, not a
+// theme role, so they are drawn but are not targets.
 Item {
     id: root
 
@@ -37,8 +46,9 @@ Item {
     // preview, so it passes 2 / scale to keep the ring 2px on screen.
     property real outlineWidth: 2
     // Surface gradients to paint: role -> { type, angle, stops }, the theme's
-    // own (CustomThemeStore.gradients) and, while Depth is on, Depth's for the
-    // grounds the theme leaves flat. A role without one stays flat.
+    // own (CustomThemeStore.gradients), an element's inherited one, and, while
+    // Depth is on, Depth's for the grounds the theme leaves flat. A role
+    // without one stays flat.
     property var gradients: ({})
 
     function gradientSpec(role) {
@@ -93,6 +103,31 @@ Item {
         return Qt.alpha(Qt.color(String(root.c(role, fallback))), alpha)
     }
 
+    // The identity colours, derived from this palette by AppTheme's own rule
+    // (identityAnchor): avatar discs and sender names follow the theme without
+    // being a role of it.
+    readonly property color identityAnchor: {
+        var bg = Qt.color(String(root.c("background", "background")))
+        var ink = Qt.color(String(root.c("accent", "accent")))
+        if (bg.hslSaturation < 0.20)
+            return ink
+        var gap = Math.abs(bg.hslHue - ink.hslHue)
+        if (gap > 0.5)
+            gap = 1.0 - gap
+        return gap > (60.0 / 360.0) ? bg : ink
+    }
+    function disc(key) {
+        return IdentityPalette.disc(AppTheme.identityIndex(key), root.identityAnchor)
+    }
+    function nameInk(key) {
+        return IdentityPalette.nameInk(
+            AppTheme.identityIndex(key), root.identityAnchor,
+            [Qt.color(String(root.c("background", "background"))),
+             Qt.color(String(root.c("surface", "surface"))),
+             Qt.color(String(root.c("cardElevated", "surface"))),
+             Qt.color(String(root.c("otherBubble", "surface")))])
+    }
+
     // Fixture rows. `state` shows selected and hovered rows at once.
     readonly property var fakeRooms: [
         { name: qsTr("Design"),    preview: qsTr("Shipped the new palette"), badge: 0, mention: 0, state: "normal" },
@@ -128,6 +163,9 @@ Item {
         // Marks a region for regionStack(); other children of an element
         // are skipped.
         readonly property bool isThemeRegion: true
+        // The same element drawn more than once (two rows of one list): the
+        // only case in which two Regions may name one role.
+        property bool repeated: false
         // Grows the hit area and the outline past a thin element (a hairline,
         // a scrollbar) so it can be pointed at.
         property real pad: 0
@@ -146,7 +184,7 @@ Item {
         onClicked: (mouse) => root.regionActivated(
             region.role, root.regionStack(region, mouse.x, mouse.y))
 
-        // Built only while shown: there are about ninety regions.
+        // Built only while shown: there are about a hundred regions.
         Loader {
             anchors.fill: parent
             // A text element's box hugs its glyphs, so the ring would stroke
@@ -212,11 +250,13 @@ Item {
     }
 
     // A labelled strip for a state the main window shows only in one layout or
-    // one dialog: a Channels row, a standard control, a quiet button.
+    // one dialog. Its label is drawn in the ink the real element uses on that
+    // state, and is a target of its own.
     component Sample: Rectangle {
         id: smp
         required property string role
         property string label
+        required property string inkRole
         property color fill: "transparent"
         property color ink: root.c("textPrimary", "textPrimary")
         Layout.fillWidth: true
@@ -228,14 +268,14 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             anchors.left: parent.left
             anchors.leftMargin: AppTheme.spacing8
-            anchors.right: parent.right
-            anchors.rightMargin: AppTheme.spacing8
+            width: Math.min(implicitWidth, parent.width - AppTheme.spacing8 * 2)
             text: smp.label
             textFormat: Text.PlainText
             color: smp.ink
             font.family: AppTheme.uiFont
             font.pixelSize: AppTheme.textMeta
             elide: Text.ElideRight
+            Region { role: smp.inkRole; pad: 1 }
         }
     }
 
@@ -245,11 +285,23 @@ Item {
     component EdgeRegion: Item {
         id: edge
         required property string role
+        property bool repeated: false
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: 1
-        Region { role: edge.role; pad: 3 }
+        Region { role: edge.role; pad: 3; repeated: edge.repeated }
+    }
+
+    // An avatar disc in a person's (or a room's) identity colour: content, not
+    // a target.
+    component IdentityDisc: Rectangle {
+        required property string key
+        property bool square: false
+        implicitWidth: 22
+        implicitHeight: 22
+        radius: square ? AppTheme.radiusSm : width / 2
+        color: root.disc(key)
     }
 
     RowLayout {
@@ -268,67 +320,78 @@ Item {
                 anchors.fill: parent
                 anchors.topMargin: AppTheme.spacing12
                 anchors.bottomMargin: AppTheme.spacing12
-                spacing: AppTheme.spacing8
+                spacing: AppTheme.spacing12
 
-                Repeater {
-                    model: 3
-                    delegate: Rectangle {
-                        id: railTile
-                        required property int index
-                        Layout.alignment: Qt.AlignHCenter
-                        implicitWidth: 34
-                        implicitHeight: 34
-                        radius: AppTheme.radiusMd
-                        // The middle tile stands for the open Space.
-                        color: index === 1 ? root.c("selected", "hover")
-                                           : root.c("cardElevated", "surface")
-                        border.width: index === 1 ? 1 : 0
-                        border.color: root.c("accent", "border")
-
-                        Region { role: railTile.index === 1 ? "selected" : "cardElevated" }
-
-                        // An unread count on the first Space.
-                        Rectangle {
-                            visible: railTile.index === 0
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.rightMargin: -4
-                            anchors.topMargin: -4
-                            width: 14
-                            height: 14
-                            radius: 7
-                            color: root.c("unreadBadge", "accent")
-                            border.width: 2
-                            border.color: root.c("rail", "sidebar")
-                            Region { role: "unreadBadge" }
-                        }
+                // Home: a resting tile, with something unread in it.
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    implicitWidth: 34
+                    implicitHeight: 34
+                    radius: AppTheme.radiusMd
+                    color: root.c("railTile", "cardElevated")
+                    Region { role: "railTile" }
+                    Rectangle {
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.rightMargin: -2
+                        anchors.bottomMargin: -2
+                        width: 10
+                        height: 10
+                        radius: 5
+                        color: root.c("railUnreadDot", "unreadBadge")
+                        border.width: 2
+                        border.color: root.c("rail", "sidebar")
+                        Region { role: "railUnreadDot"; pad: 2 }
                     }
                 }
 
-                Item { Layout.fillHeight: true }
-
-                // Account avatar: a circle, as people are in this shell.
-                Rectangle {
+                // The open Space: a soft wash inside an accent ring drawn
+                // outside the tile. The ring is declared first, so the wash
+                // wins inside it and the ring keeps the band around it.
+                Item {
                     Layout.alignment: Qt.AlignHCenter
-                    implicitWidth: 30
-                    implicitHeight: 30
-                    radius: width / 2
-                    color: root.c("accent", "border")
-                    Region { role: "accent" }
+                    implicitWidth: 34
+                    implicitHeight: 34
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: -3
+                        radius: AppTheme.radiusMd + 3
+                        color: "transparent"
+                        border.width: 2
+                        border.color: root.c("railActiveRing", "accent")
+                        Region { role: "railActiveRing" }
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: AppTheme.radiusMd
+                        color: root.c("railTileActive", "accentSoft")
+                        Region { role: "railTileActive" }
+                    }
                 }
-            }
 
+                // A Space with a picture of its own.
+                IdentityDisc {
+                    Layout.alignment: Qt.AlignHCenter
+                    key: "#design:example.org"
+                    square: true
+                    implicitWidth: 34
+                    implicitHeight: 34
+                    radius: AppTheme.radiusMd
+                }
+
+                Item { Layout.fillHeight: true }
+            }
         }
 
         // Room list
         Rectangle {
             Layout.preferredWidth: 236
             Layout.fillHeight: true
-            color: root.c("sidebar", "background")
+            color: root.c("roomList", "sidebar")
             clip: true
 
-            GradientLayer { role: "sidebar" }
-            Region { role: "sidebar" }
+            GradientLayer { role: "roomList" }
+            Region { role: "roomList" }
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacing12
@@ -336,24 +399,23 @@ Item {
 
                 Text {
                     text: qsTr("Lightning")
-                    color: root.c("textPrimary", "textPrimary")
+                    color: root.c("roomListTitle", "textPrimary")
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textBody
                     font.weight: AppTheme.weightStrong
                     elide: Text.ElideRight
-                    Layout.fillWidth: true
-                    Region { role: "textPrimary" }
+                    Region { role: "roomListTitle" }
                 }
 
-                // Search field: the input surface.
+                // Search field.
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 28
                     radius: AppTheme.radiusMd
-                    color: root.c("inputBackground", "surface")
+                    color: root.c("searchField", "surface")
                     border.width: 1
-                    border.color: root.c("border", "border")
-                    Region { role: "inputBg" }
+                    border.color: root.c("searchFieldBorder", "border")
+                    Region { role: "searchField" }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.left: parent.left
@@ -364,17 +426,16 @@ Item {
                         font.pixelSize: AppTheme.textMeta
                         Region { role: "placeholderInk" }
                     }
-                    EdgeRegion { role: "border" }
+                    EdgeRegion { role: "searchFieldBorder" }
                 }
 
                 Text {
                     visible: !root.channels
-                    text: qsTr("Rooms")
-                    color: root.c("sectionLabelColor", "textMuted")
+                    text: qsTr("Favourites")
+                    color: root.c("roomListSection", "textMuted")
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
-                    Layout.fillWidth: true
-                    Region { role: "textMuted" }
+                    Region { role: "roomListSection" }
                 }
 
                 // The Channels shape: a folder header, then indented rooms.
@@ -386,17 +447,28 @@ Item {
                         readonly property bool isRoom: modelData.kind === "room"
                         readonly property bool isFolder: modelData.kind === "folder"
                         readonly property bool isSelected: modelData.state === "selected"
+                        readonly property bool isHovered: modelData.state === "hovered"
                         Layout.fillWidth: true
                         Layout.leftMargin: isRoom ? AppTheme.spacing8 : 0
                         implicitHeight: 26
                         radius: AppTheme.radiusSm
-                        color: isSelected ? root.c("channelSelected", "selected") : (modelData.state === "hovered" ? root.c("channelHover", "hover") : "transparent")
+                        color: isSelected ? root.c("channelSelected", "selected")
+                             : isHovered ? root.c("channelHover", "hover")
+                             : "transparent"
                         border.width: fakeChannelRow.isFolder ? 1 : 0
-                        border.color: root.c("border", "border")
+                        border.color: root.c("channelFolderBorder", "border")
 
-                        // Beneath the text, so the text names its own ink.
+                        // A resting row is the column itself: no target of
+                        // its own, a click reaches the room list.
                         Region {
-                            role: fakeChannelRow.isSelected ? "channelSelected" : (fakeChannelRow.modelData.state === "hovered" ? "channelHover" : "sidebar")
+                            visible: fakeChannelRow.isSelected || fakeChannelRow.isHovered
+                            enabled: visible
+                            role: fakeChannelRow.isSelected ? "channelSelected" : "channelHover"
+                        }
+                        EdgeRegion {
+                            visible: fakeChannelRow.isFolder
+                            role: "channelFolderBorder"
+                            repeated: true
                         }
 
                         RowLayout {
@@ -405,25 +477,41 @@ Item {
                             anchors.rightMargin: AppTheme.spacing8
                             spacing: AppTheme.spacing6
 
-                            // The folder's chevron, or the room's avatar.
+                            // The folder's arrow.
                             Rectangle {
-                                implicitWidth: fakeChannelRow.isFolder ? 8 : 16
-                                implicitHeight: fakeChannelRow.isFolder ? 8 : 16
-                                radius: fakeChannelRow.isFolder ? 1 : AppTheme.radiusSm
-                                color: fakeChannelRow.isFolder ? root.c("textMuted", "textSecondary") : root.c("cardElevated", "surface")
-                                Region { role: fakeChannelRow.isFolder ? "textMuted" : "cardElevated" }
+                                visible: fakeChannelRow.isFolder
+                                implicitWidth: 8
+                                implicitHeight: 8
+                                radius: 1
+                                color: root.c("channelChevron", "textMuted")
+                                Region { role: "channelChevron"; repeated: true; pad: 2 }
+                            }
+                            // A room's avatar.
+                            IdentityDisc {
+                                visible: fakeChannelRow.isRoom
+                                key: fakeChannelRow.modelData.name
+                                square: true
+                                implicitWidth: 16
+                                implicitHeight: 16
                             }
                             Text {
                                 text: fakeChannelRow.modelData.name
                                 textFormat: Text.PlainText
-                                color: fakeChannelRow.isSelected ? root.c("selectedText", "textPrimary") : (fakeChannelRow.isFolder ? root.c("textMuted", "textSecondary") : root.c("textSecondary", "textSecondary"))
+                                color: fakeChannelRow.isSelected
+                                       ? root.c("channelSelectedText", "selectedText")
+                                       : fakeChannelRow.isFolder
+                                         ? root.c("channelCategoryText", "textMuted")
+                                         : root.c("channelText", "textSecondary")
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.textMeta
                                 font.weight: fakeChannelRow.isFolder ? AppTheme.weightStrong : AppTheme.weightBody
                                 elide: Text.ElideRight
                                 Layout.fillWidth: true
                                 Region {
-                                    role: fakeChannelRow.isSelected ? "selectedText" : (fakeChannelRow.isFolder ? "textMuted" : "textSecondary")
+                                    role: fakeChannelRow.isSelected ? "channelSelectedText"
+                                          : fakeChannelRow.isFolder ? "channelCategoryText"
+                                          : "channelText"
+                                    repeated: true
                                 }
                             }
                         }
@@ -439,24 +527,27 @@ Item {
                         readonly property bool isSelected:
                             modelData.state === "selected"
                             || modelData.state === "selectedHover"
+                        readonly property bool isUnread:
+                            modelData.badge > 0 || modelData.mention > 0
                         Layout.fillWidth: true
                         implicitHeight: 42
                         radius: AppTheme.radiusMd
                         color: modelData.state === "selectedHover"
-                               ? root.c("selectedHover", "selected")
+                               ? root.c("roomSelectedHover", "selectedHover")
                              : isSelected ? root.c("roomSelected", "selected")
                              : modelData.state === "hovered"
                                ? root.c("roomHover", "hover")
                                : "transparent"
 
-                        // Beneath the content, so each ink names itself.
+                        // Beneath the content, so each ink names itself. A
+                        // resting row is the column itself: no target.
                         Region {
+                            visible: fakeRoomRow.modelData.state !== "normal"
+                            enabled: visible
                             role: fakeRoomRow.modelData.state === "selectedHover"
-                                  ? "selectedHover"
+                                  ? "roomSelectedHover"
                                   : fakeRoomRow.isSelected
-                                    ? "roomSelected"
-                                    : fakeRoomRow.modelData.state === "hovered"
-                                      ? "roomHover" : "sidebar"
+                                    ? "roomSelected" : "roomHover"
                         }
 
                         RowLayout {
@@ -465,12 +556,11 @@ Item {
                             anchors.rightMargin: AppTheme.spacing8
                             spacing: AppTheme.spacing8
 
-                            Rectangle {
+                            IdentityDisc {
+                                key: fakeRoomRow.modelData.name
+                                square: true
                                 implicitWidth: 26
                                 implicitHeight: 26
-                                radius: AppTheme.radiusSm
-                                color: root.c("cardElevated", "surface")
-                                Region { role: "cardElevated" }
                             }
 
                             ColumnLayout {
@@ -480,15 +570,20 @@ Item {
                                     text: fakeRoomRow.modelData.name
                                     textFormat: Text.PlainText
                                     color: fakeRoomRow.isSelected
-                                           ? root.c("selectedText", "textPrimary")
-                                           : root.c("textPrimary", "textPrimary")
+                                           ? root.c("roomSelectedName", "selectedText")
+                                           : fakeRoomRow.isUnread
+                                             ? root.c("roomNameUnread", "textPrimary")
+                                             : root.c("roomName", "textSecondary")
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta
                                     font.weight: AppTheme.weightStrong
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
                                     Region {
-                                        role: fakeRoomRow.isSelected ? "selectedText" : "textPrimary"
+                                        role: fakeRoomRow.isSelected ? "roomSelectedName"
+                                              : fakeRoomRow.isUnread ? "roomNameUnread"
+                                              : "roomName"
+                                        repeated: true
                                     }
                                 }
                                 Text {
@@ -496,14 +591,16 @@ Item {
                                     textFormat: Text.PlainText
                                     text: fakeRoomRow.modelData.preview
                                     color: fakeRoomRow.isSelected
-                                           ? root.c("selectedText", "textPrimary")
-                                           : root.c("textMuted", "textSecondary")
+                                           ? root.c("roomSelectedPreview", "selectedText")
+                                           : root.c("roomPreview", "textMuted")
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
                                     Region {
-                                        role: fakeRoomRow.isSelected ? "selectedText" : "textMuted"
+                                        role: fakeRoomRow.isSelected ? "roomSelectedPreview"
+                                                                     : "roomPreview"
+                                        repeated: true
                                     }
                                 }
                             }
@@ -514,16 +611,16 @@ Item {
                                 implicitWidth: 20
                                 implicitHeight: 18
                                 radius: AppTheme.radiusPill
-                                color: root.c("unreadBadge", "accent")
-                                Region { role: "unreadBadge" }
+                                color: root.c("roomUnreadBadge", "unreadBadge")
+                                Region { role: "roomUnreadBadge" }
                                 Text {
                                     anchors.centerIn: parent
                                     text: fakeRoomRow.modelData.badge
-                                    color: root.c("accentText", "textPrimary")
+                                    color: root.c("unreadBadgeText", "accentText")
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMicro
                                     font.weight: AppTheme.weightStrong
-                                    Region { role: "accentText"; pad: 1 }
+                                    Region { role: "unreadBadgeText"; pad: 1 }
                                 }
                             }
 
@@ -533,15 +630,16 @@ Item {
                                 implicitWidth: 20
                                 implicitHeight: 18
                                 radius: AppTheme.radiusPill
-                                color: root.c("mentionBadge", "accent")
-                                Region { role: "mention" }
+                                color: root.c("roomMentionBadge", "mentionBadge")
+                                Region { role: "roomMentionBadge" }
                                 Text {
                                     anchors.centerIn: parent
                                     text: fakeRoomRow.modelData.mention
-                                    color: AppTheme.dangerText
+                                    color: root.c("mentionBadgeText", "mentionBadgeText")
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMicro
                                     font.weight: AppTheme.weightStrong
+                                    Region { role: "mentionBadgeText"; pad: 1 }
                                 }
                             }
                         }
@@ -550,7 +648,6 @@ Item {
 
                 Item { Layout.fillHeight: true }
             }
-
         }
 
         // Timeline + composer
@@ -558,11 +655,11 @@ Item {
             id: timelineArea
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: root.c("background", "background")
+            color: root.c("timelineBackground", "background")
             clip: true
 
-            GradientLayer { role: "background" }
-            Region { role: "background" }
+            GradientLayer { role: "timelineBackground" }
+            Region { role: "timelineBackground" }
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 0
@@ -571,29 +668,54 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: 44
-                    color: root.c("surface", "background")
-                    GradientLayer { role: "surface" }
-                    Region { role: "surface" }
+                    color: root.c("roomHeader", "sidebar")
+                    Region { role: "roomHeader" }
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         anchors.left: parent.left
                         anchors.leftMargin: AppTheme.spacing12
                         text: qsTr("Lightning")
-                        color: root.c("textPrimary", "textPrimary")
+                        color: root.c("roomHeaderTitle", "textPrimary")
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textBody
                         font.weight: AppTheme.weightStrong
-                        Region { role: "textPrimary" }
+                        Region { role: "roomHeaderTitle" }
                     }
                     Rectangle {
                         anchors.bottom: parent.bottom
                         width: parent.width
                         height: 1
-                        color: root.c("border", "border")
+                        color: root.c("headerDivider", "border")
                         // A one pixel line is not clickable; the region is
                         // widened around it.
-                        Region { role: "border"; pad: 3 }
+                        Region { role: "headerDivider"; pad: 3 }
                     }
+                }
+
+                // A call going on in the room.
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.leftMargin: AppTheme.spacing12
+                    Layout.rightMargin: AppTheme.spacing12
+                    Layout.topMargin: AppTheme.spacing8
+                    implicitHeight: 26
+                    radius: AppTheme.radiusMd
+                    color: root.c("callBanner", "accentSoft")
+                    border.width: 1
+                    border.color: root.c("accentBorder", "borderStrong")
+                    Region { role: "callBanner" }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.left: parent.left
+                        anchors.leftMargin: AppTheme.spacing8
+                        text: qsTr("Call in progress")
+                        color: root.c("callBannerText", "textPrimary")
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                        font.weight: AppTheme.weightStrong
+                        Region { role: "callBannerText" }
+                    }
+                    EdgeRegion { role: "accentBorder" }
                 }
 
                 // Messages.
@@ -622,7 +744,7 @@ Item {
                             opacity: 0.85
                             Region { role: "messageHighlight" }
                         }
-                        Region { role: "otherBubble" }
+                        Region { role: "otherBubble"; repeated: true }
                         ColumnLayout {
                             id: incomingCol
                             anchors.fill: parent
@@ -630,13 +752,13 @@ Item {
                             spacing: 2
                             RowLayout {
                                 spacing: AppTheme.spacing6
+                                // The sender in their identity colour.
                                 Text {
                                     text: qsTr("Sam")
-                                    color: root.c("textMuted", "textSecondary")
+                                    color: root.nameInk("@sam:example.org")
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta
                                     font.weight: AppTheme.weightStrong
-                                    Region { role: "textMuted" }
                                 }
                                 Text {
                                     text: qsTr("12:41")
@@ -653,7 +775,7 @@ Item {
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.textMeta
                                 wrapMode: Text.WordWrap
-                                Region { role: "textPrimary" }
+                                Region { role: "otherBubbleText"; repeated: true }
                             }
                         }
                     }
@@ -681,8 +803,8 @@ Item {
                         }
                     }
 
-                    // Incoming, carrying a link, a mention, a raised chip and a
-                    // reaction pill: roles shown nowhere else in the preview.
+                    // Incoming, carrying a link, a mention of you, code, a
+                    // link preview and reactions.
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.maximumWidth: 360
@@ -690,7 +812,7 @@ Item {
                                         + AppTheme.spacing8 * 2
                         radius: AppTheme.radiusMd
                         color: root.c("otherBubble", "surface")
-                        Region { role: "otherBubble" }
+                        Region { role: "otherBubble"; repeated: true }
                         ColumnLayout {
                             id: richCol
                             anchors.fill: parent
@@ -704,7 +826,7 @@ Item {
                                     color: root.c("otherBubbleText", "textPrimary")
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta
-                                    Region { role: "textPrimary" }
+                                    Region { role: "otherBubbleText"; repeated: true }
                                 }
                                 Text {
                                     text: qsTr("the notes")
@@ -714,74 +836,66 @@ Item {
                                     font.underline: true
                                     Region { role: "link" }
                                 }
-                                // The inline "@you" chip: a wash of the accent,
-                                // body ink (the pill with a count is the room
-                                // list's, under "Mentions").
-                                Rectangle {
-                                    implicitWidth: youText.implicitWidth
-                                                   + AppTheme.spacing6 * 2
-                                    implicitHeight: youText.implicitHeight + 2
-                                    radius: AppTheme.radiusSm
-                                    color: root.tone("mentionHighlight",
-                                                     "accent", 0.16)
-                                    // Beneath the text, so the text names its own ink.
-                                    Region { role: "accent" }
-                                    Text {
-                                        id: youText
-                                        anchors.centerIn: parent
-                                        text: qsTr("@you")
-                                        color: root.c("textPrimary", "textPrimary")
-                                        font.family: AppTheme.uiFont
-                                        font.pixelSize: AppTheme.textMeta
-                                        font.weight: AppTheme.weightStrong
-                                        Region { role: "textPrimary" }
-                                    }
+                                // A mention of you: bold ink, no chip, as the
+                                // timeline draws it.
+                                Text {
+                                    text: qsTr("@you")
+                                    color: root.c("selfMentionInk", "accent")
+                                    font.family: AppTheme.uiFont
+                                    font.pixelSize: AppTheme.textMeta
+                                    font.weight: AppTheme.weightBold
+                                    Region { role: "selfMentionInk" }
                                 }
                             }
 
-                            // Code, a surface that is neither bubble nor chip.
+                            // Code.
                             Rectangle {
                                 Layout.fillWidth: true
                                 implicitHeight: 26
                                 radius: AppTheme.radiusSm
                                 color: root.c("codeBlock", "cardElevated")
+                                border.width: 1
+                                border.color: root.c("codeBlockBorder", "border")
                                 Region { role: "codeBlock" }
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     anchors.left: parent.left
                                     anchors.leftMargin: AppTheme.spacing6
                                     text: qsTr("git push")
-                                    color: root.c("textSecondary", "textPrimary")
+                                    color: root.c("codeText", "textPrimary")
                                     font.family: AppTheme.monoFont
                                     font.pixelSize: AppTheme.textMeta
-                                    Region { role: "textSecondary" }
+                                    Region { role: "codeText" }
                                 }
+                                EdgeRegion { role: "codeBlockBorder" }
                             }
 
-                            // Raised chip: the surface every embed uses.
+                            // A link preview.
                             Rectangle {
                                 Layout.fillWidth: true
                                 implicitHeight: 26
                                 radius: AppTheme.radiusSm
-                                color: root.c("cardElevated", "surface")
+                                color: root.c("embedSurface", "cardElevated")
                                 border.width: 1
-                                border.color: root.c("border", "border")
-                                Region { role: "cardElevated" }
+                                border.color: root.c("embedBorder", "border")
+                                Region { role: "embedSurface" }
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     anchors.left: parent.left
                                     anchors.leftMargin: AppTheme.spacing6
                                     text: qsTr("Release notes")
-                                    color: root.c("textSecondary", "textPrimary")
+                                    color: root.c("embedText", "textPrimary")
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta
                                     elide: Text.ElideRight
-                                    Region { role: "textSecondary" }
+                                    Region { role: "embedText" }
                                 }
-                                EdgeRegion { role: "border" }
+                                EdgeRegion { role: "embedBorder" }
                             }
 
-                            // Reactions: someone else's, then your own.
+                            // Reactions: someone else's, then your own. Each
+                            // is its edge with the fill inside it, so the edge
+                            // is a target of its own.
                             RowLayout {
                                 spacing: AppTheme.spacing6
 
@@ -789,31 +903,36 @@ Item {
                                     implicitWidth: 44
                                     implicitHeight: 22
                                     radius: AppTheme.radiusPill
-                                    color: root.c("reactionBackground", "cardElevated")
-                                    border.width: 1
-                                    border.color: root.c("reactionBorder", "border")
-                                    Region { role: "reaction" }
-                                    Text {
-                                        anchors.centerIn: parent
-                                        // Not an emoji: emoji literals are banned
-                                        // in row delegates here.
-                                        text: qsTr("+2")
-                                        color: root.c("reactionInk", "textSecondary")
-                                        font.family: AppTheme.uiFont
-                                        font.pixelSize: AppTheme.textMeta
+                                    color: root.c("reactionBorder", "border")
+                                    Region { role: "reactionBorder"; pad: 2 }
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        anchors.margins: 1
+                                        radius: AppTheme.radiusPill
+                                        color: root.c("reactionBackground", "cardElevated")
+                                        Region { role: "reaction" }
+                                        Text {
+                                            anchors.centerIn: parent
+                                            // Not an emoji: emoji literals are
+                                            // banned in row delegates here.
+                                            text: qsTr("+2")
+                                            color: root.c("reactionInk", "textSecondary")
+                                            font.family: AppTheme.uiFont
+                                            font.pixelSize: AppTheme.textMeta
+                                            Region { role: "reactionInk" }
+                                        }
                                     }
                                 }
 
-                                // Yours: soft accent fill inside its own edge.
                                 Rectangle {
                                     implicitWidth: 44
                                     implicitHeight: 22
                                     radius: AppTheme.radiusPill
-                                    color: root.c("accentBorder", "borderStrong")
-                                    Region { role: "accentBorder"; pad: 2 }
+                                    color: root.c("reactionSelectedBorder", "accent")
+                                    Region { role: "reactionSelectedBorder"; pad: 2 }
                                     Rectangle {
                                         anchors.fill: parent
-                                        anchors.margins: 1
+                                        anchors.margins: 2
                                         radius: AppTheme.radiusPill
                                         color: root.c("reactionSelectedBackground",
                                                       "accentSoft")
@@ -821,10 +940,10 @@ Item {
                                         Text {
                                             anchors.centerIn: parent
                                             text: qsTr("+1")
-                                            color: root.c("textPrimary", "textPrimary")
+                                            color: root.c("reactionSelectedInk", "textPrimary")
                                             font.family: AppTheme.uiFont
                                             font.pixelSize: AppTheme.textMeta
-                                            Region { role: "textPrimary" }
+                                            Region { role: "reactionSelectedInk" }
                                         }
                                     }
                                 }
@@ -846,46 +965,47 @@ Item {
                         Layout.fillWidth: true
                         implicitHeight: 36
                         radius: AppTheme.radiusMd
-                        color: root.c("inputBackground", "surface")
+                        color: root.c("composerField", "surface")
                         border.width: 1
-                        border.color: root.c("border", "border")
-                        Region { role: "inputBg" }
-                        // Draft text with part of it selected.
+                        border.color: root.c("composerBorder", "border")
+                        Region { role: "composerField" }
+                        // Draft text with part of it selected: the message box
+                        // selects in the system selection colours.
                         Row {
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.left: parent.left
                             anchors.leftMargin: AppTheme.spacing12
                             Text {
                                 text: qsTr("Typing ")
-                                color: root.c("textPrimary", "textPrimary")
+                                color: root.c("composerText", "textPrimary")
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.textMeta
-                                Region { role: "textPrimary" }
+                                Region { role: "composerText" }
                             }
                             Rectangle {
                                 width: selectedWord.implicitWidth
                                 height: selectedWord.implicitHeight + 2
-                                color: root.c("textSelection", "selectedHover")
-                                Region { role: "textSelection"; pad: 2 }
+                                color: root.c("paletteHighlight", "selected")
+                                Region { role: "paletteHighlight"; pad: 2 }
                                 Text {
                                     id: selectedWord
                                     anchors.centerIn: parent
                                     text: qsTr("this")
-                                    color: root.c("textPrimary", "textPrimary")
+                                    color: root.c("paletteHighlightText", "selectedText")
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta
-                                    Region { role: "textPrimary" }
+                                    Region { role: "paletteHighlightText" }
                                 }
                             }
                         }
-                        EdgeRegion { role: "border" }
+                        EdgeRegion { role: "composerBorder" }
                     }
 
                     Rectangle {
                         implicitWidth: 64
                         implicitHeight: 36
                         radius: AppTheme.radiusMd
-                        color: root.c("accent", "accent")
+                        color: root.c("sendButton", "accent")
 
                         // The keyboard focus ring, drawn as it is on a focused
                         // control: outside the control, with a gap. Declared
@@ -903,15 +1023,15 @@ Item {
                             anchors.fill: parent
                             radius: AppTheme.radiusMd
                             color: parent.color
-                            Region { role: "accent" }
+                            Region { role: "sendButton" }
                             Text {
                                 anchors.centerIn: parent
                                 text: qsTr("Send")
-                                color: root.c("accentText", "textPrimary")
+                                color: root.c("sendButtonInk", "accentText")
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.textMeta
                                 font.weight: AppTheme.weightStrong
-                                Region { role: "accentText" }
+                                Region { role: "sendButtonInk" }
                             }
                         }
                     }
@@ -923,7 +1043,7 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: 3
                 anchors.top: parent.top
-                anchors.topMargin: 60
+                anchors.topMargin: 90
                 width: 6
                 height: 96
                 radius: 3
@@ -942,9 +1062,9 @@ Item {
                 radius: AppTheme.radiusMd
                 color: root.c("popoverSurface", "surface")
                 border.width: 1
-                border.color: root.c("borderStrong", "border")
+                border.color: root.c("menuBorder", "borderStrong")
                 Region { role: "popoverSurface" }
-                EdgeRegion { role: "borderStrong" }
+                EdgeRegion { role: "menuBorder" }
 
                 Column {
                     id: menuColumn
@@ -964,10 +1084,10 @@ Item {
                             anchors.left: parent.left
                             anchors.leftMargin: AppTheme.spacing8
                             text: qsTr("Reply")
-                            color: root.c("textPrimary", "textPrimary")
+                            color: root.c("menuItemActiveText", "textPrimary")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
-                            Region { role: "textPrimary" }
+                            Region { role: "menuItemActiveText" }
                         }
                     }
                     Rectangle {
@@ -980,139 +1100,152 @@ Item {
                             anchors.left: parent.left
                             anchors.leftMargin: AppTheme.spacing8
                             text: qsTr("Forward")
-                            color: root.c("textPrimary", "textPrimary")
+                            color: root.c("menuItemText", "textSecondary")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
-                            Region { role: "textPrimary" }
+                            Region { role: "menuItemText" }
                         }
                     }
                     Rectangle {
                         width: parent.width
                         height: 24
                         radius: AppTheme.radiusSm
-                        // A destructive row under the pointer: a tint of the
+                        // A destructive item under the pointer: a tint of the
                         // danger family.
-                        color: root.tone("dangerTint", "mentionBadge", 0.10)
-                        Region { role: "dangerTint" }
+                        color: root.tone("menuDangerTint", "dangerTint", 0.10)
+                        Region { role: "menuDangerTint" }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.left: parent.left
                             anchors.leftMargin: AppTheme.spacing8
                             text: qsTr("Delete")
-                            color: root.c("danger", "textPrimary")
+                            color: root.c("menuDangerText", "danger")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMeta
-                            Region { role: "danger" }
+                            Region { role: "menuDangerText" }
                         }
                     }
                 }
             }
-
         }
 
-        // Member list: shows a plain panel surface next to the timeline ground.
+        // Side panel: the people in the room.
         Rectangle {
             Layout.preferredWidth: 168
             Layout.fillHeight: true
-            color: root.c("surface", "background")
+            color: root.c("sidePanel", "sidebar")
 
-            GradientLayer { role: "surface" }
-            Region { role: "surface" }
+            GradientLayer { role: "sidePanel" }
+            Region { role: "sidePanel" }
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: AppTheme.spacing12
-                spacing: AppTheme.spacing8
+                spacing: AppTheme.spacing6
+
+                // A text field with what was typed in it selected.
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 26
+                    radius: AppTheme.radiusMd
+                    color: root.c("inputBackground", "surface")
+                    border.width: 1
+                    border.color: root.c("fieldBorder", "border")
+                    Region { role: "inputBg" }
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: AppTheme.spacing8
+                        width: typedPeople.implicitWidth
+                        height: typedPeople.implicitHeight + 2
+                        color: root.c("textSelection", "selectedHover")
+                        Region { role: "textSelection"; pad: 2 }
+                        Text {
+                            id: typedPeople
+                            anchors.centerIn: parent
+                            text: qsTr("Sam")
+                            color: root.c("fieldText", "textPrimary")
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                            Region { role: "fieldText" }
+                        }
+                    }
+                    EdgeRegion { role: "fieldBorder" }
+                }
 
                 Text {
-                    text: qsTr("People")
-                    color: root.c("sectionLabelColor", "textMuted")
+                    text: qsTr("Admins")
+                    color: root.c("sidePanelSection", "textMuted")
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
-                    Region { role: "textMuted" }
+                    Region { role: "sidePanelSection" }
                 }
 
                 Repeater {
                     model: root.fakeMembers
-                    delegate: RowLayout {
+                    delegate: Rectangle {
+                        id: memberRow
                         required property string modelData
                         required property int index
+                        // The third person is under the pointer.
+                        readonly property bool hovered: index === 2
                         Layout.fillWidth: true
-                        spacing: AppTheme.spacing8
-
-                        Rectangle {
-                            implicitWidth: 22
-                            implicitHeight: 22
-                            radius: width / 2
-                            color: root.c("cardElevated", "surface")
-                            Region { role: "cardElevated" }
-
-                            // Presence: the first two are online.
-                            Rectangle {
-                                visible: index < 2
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                anchors.rightMargin: -2
-                                anchors.bottomMargin: -2
-                                width: 9
-                                height: 9
-                                radius: 4.5
-                                color: root.c("presenceOnline", "success")
-                                border.width: 2
-                                border.color: root.c("surface", "background")
-                                Region { role: "presenceOnline"; pad: 2 }
-                            }
+                        implicitHeight: 24
+                        radius: AppTheme.radiusSm
+                        color: hovered ? root.c("memberRowHover", "hover") : "transparent"
+                        Region {
+                            visible: memberRow.hovered
+                            enabled: visible
+                            role: "memberRowHover"
                         }
-                        Text {
-                            Layout.fillWidth: true
-                            text: modelData
-                            color: index === 0
-                                   ? root.c("textPrimary", "textPrimary")
-                                   : root.c("textSecondary", "textPrimary")
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMeta
-                            elide: Text.ElideRight
-                            Region {
-                                role: index === 0 ? "textPrimary" : "textSecondary"
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: AppTheme.spacing4
+                            anchors.rightMargin: AppTheme.spacing4
+                            spacing: AppTheme.spacing8
+
+                            IdentityDisc {
+                                key: memberRow.modelData
+                                implicitWidth: 18
+                                implicitHeight: 18
+                                // Presence: the first two are online.
+                                Rectangle {
+                                    visible: memberRow.index < 2
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.rightMargin: -2
+                                    anchors.bottomMargin: -2
+                                    width: 9
+                                    height: 9
+                                    radius: 4.5
+                                    color: root.c("presenceDot", "presenceOnline")
+                                    border.width: 2
+                                    border.color: root.c("sidePanel", "sidebar")
+                                    Region { role: "presenceDot"; repeated: true; pad: 2 }
+                                }
+                            }
+                            // Names wear their owner's identity colour.
+                            Text {
+                                Layout.fillWidth: true
+                                text: memberRow.modelData
+                                color: root.nameInk(memberRow.modelData)
+                                font.family: AppTheme.uiFont
+                                font.pixelSize: AppTheme.textMeta
+                                elide: Text.ElideRight
                             }
                         }
                     }
                 }
 
-                // A soft accent chip, as on a power-level mark or an active
-                // icon: tinted fill inside its own edge.
-                Rectangle {
-                    implicitWidth: 56
-                    implicitHeight: 22
-                    radius: AppTheme.radiusPill
-                    color: root.c("accentBorder", "borderStrong")
-                    Region { role: "accentBorder"; pad: 2 }
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: 1
-                        radius: AppTheme.radiusPill
-                        color: root.c("accentSoft", "selected")
-                        Region { role: "accentSoft" }
-                        Text {
-                            anchors.centerIn: parent
-                            text: qsTr("Admin")
-                            color: root.c("textPrimary", "textPrimary")
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMicro
-                            Region { role: "textPrimary" }
-                        }
-                    }
-                }
-
-                // Status chips: a tint of their own ink.
+                // Status chips: a tint of their own colour.
                 Flow {
                     Layout.fillWidth: true
                     spacing: AppTheme.spacing4
 
                     Repeater {
                         model: [
-                            { label: qsTr("Verified"), role: "success" },
-                            { label: qsTr("Slow"),     role: "warning" },
-                            { label: qsTr("Failed"),   role: "danger" }
+                            { label: qsTr("Verified"), role: "chipSuccess", group: "presenceOnline" },
+                            { label: qsTr("Invited"),  role: "chipWarning", group: "warning" },
+                            { label: qsTr("Banned"),   role: "chipDanger",  group: "dangerTint" }
                         ]
                         delegate: Rectangle {
                             id: statusChip
@@ -1121,16 +1254,17 @@ Item {
                                            + AppTheme.spacing6 * 2
                             implicitHeight: 18
                             radius: AppTheme.radiusPill
-                            color: root.tone(modelData.role, "textMuted", 0.14)
+                            color: root.tone(modelData.role, modelData.group, 0.14)
                             border.width: 1
-                            border.color: root.tone(modelData.role, "textMuted", 0.32)
+                            border.color: root.tone(modelData.role, modelData.group, 0.32)
                             Region { role: statusChip.modelData.role }
                             Text {
                                 id: statusText
                                 anchors.centerIn: parent
                                 textFormat: Text.PlainText
                                 text: statusChip.modelData.label
-                                color: root.c(statusChip.modelData.role, "textMuted")
+                                color: root.c(statusChip.modelData.role,
+                                              statusChip.modelData.group)
                                 font.family: AppTheme.uiFont
                                 font.pixelSize: AppTheme.textMicro
                                 font.weight: AppTheme.weightStrong
@@ -1139,38 +1273,84 @@ Item {
                     }
                 }
 
-                // States the window above shows only in another layout or
-                // another dialog.
+                // States the window above shows only in the other layout or
+                // another dialog. In the room-list layout: Channels rows; in
+                // the Channels layout: room-list rows.
                 Sample {
-                    role: "hover"
-                    label: qsTr("Row, hovered")
-                    fill: root.c("hover", "surface")
-                }
-                Sample {
+                    visible: !root.channels
                     role: "channelSelected"
                     label: qsTr("Open channel")
                     fill: root.c("channelSelected", "selected")
-                    ink: root.c("selectedText", "textPrimary")
+                    inkRole: "channelSelectedText"
+                    ink: root.c("channelSelectedText", "selectedText")
                 }
                 Sample {
+                    visible: !root.channels
                     role: "channelHover"
                     label: qsTr("Channel, hovered")
                     fill: root.c("channelHover", "hover")
+                    inkRole: "channelText"
+                    ink: root.c("channelText", "textSecondary")
+                }
+                // An open Channels folder: its outline, arrow and name.
+                Rectangle {
+                    visible: !root.channels
+                    Layout.fillWidth: true
+                    implicitHeight: 22
+                    radius: AppTheme.radiusSm
+                    color: "transparent"
+                    border.width: 1
+                    border.color: root.c("channelFolderBorder", "border")
+                    EdgeRegion { role: "channelFolderBorder" }
+                    Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        x: AppTheme.spacing6
+                        spacing: AppTheme.spacing6
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 8
+                            height: 8
+                            radius: 1
+                            color: root.c("channelChevron", "textMuted")
+                            Region { role: "channelChevron"; pad: 2 }
+                        }
+                        Text {
+                            text: qsTr("Creative Studio")
+                            color: root.c("channelCategoryText", "textMuted")
+                            font.family: AppTheme.uiFont
+                            font.pixelSize: AppTheme.textMeta
+                            font.weight: AppTheme.weightStrong
+                            Region { role: "channelCategoryText" }
+                        }
+                    }
                 }
                 Sample {
-                    role: "paletteHighlight"
-                    label: qsTr("Standard control")
-                    fill: root.c("paletteHighlight", "selected")
-                    ink: root.c("selectedText", "textPrimary")
+                    visible: root.channels
+                    role: "roomSelected"
+                    label: qsTr("Open room")
+                    fill: root.c("roomSelected", "selected")
+                    inkRole: "roomSelectedName"
+                    ink: root.c("roomSelectedName", "selectedText")
+                }
+                Sample {
+                    visible: root.channels
+                    role: "roomHover"
+                    label: qsTr("Room, hovered")
+                    fill: root.c("roomHover", "hover")
+                    inkRole: "roomName"
+                    ink: root.c("roomName", "textSecondary")
                 }
                 Sample {
                     role: "buttonGhostHover"
                     label: qsTr("Quiet button")
                     fill: root.c("buttonGhostHover", "hover")
+                    inkRole: "buttonGhostInk"
+                    ink: root.c("buttonGhostInk", "textSecondary")
                 }
-                // Settings in miniature: its navigation column (three
-                // entries, the open one marked) beside its page (a heading
-                // and two lines). Two bare boxes read as broken rectangles.
+
+                // Settings in miniature: its navigation column (the open
+                // section marked, two more labels) beside its page (a heading
+                // and two lines), split by Settings' divider.
                 Row {
                     Layout.fillWidth: true
                     height: 40
@@ -1178,49 +1358,53 @@ Item {
                         width: 44
                         height: parent.height
                         color: root.c("settingsNav", "background")
-                        border.width: 1
-                        border.color: root.c("border", "border")
-                        // Inside the 1px border.
-                        GradientLayer { role: "settingsNav"; anchors.margins: 1 }
+                        GradientLayer { role: "settingsNav" }
                         Region { role: "settingsNav" }
-                        EdgeRegion { role: "border" }
                         Column {
-                            x: 6
-                            y: 7
+                            x: 4
+                            y: 5
                             spacing: 4
+                            Rectangle {
+                                width: 36
+                                height: 9
+                                radius: 2
+                                color: root.c("settingsNavSelected", "selectedHover")
+                                Region { role: "settingsNavSelected" }
+                            }
                             Repeater {
-                                model: 3
+                                model: 2
                                 delegate: Rectangle {
-                                    required property int index
-                                    width: index === 0 ? 32 : 24
-                                    height: 5
+                                    x: 2
+                                    width: 24
+                                    height: 4
                                     radius: 2
-                                    color: index === 0
-                                           ? root.c("selected", "hover")
-                                           : root.tone("textMuted", "textSecondary", 0.45)
-                                    Region { role: index === 0 ? "selected" : "textMuted"; pad: 2 }
+                                    color: root.tone("settingsNavText", "textSecondary", 0.55)
+                                    Region { role: "settingsNavText"; repeated: true; pad: 2 }
                                 }
                             }
                         }
                     }
                     Rectangle {
-                        width: parent.width - 44
+                        width: 1
+                        height: parent.height
+                        color: root.c("settingsDivider", "border")
+                        Region { role: "settingsDivider"; pad: 2 }
+                    }
+                    Rectangle {
+                        width: parent.width - 45
                         height: parent.height
                         color: root.c("settingsPage", "background")
-                        border.width: 1
-                        border.color: root.c("border", "border")
-                        GradientLayer { role: "settingsPage"; anchors.margins: 1 }
+                        GradientLayer { role: "settingsPage" }
                         Region { role: "settingsPage" }
-                        EdgeRegion { role: "border" }
                         Text {
                             x: 6
                             y: 4
                             text: qsTr("Settings")
-                            color: root.c("textPrimary", "textPrimary")
+                            color: root.c("settingsHeading", "textPrimary")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMicro
                             font.weight: AppTheme.weightStrong
-                            Region { role: "textPrimary" }
+                            Region { role: "settingsHeading" }
                         }
                         Column {
                             x: 6
@@ -1233,8 +1417,8 @@ Item {
                                     width: 92 * modelData
                                     height: 4
                                     radius: 2
-                                    color: root.tone("textMuted", "textSecondary", 0.45)
-                                    Region { role: "textMuted"; pad: 2 }
+                                    color: root.tone("settingsText", "textMuted", 0.55)
+                                    Region { role: "settingsText"; repeated: true; pad: 2 }
                                 }
                             }
                         }
@@ -1251,15 +1435,15 @@ Item {
                         width: 44
                         height: 22
                         radius: AppTheme.radiusSm
-                        color: root.c("accent", "accent")
-                        Region { role: "accent" }
+                        color: root.c("buttonPrimaryFill", "accent")
+                        Region { role: "buttonPrimaryFill" }
                         Text {
                             anchors.centerIn: parent
                             text: qsTr("Rest")
-                            color: root.c("accentText", "textPrimary")
+                            color: root.c("buttonPrimaryInk", "accentText")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMicro
-                            Region { role: "accentText"; pad: 1 }
+                            Region { role: "buttonPrimaryInk"; repeated: true; pad: 1 }
                         }
                     }
                     Rectangle {
@@ -1271,10 +1455,10 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: qsTr("Hover")
-                            color: root.c("accentText", "textPrimary")
+                            color: root.c("buttonPrimaryInk", "accentText")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMicro
-                            Region { role: "accentText"; pad: 1 }
+                            Region { role: "buttonPrimaryInk"; repeated: true; pad: 1 }
                         }
                     }
                     Rectangle {
@@ -1286,34 +1470,33 @@ Item {
                         Text {
                             anchors.centerIn: parent
                             text: qsTr("Held")
-                            color: root.c("accentText", "textPrimary")
+                            color: root.c("buttonPrimaryInk", "accentText")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMicro
-                            Region { role: "accentText"; pad: 1 }
+                            Region { role: "buttonPrimaryInk"; repeated: true; pad: 1 }
                         }
                     }
                 }
 
-                // A disabled control, so the disabled ink is visible.
+                // A disabled button, so the disabled ink and edge are visible.
                 Rectangle {
                     Layout.fillWidth: true
-                    implicitHeight: 30
+                    implicitHeight: 26
                     radius: AppTheme.radiusMd
                     color: "transparent"
                     border.width: 1
-                    border.color: root.c("borderStrong", "border")
-                    EdgeRegion { role: "borderStrong" }
+                    border.color: root.c("buttonDisabledBorder", "border")
+                    EdgeRegion { role: "buttonDisabledBorder" }
                     Text {
                         anchors.centerIn: parent
                         text: qsTr("Invite")
-                        color: root.c("textDisabled", "textMuted")
+                        color: root.c("buttonDisabledInk", "textDisabled")
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textMeta
-                        Region { role: "textDisabled" }
+                        Region { role: "buttonDisabledInk" }
                     }
                 }
             }
-
         }
     }
 }

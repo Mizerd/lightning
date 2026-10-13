@@ -34,6 +34,11 @@ AbstractButton {
     property bool active: false
     // Style C: primary accent fill.
     property bool fill: false
+    // The resting fill and glyph ink of a `fill` button outside the Storm
+    // style. A host whose button is its own theme role (the composer's send
+    // button) names that role here; hover and press stay the primary ones.
+    property color fillColor: AppTheme.buttonPrimaryFill
+    property color fillInk: AppTheme.accentText
     /// Resting background, for an icon button that must read as a tile rather
     /// than a bare glyph (e.g. the Spaces rail's settings cog beside avatars).
     /// Transparent by default; hover, press, active and disabled override it.
@@ -86,7 +91,7 @@ AbstractButton {
                                                    : AppTheme.stormTextMuted
             }
             if (!root.enabled) return AppTheme.textDisabled
-            if (root.fill) return AppTheme.accentText
+            if (root.fill) return root.fillInk
             if (root.active) return AppTheme.accent
             // The glyph brightens on hover; the background wash alone is too
             // faint on themed hosts.
@@ -119,7 +124,7 @@ AbstractButton {
                 return !root.enabled ? AppTheme.buttonDisabledFill
                      : root.down ? AppTheme.buttonPrimaryPressed
                      : root.hovered ? AppTheme.buttonPrimaryHover
-                     : AppTheme.buttonPrimaryFill
+                     : root.fillColor
             if (root.active)
                 return root.enabled ? AppTheme.accentSoft
                                     : AppTheme.buttonDisabledFill

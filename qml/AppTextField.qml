@@ -20,7 +20,7 @@ TextField {
     leftPadding: searchIcon ? 32 : AppTheme.buttonPaddingH
     rightPadding: clearButton && text.length > 0 ? 32 : AppTheme.buttonPaddingH
     font.pixelSize: AppTheme.textBody
-    color: storm ? AppTheme.stormText : AppTheme.textPrimary
+    color: storm ? AppTheme.stormFieldText : AppTheme.fieldText
     placeholderTextColor: AppTheme.placeholderInk
     // `selectedHover` for the selection: accentSoft (a tile fill) and
     // stormSelection (hover outside Storm) are nearly invisible against the
@@ -28,7 +28,7 @@ TextField {
     // enough either (it equals accentSoft on Moss Light).
     // theTextSelectionIsVisibleOnEveryTheme enforces the floor.
     selectionColor: AppTheme.textSelection
-    selectedTextColor: storm ? AppTheme.stormText : AppTheme.textPrimary
+    selectedTextColor: storm ? AppTheme.stormFieldText : AppTheme.fieldText
     verticalAlignment: TextInput.AlignVCenter
 
     background: Rectangle {
@@ -41,10 +41,10 @@ TextField {
             if (root.storm)
                 return root.activeFocus ? AppTheme.bolt
                      : root.hovered ? AppTheme.stormBorderStrong
-                     : AppTheme.stormBorder
+                     : AppTheme.stormFieldBorder
             return root.activeFocus ? AppTheme.focusRing
                  : root.hovered ? AppTheme.borderStrong
-                 : AppTheme.border
+                 : AppTheme.fieldBorder
         }
 
         // Focus halo: a 3px bolt ring at 12% outside the field's geometry.

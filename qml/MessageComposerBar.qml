@@ -1588,8 +1588,8 @@ Item {
                 anchors.fill: parent
                 implicitHeight: cardColumn.implicitHeight
                 radius: AppTheme.radiusLg
-                color: AppTheme.surface
-                border.color: AppTheme.border
+                color: AppTheme.composerField
+                border.color: AppTheme.composerBorder
                 border.width: 1
 
             ColumnLayout {
@@ -2138,6 +2138,7 @@ Item {
                             placeholderText: root.richBlank
                                              ? input.placeholderText : ""
                             placeholderTextColor: AppTheme.placeholderInk
+                            color: AppTheme.composerText
                             font: app.textFontWithEmoji(AppTheme.uiFont,
                                                         AppTheme.scaled(14))
                             topPadding: AppTheme.spacing6
@@ -2346,6 +2347,7 @@ Item {
                             return qsTr("Message %1").arg(root.roomDisplayName())
                         }
                         placeholderTextColor: AppTheme.placeholderInk
+                        color: AppTheme.composerText
                         // A whole font with the colour emoji face behind the UI
                         // face: QML cannot express a families list, and Qt
                         // 6.8's automatic fallback picks a monochrome face.
@@ -2930,6 +2932,9 @@ Item {
                         implicitWidth: 34; implicitHeight: 34
                         radius: AppTheme.radiusTile
                         fill: true
+                        // Its own theme roles (2026-10-13).
+                        fillColor: AppTheme.sendButton
+                        fillInk: AppTheme.sendButtonInk
                         iconName: app.composer.isEditing ? "check" : "send"
                         iconSize: 20
                         enabled: app.composer.canSend
