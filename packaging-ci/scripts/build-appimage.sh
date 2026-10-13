@@ -125,6 +125,8 @@ install -Dm644 "$ROOT/LICENSE" \
 #   opengl                              GPU scaling for screen share (else
 #                                       silently CPU); libGL/libEGL stay on the
 #                                       host per linuxdeploy's excludelist
+#   audiomixer                          per-application screen-share audio mixes
+#                                       app streams (GitHub #37)
 GST_REQUIRED_PLUGINS=(
     libgstcoreelements
     libgstwebrtc libgstnice libgstdtls libgstsrtp libgstsctp
@@ -141,6 +143,8 @@ GST_REQUIRED_PLUGINS=(
     #               microphone from a silent one
     # libgstjpeg  — the camera's MJPG chain; raw-only cannot reach 720p30 on
     #               USB 2.0
+    # libgstaudiomixer — per-application screen-share audio mixes app streams (GitHub #37)
+    libgstaudiomixer
     libgstlevel libgstjpeg
 )
 for plugin in "${GST_REQUIRED_PLUGINS[@]}"; do
