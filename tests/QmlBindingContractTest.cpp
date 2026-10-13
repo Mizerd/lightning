@@ -1928,7 +1928,13 @@ private Q_SLOTS:
     {
         const QString src = read(QStringLiteral("MessageDelegate.qml"));
         QVERIFY(!src.isEmpty());
-        const int at = src.indexOf(QStringLiteral("root.toggleActionsPin()"));
+        // The row's empty-side tap (rowEmptySideTap) also pins, and skips the
+        // bubble and the bar by hand; this case is about the BUBBLE's handler.
+        const int rowTap = src.indexOf(QStringLiteral("objectName: \"rowEmptySideTap\""));
+        QVERIFY2(rowTap >= 0, "the row's empty-side tap is gone — re-anchor");
+        const int rowPin = src.indexOf(QStringLiteral("root.toggleActionsPin()"), rowTap);
+        const int at = src.indexOf(QStringLiteral("root.toggleActionsPin()"),
+                                   rowPin + 1);
         QVERIFY2(at >= 0, "the bubble tap no longer pins the action bar — "
                           "re-anchor this case");
         const QString block = blockAround(src, at);
