@@ -4858,6 +4858,10 @@ pub(crate) fn media_fetch(
         return Ok(());
     }
     let aborts = Arc::clone(&bridge.media_fetch_aborts);
+    let health_identity = match &source {
+        MediaSource::Plain(uri) => crate::mediahealth::identify(uri),
+        MediaSource::Encrypted(file) => crate::mediahealth::identify(&file.url),
+    };
     bridge.spawn_media_fetch(op_id, async move {
         let format = if kind == 2 && !has_embedded_thumbnail {
             MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
@@ -4907,6 +4911,10 @@ pub(crate) fn media_fetch(
         }
         match outcome {
             Err(_elapsed) => {
+                // Not a kept-file read (those cannot time out): the server.
+                if !from_kept_file {
+                    crate::mediahealth::record_timeout(&health_identity);
+                }
                 emit_media_failed(
                     &terminal, &results, op_id, lifecycle, &key, kind,
                     "timeout",
@@ -4975,7 +4983,7 @@ pub(crate) fn media_fetch(
             Ok(Err(err)) => {
                 emit_media_failed(
                     &terminal, &results, op_id, lifecycle, &key, kind,
-                    crate::mediafetch::classify_media_error(&err),
+                    &crate::mediafetch::failure_category(&err),
                 );
             }
         }
@@ -5006,6 +5014,7 @@ pub(crate) fn media_fetch_mxc(
     // An in-memory media store keeps nothing between sessions; asking it to
     // cache would only hold avatars in RAM a second time beside MediaBridge.
     let use_cache = crate::mediastore::active(&bridge.store_path).persists();
+    let health_identity = crate::mediahealth::identify(&uri);
     bridge.spawn_media_fetch(op_id, async move {
         let format = if width == 0 || height == 0 {
             MediaFormat::File
@@ -5044,6 +5053,7 @@ pub(crate) fn media_fetch_mxc(
         }
         match outcome {
             Err(_elapsed) => {
+                crate::mediahealth::record_timeout(&health_identity);
                 emit_media_failed(
                     &terminal, &results, op_id, lifecycle, &mxc, 2, "timeout",
                 );
@@ -5076,7 +5086,7 @@ pub(crate) fn media_fetch_mxc(
                     lifecycle,
                     &mxc,
                     2,
-                    crate::mediafetch::classify_media_error(&err),
+                    &crate::mediafetch::failure_category(&err),
                 );
             }
         }

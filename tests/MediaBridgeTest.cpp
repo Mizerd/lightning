@@ -687,6 +687,67 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 1);
     }
 
+    // The Rust circuit breaker answers "server_unreachable:<ms>" while a media
+    // origin is down. The mark must last as long as the breaker will refuse
+    // (not the generic minute), consumers see the plain category, and the item
+    // can say how long the wait is.
+    void breakerRefusalBlocksForItsOwnBackoffAndReportsTheWait()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        const QString mxc = QStringLiteral("mxc://dead.example/a");
+        bridge.avatarSource(mxc, 64);
+        QCOMPARE(client.fetches.size(), 1);
+        client.fail(client.fetches.first().opId,
+                    QStringLiteral("server_unreachable:240000"));
+
+        QCOMPARE(failed.count(), 1);
+        QCOMPARE(failed.first().at(1).toString(),
+                 QStringLiteral("server_unreachable"));
+        QCOMPARE(bridge.avatarFailureCategory(mxc),
+                 QStringLiteral("server_unreachable"));
+        const QString key = failed.first().at(0).toString();
+        const int seconds = bridge.failureRetrySeconds(key);
+        QVERIFY2(seconds > 235 && seconds <= 240,
+                 qPrintable(QString::number(seconds)));
+
+        // The generic window is long gone, the breaker's is not: no new fetch.
+        bridge.setFailureRetryMsForTest(0);
+        bridge.checkInflightTimeouts();
+        QCOMPARE(bridge.avatarSource(mxc, 64), QString());
+        QCOMPARE(client.fetches.size(), 1);
+
+        // retry() (an explicit click) still goes through.
+        bridge.retry(key);
+        bridge.avatarSource(mxc, 64);
+        QCOMPARE(client.fetches.size(), 2);
+    }
+
+    void onlyABreakerRefusalHasARetryWait()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        QSignalSpy failed(&bridge, &MediaBridge::mediaFetchFailed);
+        bridge.avatarSource(QStringLiteral("mxc://ok.example/a"), 64);
+        client.fail(client.fetches.first().opId, QStringLiteral("server_error"));
+        QCOMPARE(bridge.failureRetrySeconds(failed.first().at(0).toString()), 0);
+
+        // A malformed wait never pins a key: it falls back to the generic
+        // one-minute window.
+        bridge.avatarSource(QStringLiteral("mxc://ok.example/b"), 64);
+        client.fail(client.fetches.last().opId,
+                    QStringLiteral("server_unreachable:garbage"));
+        QCOMPARE(failed.last().at(1).toString(),
+                 QStringLiteral("server_unreachable"));
+        const int fallback =
+            bridge.failureRetrySeconds(failed.last().at(0).toString());
+        QVERIFY2(fallback > 0 && fallback <= 60,
+                 qPrintable(QString::number(fallback)));
+    }
+
     // A dispatch rejected with opId==0 (session restoring or switching) is the
     // transient "unavailable" category with the normal retry window, not a
     // permanent mark.

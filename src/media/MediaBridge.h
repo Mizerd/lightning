@@ -247,6 +247,11 @@ public:
     // instead of a permanent skeleton.
     Q_INVOKABLE QString avatarFailureCategory(const QString &mxcUri) const;
     Q_INVOKABLE void retry(const QString &cacheKey);
+    // Whole seconds until a "server_unreachable" mark stops blocking (the Rust
+    // media circuit breaker's own backoff, rounded up), or 0 for any other
+    // outcome. Lets a failed item say "retrying in N min" instead of failing
+    // silently or looking stuck. Not live: read it when the failure arrives.
+    Q_INVOKABLE int failureRetrySeconds(const QString &cacheKey) const;
     void setFailureRetryMsForTest(qint64 ms) { m_failureRetryMs = ms; }
 
     // In-flight watchdog. An op the backend never completes would pin its slot
@@ -412,7 +417,11 @@ private:
 
     void insertCache(const QString &cacheKey, const QByteArray &bytes);
     void touch(const QString &cacheKey) const;
-    void markFailed(const Pending &request, const QString &category);
+    void markFailed(const Pending &request, const QString &category,
+                    qint64 retryAfterMs = 0);
+    // How long a transient mark blocks: the breaker's wait for
+    // "server_unreachable", m_failureRetryMs for everything else.
+    qint64 markExpiryMs(const QString &category, qint64 retryAfterMs) const;
     // True while the key's failure mark blocks dispatch; expires transient
     // marks.
     bool failureBlocks(const QString &cacheKey);
@@ -527,6 +536,9 @@ private:
     struct FailureMark {
         QString category;
         qint64 markedAtMs = 0;
+        // The Rust circuit breaker's remaining wait when it refused the fetch
+        // ("server_unreachable"); 0 otherwise.
+        qint64 retryAfterMs = 0;
     };
     QHash<QString, FailureMark> m_failed;
     QElapsedTimer m_failureClock;

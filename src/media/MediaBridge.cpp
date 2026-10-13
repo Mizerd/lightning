@@ -401,6 +401,28 @@ void MediaBridge::retry(const QString &cacheKey)
     m_failed.remove(cacheKey);
 }
 
+qint64 MediaBridge::markExpiryMs(const QString &category,
+                                 qint64 retryAfterMs) const
+{
+    // The circuit breaker told us how long it will refuse; asking sooner only
+    // earns another refusal.
+    if (category == QLatin1String("server_unreachable") && retryAfterMs > 0)
+        return retryAfterMs;
+    return m_failureRetryMs;
+}
+
+int MediaBridge::failureRetrySeconds(const QString &cacheKey) const
+{
+    const auto it = m_failed.constFind(cacheKey);
+    if (it == m_failed.constEnd()
+        || it->category != QLatin1String("server_unreachable"))
+        return 0;
+    const qint64 left = it->markedAtMs
+        + markExpiryMs(it->category, it->retryAfterMs)
+        - m_failureClock.elapsed();
+    return left <= 0 ? 0 : static_cast<int>((left + 999) / 1000);
+}
+
 bool MediaBridge::isPermanentCategory(const QString &category)
 {
     // Permanent for the session: backend-reported validation failures, and a
@@ -420,7 +442,8 @@ bool MediaBridge::failureBlocks(const QString &cacheKey)
         return false;
     if (isPermanentCategory(it->category))
         return true;
-    if (m_failureClock.elapsed() - it->markedAtMs >= m_failureRetryMs) {
+    if (m_failureClock.elapsed() - it->markedAtMs
+        >= markExpiryMs(it->category, it->retryAfterMs)) {
         m_failed.erase(it);
         return false;
     }
@@ -436,7 +459,8 @@ void MediaBridge::sweepExpiredFailureMarks()
     QStringList retryable;
     for (auto it = m_failed.begin(); it != m_failed.end();) {
         if (!isPermanentCategory(it->category)
-            && now - it->markedAtMs >= m_failureRetryMs) {
+            && now - it->markedAtMs
+                >= markExpiryMs(it->category, it->retryAfterMs)) {
             retryable.append(it.key());
             it = m_failed.erase(it);
         } else {
@@ -1942,19 +1966,34 @@ void MediaBridge::dropInterestSets(const QString &cacheKey)
     m_posterWanted.remove(cacheKey);
 }
 
-void MediaBridge::markFailed(const Pending &request, const QString &category)
+void MediaBridge::markFailed(const Pending &request, const QString &category,
+                             qint64 retryAfterMs)
 {
     if (request.saveRequest || request.starRequest)
         return; // Save/star report through their own signal, not source state.
     if (m_failed.size() >= kMaxFailureMarks)
         m_failed.clear(); // defensive bound
     m_failed.insert(request.cacheKey,
-                    {category, m_failureClock.elapsed()});
+                    {category, m_failureClock.elapsed(), retryAfterMs});
 }
 
 void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
-                                const QString &category)
+                                const QString &rawCategory)
 {
+    // The Rust circuit breaker reports "server_unreachable:<ms>", its
+    // remaining backoff. The wait is kept on the mark; consumers see the plain
+    // category.
+    QString category = rawCategory;
+    qint64 retryAfterMs = 0;
+    static const QLatin1String kUnreachable("server_unreachable");
+    if (rawCategory.startsWith(kUnreachable)) {
+        category = kUnreachable;
+        bool ok = false;
+        const qint64 ms = rawCategory.mid(kUnreachable.size() + 1).toLongLong(&ok);
+        // Bounded: a corrupt value must not pin a key for the session.
+        if (ok && ms > 0)
+            retryAfterMs = qMin<qint64>(ms, 10 * 60 * 1000);
+    }
     Q_UNUSED(mediaKey);
     Q_UNUSED(kind);
     const auto it = m_inflight.find(opId);
@@ -1968,8 +2007,13 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
     m_inflight.erase(it);
     pump();
     if (request.saveRequest) {
-        Q_EMIT saveFinished(false, tr("The file could not be downloaded."),
-                            request.mediaKey);
+        Q_EMIT saveFinished(
+            false,
+            category == kUnreachable
+                ? tr("The media server is unreachable. Try again in a few "
+                     "minutes.")
+                : tr("The file could not be downloaded."),
+            request.mediaKey);
         return;
     }
     if (request.starRequest) {
@@ -1981,9 +2025,17 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
     noteMediaActivity();
     // Failures keep their own line in the default category: rare and
     // actionable.
-    qCWarning(lcMedia, "failed %s category=%s",
-              qUtf8Printable(keyTag(request.cacheKey)),
-              qUtf8Printable(category));
+    // A refusal by the circuit breaker is expected for as long as the server
+    // is down, once per item: trace level, or the log is a wall of them.
+    if (category == kUnreachable)
+        qCDebug(lcMediaTrace, "failed %s category=%s retry_after_ms=%lld",
+                qUtf8Printable(keyTag(request.cacheKey)),
+                qUtf8Printable(category),
+                static_cast<long long>(retryAfterMs));
+    else
+        qCWarning(lcMedia, "failed %s category=%s",
+                  qUtf8Printable(keyTag(request.cacheKey)),
+                  qUtf8Printable(category));
     dropInterestSets(request.cacheKey);
     // An original over the motion-probe size class can never play: final for
     // the session, like a still, rather than a transient mark that expires
@@ -1994,7 +2046,7 @@ void MediaBridge::onMediaFailed(quint64 opId, const QString &mediaKey, int kind,
             m_motionVerdict.clear();
         m_motionVerdict.insert(request.cacheKey, 0);
     }
-    markFailed(request, category);
+    markFailed(request, category, retryAfterMs);
     Q_EMIT mediaFetchFailed(request.cacheKey, category);
 }
 

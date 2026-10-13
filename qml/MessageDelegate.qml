@@ -5234,6 +5234,10 @@ Item {
                 (model.mediaThumbAvailable ? "thumb:" : "full:") + (model.mediaKey || "")
             property string bridgeSource: ""
             property bool bridgeFailed: false
+            // Seconds the media circuit breaker will keep refusing this item's
+            // server (0 when the failure was anything else). Read once, when
+            // the failure arrives.
+            property int retrySeconds: 0
 
             function refreshBridgeSource() {
                 if (!usesBridge || !model.mediaKey) return
@@ -5251,6 +5255,7 @@ Item {
                 if (bridgeFailed)
                     app.mediaBridge.retry(bridgeCacheKey)
                 bridgeFailed = false
+                retrySeconds = 0
                 bridgeSource = app.mediaBridge.mediaSource(
                     model.mediaKey,
                     model.mediaThumbAvailable ? "thumb" : "full")
@@ -5343,8 +5348,11 @@ Item {
                     }
                 }
                 function onMediaFetchFailed(cacheKey, category) {
-                    if (cacheKey === imageBox.bridgeCacheKey)
+                    if (cacheKey === imageBox.bridgeCacheKey) {
+                        imageBox.retrySeconds = category === "server_unreachable"
+                            ? app.mediaBridge.failureRetrySeconds(cacheKey) : 0
                         imageBox.bridgeFailed = true
+                    }
                 }
             }
             Connections {
@@ -5630,7 +5638,10 @@ Item {
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
                 text: imageBox.bridgeFailed
-                      ? qsTr("Image failed to load — click to retry")
+                      ? (imageBox.retrySeconds > 0
+                         ? qsTr("Media server unreachable — retrying in %1 min")
+                               .arg(Math.max(1, Math.ceil(imageBox.retrySeconds / 60)))
+                         : qsTr("Image failed to load — click to retry"))
                       : qsTr("Image unavailable")
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.scaled(AppTheme.textMeta)

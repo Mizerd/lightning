@@ -38,6 +38,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::media::store::IgnoreMediaRetentionPolicy;
 
+use crate::mediahealth;
+
 /// Attempts per HTTP request. matrix-sdk counts `retry_limit` as attempts
 /// (`native.rs:73-79`: `with_max_times(limit - 1)`), so 1 is a single request
 /// and no retry. A failed media fetch is retried later by MediaBridge's
@@ -98,6 +100,9 @@ fn failure_is_not_found(err: &matrix_sdk::Error) -> bool {
 /// from "the connection failed" and from a timeout; the rest keep the
 /// `classify_room_error` words.
 pub(crate) fn classify_media_error(err: &matrix_sdk::Error) -> &'static str {
+    if breaker_retry_after_ms(err).is_some() {
+        return "server_unreachable";
+    }
     match failure_status(err) {
         Some(code) if (500..600).contains(&code) => "server_error",
         Some(429) => "rate_limited",
@@ -108,6 +113,27 @@ pub(crate) fn classify_media_error(err: &matrix_sdk::Error) -> &'static str {
         }
         Some(404) => "not_found",
         _ => crate::rooms::classify_room_error(&err.to_string()),
+    }
+}
+
+/// How long the circuit breaker will keep refusing, when it is what failed
+/// this fetch.
+pub(crate) fn breaker_retry_after_ms(err: &matrix_sdk::Error) -> Option<u64> {
+    match err {
+        matrix_sdk::Error::UnknownError(inner) => inner
+            .downcast_ref::<mediahealth::BreakerOpen>()
+            .map(|open| open.retry_after_ms),
+        _ => None,
+    }
+}
+
+/// The category string for the FFI event: `classify_media_error`, with the
+/// breaker's remaining wait appended as `server_unreachable:<ms>` so C++ can
+/// show "retrying in N min" without a second channel.
+pub(crate) fn failure_category(err: &matrix_sdk::Error) -> String {
+    match breaker_retry_after_ms(err) {
+        Some(ms) => format!("server_unreachable:{ms}"),
+        None => classify_media_error(err).to_owned(),
     }
 }
 
@@ -316,6 +342,63 @@ fn is_local_uri(source: &MediaSource) -> bool {
 /// The network half of `get_media_content` (matrix-sdk 0.18.0
 /// `media.rs:437-520`), decrypting an encrypted source.
 async fn fetch_uncached(
+    client: &Client,
+    request: &MediaRequestParameters,
+    timeout: Duration,
+) -> matrix_sdk::Result<Vec<u8>> {
+    fetch_guarded(mediahealth::global(), request, || fetch_network(client, request, timeout)).await
+}
+
+/// `fetch_network` behind the media circuit breaker (mediahealth.rs): a
+/// request to an origin or file whose breaker is open is refused at once with
+/// `BreakerOpen`, and every outcome that speaks for the SERVER feeds the
+/// breaker. The request itself, and every check on its bytes, is unchanged.
+async fn fetch_guarded<F, Fut>(
+    health: &mediahealth::MediaHealth,
+    request: &MediaRequestParameters,
+    send: F,
+) -> matrix_sdk::Result<Vec<u8>>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = matrix_sdk::Result<Vec<u8>>>,
+{
+    let uri = match &request.source {
+        MediaSource::Plain(uri) => uri,
+        MediaSource::Encrypted(file) => &file.url,
+    };
+    let identity = mediahealth::identify(uri);
+    let (origin, file) = match &identity {
+        Some((origin, file)) => (Some(origin.as_str()), file.as_str()),
+        None => return send().await,
+    };
+    if let Err(wait) = health.check(origin, file, std::time::Instant::now()) {
+        let retry_after_ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX).max(1);
+        return Err(matrix_sdk::Error::UnknownError(Box::new(
+            mediahealth::BreakerOpen { retry_after_ms },
+        )));
+    }
+    let outcome = send().await;
+    match &outcome {
+        Ok(_) => health.record_success(origin, file),
+        Err(err) if speaks_for_server_health(err) => {
+            health.record_failure(origin, file, std::time::Instant::now())
+        }
+        Err(_) => {}
+    }
+    outcome
+}
+
+/// Whether a failed fetch says the SERVER is unhealthy: a 5xx, or a request
+/// that never got an answer. A 404, a 403, a 429, a decrypt failure or a bad
+/// URI describes one file or our own state, and never opens a breaker.
+pub(crate) fn speaks_for_server_health(err: &matrix_sdk::Error) -> bool {
+    match failure_status(err) {
+        Some(code) => (500..600).contains(&code),
+        None => matches!(err, matrix_sdk::Error::Http(_)),
+    }
+}
+
+async fn fetch_network(
     client: &Client,
     request: &MediaRequestParameters,
     timeout: Duration,
@@ -744,6 +827,95 @@ mod tests {
         .expect_err("refused");
         assert_eq!(classify_media_error(&err), "server_error");
     }
+
+    // ---- the media circuit breaker ---------------------------------------
+
+    async fn guarded(
+        health: &mediahealth::MediaHealth,
+        client: &Client,
+        id: &str,
+    ) -> matrix_sdk::Result<Vec<u8>> {
+        let request = file_request(id);
+        tokio::time::timeout(
+            BOUND,
+            fetch_guarded(health, &request, || {
+                fetch_network(client, &request, Duration::from_secs(40))
+            }),
+        )
+        .await
+        .expect("bounded")
+    }
+
+    #[tokio::test]
+    async fn a_dead_origin_opens_after_three_files_and_the_fourth_never_reaches_it() {
+        let (server, client) = authed_server().await;
+        // EXACTLY three requests ever arrive: the rest are refused locally.
+        server
+            .mock_authed_media_download()
+            .error500()
+            .expect(3)
+            .named("dead origin")
+            .mount()
+            .await;
+        let health = mediahealth::MediaHealth::default();
+        for id in ["A", "B", "C"] {
+            let err = guarded(&health, &client, id).await.expect_err("500");
+            assert_eq!(classify_media_error(&err), "server_error");
+        }
+        for id in ["D", "E", "A"] {
+            let started = std::time::Instant::now();
+            let err = guarded(&health, &client, id).await.expect_err("refused");
+            assert!(started.elapsed() < Duration::from_millis(500), "fast, not queued");
+            assert_eq!(classify_media_error(&err), "server_unreachable");
+            let category = failure_category(&err);
+            let ms: u64 = category
+                .strip_prefix("server_unreachable:")
+                .expect("carries the wait")
+                .parse()
+                .expect("milliseconds");
+            assert!(ms > 0 && ms <= 60_000, "first backoff is one minute, got {ms}");
+        }
+    }
+
+    #[tokio::test]
+    async fn not_found_never_opens_the_breaker() {
+        let (server, client) = authed_server().await;
+        // Unmocked endpoints answer 404 (the mock server's default).
+        let health = mediahealth::MediaHealth::default();
+        for id in ["A", "B", "C", "D", "E", "F"] {
+            let err = guarded(&health, &client, id).await.expect_err("404");
+            assert_ne!(classify_media_error(&err), "server_unreachable", "{id} was refused");
+        }
+        let reached = server
+            .server()
+            .received_requests()
+            .await
+            .expect("recording")
+            .iter()
+            .filter(|r| r.url.path().contains("/media/download/"))
+            .count();
+        assert_eq!(reached, 6, "every 404 reached the server; none was refused");
+    }
+
+    #[tokio::test]
+    async fn a_success_after_a_failure_resets_the_per_file_count() {
+        let (server, client) = authed_server().await;
+        server
+            .mock_authed_media_download()
+            .ok_bytes(b"bytes".to_vec())
+            .expect(1)
+            .mount()
+            .await;
+        let health = mediahealth::MediaHealth::default();
+        let uri = "mxc://remote.example/A";
+        let now = std::time::Instant::now();
+        health.record_failure(Some("remote.example"), uri, now);
+        health.record_failure(Some("remote.example"), uri, now);
+        assert!(guarded(&health, &client, "A").await.is_ok());
+        health.record_failure(Some("remote.example"), uri, now);
+        assert!(health.check(Some("remote.example"), uri, now).is_ok(), "count restarted");
+    }
+
     // ---- one download for one source ------------------------------------
 
     fn file_request(id: &str) -> MediaRequestParameters {

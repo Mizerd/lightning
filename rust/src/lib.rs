@@ -92,6 +92,7 @@ mod localsearch;
 mod location;
 mod mediafetch;
 mod mediafiles;
+mod mediahealth;
 mod mediahistory;
 mod mediastore;
 mod storelocking;
