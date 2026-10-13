@@ -7056,6 +7056,7 @@ pub unsafe extern "C" fn mx_rust_stickers_upload_to_user_pack(
     shortcode: *const c_char,
     body: *const c_char,
     local_path: *const c_char,
+    usage: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
@@ -7063,7 +7064,8 @@ pub unsafe extern "C" fn mx_rust_stickers_upload_to_user_pack(
         let shortcode = unsafe { cstr_arg(shortcode) }?;
         let body = unsafe { cstr_arg(body) }?;
         let path = unsafe { cstr_arg(local_path) }?;
-        stickers::upload_to_user_pack(bridge, op_id, shortcode, body, path)
+        let usage = unsafe { cstr_arg(usage) }?;
+        stickers::upload_to_user_pack(bridge, op_id, shortcode, body, path, usage)
             .map(|_| String::new())
     })
 }
@@ -7082,6 +7084,7 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_user_pack(
     width: u64,
     height: u64,
     size: u64,
+    usage: *const c_char,
     op_id: u64,
 ) -> *mut c_char {
     ffi_string(|| {
@@ -7090,8 +7093,10 @@ pub unsafe extern "C" fn mx_rust_stickers_add_to_user_pack(
         let url = unsafe { cstr_arg(url) }?;
         let body = unsafe { cstr_arg(body) }?;
         let mimetype = unsafe { cstr_arg(mimetype) }?;
+        let usage = unsafe { cstr_arg(usage) }?;
         stickers::add_to_user_pack(
             bridge, op_id, shortcode, url, body, mimetype, width, height, size,
+            usage,
         )
         .map(|_| String::new())
     })

@@ -660,13 +660,15 @@ public:
     }
     // Upload a local image into this account's own pack; the only way to create
     // a pack from nothing. Reports on stickerPackAddFinished.
+    // `usage` is "sticker", "emoticon" (custom emoji) or "both".
     virtual void uploadStickerToUserPack(const QString &shortcode,
                                          const QString &body,
                                          const QString &localPath,
+                                         const QString &usage,
                                          quint64 opId)
     {
         Q_UNUSED(shortcode); Q_UNUSED(body); Q_UNUSED(localPath);
-        Q_UNUSED(opId);
+        Q_UNUSED(usage); Q_UNUSED(opId);
     }
     // Add one image to this account's own im.ponies.user_emotes pack.
     // Reports on stickerPackAddFinished.
@@ -674,11 +676,11 @@ public:
                                       const QString &url, const QString &body,
                                       const QString &mimetype, quint64 width,
                                       quint64 height, quint64 size,
-                                      quint64 opId)
+                                      const QString &usage, quint64 opId)
     {
         Q_UNUSED(shortcode); Q_UNUSED(url); Q_UNUSED(body);
         Q_UNUSED(mimetype); Q_UNUSED(width); Q_UNUSED(height);
-        Q_UNUSED(size); Q_UNUSED(opId);
+        Q_UNUSED(size); Q_UNUSED(usage); Q_UNUSED(opId);
     }
     // ── Policy lists, Mjolnir-style ─────────────────────────────────────
     //

@@ -3685,7 +3685,7 @@ void RustSdkMatrixClient::setStickerRoomPackEnabled(const QString &roomId,
 
 void RustSdkMatrixClient::uploadStickerToUserPack(
     const QString &shortcode, const QString &body, const QString &localPath,
-    quint64 opId)
+    const QString &usage, quint64 opId)
 {
     if (!m_loggedIn || !m_rustHandle || localPath.isEmpty()) {
         Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
@@ -3695,9 +3695,10 @@ void RustSdkMatrixClient::uploadStickerToUserPack(
     const QByteArray code = shortcode.toUtf8();
     const QByteArray alt = body.toUtf8();
     const QByteArray path = localPath.toUtf8();
+    const QByteArray use = usage.toUtf8();
     const QString result = takeRustString(mx_rust_stickers_upload_to_user_pack(
         m_rustHandle, code.constData(), alt.constData(), path.constData(),
-        opId));
+        use.constData(), opId));
     if (!result.isEmpty()) {
         // A literal tag only: the rejection can echo the path, which contains
         // the user's name.
@@ -3861,7 +3862,7 @@ void RustSdkMatrixClient::editStickerPack(
 void RustSdkMatrixClient::addStickerToUserPack(
     const QString &shortcode, const QString &url, const QString &body,
     const QString &mimetype, quint64 width, quint64 height, quint64 size,
-    quint64 opId)
+    const QString &usage, quint64 opId)
 {
     if (!m_loggedIn || !m_rustHandle || url.isEmpty())
         return;
@@ -3869,9 +3870,10 @@ void RustSdkMatrixClient::addStickerToUserPack(
     const QByteArray mxc = url.toUtf8();
     const QByteArray alt = body.toUtf8();
     const QByteArray mime = mimetype.toUtf8();
+    const QByteArray use = usage.toUtf8();
     const QString result = takeRustString(mx_rust_stickers_add_to_user_pack(
         m_rustHandle, code.constData(), mxc.constData(), alt.constData(),
-        mime.constData(), width, height, size, opId));
+        mime.constData(), width, height, size, use.constData(), opId));
     if (!result.isEmpty()) {
         Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
                                       QString());

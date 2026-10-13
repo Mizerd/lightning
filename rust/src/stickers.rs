@@ -1022,6 +1022,7 @@ pub(crate) fn upload_to_user_pack(
     shortcode: String,
     body: String,
     local_path: String,
+    usage: String,
 ) -> Result<(), String> {
     // Checked before reading, so an absurd file never reaches memory.
     let metadata = std::fs::metadata(&local_path)
@@ -1060,6 +1061,7 @@ pub(crate) fn upload_to_user_pack(
             // would add an image decoder to this path.
             add_to_user_pack_inner(
                 &client, requested, url, body, mime_str.to_owned(), 0, 0, size,
+                &usage,
             )
             .await
         }
@@ -1103,6 +1105,7 @@ pub(crate) fn add_to_user_pack(
     width: u64,
     height: u64,
     size: u64,
+    usage: String,
 ) -> Result<(), String> {
     if !is_valid_mxc(&url) {
         return Err("sticker url is not an mxc URI".to_owned());
@@ -1120,6 +1123,7 @@ pub(crate) fn add_to_user_pack(
     bridge.spawn_room_action(async move {
         let outcome = add_to_user_pack_inner(
             &client, requested, url, body, mimetype, width, height, size,
+            &usage,
         )
         .await;
         if !timelines.lifecycle_current(lifecycle) {
@@ -1240,12 +1244,22 @@ async fn add_to_room_pack_inner(
 
     let (content, code) =
         add_image_to_pack_content(existing, requested, url, body, mimetype,
-                                  width, height, size)?;
+                                  width, height, size, "sticker")?;
 
     room.send_state_event_raw(ROOM_EMOTES, state_key, content)
         .await
         .map_err(|err| classify_room_error(&err.to_string()).to_owned())?;
     Ok(code)
+}
+
+/// The `usage` array written for an added image. `emoticon` -> custom emoji,
+/// `both` -> either, anything else -> sticker.
+pub(crate) fn usage_value(usage: &str) -> Value {
+    match usage {
+        "emoticon" => json!(["emoticon"]),
+        "both" => json!(["sticker", "emoticon"]),
+        _ => json!(["sticker"]),
+    }
 }
 
 /// Pure "add one image to a pack content object", shared by the user and
@@ -1262,6 +1276,7 @@ pub(crate) fn add_image_to_pack_content(
     width: u64,
     height: u64,
     size: u64,
+    usage: &str,
 ) -> Result<(Value, String), String> {
     let mut content = existing;
     if !content.is_object() {
@@ -1322,8 +1337,10 @@ pub(crate) fn add_image_to_pack_content(
     if !info.is_empty() {
         entry.insert("info".to_owned(), Value::Object(info));
     }
-    // Mark it a sticker so it stays out of emoticon completion.
-    entry.insert("usage".to_owned(), json!(["sticker"]));
+    // A saved sticker stays out of emoticon completion; a saved custom emoji
+    // stays out of the sticker picker. Anything unrecognised is a sticker,
+    // which is the conservative one (it never appears inline in a message box).
+    entry.insert("usage".to_owned(), usage_value(usage));
 
     images.insert(code.clone(), Value::Object(entry));
     Ok((content, code))
@@ -1540,6 +1557,7 @@ async fn add_to_user_pack_inner(
     width: u64,
     height: u64,
     size: u64,
+    usage: &str,
 ) -> Result<String, String> {
     let ty = GlobalAccountDataEventType::from(USER_EMOTES);
 
@@ -1553,7 +1571,7 @@ async fn add_to_user_pack_inner(
 
     // The shared transform (see add_image_to_pack_content).
     let (mut content, code) = add_image_to_pack_content(
-        existing, requested, url, body, mimetype, width, height, size,
+        existing, requested, url, body, mimetype, width, height, size, usage,
     )?;
 
     // Name a brand-new user pack so it is not an unnamed tab elsewhere. Not for
@@ -1847,7 +1865,42 @@ mod tests {
             128,
             96,
             4096,
+            "sticker",
         )
+    }
+
+    fn add_as(existing: Value, code: &str, url: &str, usage: &str) -> Value {
+        add_image_to_pack_content(
+            existing,
+            sanitize_shortcode(code),
+            url.to_owned(),
+            code.to_owned(),
+            "image/png".to_owned(),
+            0,
+            0,
+            0,
+            usage,
+        )
+        .expect("adds")
+        .0
+    }
+
+    #[test]
+    fn the_requested_usage_is_what_gets_written() {
+        let emoji = add_as(json!({}), "cat", "mxc://example.org/a", "emoticon");
+        assert_eq!(emoji["images"]["cat"]["usage"], json!(["emoticon"]));
+        let both = add_as(json!({}), "cat", "mxc://example.org/a", "both");
+        assert_eq!(both["images"]["cat"]["usage"], json!(["sticker", "emoticon"]));
+        let sticker = add_as(json!({}), "cat", "mxc://example.org/a", "sticker");
+        assert_eq!(sticker["images"]["cat"]["usage"], json!(["sticker"]));
+        // Unknown spellings are stickers, the one that never lands inline.
+        let junk = add_as(json!({}), "cat", "mxc://example.org/a", "emoji!");
+        assert_eq!(junk["images"]["cat"]["usage"], json!(["sticker"]));
+        // And the parser reads each back the way it was meant.
+        let pack = parse_pack_content(
+            &emoji, "user".to_owned(), "user", String::new(), String::new(), "x")
+            .expect("pack");
+        assert!(pack.images[0].is_emoticon && !pack.images[0].is_sticker);
     }
 
     #[test]

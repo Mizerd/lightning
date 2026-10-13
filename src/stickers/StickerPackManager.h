@@ -5,6 +5,7 @@
 #include "stickers/StickerImageModel.h"
 #include "stickers/StickerPackModel.h"
 
+#include <QHash>
 #include <QObject>
 #include <memory>
 
@@ -69,6 +70,13 @@ class StickerPackManager : public QObject
     // A room-pack enable/disable is in flight. One at a time: concurrent
     // read-modify-writes of the same account-data event would race.
     Q_PROPERTY(bool togglingRoomPack READ togglingRoomPack NOTIFY stateChanged)
+    // A pack export, a pack import or a multi-emoji save is running. One at a
+    // time; every other write waits.
+    Q_PROPERTY(bool transferring READ transferring NOTIFY stateChanged)
+    // "export" | "import" | "emoji", or "" when idle.
+    Q_PROPERTY(QString transferKind READ transferKind NOTIFY stateChanged)
+    Q_PROPERTY(int transferDone READ transferDone NOTIFY stateChanged)
+    Q_PROPERTY(int transferTotal READ transferTotal NOTIFY stateChanged)
 
 public:
     explicit StickerPackManager(QObject *parent = nullptr);
@@ -116,6 +124,10 @@ public:
     /// converts; a refusal ends it with saveFinished(false, "svg_<reason>").
     Q_INVOKABLE void uploadSticker(const QUrl &fileUrl,
                                    const QString &shortcode);
+    // As uploadSticker, for either kind of image: `usage` is "sticker",
+    // "emoticon" (custom emoji) or "both"; anything else is a sticker.
+    Q_INVOKABLE void uploadImage(const QUrl &fileUrl, const QString &shortcode,
+                                 const QString &usage);
     /// The sentence for an "svg_<reason>" category's reason.
     Q_INVOKABLE QString svgMessage(const QString &reason) const;
 
@@ -163,6 +175,46 @@ public:
     // A room-pack enable/disable is in flight.
     bool togglingRoomPack() const { return m_roomsOp != 0; }
 
+    // -- Shortcode validation -----------------------------------------------
+    // The text a pack image's name must satisfy, applied the same way the
+    // backend repairs one: letters, digits, "-" and "_" only, no doubled or
+    // leading/trailing separators, at most 64 characters. Used so a rename
+    // field can say why instead of the backend quietly writing a different
+    // name.
+    Q_INVOKABLE QString sanitizeShortcode(const QString &raw) const;
+    // Why `candidate` cannot be the name of an image in `packId`, in the
+    // user's words, or "" when it can. `current` is the name being renamed
+    // (an unchanged name is not a clash with itself).
+    Q_INVOKABLE QString shortcodeError(const QString &packId,
+                                       const QString &current,
+                                       const QString &candidate) const;
+
+    // -- Export / import ----------------------------------------------------
+    // Writes `packId` as a ZIP (`pack.json` + `images/`) at the local file
+    // `zipFile`. Every image is fetched through the controlled media bridge
+    // (a pack image is public media). Reports on transferFinished.
+    Q_INVOKABLE void exportPack(const QString &packId, const QUrl &zipFile);
+    // Reads a ZIP written by exportPack and adds its images to the account's
+    // own pack. A name the pack already has is skipped, not overwritten. SVG
+    // and anything not PNG / JPEG / WebP / GIF is refused. Reports on
+    // transferFinished.
+    Q_INVOKABLE void importPack(const QUrl &zipFile);
+
+    // The sentence for a finished transfer (transferFinished's arguments).
+    Q_INVOKABLE QString transferMessage(const QString &kind, bool ok,
+                                        const QString &category, int added,
+                                        int skipped, int failed,
+                                        const QString &name) const;
+
+    // -- Custom emoji in a message ------------------------------------------
+    // The custom emoji (`<img data-mx-emoticon src="mxc://...">`) inside a
+    // message's formatted body, as [{url, shortcode, body, saved}], at most 16,
+    // deduplicated by url. Unsafe or non-mxc sources are not returned.
+    Q_INVOKABLE QVariantList emoticonsInHtml(const QString &html) const;
+    // Adds those not already saved to the account's pack as custom emoji (not
+    // as stickers). Reports on transferFinished with kind "emoji".
+    Q_INVOKABLE void saveEmoticons(const QVariantList &emoticons);
+
     // True when the account's own pack already holds this mxc. False may mean
     // "not known", so it never gates the menu item.
     Q_INVOKABLE bool isSaved(const QString &url) const;
@@ -190,6 +242,11 @@ public:
     // comes first, so its shortcodes win.
     Q_INVOKABLE QVariantMap emoticon(const QString &shortcode) const;
 
+    bool transferring() const { return m_transfer.active; }
+    QString transferKind() const { return m_transfer.kind; }
+    int transferDone() const { return m_transfer.done; }
+    int transferTotal() const { return m_transfer.total; }
+
     // Test seam: apply a snapshot without a backend.
     void applySnapshotForTest(const QString &roomId, bool roomCanManage,
                               const QVariantList &packs);
@@ -213,8 +270,70 @@ Q_SIGNALS:
     // A room-pack enable/disable finished. `category` is empty on success.
     void roomPackToggleFinished(bool ok, const QString &category,
                                 bool enabled);
+    // An export, import or multi-emoji save finished. `kind` is "export",
+    // "import" or "emoji". `added` counts images written (export: into the
+    // file), `skipped` those already there or refused as unusable, `failed`
+    // those that were fetched or uploaded unsuccessfully. `category` is empty
+    // unless the whole job failed: "unreadable", "no_manifest", "bad_manifest",
+    // "no_images", "write_failed", "fetch_failed", "pack_full", "rejected" or
+    // a coarse backend class. `name` is the pack's name (import / export) or
+    // the first shortcode written (emoji).
+    void transferFinished(const QString &kind, bool ok,
+                          const QString &category, int added, int skipped,
+                          int failed, const QString &name);
 
 private:
+    struct BatchItem {
+        QString shortcode;
+        QString body;
+        QString url;       // emoji: an existing mxc
+        QString path;      // import: a file to upload
+        QString mimetype;
+        QString usage;
+    };
+    struct Transfer {
+        bool active = false;
+        QString kind;
+        QString name;
+        int total = 0;
+        int done = 0;
+        int added = 0;
+        int skipped = 0;
+        int failed = 0;
+        QString category;     // first backend failure class
+        QString firstCode;    // first shortcode written
+        QList<BatchItem> items;
+        int index = 0;        // next item for a batch
+        quint64 op = 0;       // the batch item in flight
+        QSet<QString> taken;  // lower-case shortcodes already in the pack
+        // Export.
+        QString packId;
+        QString destination;
+        QHash<quint64, int> pending;  // fetch op -> image index
+        QList<QByteArray> bytes;
+        int nextFetch = 0;
+        quint64 generation = 0;
+    };
+    Transfer m_transfer;
+    quint64 m_transferGeneration = 0;
+    QTimer *m_transferWatchdog = nullptr;
+    std::unique_ptr<QTemporaryDir> m_importDir;
+
+    void startUpload(const QUrl &fileUrl, const QString &shortcode,
+                     const QString &usage);
+    void beginTransfer(const QString &kind, const QString &name, int total);
+    void finishTransfer(bool ok, const QString &category);
+    void advanceBatch();
+    void onBatchItemFinished(bool ok, const QString &category,
+                             const QString &shortcode);
+    void pumpExport();
+    void finishExport();
+    void onMediaFetched(quint64 opId, const QByteArray &bytes);
+    void onMediaFetchFailed(quint64 opId);
+    void startBatch(const QString &kind, const QString &name,
+                    const QList<BatchItem> &items, int alreadySkipped);
+    QSet<QString> userPackShortcodes() const;
+
     QTimer *m_activeRoomFetch = nullptr;
     /// Converted stickers wait here until the upload has read them.
     std::unique_ptr<QTemporaryDir> m_convertedDir;

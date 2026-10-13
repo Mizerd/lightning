@@ -380,6 +380,12 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
                    WRITE setSendTextAsCaption
                    NOTIFY sendTextAsCaptionChanged)
+    // Photo metadata removed from images before upload: "location" (default),
+    // "all" or "keep". Device-global. An unreadable stored value reads as the
+    // default, never as "keep".
+    Q_PROPERTY(QString imageMetadataMode READ imageMetadataMode
+                   WRITE setImageMetadataMode
+                   NOTIFY imageMetadataModeChanged)
     // Composer: a completed `:shortcode:` naming a standard Unicode emoji
     // (never a custom pack one) converts to the emoji automatically, while
     // typing once a space follows it and once more at send for a trailing
@@ -845,6 +851,8 @@ public:
     void setComposerMode(const QString &mode);
     bool sendTextAsCaption() const;
     void setSendTextAsCaption(bool v);
+    QString imageMetadataMode() const;
+    void setImageMetadataMode(const QString &mode);
     bool emojiShortcodeAutoConvert() const;
     void setEmojiShortcodeAutoConvert(bool v);
 
@@ -1105,6 +1113,7 @@ Q_SIGNALS:
     void spellCheckEnabledChanged();
     void spellCheckLanguageChanged();
     void sendTextAsCaptionChanged();
+    void imageMetadataModeChanged();
     void emojiShortcodeAutoConvertChanged();
     void timelineWheelSpeedChanged();
     void mediaVolumeChanged();

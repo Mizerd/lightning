@@ -114,6 +114,30 @@ private Q_SLOTS:
         settings.sync();
     }
 
+    // Photo metadata policy (a privacy setting that lives beside the composer
+    // ones): defaults to removing the location, round-trips, and an
+    // unreadable stored value reads as the default, never as "keep".
+    void imageMetadataModeDefaultsRoundTripsAndNeverReadsAsKeep()
+    {
+        SettingsManager settings;
+        QCOMPARE(settings.imageMetadataMode(), QStringLiteral("location"));
+        QSignalSpy changed(&settings, &SettingsManager::imageMetadataModeChanged);
+        settings.setImageMetadataMode(QStringLiteral("all"));
+        QCOMPARE(settings.imageMetadataMode(), QStringLiteral("all"));
+        settings.setImageMetadataMode(QStringLiteral("keep"));
+        QCOMPARE(settings.imageMetadataMode(), QStringLiteral("keep"));
+        QVERIFY(changed.count() >= 2);
+        settings.setImageMetadataMode(QStringLiteral("something-newer"));
+        QCOMPARE(settings.imageMetadataMode(), QStringLiteral("location"));
+        {
+            QSettings raw;
+            raw.setValue(QStringLiteral("composer/imageMetadataMode"),
+                         QStringLiteral("garbage"));
+            raw.sync();
+        }
+        QCOMPARE(settings.imageMetadataMode(), QStringLiteral("location"));
+    }
+
     void settingsRoundTripRequiresAnActiveAccount()
     {
         DraftFakeSecretStore secrets;

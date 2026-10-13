@@ -5,6 +5,7 @@
 
 #include "matrix/MatrixClient.h"
 #include "media/ImageFormatSupport.h"
+#include "media/ImageMetadata.h"
 #include "media/StagedImageStore.h"
 #include "media/SvgRasterJob.h"
 #include "models/MessageComposer.h"
@@ -149,13 +150,15 @@ public:
         lastOpId = nextOp++;
         return lastOpId;
     }
-    quint64 sendAttachmentBytes(const QString &, const QByteArray &,
+    QByteArray lastBytes;
+    quint64 sendAttachmentBytes(const QString &, const QByteArray &bytes,
                                 const QString &filename, const QString &mime,
                                 int, int, const QString &replyTo) override
     {
         if (rejectSends)
             return 0;
         ++byteSends;
+        lastBytes = bytes;
         lastReplyTo = replyTo;
         lastFilename = filename;
         lastMime = mime;
@@ -221,6 +224,45 @@ QByteArray tinyJpeg()
     buffer.open(QIODevice::WriteOnly);
     image.save(&buffer, "JPG", 80);
     return bytes;
+}
+
+// The "coordinates" a GPS-tagged test photo carries.
+const QByteArray kGpsMarker(24, '\xAB');
+
+// A real JPEG with an Exif block (orientation 1 and a GPS IFD) right after SOI,
+// the way a phone writes it.
+QByteArray jpegWithGps()
+{
+    QImage image(16, 16, QImage::Format_RGB32);
+    image.fill(Qt::darkGreen);
+    QByteArray jpeg;
+    QBuffer buffer(&jpeg);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "JPG", 85);
+
+    QByteArray t("MM\0*\0\0\0\x08", 8);
+    t.append("\0\2", 2);
+    t.append("\x01\x12\0\3\0\0\0\1\0\1\0\0", 12);
+    t.append("\x88\x25\0\4\0\0\0\1\0\0\0\x26", 12);
+    t.append("\0\0\0\0", 4);
+    t.append("\0\1", 2);
+    t.append("\0\2\0\5\0\0\0\3\0\0\0\x38", 12);
+    t.append("\0\0\0\0", 4);
+    t.append(kGpsMarker);
+    QByteArray payload = QByteArray("Exif\0\0", 6) + t;
+    QByteArray segment("\xFF\xE1", 2);
+    const quint16 len = quint16(payload.size() + 2);
+    segment.append(char(len >> 8));
+    segment.append(char(len & 0xFF));
+    segment.append(payload);
+    jpeg.insert(2, segment);
+    return jpeg;
+}
+
+QByteArray readAll(const QString &path)
+{
+    QFile f(path);
+    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
 }
 
 // A plain 1600x1200 SVG: a red square filling the canvas.
@@ -519,6 +561,143 @@ private Q_SLOTS:
         composer.send();
         QCOMPARE(client.fileSends, 1);
         QVERIFY(client.lastReplyTo.isEmpty());
+    }
+
+    // -- Photo metadata ------------------------------------------------------
+
+    void theMetadataModeDefaultsToLocationAndNeverFallsToKeep()
+    {
+        MessageComposer composer;
+        QCOMPARE(composer.imageMetadataMode(), QStringLiteral("location"));
+        composer.setImageMetadataMode(QStringLiteral("keep"));
+        QCOMPARE(composer.imageMetadataMode(), QStringLiteral("keep"));
+        composer.setImageMetadataMode(QStringLiteral("from-the-future"));
+        QCOMPARE(composer.imageMetadataMode(), QStringLiteral("location"));
+    }
+
+    // The picked file is never modified: a stripped COPY, under the same file
+    // name, is what the client is handed.
+    void aPickedPhotoIsSentWithoutItsLocationAndTheOriginalIsUntouched()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QTemporaryDir dir;
+        const QByteArray original = jpegWithGps();
+        const QString path =
+            writeFile(dir, QStringLiteral("holiday.jpg"), original);
+        QVERIFY(original.contains(kGpsMarker));
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        composer.send();
+        QCOMPARE(client.fileSends, 1);
+        QVERIFY(client.lastFilePath != path);
+        QCOMPARE(QFileInfo(client.lastFilePath).fileName(),
+                 QStringLiteral("holiday.jpg"));
+        const QByteArray sent = readAll(client.lastFilePath);
+        QVERIFY(!sent.isEmpty());
+        QVERIFY(!sent.contains(kGpsMarker));
+        QVERIFY(!imagemeta::containsLocation(sent));
+        QImage image;
+        QVERIFY(image.loadFromData(sent));
+        // The user's own file still has everything.
+        QCOMPARE(readAll(path), original);
+
+        // The copy is removed once the SDK has taken the send.
+        const QString copy = client.lastFilePath;
+        Q_EMIT client.attachmentQueueFinished(
+            client.lastOpId, QStringLiteral("!room:example.org"), true,
+            QString());
+        QVERIFY(!QFileInfo::exists(copy));
+    }
+
+    void keepSendsTheOriginalFileUntouched()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        composer.setImageMetadataMode(QStringLiteral("keep"));
+        QTemporaryDir dir;
+        const QString path =
+            writeFile(dir, QStringLiteral("holiday.jpg"), jpegWithGps());
+        composer.addAttachment(QUrl::fromLocalFile(path));
+        composer.send();
+        QCOMPARE(client.fileSends, 1);
+        QCOMPARE(client.lastFilePath, path);
+    }
+
+    void removeAllAlsoDropsTheRestOfTheExif()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        composer.setImageMetadataMode(QStringLiteral("all"));
+        QTemporaryDir dir;
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("holiday.jpg"), jpegWithGps())));
+        composer.send();
+        QCOMPARE(client.fileSends, 1);
+        const QByteArray sent = readAll(client.lastFilePath);
+        QVERIFY(!sent.contains("Exif"));
+    }
+
+    // Paste and clipboard images carry bytes, not a path: same policy.
+    void aPastedPhotoIsStrippedToo()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        const QByteArray original = jpegWithGps();
+        QVERIFY(composer.attachments()->addImageData(
+                    original, QStringLiteral("image/jpeg"), 16, 16)
+                    .isEmpty());
+        composer.send();
+        QCOMPARE(client.byteSends, 1);
+        QVERIFY(!client.lastBytes.isEmpty());
+        QVERIFY(!client.lastBytes.contains(kGpsMarker));
+        QVERIFY(client.lastBytes.size() <= original.size());
+    }
+
+    // The user asked for the location to go. If it cannot be removed from a
+    // recognised image, the image is not sent.
+    void aPhotoWhoseMetadataCannotBeRemovedIsNotSent()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QTemporaryDir dir;
+        QByteArray broken = jpegWithGps();
+        broken.chop(20);  // no EOI: cannot be vouched for
+        composer.addAttachment(QUrl::fromLocalFile(
+            writeFile(dir, QStringLiteral("broken.jpg"), broken)));
+        composer.send();
+        QCOMPARE(client.fileSends, 0);
+        QCOMPARE(composer.attachments()->entries().size(), 1);
+        QCOMPARE(composer.attachments()->entries().first().state,
+                 QStringLiteral("failed"));
+        // And "keep" is the explicit way to send it anyway.
+        composer.setImageMetadataMode(QStringLiteral("keep"));
+        composer.attachments()->retryAt(0);
+        composer.send();
+        QCOMPARE(client.fileSends, 1);
+    }
+
+    void nonImagesAreNotTouched()
+    {
+        FakeClient client;
+        MessageComposer composer;
+        composer.setClient(&client);
+        composer.setRoomId(QStringLiteral("!room:example.org"));
+        QTemporaryDir dir;
+        const QString doc =
+            writeFile(dir, QStringLiteral("doc.bin"), QByteArray(16, 'a'));
+        composer.addAttachment(QUrl::fromLocalFile(doc));
+        composer.send();
+        QCOMPARE(client.lastFilePath, doc);
     }
 
     // The typed text rides as the caption (when that setting is on) and the

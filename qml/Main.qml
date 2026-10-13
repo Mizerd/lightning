@@ -394,6 +394,11 @@ ApplicationWindow {
         property: "sendTextAsCaption"
         value: app.settings ? app.settings.sendTextAsCaption : false
     }
+    Binding {
+        target: app.composer
+        property: "imageMetadataMode"
+        value: app.settings ? app.settings.imageMetadataMode : "location"
+    }
     // Slash commands only ask for these; the mode is a setting and display-name
     // changes carry AppController's op-id bookkeeping. Wired here, where both
     // sides are owned.
@@ -910,6 +915,25 @@ ApplicationWindow {
                     pinNotice.show(
                         qsTr("The sticker could not be saved."), true)
                 }
+            }
+        }
+        // "Add custom emoji to my pack" from a message's menu: the menu has
+        // closed, so the single report is a notice. Export and import report
+        // where they were started (the pack editor, Settings).
+        Connections {
+            target: app.stickers
+            function onTransferFinished(kind, ok, category, added, skipped,
+                                        failed, name) {
+                if (kind !== "emoji")
+                    return
+                if (ok && added === 1 && skipped === 0 && failed === 0
+                        && name.length > 0) {
+                    pinNotice.show(qsTr("Added :%1: to your emoji").arg(name),
+                                   false)
+                    return
+                }
+                pinNotice.show(app.stickers.transferMessage(
+                    kind, ok, category, added, skipped, failed, name), !ok)
             }
         }
         // A forwarded attachment is a direct upload with no local echo in the

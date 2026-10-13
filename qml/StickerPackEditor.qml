@@ -52,10 +52,44 @@ Dialog {
     /// The image being renamed, by current shortcode. One at a time, in place,
     /// so only one field competes for Return.
     property string renamingShortcode: ""
+    /// Why the name being typed cannot be used, "" when it can. Fed by the one
+    /// visible rename field so the reason shows once, in the notice area.
+    property string renameProblem: ""
     /// Deleting a pack takes two clicks and the second says what is destroyed.
     /// Not undoable: Matrix has no delete verb for either store, so the pack is
     /// emptied and its name dropped.
     property bool confirmingDelete: false
+
+    // Export / import outcomes, in the same notice line as an edit's.
+    Connections {
+        target: root.stickers
+        function onTransferFinished(kind, ok, category, added, skipped, failed, name) {
+            if (kind === "emoji" || !root.visible)
+                return
+            root.noticeIsError = !ok
+            root.notice = root.stickers.transferMessage(
+                kind, ok, category, added, skipped, failed, name)
+        }
+    }
+
+    NativeFileDialog {
+        id: exportDialog
+        purpose: "stickerpack"
+        fileMode: "save"
+        title: qsTr("Export pack")
+        currentFolder: app.defaultFileDialogFolder()
+        nameFilters: [qsTr("Sticker pack (*.zip)")]
+        onAccepted: root.stickers.exportPack(root.packId, selectedFile)
+    }
+    NativeFileDialog {
+        id: importDialog
+        purpose: "stickerpack"
+        fileMode: "open"
+        title: qsTr("Import a sticker pack")
+        currentFolder: app.defaultFileDialogFolder()
+        nameFilters: [qsTr("Sticker pack (*.zip)")]
+        onAccepted: root.stickers.importPack(selectedFile)
+    }
 
     Connections {
         target: root.stickers
@@ -153,6 +187,18 @@ Dialog {
             font.pixelSize: AppTheme.textMeta
         }
 
+        Label {
+            objectName: "stickerRenameProblem"
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+            visible: root.renamingShortcode.length > 0
+                     && root.renameProblem.length > 0
+            text: root.renameProblem
+            color: AppTheme.danger
+            font.pixelSize: AppTheme.textMeta
+        }
+
         // The images
         ListView {
             id: imageList
@@ -221,10 +267,28 @@ Dialog {
                     }
                     AppTextField {
                         id: renameField
+                        objectName: "stickerRenameField"
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         visible: root.renamingShortcode === imageRow.shortcode
                         enabled: visible && !root.busy
+                        // Why this name cannot be used, from the same rules
+                        // the backend applies, so the answer is a sentence
+                        // here and not a different name saved quietly.
+                        readonly property string problem:
+                            visible && root.stickers
+                                ? root.stickers.shortcodeError(
+                                      root.packId, imageRow.shortcode, text)
+                                : ""
+                        color: problem.length > 0 ? AppTheme.danger
+                                                  : AppTheme.textPrimary
+                        Accessible.description: problem
+                        Binding {
+                            target: root
+                            property: "renameProblem"
+                            value: renameField.problem
+                            when: renameField.visible
+                        }
                         onVisibleChanged: {
                             if (visible) {
                                 text = imageRow.shortcode
@@ -232,8 +296,9 @@ Dialog {
                                 selectAll()
                             }
                         }
-                        onAccepted: root.stickers.renameImageInPack(
-                            root.packId, imageRow.shortcode, text)
+                        onAccepted: if (problem.length === 0)
+                            root.stickers.renameImageInPack(
+                                root.packId, imageRow.shortcode, text)
                     }
 
                     AppButton {
@@ -243,6 +308,8 @@ Dialog {
                         size: "sm"
                         visible: root.canManage
                         enabled: !root.busy
+                                 && (root.renamingShortcode !== imageRow.shortcode
+                                     || renameField.problem.length === 0)
                         onClicked: {
                             if (root.renamingShortcode === imageRow.shortcode)
                                 root.stickers.renameImageInPack(
@@ -295,9 +362,34 @@ Dialog {
                         root.confirmingDelete = true
                 }
             }
+            AppButton {
+                objectName: "stickerPackExportButton"
+                text: qsTr("Export…")
+                kind: "ghost"
+                size: "sm"
+                enabled: !root.busy && !root.transferring
+                         && imageList.count > 0
+                onClicked: {
+                    exportDialog.currentName =
+                        (root.packName.length > 0 ? root.packName : qsTr("sticker-pack"))
+                        + ".zip"
+                    exportDialog.open()
+                }
+            }
+            // Only your own pack takes imports; a room's pack is changed
+            // through the room's own permissions.
+            AppButton {
+                objectName: "stickerPackImportButton"
+                visible: root.packId === "user"
+                text: qsTr("Import…")
+                kind: "ghost"
+                size: "sm"
+                enabled: !root.busy && !root.transferring
+                onClicked: importDialog.open()
+            }
             Item { Layout.fillWidth: true }
             AppBusyIndicator {
-                visible: root.busy
+                visible: root.busy || root.transferring
                 implicitWidth: 18
                 implicitHeight: 18
             }
@@ -323,4 +415,6 @@ Dialog {
     }
 
     readonly property bool busy: root.stickers ? root.stickers.editing : false
+    readonly property bool transferring:
+        root.stickers ? root.stickers.transferring : false
 }

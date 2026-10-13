@@ -1,3 +1,4 @@
+#include "media/ImageMetadata.h"
 #include "app/SettingsManager.h"
 
 #include <QFile>
@@ -106,6 +107,7 @@ constexpr auto kComposerMode        = "composer/mode";
 constexpr auto kSpellCheckEnabled   = "composer/spellCheck";
 constexpr auto kSpellCheckLanguage  = "composer/spellLanguage";
 constexpr auto kTextAsCaption       = "composer/textAsCaption";
+constexpr auto kImageMetadataMode   = "composer/imageMetadataMode";
 constexpr auto kEmojiShortcodeAutoConvert = "composer/emojiShortcodeAutoConvert";
 // Shortcut overrides live in their own group, one key per action id.
 constexpr auto kShortcutsGroup      = "shortcuts";
@@ -3349,6 +3351,23 @@ void SettingsManager::setSendTextAsCaption(bool v)
         return;
     m_store->setValue(kTextAsCaption, v);
     Q_EMIT sendTextAsCaptionChanged();
+}
+
+QString SettingsManager::imageMetadataMode() const
+{
+    return imagemeta::modeToString(imagemeta::modeFromString(
+        m_store->value(kImageMetadataMode).toString()));
+}
+
+void SettingsManager::setImageMetadataMode(const QString &mode)
+{
+    const QString normalized =
+        imagemeta::modeToString(imagemeta::modeFromString(mode));
+    if (imageMetadataMode() == normalized
+        && m_store->contains(kImageMetadataMode))
+        return;
+    m_store->setValue(kImageMetadataMode, normalized);
+    Q_EMIT imageMetadataModeChanged();
 }
 
 bool SettingsManager::emojiShortcodeAutoConvert() const

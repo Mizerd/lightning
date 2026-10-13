@@ -174,7 +174,7 @@ AnchoredPopup {
                 nameFilters: [qsTr("Images (*.png *.jpg *.jpeg *.webp *.gif *.svg)")]
                 // Straight to the pack, no crop step. The bytes are sniffed and
                 // bounded in Rust.
-                onAccepted: picker.stickers.uploadSticker(selectedFile, "")
+                onAccepted: picker.stickers.uploadImage(selectedFile, "", picker.stickers.usage)
             }
             IconButton {
                 objectName: "stickerAddButton"

@@ -353,11 +353,12 @@ public:
                                    quint64 opId) override;
     void uploadStickerToUserPack(const QString &shortcode, const QString &body,
                                  const QString &localPath,
+                                 const QString &usage,
                                  quint64 opId) override;
     void addStickerToUserPack(const QString &shortcode, const QString &url,
                               const QString &body, const QString &mimetype,
                               quint64 width, quint64 height, quint64 size,
-                              quint64 opId) override;
+                              const QString &usage, quint64 opId) override;
     bool supportsPolicyLists() const override { return true; }
     void fetchPolicyRules(const QString &roomId, quint64 opId) override;
     void writePolicyRule(const QString &roomId, const QString &kind,

@@ -244,6 +244,12 @@ Item {
           section: "appearance", breadcrumb: qsTr("Appearance · Message box"),
           control: "sendTextAsCaption",
           anchor: "sendTextAsCaptionCheck" },
+        { title: qsTr("Emoji and sticker packs"),
+          keywords: qsTr("emoji sticker pack custom emote use everywhere "
+                         + "room space export import zip share"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Emoji and sticker packs"),
+          anchor: "stickerPacksSettings" },
         { title: qsTr("Convert :shortcode: to emoji"),
           keywords: qsTr("emoji shortcode colon convert autoconvert "
                          + "auto-convert thumbsup smiley slack discord"),
@@ -450,6 +456,11 @@ Item {
           keywords: qsTr("video preload prefetch download size megabytes data disk instant play"),
           section: "privacy", breadcrumb: qsTr("Privacy & security · Media"),
           anchor: "videoPrefetchCheck" },
+        { title: qsTr("Photo details when sending"),
+          keywords: qsTr("photo image exif gps location metadata strip remove "
+                         + "privacy upload picture camera"),
+          section: "privacy", breadcrumb: qsTr("Privacy & security · Media"),
+          anchor: "imageMetadataCombo" },
         { title: qsTr("GIF safe search"),
           keywords: qsTr("gif safe search rating"), section: "privacy",
           breadcrumb: qsTr("Privacy & security · GIFs"),
@@ -4302,6 +4313,16 @@ Item {
                                 }
                             }
                         }
+
+                        // Custom emoji and sticker packs (MSC2545): which room
+                        // packs follow you everywhere, export / import. A
+                        // component of its own; this is only its hook.
+                        SettingsCard {
+                            StickerPacksSettings {
+                                objectName: "stickerPacksSettings"
+                                width: parent.width
+                            }
+                        }
                     }
 
                     // ════════════ Keyboard shortcuts ════════════ Every
@@ -5235,6 +5256,9 @@ Item {
                                         }
                                     }
                                 }
+
+                                Label { text: qsTr("Photo details when sending"); color: AppTheme.stormTextSecondary }
+                                PhotoMetadataSetting { Layout.fillWidth: true }
 
                                 Label { text: qsTr("GIF safe search"); color: AppTheme.stormTextSecondary }
                                 AppComboBox {

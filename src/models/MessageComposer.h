@@ -12,6 +12,8 @@
 #include <QString>
 #include <QTimer>
 #include <QUrl>
+#include <QTemporaryDir>
+#include <memory>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -43,6 +45,13 @@ class MessageComposer : public QObject
     // two. Default false.
     Q_PROPERTY(bool sendTextAsCaption READ sendTextAsCaption
                    WRITE setSendTextAsCaption NOTIFY sendTextAsCaptionChanged)
+    // Photo metadata policy pushed in from QML (qml/Main.qml): "location"
+    // (default) removes GPS from images before upload, "all" removes every
+    // Exif / XMP / text block, "keep" sends the file as is. Applied to every
+    // image that leaves the tray (picker, paste, drop); never to GIF (the GIF
+    // provider path does not use the tray).
+    Q_PROPERTY(QString imageMetadataMode READ imageMetadataMode
+                   WRITE setImageMetadataMode NOTIFY imageMetadataModeChanged)
     // Current mention ranges as [{start, length}] for the composer's chip
     // highlighter and atomic-delete key handling. Derived from the semantic
     // refs; re-announced on every text change (the refs re-anchor there).
@@ -91,6 +100,9 @@ public:
 
     bool sendTextAsCaption() const { return m_sendTextAsCaption; }
     void setSendTextAsCaption(bool on);
+
+    QString imageMetadataMode() const { return m_imageMetadataMode; }
+    void setImageMetadataMode(const QString &mode);
 
     // Highlight ranges, each checked against the text it claims to cover.
     // MentionHighlighter paints whatever offsets it gets, and a ref can go
@@ -305,6 +317,7 @@ Q_SIGNALS:
     void threadStateChanged();
     void attachmentsChanged();
     void sendTextAsCaptionChanged();
+    void imageMetadataModeChanged();
     // Result of removeEdits(), for the room it was issued in. Counts only.
     void editsRemoved(const QString &eventId, bool ok, int removed,
                       int failed, bool truncated);
@@ -361,6 +374,18 @@ private:
     bool m_emojiAutoConvert = true;
     AttachmentQueueModel *m_attachments = nullptr;
     bool m_sendTextAsCaption = false;
+    QString m_imageMetadataMode = QStringLiteral("location");
+    /// Stripped copies of picked images wait here until the SDK has read them
+    /// (one subdirectory per op so the original file name survives). The user's
+    /// own file is never modified.
+    std::unique_ptr<QTemporaryDir> m_strippedDir;
+    QHash<quint64, QString> m_strippedOps;
+    quint64 m_nextStripped = 1;
+    /// False = the image must not be sent (metadata removal was requested and
+    /// could not be completed). Otherwise `path` / `data` hold what to send.
+    bool prepareImageForSend(const AttachmentQueueModel::Entry &entry,
+                             QString &path, QByteArray &data,
+                             QString *tempFile);
     QString m_text;
     QString m_roomId;
     QString m_replyingToEventId;

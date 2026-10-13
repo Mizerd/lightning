@@ -4,12 +4,16 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QPointer>
+#include <QRegularExpression>
+#include <QSaveFile>
 #include <QTemporaryDir>
+#include <QThreadPool>
 #include <QTimer>
 
 #include "matrix/MatrixClient.h"
 #include "media/SvgRasterJob.h"
 #include "stickers/StickerImageModel.h"
+#include "stickers/StickerPackArchive.h"
 #include "stickers/StickerPackModel.h"
 
 #include <QLoggingCategory>
@@ -76,6 +80,16 @@ void StickerPackManager::setClient(MatrixClient *client)
                 &StickerPackManager::onEditFinished);
         connect(m_client, &MatrixClient::stickerPackRoomsSet, this,
                 &StickerPackManager::onRoomsSet);
+        // Export fetches pack images by their own op ids; every other op id
+        // is ignored here.
+        connect(m_client, &MatrixClient::mediaReady, this,
+                [this](quint64 opId, const QString &, int,
+                       const QByteArray &bytes, const QString &,
+                       const QString &) { onMediaFetched(opId, bytes); });
+        connect(m_client, &MatrixClient::mediaFailed, this,
+                [this](quint64 opId, const QString &, int, const QString &) {
+                    onMediaFetchFailed(opId);
+                });
         // Packs are account data.
         connect(m_client, &MatrixClient::loggedOut, this,
                 &StickerPackManager::onLoggedOut);
@@ -209,6 +223,24 @@ void StickerPackManager::sendToThread(const QString &roomId,
 void StickerPackManager::uploadSticker(const QUrl &fileUrl,
                                        const QString &shortcode)
 {
+    startUpload(fileUrl, shortcode, QStringLiteral("sticker"));
+}
+
+void StickerPackManager::uploadImage(const QUrl &fileUrl,
+                                     const QString &shortcode,
+                                     const QString &usage)
+{
+    if (m_transfer.active)
+        return;
+    startUpload(fileUrl, shortcode,
+                usage == QLatin1String("emoticon") || usage == QLatin1String("both")
+                    ? usage : QStringLiteral("sticker"));
+}
+
+void StickerPackManager::startUpload(const QUrl &fileUrl,
+                                     const QString &shortcode,
+                                     const QString &usage)
+{
     // Single-flight, like every pack write: racing writes to one account-data
     // event would misreport the loser.
     if (!m_client || m_saveOp != 0 || !available())
@@ -242,7 +274,7 @@ void StickerPackManager::uploadSticker(const QUrl &fileUrl,
         QPointer<StickerPackManager> self(this);
         svg::rasterizeAsync(
             head, svg::stickerPolicy(), this,
-            [self, opId, seed](const svg::Result &converted) {
+            [self, opId, seed, usage](const svg::Result &converted) {
                 if (!self || self->m_saveOp != opId)
                     return; // signed out, or superseded
                 if (!converted.refusal.isEmpty()) {
@@ -270,12 +302,12 @@ void StickerPackManager::uploadSticker(const QUrl &fileUrl,
                     return;
                 }
                 out.close();
-                self->m_client->uploadStickerToUserPack(seed, seed, file, opId);
+                self->m_client->uploadStickerToUserPack(seed, seed, file, usage, opId);
             });
         return;
     }
 
-    m_client->uploadStickerToUserPack(seed, seed, path, opId);
+    m_client->uploadStickerToUserPack(seed, seed, path, usage, opId);
     emitStateChanged();
 }
 
@@ -300,7 +332,7 @@ void StickerPackManager::saveSticker(const QString &url, const QString &body,
                                    static_cast<quint64>(qMax(0, width)),
                                    static_cast<quint64>(qMax(0, height)),
                                    static_cast<quint64>(qMax<qint64>(0, size)),
-                                   opId);
+                                   QStringLiteral("sticker"), opId);
     emitStateChanged();
 }
 
@@ -586,6 +618,11 @@ void StickerPackManager::onSaveFinished(quint64 opId, bool ok,
     if (opId == 0 || opId != m_saveOp)
         return;
     m_saveOp = 0;
+    if (m_transfer.active && opId == m_transfer.op) {
+        // One image of a batch: no per-image notice, and no per-image re-read.
+        onBatchItemFinished(ok, category, shortcode);
+        return;
+    }
     const QString scope = m_saveScope.isEmpty() ? QStringLiteral("account")
                                                 : m_saveScope;
     m_saveScope.clear();
@@ -601,6 +638,13 @@ void StickerPackManager::onSaveFinished(quint64 opId, bool ok,
 
 void StickerPackManager::onLoggedOut()
 {
+    // A job belongs to the account that started it: nothing it was waiting for
+    // may complete into the next one.
+    ++m_transferGeneration;
+    m_transfer = Transfer();
+    m_importDir.reset();
+    if (m_transferWatchdog)
+        m_transferWatchdog->stop();
     m_fetchOp = 0;
     m_saveOp = 0;
     m_editOp = 0;
@@ -683,6 +727,535 @@ void StickerPackManager::rebuildImages()
             narrowed.append(image);
     }
     m_images->reset(narrowed);
+}
+
+// -- Shortcode validation ----------------------------------------------------
+
+QString StickerPackManager::sanitizeShortcode(const QString &raw) const
+{
+    return stickers::archive::sanitizeShortcode(raw);
+}
+
+QString StickerPackManager::shortcodeError(const QString &packId,
+                                           const QString &current,
+                                           const QString &candidate) const
+{
+    if (candidate.isEmpty())
+        return tr("Enter a name.");
+    if (candidate.size() > 64)
+        return tr("Names can be at most 64 characters.");
+    for (const QChar c : candidate) {
+        const ushort u = c.unicode();
+        const bool ok = (u >= '0' && u <= '9') || (u >= 'a' && u <= 'z')
+                        || (u >= 'A' && u <= 'Z') || u == '-' || u == '_';
+        if (!ok)
+            return tr("Use only letters, numbers, - and _ (no spaces, colons "
+                      "or accents).");
+    }
+    // Everything legal in the alphabet but still changed by the repair: a
+    // leading or trailing separator, or a doubled underscore. Saying so beats
+    // saving a different name than the one typed.
+    if (stickers::archive::sanitizeShortcode(candidate) != candidate)
+        return tr("A name cannot start or end with - or _, or contain __.");
+    const int row = m_packs->indexOfPack(packId);
+    if (row >= 0 && candidate != current) {
+        for (const stickers::PackImage &image : m_packs->packs().at(row).images) {
+            if (image.shortcode.compare(candidate, Qt::CaseInsensitive) == 0
+                && image.shortcode != current)
+                return tr("Another image in this pack already uses that name.");
+        }
+    }
+    return {};
+}
+
+QSet<QString> StickerPackManager::userPackShortcodes() const
+{
+    QSet<QString> taken;
+    const int row = m_packs->indexOfPack(QStringLiteral("user"));
+    if (row < 0)
+        return taken;
+    for (const stickers::PackImage &image : m_packs->packs().at(row).images)
+        taken.insert(image.shortcode.toLower());
+    return taken;
+}
+
+// -- Transfers ---------------------------------------------------------------
+//
+// Export, import and multi-emoji saves share one slot (`m_transfer`): a second
+// job while one runs is refused, never queued, so two jobs can never
+// interleave read-modify-writes of the same account-data event.
+
+void StickerPackManager::beginTransfer(const QString &kind, const QString &name,
+                                       int total)
+{
+    m_transfer = Transfer();
+    m_transfer.active = true;
+    m_transfer.kind = kind;
+    m_transfer.name = name;
+    m_transfer.total = total;
+    m_transfer.generation = ++m_transferGeneration;
+    if (!m_transferWatchdog) {
+        m_transferWatchdog = new QTimer(this);
+        m_transferWatchdog->setSingleShot(true);
+        m_transferWatchdog->setInterval(120 * 1000);
+        connect(m_transferWatchdog, &QTimer::timeout, this, [this] {
+            if (!m_transfer.active)
+                return;
+            // Nothing moved for two minutes: end the job with what it has.
+            if (m_transfer.kind == QLatin1String("export")) {
+                m_transfer.failed += int(m_transfer.pending.size())
+                    + (m_transfer.total - m_transfer.nextFetch);
+                m_transfer.pending.clear();
+                m_transfer.nextFetch = m_transfer.total;
+                finishExport();
+            } else {
+                m_saveOp = 0;
+                finishTransfer(m_transfer.added > 0, QStringLiteral("timeout"));
+            }
+        });
+    }
+    m_transferWatchdog->start();
+    emitStateChanged();
+}
+
+void StickerPackManager::finishTransfer(bool ok, const QString &category)
+{
+    const Transfer done = m_transfer;
+    m_transfer = Transfer();
+    m_importDir.reset();
+    if (m_transferWatchdog)
+        m_transferWatchdog->stop();
+    if (done.kind != QLatin1String("export") && done.added > 0) {
+        m_stale = true;
+        refresh();
+    }
+    emitStateChanged();
+    Q_EMIT transferFinished(done.kind, ok, category, done.added, done.skipped,
+                            done.failed,
+                            done.kind == QLatin1String("emoji") ? done.firstCode
+                                                                : done.name);
+}
+
+// Starts a batch of pack additions. `alreadySkipped` counts entries dropped
+// before the batch (refused or already present), so the report is complete.
+void StickerPackManager::startBatch(const QString &kind, const QString &name,
+                                    const QList<BatchItem> &items,
+                                    int alreadySkipped)
+{
+    beginTransfer(kind, name, int(items.size()) + alreadySkipped);
+    m_transfer.skipped = alreadySkipped;
+    m_transfer.done = alreadySkipped;
+    m_transfer.items = items;
+    m_transfer.taken = userPackShortcodes();
+    advanceBatch();
+}
+
+void StickerPackManager::advanceBatch()
+{
+    while (m_transfer.active) {
+        if (m_transfer.index >= m_transfer.items.size()) {
+            const bool failedAll =
+                m_transfer.added == 0 && m_transfer.failed > 0;
+            finishTransfer(!failedAll,
+                           failedAll ? (m_transfer.category.isEmpty()
+                                            ? QStringLiteral("rejected")
+                                            : m_transfer.category)
+                                     : QString());
+            return;
+        }
+        const BatchItem item = m_transfer.items.at(m_transfer.index++);
+        if (!item.path.isEmpty()
+            && m_transfer.taken.contains(item.shortcode.toLower())) {
+            ++m_transfer.skipped;
+            ++m_transfer.done;
+            continue;
+        }
+        if (!m_client || !available()) {
+            ++m_transfer.failed;
+            ++m_transfer.done;
+            continue;
+        }
+        const quint64 opId = m_nextOpId++;
+        m_saveOp = opId;
+        m_saveScope = QStringLiteral("account");
+        m_transfer.op = opId;
+        m_transfer.taken.insert(item.shortcode.toLower());
+        m_transferWatchdog->start();
+        if (!item.path.isEmpty()) {
+            m_client->uploadStickerToUserPack(item.shortcode, item.body,
+                                              item.path, item.usage, opId);
+        } else {
+            m_client->addStickerToUserPack(item.shortcode, item.url, item.body,
+                                           item.mimetype, 0, 0, 0, item.usage,
+                                           opId);
+        }
+        emitStateChanged();
+        return;  // continues in onBatchItemFinished
+    }
+}
+
+void StickerPackManager::onBatchItemFinished(bool ok, const QString &category,
+                                             const QString &shortcode)
+{
+    if (!m_transfer.active)
+        return;
+    ++m_transfer.done;
+    m_transfer.op = 0;
+    if (ok) {
+        ++m_transfer.added;
+        if (m_transfer.firstCode.isEmpty())
+            m_transfer.firstCode = shortcode;
+    } else if (category == QLatin1String("duplicate")) {
+        ++m_transfer.skipped;
+    } else if (category == QLatin1String("pack_full")) {
+        // Every remaining image would be refused the same way.
+        const int left = int(m_transfer.items.size()) - m_transfer.index;
+        m_transfer.failed += 1 + left;
+        m_transfer.done += left;
+        m_transfer.index = int(m_transfer.items.size());
+        m_transfer.category = category;
+    } else {
+        ++m_transfer.failed;
+        if (m_transfer.category.isEmpty())
+            m_transfer.category = category;
+    }
+    advanceBatch();
+}
+
+// -- Import ------------------------------------------------------------------
+
+void StickerPackManager::importPack(const QUrl &zipFile)
+{
+    if (!m_client || !available() || m_transfer.active || m_saveOp != 0
+        || m_editOp != 0)
+        return;
+    const QString zipPath = zipFile.isLocalFile() ? zipFile.toLocalFile()
+                                                  : QString{};
+    if (zipPath.isEmpty())
+        return;
+    m_importDir = std::make_unique<QTemporaryDir>();
+    if (!m_importDir->isValid()) {
+        m_importDir.reset();
+        Q_EMIT transferFinished(QStringLiteral("import"), false,
+                                QStringLiteral("write_failed"), 0, 0, 0,
+                                QString());
+        return;
+    }
+    beginTransfer(QStringLiteral("import"), QString(), 0);
+    const quint64 generation = m_transfer.generation;
+    const QString workDir = m_importDir->path();
+    QPointer<StickerPackManager> self(this);
+    // Unzipping up to ~100 MB is not GUI-thread work.
+    QThreadPool::globalInstance()->start([self, zipPath, workDir, generation] {
+        stickers::archive::ReadResult read =
+            stickers::archive::readArchive(zipPath, workDir);
+        if (!self)
+            return;
+        QMetaObject::invokeMethod(
+            self.data(),
+            [self, read, generation] {
+                if (!self || !self->m_transfer.active
+                    || self->m_transfer.generation != generation)
+                    return;
+                if (read.error != stickers::archive::ReadError::None) {
+                    const char *category =
+                        read.error == stickers::archive::ReadError::NoManifest
+                            ? "no_manifest"
+                        : read.error == stickers::archive::ReadError::BadManifest
+                            ? "bad_manifest"
+                        : read.error == stickers::archive::ReadError::NoImages
+                            ? "no_images" : "unreadable";
+                    self->finishTransfer(false, QString::fromLatin1(category));
+                    return;
+                }
+                QList<BatchItem> items;
+                const QSet<QString> taken = self->userPackShortcodes();
+                int skipped = read.refused;
+                for (const stickers::archive::Image &image : read.pack.images) {
+                    if (taken.contains(image.shortcode.toLower())) {
+                        ++skipped;
+                        continue;
+                    }
+                    BatchItem item;
+                    item.shortcode = image.shortcode;
+                    item.body = image.body;
+                    item.path = image.path;
+                    item.mimetype = image.mimetype;
+                    item.usage = image.usage;
+                    items.append(item);
+                }
+                // The work directory stays: the uploads read from it, and
+                // finishTransfer() removes it.
+                self->startBatch(QStringLiteral("import"), read.pack.name,
+                                 items, skipped);
+            },
+            Qt::QueuedConnection);
+    });
+}
+
+QString StickerPackManager::transferMessage(const QString &kind, bool ok,
+                                            const QString &category, int added,
+                                            int skipped, int failed,
+                                            const QString &name) const
+{
+    Q_UNUSED(name);
+    const bool isExport = kind == QLatin1String("export");
+    const bool isEmoji = kind == QLatin1String("emoji");
+    if (!ok) {
+        if (category == QLatin1String("no_images"))
+            return isExport ? tr("This pack has no images to export.")
+                            : tr("That pack has no usable images. SVG files "
+                                 "are not accepted.");
+        if (category == QLatin1String("fetch_failed"))
+            return tr("None of the images could be downloaded, so nothing was "
+                      "exported.");
+        if (category == QLatin1String("write_failed"))
+            return tr("The file could not be written.");
+        if (category == QLatin1String("unreadable"))
+            return tr("That file is not a readable sticker pack.");
+        if (category == QLatin1String("no_manifest"))
+            return tr("That ZIP is not a Lightning sticker pack (it has no "
+                      "pack.json).");
+        if (category == QLatin1String("bad_manifest"))
+            return tr("That pack file is damaged, or was made by a newer "
+                      "version of Lightning.");
+        if (category == QLatin1String("pack_full"))
+            return tr("Your pack is full. Remove some images in another "
+                      "client to add more.");
+        if (category == QLatin1String("not_found"))
+            return tr("That pack is no longer available.");
+        return isExport ? tr("The pack could not be exported.")
+               : isEmoji ? tr("The emoji could not be added.")
+                         : tr("The pack could not be imported.");
+    }
+    QString text;
+    if (isExport) {
+        text = tr("Exported %n image(s).", nullptr, added);
+    } else if (isEmoji) {
+        text = added == 0 ? tr("Already in your custom emoji.")
+                          : tr("Added %n custom emoji to your pack.", nullptr,
+                               added);
+    } else {
+        text = added == 0 ? tr("Everything in that pack is already in yours.")
+                          : tr("Added %n image(s) to your pack.", nullptr,
+                               added);
+    }
+    if (added > 0 && skipped > 0)
+        text += QLatin1Char(' ')
+                + (isExport ? tr("%n could not be included.", nullptr, skipped)
+                            : tr("%n already there or not usable.", nullptr,
+                                 skipped));
+    if (failed > 0)
+        text += QLatin1Char(' ')
+                + (isExport ? tr("%n could not be downloaded.", nullptr, failed)
+                            : tr("%n failed.", nullptr, failed));
+    return text;
+}
+
+// -- Export ------------------------------------------------------------------
+
+void StickerPackManager::exportPack(const QString &packId,
+                                    const QUrl &zipFile)
+{
+    if (!m_client || !available() || m_transfer.active)
+        return;
+    const QString dest = zipFile.isLocalFile() ? zipFile.toLocalFile()
+                                               : QString{};
+    const int row = m_packs->indexOfPack(packId);
+    if (dest.isEmpty() || row < 0)
+        return;
+    const stickers::Pack pack = m_packs->packs().at(row);
+    if (pack.images.isEmpty()) {
+        Q_EMIT transferFinished(QStringLiteral("export"), false,
+                                QStringLiteral("no_images"), 0, 0, 0,
+                                pack.displayName);
+        return;
+    }
+    beginTransfer(QStringLiteral("export"), pack.displayName,
+                  int(pack.images.size()));
+    m_transfer.packId = packId;
+    m_transfer.destination = dest;
+    m_transfer.bytes.resize(pack.images.size());
+    pumpExport();
+}
+
+void StickerPackManager::pumpExport()
+{
+    if (!m_transfer.active || m_transfer.kind != QLatin1String("export"))
+        return;
+    const int row = m_packs->indexOfPack(m_transfer.packId);
+    if (row < 0) {
+        // The pack vanished from the snapshot while exporting.
+        finishTransfer(false, QStringLiteral("not_found"));
+        return;
+    }
+    const QList<stickers::PackImage> images = m_packs->packs().at(row).images;
+    // A few at a time: enough to hide latency, few enough not to flood the
+    // media queue the timeline shares.
+    constexpr int kInFlight = 3;
+    while (m_transfer.pending.size() < kInFlight
+           && m_transfer.nextFetch < images.size()) {
+        const int index = m_transfer.nextFetch++;
+        const quint64 opId = m_client->fetchMxcThumbnail(images.at(index).url,
+                                                         0, 0);
+        if (opId == 0) {
+            ++m_transfer.failed;
+            ++m_transfer.done;
+        } else {
+            m_transfer.pending.insert(opId, index);
+        }
+    }
+    if (m_transfer.pending.isEmpty() && m_transfer.nextFetch >= images.size()) {
+        finishExport();
+        return;
+    }
+    emitStateChanged();
+}
+
+void StickerPackManager::onMediaFetched(quint64 opId, const QByteArray &bytes)
+{
+    if (!m_transfer.active || !m_transfer.pending.contains(opId))
+        return;
+    const int index = m_transfer.pending.take(opId);
+    m_transfer.bytes[index] = bytes;
+    ++m_transfer.done;
+    m_transferWatchdog->start();
+    pumpExport();
+}
+
+void StickerPackManager::onMediaFetchFailed(quint64 opId)
+{
+    if (!m_transfer.active || !m_transfer.pending.contains(opId))
+        return;
+    m_transfer.pending.remove(opId);
+    ++m_transfer.failed;
+    ++m_transfer.done;
+    m_transferWatchdog->start();
+    pumpExport();
+}
+
+void StickerPackManager::finishExport()
+{
+    const int row = m_packs->indexOfPack(m_transfer.packId);
+    stickers::archive::Pack out;
+    if (row >= 0) {
+        const stickers::Pack &pack = m_packs->packs().at(row);
+        out.name = pack.displayName;
+        out.attribution = pack.attribution;
+        for (int i = 0; i < pack.images.size() && i < m_transfer.bytes.size();
+             ++i) {
+            const stickers::PackImage &image = pack.images.at(i);
+            if (m_transfer.bytes.at(i).isEmpty())
+                continue;
+            stickers::archive::Image entry;
+            entry.shortcode = image.shortcode;
+            entry.body = image.body;
+            entry.data = m_transfer.bytes.at(i);
+            entry.usage = (image.isSticker && image.isEmoticon)
+                              ? QStringLiteral("both")
+                          : image.isEmoticon ? QStringLiteral("emoticon")
+                                             : QStringLiteral("sticker");
+            out.images.append(entry);
+        }
+    }
+    int skipped = 0;
+    const QByteArray zip = stickers::archive::buildArchive(out, &skipped);
+    // Images fetched but not archivable (an SVG, a truncated file) count as
+    // skipped; ones never fetched are the failures already counted.
+    m_transfer.skipped += skipped;
+    const int written = int(out.images.size()) - skipped;
+    if (written <= 0) {
+        finishTransfer(false, QStringLiteral("fetch_failed"));
+        return;
+    }
+    QSaveFile file(m_transfer.destination);
+    if (!file.open(QIODevice::WriteOnly) || file.write(zip) != zip.size()
+        || !file.commit()) {
+        finishTransfer(false, QStringLiteral("write_failed"));
+        return;
+    }
+    m_transfer.added = written;
+    finishTransfer(true, QString());
+}
+
+// -- Custom emoji in a message -----------------------------------------------
+
+QVariantList StickerPackManager::emoticonsInHtml(const QString &html) const
+{
+    QVariantList out;
+    if (html.isEmpty() || !html.contains(QLatin1String("data-mx-emoticon")))
+        return out;
+    static const QRegularExpression tagRe(
+        QStringLiteral("<img\\b[^>]*>"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression markerRe(
+        QStringLiteral("(?:^|\\s)data-mx-emoticon(?:\\s|=|/|>|$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    auto attr = [](const QString &tag, const QString &name) {
+        const QRegularExpression re(
+            QStringLiteral("\\b%1\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')").arg(name),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch m = re.match(tag);
+        if (!m.hasMatch())
+            return QString();
+        return m.captured(1).isEmpty() ? m.captured(2) : m.captured(1);
+    };
+    QSet<QString> seen;
+    auto it = tagRe.globalMatch(html);
+    while (it.hasNext() && out.size() < 16) {
+        const QString tag = it.next().captured(0);
+        if (!markerRe.match(tag).hasMatch())
+            continue;
+        const QString src = attr(tag, QStringLiteral("src"));
+        // Only a plain mxc URI: the same rule the pack writer enforces.
+        if (!src.startsWith(QLatin1String("mxc://")) || src.size() > 512
+            || src.contains(QLatin1Char(' ')) || src.contains(QLatin1Char('<'))
+            || seen.contains(src))
+            continue;
+        seen.insert(src);
+        QString label = attr(tag, QStringLiteral("alt"));
+        if (label.isEmpty())
+            label = attr(tag, QStringLiteral("title"));
+        label.remove(QLatin1Char(':'));
+        QString code = stickers::archive::sanitizeShortcode(label);
+        if (code.isEmpty())
+            code = QStringLiteral("emoji");
+        QVariantMap row;
+        row.insert(QStringLiteral("url"), src);
+        row.insert(QStringLiteral("shortcode"), code);
+        row.insert(QStringLiteral("body"), label.left(160));
+        row.insert(QStringLiteral("saved"), isSaved(src));
+        out.append(row);
+    }
+    return out;
+}
+
+void StickerPackManager::saveEmoticons(const QVariantList &emoticons)
+{
+    if (!m_client || !available() || m_transfer.active || m_saveOp != 0
+        || m_editOp != 0)
+        return;
+    QList<BatchItem> items;
+    int skipped = 0;
+    for (const QVariant &value : emoticons) {
+        const QVariantMap row = value.toMap();
+        const QString url = row.value(QStringLiteral("url")).toString();
+        if (!url.startsWith(QLatin1String("mxc://")))
+            continue;
+        if (isSaved(url)) {
+            ++skipped;
+            continue;
+        }
+        BatchItem item;
+        item.url = url;
+        item.shortcode = row.value(QStringLiteral("shortcode")).toString();
+        item.body = row.value(QStringLiteral("body")).toString();
+        item.usage = QStringLiteral("emoticon");
+        items.append(item);
+    }
+    if (items.isEmpty() && skipped == 0)
+        return;
+    startBatch(QStringLiteral("emoji"), QString(), items, skipped);
 }
 
 void StickerPackManager::emitStateChanged()

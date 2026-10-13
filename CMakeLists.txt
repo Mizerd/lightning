@@ -631,6 +631,8 @@ set(APP_SOURCES
     src/models/TimelineScrollController.cpp
     src/models/MessageComposer.h
     src/models/MessageComposer.cpp
+    src/media/ImageMetadata.h
+    src/media/ImageMetadata.cpp
     src/models/MentionTokenizer.h
     src/models/MentionTokenizer.cpp
     src/models/MentionSuggestionModel.h
@@ -710,6 +712,10 @@ set(APP_SOURCES
     src/stickers/StickerImageModel.cpp
     src/stickers/StickerPackManager.h
     src/stickers/StickerPackManager.cpp
+    src/stickers/StickerPackArchive.h
+    src/stickers/StickerPackArchive.cpp
+    src/updater/SafeArchive.h
+    src/updater/SafeArchive.cpp
 
     src/notifications/NotificationManager.h
     src/notifications/NotificationManager.cpp
@@ -1094,6 +1100,8 @@ set(APP_QML_FILES
     qml/VerificationDialog.qml
     qml/UiaPromptDialog.qml
     qml/ChangePasswordSection.qml
+    qml/PhotoMetadataSetting.qml
+    qml/StickerPacksSettings.qml
     qml/ReportMessageDialog.qml
     qml/ForwardMessageDialog.qml
     qml/UpdateAvailablePrompt.qml
@@ -1290,6 +1298,13 @@ function(_lightning_configure_qml_module target _scope)
         Qt6::Multimedia
         OpenSSL::Crypto
     )
+    # Importing a sticker pack reads a user-supplied ZIP with the updater's
+    # hardened extractor, which inflates with zlib when it is available.
+    if(TARGET ZLIB::ZLIB)
+        target_link_libraries(${target} ${_scope} ZLIB::ZLIB)
+        target_compile_definitions(${target} ${_scope}
+            LIGHTNING_UPDATER_HAVE_ZLIB=1)
+    endif()
     # The X11 share fallback needs a screen's native rectangle, which no public
     # Qt API gives: QScreen::geometry() scales only the size and
     # devicePixelRatio() is rounded. QPlatformScreen has it. Qt6::GuiPrivate
@@ -2799,6 +2814,8 @@ if(BUILD_TESTING)
         tests/AttachmentQueueTest.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/media/ImageMetadata.h
+        src/media/ImageMetadata.cpp
         # The composer's draft hooks pull in the store.
         src/app/DraftStore.h
         src/app/DraftStore.cpp
@@ -2931,6 +2948,35 @@ if(BUILD_TESTING)
     target_link_libraries(pinned-messages-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME pinned-messages COMMAND pinned-messages-test)
 
+    # Image metadata removal on send (JPEG / PNG / WebP / HEIC), byte level.
+    qt_add_executable(image-metadata-test
+        tests/ImageMetadataTest.cpp
+        src/media/ImageMetadata.h
+        src/media/ImageMetadata.cpp
+    )
+    target_include_directories(image-metadata-test PRIVATE src)
+    target_link_libraries(image-metadata-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME image-metadata COMMAND image-metadata-test)
+
+    # Sticker pack ZIP: writer round trip and the hostile-input reader.
+    qt_add_executable(sticker-pack-archive-test
+        tests/StickerPackArchiveTest.cpp
+        src/stickers/StickerPackArchive.h
+        src/stickers/StickerPackArchive.cpp
+        src/updater/SafeArchive.h
+        src/updater/SafeArchive.cpp
+    )
+    target_include_directories(sticker-pack-archive-test PRIVATE src)
+    target_link_libraries(sticker-pack-archive-test PRIVATE
+        Qt6::Core Qt6::Test)
+    if(TARGET ZLIB::ZLIB)
+        target_link_libraries(sticker-pack-archive-test PRIVATE ZLIB::ZLIB)
+        target_compile_definitions(sticker-pack-archive-test
+            PRIVATE LIGHTNING_UPDATER_HAVE_ZLIB=1)
+    endif()
+    add_test(NAME sticker-pack-archive COMMAND sticker-pack-archive-test)
+
     # MSC2545 stickers and custom emoji: StickerPackManager snapshot ingestion,
     # selection rules, canSave (plain mxc only), send destination and thread
     # rule, bounded emoticon lookup, sign-out isolation.
@@ -2944,9 +2990,18 @@ if(BUILD_TESTING)
         src/stickers/StickerImageModel.cpp
         src/stickers/StickerPackManager.h
         src/stickers/StickerPackManager.cpp
+        src/stickers/StickerPackArchive.h
+        src/stickers/StickerPackArchive.cpp
+        src/updater/SafeArchive.h
+        src/updater/SafeArchive.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )
+    if(TARGET ZLIB::ZLIB)
+        target_link_libraries(sticker-packs-test PRIVATE ZLIB::ZLIB)
+        target_compile_definitions(sticker-packs-test
+            PRIVATE LIGHTNING_UPDATER_HAVE_ZLIB=1)
+    endif()
     target_include_directories(sticker-packs-test PRIVATE src)
     # Qt6::Gui: StickerPackManager converts a picked SVG (media/SvgRaster.h).
     target_link_libraries(sticker-packs-test PRIVATE
@@ -3285,6 +3340,8 @@ if(BUILD_TESTING)
         src/app/DraftStore.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/media/ImageMetadata.h
+        src/media/ImageMetadata.cpp
         src/models/MentionTokenizer.h
         src/models/MentionTokenizer.cpp
         src/models/MarkdownFormat.h

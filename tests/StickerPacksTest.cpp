@@ -22,6 +22,7 @@
 #include "matrix/MatrixClient.h"
 #include "media/SvgRasterJob.h"
 #include "stickers/StickerImageModel.h"
+#include "stickers/StickerPackArchive.h"
 #include "stickers/StickerPackManager.h"
 #include "stickers/StickerPackModel.h"
 
@@ -53,17 +54,23 @@ public:
     // The last send, captured exactly as it crossed.
     QString sendRoom, sendRoot, sendUrl, sendBody, sendMime;
     quint64 sendWidth = 0, sendHeight = 0, sendSize = 0;
-    QString saveShortcode, saveUrl, saveBody, saveMime;
+    QString saveShortcode, saveUrl, saveBody, saveMime, saveUsage;
     // The last file upload, as it crossed.
     int uploadCalls = 0;
     QString uploadPath;
+    QString uploadShortcode, uploadUsage;
+    QStringList uploadPaths;
     quint64 lastUploadOp = 0;
-    void uploadStickerToUserPack(const QString &, const QString &,
+    void uploadStickerToUserPack(const QString &shortcode, const QString &,
                                  const QString &localPath,
+                                 const QString &usage,
                                  quint64 opId) override
     {
         ++uploadCalls;
         uploadPath = localPath;
+        uploadPaths.append(localPath);
+        uploadShortcode = shortcode;
+        uploadUsage = usage;
         lastUploadOp = opId;
     }
 
@@ -153,6 +160,15 @@ public:
         roomPackShortcode = shortcode;
         lastRoomPackOp = opId;
     }
+    // Pack images fetched by their own mxc (export).
+    QList<QPair<quint64, QString>> mxcFetches;
+    quint64 nextFetchOp = 1000;
+    quint64 fetchMxcThumbnail(const QString &mxc, int, int) override
+    {
+        const quint64 op = nextFetchOp++;
+        mxcFetches.append({op, mxc});
+        return op;
+    }
     int editCalls = 0;
     QString editRoom, editStateKey, editAction, editArgA, editArgB;
     quint64 lastEditOp = 0;
@@ -171,9 +187,10 @@ public:
     void addStickerToUserPack(const QString &shortcode, const QString &url,
                               const QString &body, const QString &mimetype,
                               quint64, quint64, quint64,
-                              quint64 opId) override
+                              const QString &usage, quint64 opId) override
     {
         ++saveCalls;
+        saveUsage = usage;
         saveShortcode = shortcode;
         saveUrl = url;
         saveBody = body;
@@ -1168,6 +1185,385 @@ private Q_SLOTS:
         manager.uploadSticker(QUrl::fromLocalFile(pngPath), QString());
         QCOMPARE(client.uploadCalls, 1);
         QCOMPARE(client.uploadPath, pngPath);
+    }
+
+    // ---- usage, shortcode validation, transfers ---------------------------
+
+    void aSavedStickerIsAStickerAndAnUploadedEmojiIsAnEmoticon()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.saveSticker(kMxcA, QStringLiteral("cat"), QStringLiteral("image/png"),
+                            1, 1, 10);
+        QCOMPARE(client.saveUsage, QStringLiteral("sticker"));
+        Q_EMIT client.stickerPackAddFinished(client.lastSaveOp, true, QString(),
+                                             QStringLiteral("cat"));
+
+        QTemporaryDir dir;
+        const QString pngPath = dir.filePath(QStringLiteral("cat.png"));
+        QImage image(4, 4, QImage::Format_ARGB32);
+        image.fill(Qt::red);
+        QVERIFY(image.save(pngPath, "PNG"));
+        manager.uploadSticker(QUrl::fromLocalFile(pngPath), QString());
+        QCOMPARE(client.uploadUsage, QStringLiteral("sticker"));
+        Q_EMIT client.stickerPackAddFinished(client.lastUploadOp, true,
+                                             QString(), QStringLiteral("cat"));
+        manager.uploadImage(QUrl::fromLocalFile(pngPath), QString(),
+                            QStringLiteral("emoticon"));
+        QCOMPARE(client.uploadUsage, QStringLiteral("emoticon"));
+        Q_EMIT client.stickerPackAddFinished(client.lastUploadOp, true,
+                                             QString(), QStringLiteral("cat"));
+        // An unknown spelling is a sticker, never an emoji.
+        manager.uploadImage(QUrl::fromLocalFile(pngPath), QString(),
+                            QStringLiteral("emoji!"));
+        QCOMPARE(client.uploadUsage, QStringLiteral("sticker"));
+    }
+
+    void shortcodeErrorsSayWhy()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        const QString user = QStringLiteral("user");
+
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QStringLiteral("kitten")).isEmpty());
+        // Renaming to itself is not a clash.
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QStringLiteral("cat")).isEmpty());
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"), QString())
+                    .contains(QStringLiteral("name")));
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QStringLiteral("two words"))
+                    .contains(QStringLiteral("letters")));
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QStringLiteral(":cat:"))
+                    .contains(QStringLiteral("letters")));
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QStringLiteral("caf\u00e9"))
+                    .contains(QStringLiteral("letters")));
+        // Legal characters the backend would still change: say so rather than
+        // saving a different name.
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QStringLiteral("-cat"))
+                    .contains(QStringLiteral("start or end")));
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QStringLiteral("a__b"))
+                    .contains(QStringLiteral("start or end")));
+        QVERIFY(!manager.shortcodeError(user, QStringLiteral("cat"),
+                                        QString(65, QLatin1Char('a'))).isEmpty());
+        // Another image in the pack, any case.
+        QVERIFY(manager.shortcodeError(user, QStringLiteral("cat"),
+                                       QStringLiteral("WAVE"))
+                    .contains(QStringLiteral("already")));
+        // The same name in ANOTHER pack is fine.
+        QVERIFY(manager.shortcodeError(QStringLiteral("room:!r:example.org:"),
+                                       QStringLiteral("dog"),
+                                       QStringLiteral("cat")).isEmpty());
+        QCOMPARE(manager.sanitizeShortcode(QStringLiteral("Cat Face!")),
+                 QStringLiteral("Cat_Face"));
+    }
+
+    void customEmojiInAMessageAreFoundAndOnlyIfTheyAreSafe()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+
+        const QString html = QStringLiteral(
+            "hi <img data-mx-emoticon src=\"mxc://example.org/new1\" "
+            "alt=\":party_parrot:\" height=\"32\"> and "
+            "<img src=\"mxc://example.org/plain\" alt=\"not emoji\"> and "
+            "<img data-mx-emoticon src=\"https://evil.example/x.png\" alt=\":x:\"> "
+            "<img data-mx-emoticon src='mxc://example.org/new2' title=':wave:'> "
+            "<img data-mx-emoticon src=\"mxc://example.org/new1\" alt=\":dup:\"> "
+            "<img data-mx-emoticon src=\"%1\" alt=\":cat:\">").arg(kMxcA);
+        const QVariantList found = manager.emoticonsInHtml(html);
+        QCOMPARE(found.size(), 3);
+        QCOMPARE(found[0].toMap().value(QStringLiteral("url")).toString(),
+                 QStringLiteral("mxc://example.org/new1"));
+        QCOMPARE(found[0].toMap().value(QStringLiteral("shortcode")).toString(),
+                 QStringLiteral("party_parrot"));
+        QCOMPARE(found[1].toMap().value(QStringLiteral("shortcode")).toString(),
+                 QStringLiteral("wave"));
+        QVERIFY(!found[0].toMap().value(QStringLiteral("saved")).toBool());
+        // kMxcA is already in the account's pack.
+        QVERIFY(found[2].toMap().value(QStringLiteral("saved")).toBool());
+        QVERIFY(manager.emoticonsInHtml(QStringLiteral("<b>plain</b>")).isEmpty());
+        QVERIFY(manager.emoticonsInHtml(QString()).isEmpty());
+    }
+
+    void savingEmojiAddsThemAsEmoticonsOneAtATimeAndReportsOnce()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        QSignalSpy finished(&manager, &StickerPackManager::transferFinished);
+        QSignalSpy saved(&manager, &StickerPackManager::saveFinished);
+
+        const QVariantList found = manager.emoticonsInHtml(QStringLiteral(
+            "<img data-mx-emoticon src=\"mxc://example.org/n1\" alt=\":one:\">"
+            "<img data-mx-emoticon src=\"mxc://example.org/n2\" alt=\":two:\">"
+            "<img data-mx-emoticon src=\"%1\" alt=\":cat:\">").arg(kMxcA));
+        manager.saveEmoticons(found);
+        QVERIFY(manager.transferring());
+        QCOMPARE(manager.transferKind(), QStringLiteral("emoji"));
+        QCOMPARE(manager.transferTotal(), 3);
+        QCOMPARE(client.saveCalls, 1);
+        QCOMPARE(client.saveUsage, QStringLiteral("emoticon"));
+        QCOMPARE(client.saveUrl, QStringLiteral("mxc://example.org/n1"));
+        // Nothing else may start while the job runs.
+        manager.saveEmoticons(found);
+        QCOMPARE(client.saveCalls, 1);
+
+        Q_EMIT client.stickerPackAddFinished(client.lastSaveOp, true, QString(),
+                                             QStringLiteral("one"));
+        QCOMPARE(client.saveCalls, 2);
+        QCOMPARE(client.saveUrl, QStringLiteral("mxc://example.org/n2"));
+        QCOMPARE(finished.count(), 0);
+        Q_EMIT client.stickerPackAddFinished(client.lastSaveOp, false,
+                                             QStringLiteral("duplicate"),
+                                             QString());
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished.first().at(0).toString(), QStringLiteral("emoji"));
+        QVERIFY(finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(3).toInt(), 1);   // added
+        QCOMPARE(finished.first().at(4).toInt(), 2);   // skipped: dup + saved
+        QCOMPARE(finished.first().at(5).toInt(), 0);   // failed
+        QCOMPARE(finished.first().at(6).toString(), QStringLiteral("one"));
+        QVERIFY(!manager.transferring());
+        // The per-image notice is for single saves; a batch speaks once.
+        QCOMPARE(saved.count(), 0);
+        // And the pack was re-read exactly because something was added.
+        QVERIFY(client.fetchCalls >= 1);
+    }
+
+    void aFullPackEndsTheBatchInsteadOfTryingEveryRemainingImage()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        QSignalSpy finished(&manager, &StickerPackManager::transferFinished);
+        manager.saveEmoticons(manager.emoticonsInHtml(QStringLiteral(
+            "<img data-mx-emoticon src=\"mxc://example.org/n1\" alt=\":one:\">"
+            "<img data-mx-emoticon src=\"mxc://example.org/n2\" alt=\":two:\">"
+            "<img data-mx-emoticon src=\"mxc://example.org/n3\" alt=\":three:\">")));
+        Q_EMIT client.stickerPackAddFinished(client.lastSaveOp, false,
+                                             QStringLiteral("pack_full"),
+                                             QString());
+        QCOMPARE(client.saveCalls, 1);
+        QCOMPARE(finished.count(), 1);
+        QVERIFY(!finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(2).toString(), QStringLiteral("pack_full"));
+        QCOMPARE(finished.first().at(5).toInt(), 3);
+        QVERIFY(manager.transferMessage(QStringLiteral("emoji"), false,
+                                        QStringLiteral("pack_full"), 0, 0, 3,
+                                        QString())
+                    .contains(QStringLiteral("full")));
+    }
+
+    void exportingAPackFetchesEveryImageAndWritesAReadableZip()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        QSignalSpy finished(&manager, &StickerPackManager::transferFinished);
+        QTemporaryDir dir;
+        const QString zipPath = dir.filePath(QStringLiteral("pack.zip"));
+
+        const QByteArray png = QByteArray("\x89PNG\r\n\x1A\n", 8) + QByteArray(20, 'x');
+        manager.exportPack(QStringLiteral("user"), QUrl::fromLocalFile(zipPath));
+        QVERIFY(manager.transferring());
+        QCOMPARE(manager.transferKind(), QStringLiteral("export"));
+        QCOMPARE(client.mxcFetches.size(), 2);   // both images, in flight together
+        QCOMPARE(client.mxcFetches[0].second, kMxcA);
+        // A pack nobody asked about is not exported, and a second job waits.
+        manager.exportPack(QStringLiteral("room:!r:example.org:"),
+                           QUrl::fromLocalFile(dir.filePath(QStringLiteral("x.zip"))));
+        QCOMPARE(client.mxcFetches.size(), 2);
+
+        Q_EMIT client.mediaReady(client.mxcFetches[0].first, kMxcA, 0, png,
+                                 QStringLiteral("image/png"), QString());
+        QCOMPARE(finished.count(), 0);
+        Q_EMIT client.mediaReady(client.mxcFetches[1].first, kMxcB, 0, png,
+                                 QStringLiteral("image/png"), QString());
+        QCOMPARE(finished.count(), 1);
+        QVERIFY(finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(3).toInt(), 2);
+        QVERIFY(QFileInfo(zipPath).size() > 100);
+
+        QTemporaryDir work;
+        const auto read = stickers::archive::readArchive(zipPath, work.path());
+        QCOMPARE(int(read.error), int(stickers::archive::ReadError::None));
+        QCOMPARE(read.pack.name, QStringLiteral("Your pack"));
+        QCOMPARE(read.pack.images.size(), 2);
+        QCOMPARE(read.pack.images[0].shortcode, QStringLiteral("cat"));
+        QCOMPARE(read.pack.images[0].usage, QStringLiteral("sticker"));
+        QCOMPARE(read.pack.images[1].shortcode, QStringLiteral("wave"));
+        QCOMPARE(read.pack.images[1].usage, QStringLiteral("emoticon"));
+    }
+
+    void anExportWhereSomeImagesFailStillReportsHonestly()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        QSignalSpy finished(&manager, &StickerPackManager::transferFinished);
+        QTemporaryDir dir;
+        const QString zipPath = dir.filePath(QStringLiteral("pack.zip"));
+        const QByteArray png = QByteArray("\x89PNG\r\n\x1A\n", 8) + QByteArray(20, 'x');
+        manager.exportPack(QStringLiteral("user"), QUrl::fromLocalFile(zipPath));
+        Q_EMIT client.mediaReady(client.mxcFetches[0].first, kMxcA, 0, png,
+                                 QStringLiteral("image/png"), QString());
+        Q_EMIT client.mediaFailed(client.mxcFetches[1].first, kMxcB, 0,
+                                  QStringLiteral("network"));
+        QCOMPARE(finished.count(), 1);
+        QVERIFY(finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(3).toInt(), 1);
+        QCOMPARE(finished.first().at(5).toInt(), 1);
+        QVERIFY(manager.transferMessage(QStringLiteral("export"), true, QString(),
+                                        1, 0, 1, QString())
+                    .contains(QStringLiteral("could not be downloaded")));
+
+        // Nothing fetched: no file, and it says so.
+        finished.clear();
+        const QString none = dir.filePath(QStringLiteral("none.zip"));
+        manager.exportPack(QStringLiteral("user"), QUrl::fromLocalFile(none));
+        Q_EMIT client.mediaFailed(client.mxcFetches[2].first, kMxcA, 0, QString());
+        Q_EMIT client.mediaFailed(client.mxcFetches[3].first, kMxcB, 0, QString());
+        QCOMPARE(finished.count(), 1);
+        QVERIFY(!finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(2).toString(), QStringLiteral("fetch_failed"));
+        QVERIFY(!QFileInfo::exists(none));
+    }
+
+    void anSvgThatAPackPointsAtIsNeverWrittenIntoAnExport()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        QSignalSpy finished(&manager, &StickerPackManager::transferFinished);
+        QTemporaryDir dir;
+        const QString zipPath = dir.filePath(QStringLiteral("pack.zip"));
+        const QByteArray png = QByteArray("\x89PNG\r\n\x1A\n", 8) + QByteArray(20, 'x');
+        const QByteArray svg = QByteArrayLiteral(
+            "<svg xmlns='http://www.w3.org/2000/svg'><script/></svg>");
+        manager.exportPack(QStringLiteral("user"), QUrl::fromLocalFile(zipPath));
+        Q_EMIT client.mediaReady(client.mxcFetches[0].first, kMxcA, 0, svg,
+                                 QStringLiteral("image/png"), QString());
+        Q_EMIT client.mediaReady(client.mxcFetches[1].first, kMxcB, 0, png,
+                                 QStringLiteral("image/png"), QString());
+        QCOMPARE(finished.count(), 1);
+        QVERIFY(finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(3).toInt(), 1);
+        QCOMPARE(finished.first().at(4).toInt(), 1);   // skipped
+        QFile f(zipPath);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QVERIFY(!f.readAll().contains("<svg"));
+    }
+
+    void importingAPackUploadsEachNewImageWithItsUsageAndSkipsWhatIsThere()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        QSignalSpy finished(&manager, &StickerPackManager::transferFinished);
+
+        const QByteArray png = QByteArray("\x89PNG\r\n\x1A\n", 8) + QByteArray(20, 'x');
+        stickers::archive::Pack pack;
+        pack.name = QStringLiteral("Friends");
+        pack.images = {
+            {QStringLiteral("new_one"), QStringLiteral("One"), {}, QStringLiteral("emoticon"), png, {}},
+            {QStringLiteral("cat"), QStringLiteral("Cat"), {}, QStringLiteral("sticker"), png, {}},
+            {QStringLiteral("new_two"), QStringLiteral("Two"), {}, QStringLiteral("sticker"), png, {}},
+        };
+        QTemporaryDir dir;
+        const QString zipPath = dir.filePath(QStringLiteral("in.zip"));
+        {
+            QFile f(zipPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(stickers::archive::buildArchive(pack));
+        }
+        manager.importPack(QUrl::fromLocalFile(zipPath));
+        QVERIFY(manager.transferring());
+        QTRY_COMPARE_WITH_TIMEOUT(client.uploadCalls, 1, 10000);
+        QCOMPARE(client.uploadShortcode, QStringLiteral("new_one"));
+        QCOMPARE(client.uploadUsage, QStringLiteral("emoticon"));
+        QVERIFY(QFileInfo::exists(client.uploadPath));
+        Q_EMIT client.stickerPackAddFinished(client.lastUploadOp, true, QString(),
+                                             QStringLiteral("new_one"));
+        QCOMPARE(client.uploadCalls, 2);
+        QCOMPARE(client.uploadShortcode, QStringLiteral("new_two"));
+        QCOMPARE(client.uploadUsage, QStringLiteral("sticker"));
+        const QString lastPath = client.uploadPath;
+        Q_EMIT client.stickerPackAddFinished(client.lastUploadOp, false,
+                                             QStringLiteral("upload_failed"),
+                                             QString());
+        QCOMPARE(finished.count(), 1);
+        QCOMPARE(finished.first().at(0).toString(), QStringLiteral("import"));
+        QVERIFY(finished.first().at(1).toBool());      // something was added
+        QCOMPARE(finished.first().at(3).toInt(), 1);   // added
+        QCOMPARE(finished.first().at(4).toInt(), 1);   // "cat" was already there
+        QCOMPARE(finished.first().at(5).toInt(), 1);   // one upload failed
+        QCOMPARE(finished.first().at(6).toString(), QStringLiteral("Friends"));
+        // The extracted files are gone with the job.
+        QVERIFY(!QFileInfo::exists(lastPath));
+        QVERIFY(!manager.transferring());
+    }
+
+    void aHostileOrBrokenPackIsRefusedWithAReasonAndUploadsNothing()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        QSignalSpy finished(&manager, &StickerPackManager::transferFinished);
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("junk.zip"));
+        {
+            QFile f(path);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("this is not a zip file");
+        }
+        manager.importPack(QUrl::fromLocalFile(path));
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 10000);
+        QVERIFY(!finished.first().at(1).toBool());
+        QCOMPARE(finished.first().at(2).toString(), QStringLiteral("unreadable"));
+        QCOMPARE(client.uploadCalls, 0);
+        QVERIFY(!manager.transferring());
+        QVERIFY(manager.transferMessage(QStringLiteral("import"), false,
+                                        QStringLiteral("unreadable"), 0, 0, 0,
+                                        QString())
+                    .contains(QStringLiteral("not a readable")));
+    }
+
+    void signingOutDropsAJobInFlightAndItsAnswers()
+    {
+        FakeClient client;
+        StickerPackManager manager;
+        manager.setClient(&client);
+        manager.applySnapshotForTest(kRoom, false, twoPacks());
+        QSignalSpy finished(&manager, &StickerPackManager::transferFinished);
+        QTemporaryDir dir;
+        manager.exportPack(QStringLiteral("user"),
+                           QUrl::fromLocalFile(dir.filePath(QStringLiteral("p.zip"))));
+        QVERIFY(manager.transferring());
+        const auto first = client.mxcFetches[0];
+        Q_EMIT client.loggedOut();
+        QVERIFY(!manager.transferring());
+        const QByteArray png = QByteArray("\x89PNG\r\n\x1A\n", 8) + QByteArray(20, 'x');
+        Q_EMIT client.mediaReady(first.first, first.second, 0, png,
+                                 QStringLiteral("image/png"), QString());
+        QCOMPARE(finished.count(), 0);
+        QVERIFY(!QFileInfo::exists(dir.filePath(QStringLiteral("p.zip"))));
     }
 };
 

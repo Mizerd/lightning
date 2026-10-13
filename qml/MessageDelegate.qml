@@ -3952,6 +3952,33 @@ Item {
                     model.mediaWidth || 0, model.mediaHeight || 0,
                     model.mediaSize || 0)
             }
+            // The custom emoji (`data-mx-emoticon` images) inside this
+            // message, into the account's own pack as EMOJI (usage
+            // "emoticon"), one write at a time with a single report. Offered
+            // only for ones not already saved; the manager returns plain mxc
+            // sources only, so nothing else can be added from here.
+            AppMenuItem {
+                id: saveEmoticonsItem
+                objectName: "saveEmoticonsMenuItem"
+                iconName: "add_reaction"
+                // `revision` is read so a pack change re-evaluates which of
+                // them are still new.
+                readonly property var pending: {
+                    var _r = app.stickers.revision
+                    if (!app.stickers.available)
+                        return []
+                    return app.stickers
+                        .emoticonsInHtml(model.formattedBody || "")
+                        .filter(function (e) { return !e.saved })
+                }
+                text: pending.length === 1
+                      ? qsTr("Add :%1: to my emoji").arg(pending[0].shortcode)
+                      : qsTr("Add %n custom emoji to my pack", "", pending.length)
+                visible: pending.length > 0
+                enabled: visible && !app.stickers.transferring
+                         && app.stickers.canSave(pending[0].url)
+                onTriggered: app.stickers.saveEmoticons(pending)
+            }
             AppMenuItem {
                 objectName: "saveMediaMenuItem"
                 iconName: "download"

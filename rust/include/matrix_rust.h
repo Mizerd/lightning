@@ -1097,6 +1097,7 @@ char *mx_rust_stickers_upload_to_user_pack(void *client,
                                            const char *shortcode,
                                            const char *body,
                                            const char *local_path,
+                                           const char *usage,
                                            uint64_t op_id);
 
 /* MSC2545 pack management. `room_id` empty = this account's own pack
@@ -1195,6 +1196,7 @@ char *mx_rust_stickers_add_to_user_pack(void *client,
                                         unsigned long long width,
                                         unsigned long long height,
                                         unsigned long long size,
+                                        const char *usage,
                                         unsigned long long op_id);
 /*
  * v0.5.12: secure client-side HTTPS preview. Rust validates DNS and every
