@@ -404,6 +404,175 @@ private Q_SLOTS:
                      "(starts at %2)").arg(bubbleRight).arg(checkLeft)));
     }
 
+    // Hover fan: the pile opens leftwards, the reservations keep reading the
+    // COLLAPSED width, and it never leaves the strip.
+    void theFanOpensLeftwardsWithoutMovingAnyReservation_data()
+    {
+        QTest::addColumn<int>("readers");
+        QTest::newRow("one reader") << 1;
+        QTest::newRow("four readers") << 4;
+        QTest::newRow("six readers") << 6;
+        QTest::newRow("nine readers") << 9;
+    }
+    void theFanOpensLeftwardsWithoutMovingAnyReservation()
+    {
+        QFETCH(int, readers);
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("readReceipts"), receipts(readers));
+        f.insert(QStringLiteral("readReceiptsTotal"), readers);
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        auto *strip = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptStrip"));
+        QVERIFY(pile && strip);
+        const qreal rest = pile->property("restWidth").toReal();
+        QVERIFY(rest > 0);
+        // The reservation mirrors the collapsed row exactly.
+        QVERIFY2(qAbs(pile->width() - rest) < 0.5,
+                 qPrintable(QStringLiteral("width=%1 restWidth=%2")
+                                .arg(pile->width()).arg(rest)));
+        const qreal right0 = pile->mapToItem(strip, QPointF(pile->width(), 0)).x();
+        const qreal reserve0 = d.root->property("actionBarReceiptReserve").toReal();
+        const qreal rail0 = d.root->property("receiptRailReserve").toReal();
+        const qreal inset0 = d.root->property("bubbleReceiptInset").toReal();
+        const qreal content0 = d.root->property("contentInnerCap").toReal();
+        const qreal height0 = d.root->height();
+
+        QVERIFY(QQmlProperty::write(pile, QStringLiteral("fanOpen"), true));
+        QTRY_VERIFY2(pile->property("fan").toReal() > 0.99, "the fan never opened");
+
+        QCOMPARE(pile->property("restWidth").toReal(), rest);
+        const qreal shown = qMin(readers, 6);
+        QVERIFY(pile->width() >= rest - 0.5);
+        if (shown > 1)
+            QVERIFY2(pile->width() > rest, "a pile of several did not open");
+        // Grows leftwards: the right edge is fixed.
+        QVERIFY(qAbs(pile->mapToItem(strip, QPointF(pile->width(), 0)).x()
+                     - right0) < 0.5);
+        // Inside the strip.
+        QVERIFY(pile->mapToItem(strip, QPointF(0, 0)).x() >= 0);
+        // Nothing the body reads moved: no reflow on hover.
+        QCOMPARE(d.root->property("actionBarReceiptReserve").toReal(), reserve0);
+        QCOMPARE(d.root->property("receiptRailReserve").toReal(), rail0);
+        QCOMPARE(d.root->property("bubbleReceiptInset").toReal(), inset0);
+        QCOMPARE(d.root->property("contentInnerCap").toReal(), content0);
+        QCOMPARE(d.root->height(), height0);
+        // Fanned shows up to six avatars; the collapsed pile shows four.
+        int visibleAvatars = 0;
+        QList<QQuickItem *> stack{pile};
+        while (!stack.isEmpty()) {
+            QQuickItem *it = stack.takeLast();
+            for (QQuickItem *c : it->childItems()) {
+                const QString n = c->objectName();
+                if ((n == QLatin1String("readReceiptChip")
+                     || n == QLatin1String("readReceiptFanChip"))
+                    && c->isVisible() && c->opacity() > 0.9)
+                    ++visibleAvatars;
+                stack.append(c);
+            }
+        }
+        QCOMPARE(visibleAvatars, int(shown));
+
+        QVERIFY(QQmlProperty::write(pile, QStringLiteral("fanOpen"), false));
+        QTRY_VERIFY(pile->property("fan").toReal() < 0.01);
+        QTRY_VERIFY(qAbs(pile->width() - rest) < 0.5);
+    }
+
+    // Enter on the focused pile is a key path to the list, not a mouse-only one.
+    void theFacepileIsAKeyboardFocusStop()
+    {
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("readReceipts"), receipts(2));
+        f.insert(QStringLiteral("readReceiptsTotal"), 2);
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        QVERIFY(pile);
+        QVERIFY2(pile->property("activeFocusOnTab").toBool(),
+                 "the facepile cannot be reached with Tab");
+    }
+
+    // Reported on Windows: clicking a message pinned it, but clicking the
+    // EMPTY right side of another message did not move the pin, because only
+    // the bubble carried a tap handler. Every layout, wide rows so the right
+    // side is genuinely outside the bubble.
+    void aClickOnTheFarRightOfARowMovesThePinToThatRow_data()
+    {
+        QTest::addColumn<int>("layout");
+        QTest::newRow("modern") << 0;
+        QTest::newRow("compact") << 2;
+        QTest::newRow("bubbles") << 1;
+    }
+    void aClickOnTheFarRightOfARowMovesThePinToThatRow()
+    {
+        QFETCH(int, layout);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(layout);
+
+        QVariantMap fa = baseFixture();
+        fa.insert(QStringLiteral("itemId"), QStringLiteral("row-a"));
+        fa.insert(QStringLiteral("eventId"), QStringLiteral("$a"));
+        QVariantMap fb = baseFixture();
+        fb.insert(QStringLiteral("itemId"), QStringLiteral("row-b"));
+        fb.insert(QStringLiteral("eventId"), QStringLiteral("$b"));
+        constexpr qreal width = 1500;
+
+        Delegate a, b;
+        QVERIFY(build(app, fa, a, width, layout == 1));
+        QVERIFY(build(app, fb, b, width, layout == 1));
+        for (Delegate *d : {&a, &b}) {
+            d->window->resize(1500, 480);
+            QCoreApplication::processEvents();
+        }
+
+        // A stand-in view both rows share: the pin lives there.
+        QQmlComponent comp(a.engine.get());
+        comp.setData("import QtQuick\nQtObject { property string pinnedActionsKey: \"\";"
+                     " property string hoveredActionsKey: \"\" }",
+                     QUrl());
+        std::unique_ptr<QObject> view(comp.create());
+        QVERIFY2(view, qPrintable(comp.errorString()));
+        QQmlProperty::write(a.root, QStringLiteral("timelineView"),
+                            QVariant::fromValue(view.get()));
+        QQmlProperty::write(b.root, QStringLiteral("timelineView"),
+                            QVariant::fromValue(view.get()));
+        QCoreApplication::processEvents();
+
+        const auto click = [](Delegate &d, const QPointF &p) {
+            QTest::mouseClick(d.window.get(), Qt::LeftButton, Qt::NoModifier,
+                              p.toPoint());
+        };
+        // Row A: click inside its text.
+        auto *bubbleA = a.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        QVERIFY(bubbleA);
+        click(a, bubbleA->mapToScene(QPointF(bubbleA->width() / 2,
+                                             bubbleA->height() / 2)));
+        QTRY_COMPARE(view->property("pinnedActionsKey").toString(),
+                     QStringLiteral("row-a"));
+
+        // Row B: the far right of the row, outside its bubble.
+        auto *bubbleB = b.root->findChild<QQuickItem *>(
+            QStringLiteral("messageContentColumn"));
+        auto *presB = b.root->findChild<QQuickItem *>(
+            QStringLiteral("messagePresentationRow"));
+        QVERIFY(bubbleB && presB);
+        const QPointF far = presB->mapToScene(
+            QPointF(presB->width() - 24, presB->height() - 4));
+        QVERIFY2(!bubbleB->contains(bubbleB->mapFromScene(far)),
+                 "fixture: the probe lands inside the bubble");
+        QTest::mouseMove(b.window.get(), far.toPoint());
+        click(b, far);
+        QTRY_COMPARE_WITH_TIMEOUT(view->property("pinnedActionsKey").toString(),
+                                  QStringLiteral("row-b"), 2000);
+    }
+
     // It is a reservation, not a permanent indent: on a tall row the bar keeps
     // the row's corner.
     void aTallRowKeepsTheBarInTheCorner()

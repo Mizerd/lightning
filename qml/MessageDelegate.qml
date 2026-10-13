@@ -1336,6 +1336,33 @@ Item {
                     }
                 }
             }
+            // A click on the row's EMPTY side (right of the bubble, the gutter,
+            // the rail) moves the pinned/selected row here too. The bubble's own
+            // handler covers the bubble only, so on the far right of a row a
+            // click left the previous row pinned. Everything with its own click
+            // meaning keeps it: the bubble (own handler), the receipt facepile
+            // and the hover action bar.
+            TapHandler {
+                objectName: "rowEmptySideTap"
+                enabled: root.rowActionsEnabled
+                acceptedButtons: Qt.LeftButton
+                onTapped: (eventPoint) => {
+                    var pos = eventPoint.position
+                    var skip = [bubble, avatarSlot.visible ? avatarSlot : null,
+                                receiptRow.visible ? receiptRow : null,
+                                messageActionBarLoader.visible
+                                    ? messageActionBarLoader : null]
+                    for (var i = 0; i < skip.length; ++i) {
+                        var b = skip[i]
+                        if (!b) continue
+                        var m = bubbleRow.mapToItem(b, pos.x, pos.y)
+                        if (m.x >= 0 && m.x <= b.width
+                            && m.y >= 0 && m.y <= b.height)
+                            return
+                    }
+                    root.toggleActionsPin()
+                }
+            }
             TapHandler {
                 // Not gated on rowActionsEnabled: the context menu is also how
                 // selection mode is left.
