@@ -139,6 +139,30 @@ QString colorLiteral(const QString &qml, const QString &name)
     return m.hasMatch() ? m.captured(1).toUpper() : QString();
 }
 
+// AppTheme's `elementGroups` table: per-element role -> the paletteForTheme()
+// key it follows until it is given a colour. The resolver adds every element
+// the audit grades (`timelineBackground`, `roomList`, the labels ...); a
+// fixture without them hands the audit a palette it can grade almost nothing
+// in, which is how these gradient cases once passed vacuously.
+QHash<QString, QString> elementGroupsTable(const QString &qml)
+{
+    QHash<QString, QString> out;
+    static const QRegularExpression block(
+        QStringLiteral("readonly\\s+property\\s+var\\s+elementGroups:\\s*\\(\\{(.*?)\\}\\)"),
+        QRegularExpression::DotMatchesEverythingOption);
+    const auto m = block.match(qml);
+    if (!m.hasMatch())
+        return out;
+    static const QRegularExpression pair(
+        QStringLiteral("(\\w+)\\s*:\\s*\"(\\w+)\""));
+    auto it = pair.globalMatch(m.captured(1));
+    while (it.hasNext()) {
+        const auto e = it.next();
+        out.insert(e.captured(1), e.captured(2));
+    }
+    return out;
+}
+
 // paletteForTheme()'s spellings and fallbacks, as CustomThemeTest resolves
 // them, so the audit reads the same object QML hands it.
 QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
@@ -164,6 +188,16 @@ QVariantMap resolvedPalette(const QHash<QString, QString> &raw,
     fallback("link", raw.value(QStringLiteral("accent")));
     fallback("selectedText", raw.value(QStringLiteral("textPrimary")));
     fallback("otherBubble", raw.value(QStringLiteral("cardElevated")));
+    fallback("unreadBadge", raw.value(QStringLiteral("accent")));
+    // Every per-element role resolves to its group, as the resolver does.
+    QHash<QString, QString> groups = elementGroupsTable(appTheme());
+    groups.insert(QStringLiteral("embedSurface"), QStringLiteral("cardElevated"));
+    groups.insert(QStringLiteral("roomSelected"), QStringLiteral("selected"));
+    groups.insert(QStringLiteral("popoverSurface"), QStringLiteral("surface"));
+    for (auto it = groups.constBegin(); it != groups.constEnd(); ++it) {
+        if (p.contains(it.value()))
+            p.insert(it.key(), p.value(it.value()));
+    }
     return p;
 }
 
@@ -1099,7 +1133,11 @@ private Q_SLOTS:
         bool namedStop = false;
         for (const QVariant &row : bad) {
             const QVariantMap m = row.toMap();
-            if (m.value(QStringLiteral("bg")).toString() == QLatin1String("background"))
+            // The conversation's ground is the `timelineBackground` element,
+            // which paints the `background` group's gradient until it has its
+            // own; the finding names the element that is drawn.
+            if (m.value(QStringLiteral("bg")).toString()
+                == QLatin1String("timelineBackground"))
                 namedStop = namedStop || m.value(QStringLiteral("stop")).toInt() == 1;
         }
         QVERIFY(namedStop);

@@ -1253,6 +1253,32 @@ QVariantList CustomThemeStore::auditWithGradients(
     if (stopsByKey.isEmpty())
         return audit(palette);
 
+    // An element that has no colour of its own paints its group's gradient
+    // (AppTheme.gradientGroups / inheritedGradient). The table names the
+    // element that is drawn, so without this a dark stop on `background`
+    // would grade nothing: no check has `background` as its surface any more.
+    // The audit sees only the resolved palette, not which roles were
+    // overridden, so "has no colour of its own" is read as "resolves to the
+    // group's colour"; an element painted a different colour keeps its flat
+    // grade, which is what it draws.
+    struct GradientFollow {
+        const char *element;
+        const char *group;
+    };
+    constexpr GradientFollow kGradientFollows[] = {
+        { "timelineBackground", "background" },
+        { "roomList",           "sidebar" },
+    };
+    for (const GradientFollow &f : kGradientFollows) {
+        const QString element = QLatin1String(f.element);
+        const QString group = QLatin1String(f.group);
+        if (stopsByKey.contains(element) || !stopsByKey.contains(group))
+            continue;
+        if (palette.value(element).toString().compare(
+                palette.value(group).toString(), Qt::CaseInsensitive) == 0)
+            stopsByKey.insert(element, stopsByKey.value(group));
+    }
+
     QVariantList out;
     for (const ReadabilityCheck &check : kReadability) {
         const QString fgKey = QLatin1String(check.fg);
