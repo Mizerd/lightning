@@ -876,9 +876,17 @@ private Q_SLOTS:
             store.audit(merged(QStringLiteral("Lightning Dark"), ink));
         // Ink darkens `accentText` but keeps the base `accentPressed`, so the
         // label is unreadable only while the button is held down.
-        // 20, plus all seven element pairs (header title, typed text, menu
-        // items, link preview title, primary and send labels, unread number).
-        QCOMPARE(inkReport.size(), 27);
+        // 20, plus six of the seven element pairs (header title, typed text,
+        // menu items, link preview title, primary and send labels). The
+        // seventh, the unread number, grades `unreadBadgeText` against
+        // `roomUnreadBadge`, which inherits the `unreadBadge` GROUP and not the
+        // accent: Ink darkens only the accent, so its badge fill is the base
+        // theme's and the dark number reads fine on it. The pair is absent
+        // because it passes, and that is asserted below so a short report
+        // cannot hide behind it.
+        QCOMPARE(inkReport.size(), 26);
+        QCOMPARE(findPair(inkReport, "unreadBadgeText", "roomUnreadBadge"),
+                 -1.0);
         QVERIFY(qAbs(findPair(inkReport, "accentText", "accent") - 2.68)
                 < 0.01);
         QVERIFY(qAbs(findPair(inkReport, "buttonPrimaryInk", "accentPressed") - 2.77)
