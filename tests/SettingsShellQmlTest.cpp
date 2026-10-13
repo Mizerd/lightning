@@ -10,6 +10,7 @@
 #include <cmath>
 #include <functional>
 
+#include <QClipboard>
 #include <QColor>
 #include <QFile>
 #include <QFont>

@@ -66,7 +66,7 @@ public:
     bool supportsSettingsSync() const override { return supports; }
     bool isLoggedIn() const override { return true; }
     bool initialSyncDone() const override { return synced; }
-    void readSyncedSettings(quint64 opId) override { reads.append({ opId }); }
+    void readSyncedSettings(quint64 opId) override { reads.append(Read{ opId }); }
     void writeSyncedSettings(int kind, const QString &json, quint64 opId) override
     {
         writes.append({ kind, json, opId });
