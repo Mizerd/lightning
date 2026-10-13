@@ -22,6 +22,26 @@ ColumnLayout {
     readonly property bool preparing: root.preview.preparing === true
     property string statusText: ""
 
+    // SettingsScreen's SettingsCard and SettingsGroupLabel are inline
+    // components there and are not visible from this file; same plane and
+    // the same heading ink, as AboutToolsSection does.
+    component SettingsCard: Pane {
+        Layout.fillWidth: true
+        background: Rectangle {
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorder
+            radius: AppTheme.radiusMd
+        }
+    }
+    component SettingsGroupLabel: Label {
+        Layout.topMargin: AppTheme.spacing8
+        color: AppTheme.stormTextMuted
+        font.family: AppTheme.menuSectionFont
+        font.pixelSize: AppTheme.menuSectionSize
+        font.weight: AppTheme.menuSectionWeight
+        font.letterSpacing: AppTheme.menuSectionTracking
+    }
+
     function sizeText(bytes) {
         if (bytes < 1024)
             return qsTr("%1 B").arg(bytes)
