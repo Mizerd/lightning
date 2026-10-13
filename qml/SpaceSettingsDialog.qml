@@ -1181,7 +1181,9 @@ AppDialog {
                                         // Right-click anywhere on the row opens the
                                         // same menu as the button.
                                         TapHandler {
+                                            // Touch has no buttons, so a tap would fire this too.
                                             acceptedButtons: Qt.RightButton
+                                            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                                             onTapped: (eventPoint) => root.openMemberMenu(
                                                 memberRow.modelData, memberRow,
                                                 eventPoint.position.x,

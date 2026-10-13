@@ -566,7 +566,9 @@ Item {
         // reason as above.
         TapHandler {
             enabled: root._volumeOffered
+            // Touch has no buttons, so a tap would fire this too.
             acceptedButtons: Qt.RightButton
+            acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onTapped: root.openVolumeControl()
         }
 

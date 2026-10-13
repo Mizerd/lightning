@@ -1936,7 +1936,9 @@ Rectangle {
                             // Right-click: the moderation actions without
                             // opening the profile first.
                             TapHandler {
+                                // Touch has no buttons, so a tap would fire this too.
                                 acceptedButtons: Qt.RightButton
+                                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                                 onTapped: (eventPoint) => root.openMemberMenu(
                                     member, parent, eventPoint.position.x,
                                     eventPoint.position.y)
