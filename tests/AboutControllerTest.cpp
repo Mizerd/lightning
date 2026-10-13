@@ -181,8 +181,16 @@ private Q_SLOTS:
         QCOMPARE(about.resetState(), QStringLiteral("failed"));
         QVERIFY(about.resetSummary().contains(
             QStringLiteral("Could not clear: media cache")));
-        QVERIFY(about.resetSummary().contains(
-            QStringLiteral("Cleared: event cache, search index")));
+        // The index clears synchronously, so it is listed before the event
+        // cache that answered a turn later: pin WHAT was cleared, not the order.
+        const QString summary = about.resetSummary();
+        const int cleared = summary.indexOf(QStringLiteral("Cleared: "));
+        const int failedAt = summary.indexOf(QStringLiteral("Could not clear"));
+        QVERIFY(cleared >= 0 && failedAt > cleared);
+        const QString clearedPart = summary.mid(cleared, failedAt - cleared);
+        QVERIFY(clearedPart.contains(QStringLiteral("event cache")));
+        QVERIFY(clearedPart.contains(QStringLiteral("search index")));
+        QVERIFY(!clearedPart.contains(QStringLiteral("media cache")));
         QVERIFY(about.resetSummary().contains(QStringLiteral("not touched")));
     }
 
