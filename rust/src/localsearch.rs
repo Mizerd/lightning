@@ -464,7 +464,14 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
         .unwrap_or("")
         .to_owned();
     // An attachment's `body` is its filename, which is worth finding.
-    let body = body_source.get("body").and_then(|v| v.as_str())?.to_owned();
+    let raw_body = body_source.get("body").and_then(|v| v.as_str())?;
+    // The quoted original is not part of this message; indexing it would make
+    // a reply findable by words it never said.
+    let body = if matches!(msgtype.as_str(), "m.text" | "m.notice" | "m.emote") {
+        crate::timeline::strip_reply_fallback(raw_body).to_owned()
+    } else {
+        raw_body.to_owned()
+    };
     if body.trim().is_empty() {
         return None;
     }

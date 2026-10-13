@@ -1,5 +1,6 @@
 #include "models/ActivityModel.h"
 
+#include "matrix/EventPreview.h"
 #include "matrix/MatrixClient.h"
 
 #include <QDateTime>
@@ -516,7 +517,7 @@ QString ActivityModel::classify(const TimelineEvent &event, const QString &selfU
         return QStringLiteral("thread");
     if (!event.undecryptable) {
         for (const QString &k : keywords)
-            if (matchesKeyword(event.body, k))
+            if (matchesKeyword(matrix::preview::stripReplyFallback(event.body), k))
                 return QStringLiteral("keyword");
     }
     if (event.mentionsRoom)
@@ -537,7 +538,7 @@ QString ActivityModel::previewOf(const TimelineEvent &event)
     case TimelineEvent::Poll: return collapse(event.pollQuestion);
     default: break;
     }
-    return collapse(event.body);
+    return collapse(matrix::preview::stripReplyFallback(event.body));
 }
 
 void ActivityModel::rememberOwn(const TimelineEvent &event)

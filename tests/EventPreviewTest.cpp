@@ -9,6 +9,7 @@
 
 using matrix::preview::normalizePreviewText;
 using matrix::preview::oneLineSummary;
+using matrix::preview::stripReplyFallback;
 
 class EventPreviewTest : public QObject
 {
@@ -39,6 +40,49 @@ private Q_SLOTS:
         const QString other =
             QStringLiteral("[site](https://example.org/page)");
         QCOMPARE(normalizePreviewText(other), other);
+    }
+
+    // The reply fallback of a plain body (room list showed
+    // "> <@moosix:cutefunny.art> You kno..." on 2026-10-13).
+    void replyFallbackIsNotPartOfThePreview()
+    {
+        QCOMPARE(normalizePreviewText(QStringLiteral(
+                     "> <@moosix:cutefunny.art> You know what\n\nyes I do")),
+                 QStringLiteral("yes I do"));
+        // Multi-line quote, with a bare ">" line.
+        QCOMPARE(normalizePreviewText(QStringLiteral(
+                     "> <@a:b.c> one\n>\n> two\n\nanswer")),
+                 QStringLiteral("answer"));
+        // Nested: the quoted message was itself a reply.
+        QCOMPARE(normalizePreviewText(QStringLiteral(
+                     "> <@a:b.c> > <@d:e.f> older\n> \n> newer\n\nanswer")),
+                 QStringLiteral("answer"));
+        // CRLF line endings.
+        QCOMPARE(stripReplyFallback(QStringLiteral(
+                     "> <@a:b.c> q\r\n\r\nanswer")),
+                 QStringLiteral("answer"));
+        // Emote fallback.
+        QCOMPARE(stripReplyFallback(QStringLiteral("> * <@a:b.c> waves\n\nok")),
+                 QStringLiteral("ok"));
+        // HTML body.
+        QCOMPARE(stripReplyFallback(QStringLiteral(
+                     "<mx-reply><blockquote>q</blockquote></mx-reply>hello")),
+                 QStringLiteral("hello"));
+    }
+
+    void aMessageThatMerelyStartsWithAQuoteIsKept()
+    {
+        for (const QString &b : {
+                 QStringLiteral("> <@a:b.c> quoting\nreply with no separator"),
+                 QStringLiteral("> <@a:b.c> only a quote"),
+                 QStringLiteral("> markdown quote\n\ntext"),
+                 QStringLiteral("> not a mention <@a:b.c>\n\ntext"),
+                 QStringLiteral("hi\n\n> <@a:b.c> later\n\nx"),
+             }) {
+            QCOMPARE(stripReplyFallback(b), b);
+        }
+        QCOMPARE(normalizePreviewText(QStringLiteral("> just a quote")),
+                 QStringLiteral("> just a quote"));
     }
 
     void longPreviewsAreBounded()

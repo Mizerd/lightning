@@ -4877,6 +4877,41 @@ fn downsample_waveform(raw: &[u64], max: u64) -> Vec<u64> {
     vals.into_iter().map(|v| (v * 100) / peak).collect()
 }
 
+/// Strip the legacy rich-reply fallback (spec "Rich replies", removed from
+/// the spec in v1.13 but still sent by many clients) from a plain body, for
+/// every surface that shows the RAW body as one line of text: room-list
+/// previews, notifications, the local search index.
+///
+/// Strict on purpose, so a message that merely begins with a quote survives:
+/// the first line must open `> <@` (or `> * <@` for an emote), every
+/// following `> `-prefixed or bare `>` line is part of the block (nested
+/// quotes included), and the block must be closed by an EMPTY line. A body
+/// without that separator is returned unchanged. The C++ twin is
+/// `matrix::preview::stripReplyFallback`; keep them in step.
+pub(crate) fn strip_reply_fallback(body: &str) -> &str {
+    if !(body.starts_with("> <@") || body.starts_with("> * <@")) {
+        return body;
+    }
+    let mut rest = body;
+    loop {
+        let (line, tail) = match rest.split_once('\n') {
+            Some(parts) => parts,
+            // The quote runs to the end with no separator: not a fallback.
+            None => return body,
+        };
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.is_empty() {
+            return tail;
+        }
+        if line == ">" || line.starts_with("> ") {
+            rest = tail;
+        } else {
+            // A non-quote line before any blank one: not a fallback.
+            return body;
+        }
+    }
+}
+
 /// Reduce matrix.to user links in outgoing markdown to their label for the
 /// plain body, the fallback other clients show in room lists and
 /// notifications (Element does the same). `formatted_body` keeps the
@@ -7919,5 +7954,53 @@ mod gallery_tests {
         fill_message_media(&mut out, &wire.msgtype, "$cap");
         assert_eq!(out["body"], "look at this");
         assert_eq!(out["media_filename"], "cat.png");
+    }
+}
+
+#[cfg(test)]
+mod reply_fallback_tests {
+    use super::strip_reply_fallback as strip;
+
+    #[test]
+    fn single_line_quote() {
+        assert_eq!(strip("> <@a:b.c> You know\n\nyes I do"), "yes I do");
+    }
+
+    #[test]
+    fn multi_line_quote_and_crlf() {
+        assert_eq!(strip("> <@a:b.c> one\n> two\n>\n> three\n\nreply"), "reply");
+        assert_eq!(strip("> <@a:b.c> one\r\n> two\r\n\r\nreply"), "reply");
+    }
+
+    #[test]
+    fn nested_fallback() {
+        assert_eq!(
+            strip("> <@a:b.c> > <@d:e.f> older\n> \n> newer\n\nreply"),
+            "reply"
+        );
+        assert_eq!(strip("> <@a:b.c> > <@d:e.f> older\n> newer\n\nreply"), "reply");
+    }
+
+    #[test]
+    fn emote_fallback() {
+        assert_eq!(strip("> * <@a:b.c> waves\n\nok"), "ok");
+    }
+
+    #[test]
+    fn a_legit_quote_without_a_blank_line_is_kept() {
+        for b in [
+            "> <@a:b.c> quoting a person\nand my reply with no separator",
+            "> <@a:b.c> only a quote",
+            "> just a markdown quote\n\ntext",
+            "> not a mention <@a:b.c>\n\ntext",
+            "plain\n\n> <@a:b.c> later quote\n\nx",
+        ] {
+            assert_eq!(strip(b), b);
+        }
+    }
+
+    #[test]
+    fn nothing_after_the_fallback_is_empty() {
+        assert_eq!(strip("> <@a:b.c> q\n\n"), "");
     }
 }

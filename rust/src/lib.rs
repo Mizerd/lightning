@@ -10828,7 +10828,19 @@ fn install_event_handlers(
                             .unwrap_or(&g.items[0]);
                         (primary, g.caption.clone())
                     }
-                    None => (&ev.content.msgtype, ev.content.body().to_owned()),
+                    None => (
+                        &ev.content.msgtype,
+                        // Text-like bodies only: a media body is a filename.
+                        match &ev.content.msgtype {
+                            MessageType::Text(_)
+                            | MessageType::Notice(_)
+                            | MessageType::Emote(_) => crate::timeline::strip_reply_fallback(
+                                ev.content.body(),
+                            )
+                            .to_owned(),
+                            _ => ev.content.body().to_owned(),
+                        },
+                    ),
                 };
                 let Some(kind) = typed_message_row_kind(row_msgtype.msgtype())
                 else {
@@ -12632,9 +12644,15 @@ pub(crate) fn latest_event_preview_text(
                 _ => message.content.msgtype,
             };
             match msgtype {
-                MessageType::Text(content) => one_line(&content.body),
-                MessageType::Notice(content) => one_line(&content.body),
-                MessageType::Emote(content) => one_line(&content.body),
+                MessageType::Text(content) => {
+                    one_line(crate::timeline::strip_reply_fallback(&content.body))
+                }
+                MessageType::Notice(content) => {
+                    one_line(crate::timeline::strip_reply_fallback(&content.body))
+                }
+                MessageType::Emote(content) => {
+                    one_line(crate::timeline::strip_reply_fallback(&content.body))
+                }
                 MessageType::Image(content) => body_or(one_line(&content.body), "Image"),
                 MessageType::File(content) => body_or(one_line(&content.body), "File"),
                 MessageType::Video(content) => body_or(one_line(&content.body), "Video"),
@@ -14371,6 +14389,30 @@ mod latest_event_preview_tests {
     #[test]
     fn none_value_yields_empty_preview() {
         assert_eq!(latest_event_preview_text(&LatestEventValue::None), "");
+    }
+
+    // The raw body of a reply opens with the quoted original (2026-10-13:
+    // "> <@moosix:cutefunny.art> You kno..." in the room list).
+    #[test]
+    fn reply_fallback_is_not_the_preview() {
+        let value = remote(
+            json!({
+                "msgtype": "m.text",
+                "body": "> <@moosix:cutefunny.art> You know what\n> I mean\n\nyes I do",
+                "format": "org.matrix.custom.html",
+                "formatted_body": "<mx-reply><blockquote>x</blockquote></mx-reply>yes I do",
+            }),
+            "m.room.message",
+        );
+        assert_eq!(latest_event_preview_text(&value), "yes I do");
+        let quote_only = remote(
+            json!({ "msgtype": "m.text", "body": "> <@a:b.c> quoted\nno separator" }),
+            "m.room.message",
+        );
+        assert_eq!(
+            latest_event_preview_text(&quote_only),
+            "> <@a:b.c> quoted no separator"
+        );
     }
 
     #[test]

@@ -1813,6 +1813,7 @@ if(BUILD_TESTING)
         src/models/ActivityModel.h
         src/models/ActivityModel.cpp
     src/models/MediaHistoryModel.cpp
+        src/matrix/EventPreview.cpp
         src/matrix/MatrixClient.h
         src/matrix/MatrixClient.cpp
     )

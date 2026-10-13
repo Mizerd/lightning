@@ -64,4 +64,14 @@ inline constexpr int kReplyPreviewMaxChars = 320;
 
 QString normalizePreviewText(const QString &text, int maxChars = 120);
 
+// Removes the legacy rich-reply fallback from a PLAIN body: a first line
+// opening "> <@" (emotes: "> * <@"), every following "> "-prefixed or bare
+// ">" line (nested quotes included), closed by an EMPTY line. Anything
+// without that separator is returned unchanged, so a message that merely
+// starts with a quote survives. Also drops a leading <mx-reply>...</mx-reply>
+// block from an HTML body. normalizePreviewText() applies the plain rule
+// itself; call this directly for text that is matched rather than shown
+// (Activity keywords). The Rust twin is `timeline::strip_reply_fallback`.
+QString stripReplyFallback(const QString &body);
+
 } // namespace matrix::preview

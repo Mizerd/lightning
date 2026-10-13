@@ -8,9 +8,39 @@
 
 namespace matrix::preview {
 
+QString stripReplyFallback(const QString &body)
+{
+    QString b = body;
+    // HTML body: the <mx-reply> block opens it and does not nest.
+    if (b.startsWith(QLatin1String("<mx-reply>"))) {
+        const int end = b.indexOf(QLatin1String("</mx-reply>"));
+        if (end >= 0)
+            return b.mid(end + int(QLatin1String("</mx-reply>").size()));
+        return b;
+    }
+    if (!(b.startsWith(QLatin1String("> <@"))
+          || b.startsWith(QLatin1String("> * <@"))))
+        return b;
+    int pos = 0;
+    for (;;) {
+        const int nl = b.indexOf(QLatin1Char('\n'), pos);
+        if (nl < 0)
+            return b; // quote runs to the end: not a fallback
+        QStringView line = QStringView(b).mid(pos, nl - pos);
+        if (line.endsWith(QLatin1Char('\r')))
+            line.chop(1);
+        if (line.isEmpty())
+            return b.mid(nl + 1);
+        if (line == QLatin1String(">") || line.startsWith(QLatin1String("> ")))
+            pos = nl + 1;
+        else
+            return b; // text before any blank line: not a fallback
+    }
+}
+
 QString normalizePreviewText(const QString &text, int maxChars)
 {
-    QString s = text;
+    QString s = stripReplyFallback(text);
     // A mention's plain-body fallback legitimately carries the matrix.to
     // permalink in markdown form; a one-line preview shows only the label.
     // Bounded quantifiers keep the pattern linear on adversarial input.
