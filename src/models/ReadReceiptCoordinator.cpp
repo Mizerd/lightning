@@ -103,8 +103,20 @@ QString ReadReceiptCoordinator::eligibleEventId(qint64 *timestampMs) const
         return {};
     const auto last = m_lastSent.constFind(m_model->roomId());
     if (last != m_lastSent.constEnd()) {
-        if (ts > 0 && last->timestampMs > 0 && ts < last->timestampMs)
-            return {}; // never regress to an older event
+        // Never regress to an older event. Order by POSITION when the
+        // last-acked event is still in the model: origin_server_ts is not
+        // monotonic with stream order in federated rooms (clock skew), and
+        // comparing it silently dropped the receipt for a genuinely newer
+        // event, leaving big public rooms unread. The timestamp is only a
+        // fallback for a snapshot that no longer contains the acked event.
+        const int lastRow = m_model->rowForStableId(last->eventId);
+        const int candRow = m_model->rowForStableId(eventId);
+        if (lastRow >= 0 && candRow >= 0) {
+            if (candRow < lastRow)
+                return {};
+        } else if (ts > 0 && last->timestampMs > 0 && ts < last->timestampMs) {
+            return {};
+        }
         if (last->eventId == eventId && !clearsMarkedUnread())
             return {}; // same receipt already sent, no manual flag to clear
     }

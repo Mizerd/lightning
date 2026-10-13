@@ -322,6 +322,23 @@ private Q_SLOTS:
         QCOMPARE(rig.client.receiptEvents.size(), 1);
     }
 
+    void aNewerEventWithAnEarlierTimestampStillGetsItsReceipt()
+    {
+        // Federated rooms: origin_server_ts is not monotonic with stream order.
+        Rig rig;
+        rig.client.timelines[kRoomA] = {
+            makeEvent(kRoomA, QStringLiteral("$a"), 5000),
+        };
+        rig.model.setRoomId(kRoomA);
+        rig.makeEligible();
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 1);
+
+        // A later arrival (skewed clock) carries an EARLIER timestamp.
+        rig.client.appendEvent(makeEvent(kRoomA, QStringLiteral("$b"), 3000));
+        QTRY_COMPARE(rig.client.receiptEvents.size(), 2);
+        QCOMPARE(rig.client.receiptEvents.last(), QStringLiteral("$b"));
+    }
+
     void markedUnreadClearsOnOpenWithoutNewMessages()
     {
         Rig rig;
