@@ -16,6 +16,7 @@
 #include "crypto/QrImageProvider.h"
 #include "matrix/EventPreview.h"
 #include "matrix/MediaStoreKey.h"
+#include "matrix/PushRulesSnapshot.h"
 #include "matrix/RustSessionPolicy.h"
 #include "matrix/RustRoomRegistry.h"
 #include "matrix/RustTimelineMirror.h"
@@ -8933,6 +8934,31 @@ quint64 RustSdkMatrixClient::requestIgnoredUsers()
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::requestPushRules()
+{
+    if (!m_rustHandle)
+        return 0;
+    const quint64 opId = nextOpId();
+    const QString result =
+        takeRustString(mx_rust_push_rules_snapshot(m_rustHandle, opId));
+    return result.isEmpty() ? opId : 0;
+}
+
+quint64 RustSdkMatrixClient::writePushRule(const QString &kind,
+                                           const QString &key,
+                                           const QString &value)
+{
+    if (!m_rustHandle || kind.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray k = kind.toUtf8();
+    const QByteArray ky = key.toUtf8();
+    const QByteArray v = value.toUtf8();
+    const QString result = takeRustString(mx_rust_push_rules_write(
+        m_rustHandle, k.constData(), ky.constData(), v.constData(), opId));
+    return result.isEmpty() ? opId : 0;
+}
+
 quint64 RustSdkMatrixClient::reportMessage(const QString &roomId,
                                            const QString &eventId,
                                            const QString &reason)
@@ -11870,6 +11896,22 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
         }
         Q_EMIT ignoredUsersReceived(
             opId(), event.value(QStringLiteral("ok")).toBool(), users);
+        return true;
+    }
+
+    if (type == QLatin1String("push_rules_snapshot")) {
+        Q_EMIT pushRulesReceived(
+            opId(), event.value(QStringLiteral("ok")).toBool(),
+            PushRulesSnapshot::fromRustEvent(event),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
+
+    if (type == QLatin1String("push_rules_write")) {
+        Q_EMIT pushRuleWriteFinished(
+            opId(), event.value(QStringLiteral("kind")).toString(),
+            event.value(QStringLiteral("ok")).toBool(),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
 

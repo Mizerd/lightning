@@ -5,6 +5,8 @@
 #include "app/DraftStore.h"
 #include "app/ForwardController.h"
 #include "app/ModerationController.h"
+#include "app/NotificationTroubleshooter.h"
+#include "app/PushRulesController.h"
 #include "app/UiaController.h"
 #include "app/PasswordChangeController.h"
 #include "models/MessageSearchController.h"
@@ -402,6 +404,10 @@ class AppController : public QObject
     // Settings → Account → Change password.
     Q_PROPERTY(PasswordChangeController* passwordChange READ passwordChange CONSTANT)
     Q_PROPERTY(ModerationController* moderation READ moderation CONSTANT)
+    // Settings -> Notifications: account push rules and the troubleshooter.
+    Q_PROPERTY(PushRulesController* pushRules READ pushRules CONSTANT)
+    Q_PROPERTY(NotificationTroubleshooter* notificationTroubleshooter
+                   READ notificationTroubleshooter CONSTANT)
     // Message forwarding; see ForwardController.
     Q_PROPERTY(ForwardController* forward READ forward CONSTANT)
     Q_PROPERTY(RoomInfoController* roomInfo READ roomInfo CONSTANT)
@@ -716,6 +722,9 @@ public:
         return m_passwordChange.get();
     }
     ModerationController *moderation() const { return m_moderation.get(); }
+    PushRulesController *pushRules() const { return m_pushRules.get(); }
+    NotificationTroubleshooter *notificationTroubleshooter() const
+    { return m_notificationTroubleshooter.get(); }
     ForwardController *forward() const { return m_forward.get(); }
     // OAuth accounts manage devices in the account console, not via a
     // password prompt. Evaluated when the Sessions page opens.
@@ -1493,6 +1502,8 @@ private:
     std::unique_ptr<UiaController> m_uia;
     std::unique_ptr<PasswordChangeController> m_passwordChange;
     std::unique_ptr<ModerationController> m_moderation;
+    std::unique_ptr<PushRulesController> m_pushRules;
+    std::unique_ptr<NotificationTroubleshooter> m_notificationTroubleshooter;
     std::unique_ptr<ForwardController> m_forward;
     // Media keys this account asked to star or copy; the shared media fetch
     // result must be claimed. Cleared on sign-out.

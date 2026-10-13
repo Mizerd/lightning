@@ -387,6 +387,32 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_passwordChange->setOAuthAccountCheck(
         [this] { return activeAccountIsOAuth(); });
     m_moderation = std::make_unique<ModerationController>(this);
+    m_pushRules = std::make_unique<PushRulesController>(this);
+    m_notificationTroubleshooter =
+        std::make_unique<NotificationTroubleshooter>(this);
+    m_notificationTroubleshooter->setInputsProvider(
+        [this](const QString &roomId) {
+            NotificationTroubleshooter::Inputs in;
+            in.delivery = NotificationTroubleshooter::probeDeliveryPath();
+            in.platform = NotificationTroubleshooter::currentPlatform();
+            in.appEnabled = m_settings && m_settings->notificationsEnabled();
+            in.rulesKnown = m_pushRules && m_pushRules->loaded();
+            in.masterMute = m_pushRules && m_pushRules->masterMute();
+            in.roomId = roomId;
+            if (!roomId.isEmpty() && m_settings)
+                in.roomMode = m_settings->roomNotificationMode(roomId);
+            return in;
+        });
+    m_notificationTroubleshooter->setTestSender([this] {
+        if (!m_notifications)
+            return;
+        // A real notification through the normal path. It names nothing of
+        // the account: a body is written to the desktop's log in plaintext.
+        m_notifications->showGeneric(
+            tr("Lightning"),
+            tr("This is a test notification. If you can read it, desktop "
+               "notifications work."));
+    });
     m_forward      = std::make_unique<ForwardController>(this);
     m_roomInfo     = std::make_unique<RoomInfoController>(this);
     m_spaceModeration = std::make_unique<SpaceModerationController>(this);
@@ -1743,6 +1769,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_uia->setClient(m_client.get());
     m_passwordChange->setClient(m_client.get());
     m_moderation->setClient(m_client.get());
+    m_pushRules->setClient(m_client.get());
     m_forward->setClient(m_client.get());
     m_forward->setMediaBridge(m_mediaBridge.get());
     m_roomInfo->setClient(m_client.get());
@@ -5232,6 +5259,8 @@ void AppController::onLoginSucceeded()
             m_mediaVisibility->reloadForAccount();
         if (m_moderation)
             m_moderation->resetForAccountChange();
+        if (m_pushRules)
+            m_pushRules->resetForAccountChange();
         // A running close, delete or Space moderation, and the server-admin
         // answer, belong to the previous account.
         if (m_roomClosure)

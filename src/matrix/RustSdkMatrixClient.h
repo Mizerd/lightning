@@ -676,6 +676,10 @@ public:
                       const QString &membershipEventId) override;
     quint64 setUserIgnored(const QString &userId, bool ignored) override;
     quint64 requestIgnoredUsers() override;
+    bool supportsPushRules() const override { return true; }
+    quint64 requestPushRules() override;
+    quint64 writePushRule(const QString &kind, const QString &key,
+                          const QString &value) override;
     bool supportsEventReporting() const override { return true; }
     quint64 reportMessage(const QString &roomId, const QString &eventId,
                           const QString &reason) override;

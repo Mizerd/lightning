@@ -488,6 +488,10 @@ set(APP_SOURCES
     src/app/PasswordChangeController.cpp
     src/app/ModerationController.h
     src/app/ModerationController.cpp
+    src/app/PushRulesController.h
+    src/app/PushRulesController.cpp
+    src/app/NotificationTroubleshooter.h
+    src/app/NotificationTroubleshooter.cpp
     src/app/ForwardController.h
     src/app/ForwardController.cpp
     src/app/DraftStore.h
@@ -594,6 +598,7 @@ set(APP_SOURCES
     src/storage/BridgeLabelStore.cpp
     src/matrix/RoomActionError.h
     src/matrix/RoomActionError.cpp
+    src/matrix/PushRulesSnapshot.h
     src/app/DesktopEntryQuoting.h
     src/app/DesktopEntryQuoting.cpp
     src/storage/PortableMode.h
@@ -984,6 +989,7 @@ set(APP_QML_FILES
     qml/SettingsNavGroupLabel.qml
     qml/SettingsNavOutline.qml
     qml/LogExportCard.qml
+    qml/NotificationRulesSettings.qml
     qml/UpdateAvailableDialog.qml
     qml/MainScreen.qml
     qml/HomePane.qml
@@ -3851,6 +3857,18 @@ if(BUILD_TESTING)
     target_link_libraries(change-password-qml-test PRIVATE Qt6::Test)
     add_test(NAME change-password-qml COMMAND change-password-qml-test)
     set_tests_properties(change-password-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Notifications page, account half: push-rule settings, the troubleshooter
+    # and the real QML section against the real controller.
+    qt_add_executable(push-rules-test
+        tests/PushRulesTest.cpp
+        ${APP_LIB_SOURCES}
+    )
+    lightning_configure_qml_test(push-rules-test)
+    target_link_libraries(push-rules-test PRIVATE Qt6::Test)
+    add_test(NAME push-rules COMMAND push-rules-test)
+    set_tests_properties(push-rules PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Incoming-call card contracts plus a real offscreen instantiation against

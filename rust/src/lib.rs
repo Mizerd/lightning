@@ -86,6 +86,7 @@ mod denoise;
 mod discover;
 mod gifs;
 mod ignore;
+mod pushrules;
 mod imagesend;
 mod linkmedia;
 mod indexall;
@@ -8931,6 +8932,38 @@ pub unsafe extern "C" fn mx_rust_set_user_ignored(
         let user_id = unsafe { cstr_arg(user_id) }?;
         ignore::set_user_ignored(bridge, user_id, ignored != 0, op_id)
             .map(|_| String::new())
+    })
+}
+
+/// Fetch the account's push rules as the notification settings page's
+/// snapshot (pushrules.rs). Result: `push_rules_snapshot`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_push_rules_snapshot(
+    ptr: *mut c_void,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        pushrules::request_snapshot(bridge, op_id).map(|_| String::new())
+    })
+}
+
+/// Apply one notification-settings command (`kind`, `key`, `value`; see
+/// pushrules::plan). Results: `push_rules_write`, then `push_rules_snapshot`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_push_rules_write(
+    ptr: *mut c_void,
+    kind: *const c_char,
+    key: *const c_char,
+    value: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let kind = unsafe { cstr_arg(kind) }?;
+        let key = unsafe { cstr_arg(key) }?;
+        let value = unsafe { cstr_arg(value) }?;
+        pushrules::write_rule(bridge, kind, key, value, op_id).map(|_| String::new())
     })
 }
 

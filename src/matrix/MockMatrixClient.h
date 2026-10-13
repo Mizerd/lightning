@@ -550,6 +550,10 @@ public:
     bool supportsIgnoredUsers() const override { return true; }
     quint64 setUserIgnored(const QString &userId, bool ignored) override;
     quint64 requestIgnoredUsers() override;
+    bool supportsPushRules() const override { return true; }
+    quint64 requestPushRules() override;
+    quint64 writePushRule(const QString &kind, const QString &key,
+                          const QString &value) override;
     bool supportsEventReporting() const override { return true; }
     quint64 reportMessage(const QString &roomId, const QString &eventId,
                           const QString &reason) override;
@@ -580,6 +584,11 @@ public:
     QString mockManagementUrl;
     QString mockReportFailCategory;
     QStringList mockIgnoredUsers;
+    // The mock account's push rules, in PushRulesSnapshot's shape; writes
+    // follow the same command grammar as rust/src/pushrules.rs. A non-empty
+    // mockPushRuleFailCategory fails every write with that category.
+    QVariantMap mockPushRules;
+    QString mockPushRuleFailCategory;
     quint64 lastDeleteOp = 0;           // pending UIA challenge id
     QStringList lastDeletedDevices;
     QStringList joinedTargets;          // every join target dispatched

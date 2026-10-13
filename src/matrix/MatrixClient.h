@@ -1282,6 +1282,14 @@ public:
     virtual quint64 setUserIgnored(const QString &userId, bool ignored)
     { Q_UNUSED(userId); Q_UNUSED(ignored); return 0; }
     virtual quint64 requestIgnoredUsers() { return 0; }
+    // The notification settings page: the account's push rules. Both answer
+    // on pushRulesReceived (the write also on pushRuleWriteFinished first);
+    // `kind`, `key` and `value` are the command grammar of rust/src/pushrules.rs.
+    virtual bool supportsPushRules() const { return false; }
+    virtual quint64 requestPushRules() { return 0; }
+    virtual quint64 writePushRule(const QString &kind, const QString &key,
+                                  const QString &value)
+    { Q_UNUSED(kind); Q_UNUSED(key); Q_UNUSED(value); return 0; }
     virtual bool supportsEventReporting() const { return false; }
     virtual quint64 reportMessage(const QString &roomId,
                                   const QString &eventId,
@@ -2283,6 +2291,12 @@ Q_SIGNALS:
                             bool ok, const QString &category);
     void ignoredUsersReceived(quint64 opId, bool ok, const QStringList &users);
     void ignoredUsersChanged(const QStringList &users);
+    // Push-rule settings. `snapshot` is normalised (see PushRulesSnapshot):
+    // a level is -1 (the server has no such rule), 0 Off, 1 Notify, 2 Loud.
+    void pushRulesReceived(quint64 opId, bool ok, const QVariantMap &snapshot,
+                           const QString &category);
+    void pushRuleWriteFinished(quint64 opId, const QString &kind, bool ok,
+                               const QString &category);
     void reportMessageFinished(quint64 opId, const QString &roomId,
                                const QString &eventId, bool ok,
                                const QString &category);

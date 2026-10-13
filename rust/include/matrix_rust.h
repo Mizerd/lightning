@@ -1638,6 +1638,17 @@ char *mx_rust_set_user_ignored(void *client,
                                unsigned char ignored,
                                unsigned long long op_id);
 char *mx_rust_list_ignored_users(void *client, unsigned long long op_id);
+/* Notification settings page (rust/src/pushrules.rs). snapshot answers
+ * push_rules_snapshot { op_id, ok, master_mute, dm, rooms, mentions, events,
+ * keywords[] }. write takes a command (kind: master_mute | default_level |
+ * mention | event | keyword_set | keyword_remove; key; value) and answers
+ * push_rules_write { op_id, kind, ok, category } then a fresh snapshot. */
+char *mx_rust_push_rules_snapshot(void *client, unsigned long long op_id);
+char *mx_rust_push_rules_write(void *client,
+                               const char *kind,
+                               const char *key,
+                               const char *value,
+                               unsigned long long op_id);
 char *mx_rust_report_message(void *client,
                              const char *room_id,
                              const char *event_id,

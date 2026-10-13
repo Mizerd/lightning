@@ -2,12 +2,14 @@
 
 #include "app/SettingsManager.h"
 #include "matrix/MediaHelpers.h"
+#include "matrix/PushRulesSnapshot.h"
 #include "matrix/EventPreview.h"
 
 #include <QDateTime>
 #include <QTimeZone>
 #include <QByteArray>
 #include <QFile>
+#include <QHash>
 #include <QFileInfo>
 #include <QTimer>
 #include <QUrl>
@@ -3418,6 +3420,85 @@ quint64 MockMatrixClient::requestIgnoredUsers()
     const QStringList users = mockIgnoredUsers;
     QTimer::singleShot(0, this, [this, op, users] {
         Q_EMIT ignoredUsersReceived(op, true, users);
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::requestPushRules()
+{
+    if (mockPushRules.isEmpty())
+        mockPushRules = PushRulesSnapshot::empty();
+    const quint64 op = ++m_opCounter;
+    const QVariantMap snapshot = mockPushRules;
+    QTimer::singleShot(0, this, [this, op, snapshot] {
+        Q_EMIT pushRulesReceived(op, true, snapshot, QString());
+    });
+    return op;
+}
+
+quint64 MockMatrixClient::writePushRule(const QString &kind,
+                                        const QString &key,
+                                        const QString &value)
+{
+    if (kind.isEmpty())
+        return 0;
+    if (mockPushRules.isEmpty())
+        mockPushRules = PushRulesSnapshot::empty();
+    const quint64 op = ++m_opCounter;
+    const QString failure = mockPushRuleFailCategory;
+    auto levelOf = [](const QString &v) {
+        return v == QLatin1String("loud") ? 2
+            : v == QLatin1String("notify") ? 1 : 0;
+    };
+    if (failure.isEmpty()) {
+        QVariantMap &s = mockPushRules;
+        if (kind == QLatin1String("master_mute")) {
+            s.insert(QStringLiteral("masterMute"), value == QLatin1String("on"));
+        } else if (kind == QLatin1String("default_level")) {
+            const bool dm = key == QLatin1String("dm");
+            s.insert(dm ? QStringLiteral("dmAll") : QStringLiteral("roomsAll"),
+                     value == QLatin1String("all"));
+            s.insert(dm ? QStringLiteral("dmDrift") : QStringLiteral("roomsDrift"),
+                     false);
+        } else if (kind == QLatin1String("mention")) {
+            static const QHash<QString, QString> names{
+                {QStringLiteral("user_id"), QStringLiteral("mentionUserId")},
+                {QStringLiteral("display_name"), QStringLiteral("mentionDisplayName")},
+                {QStringLiteral("username"), QStringLiteral("mentionUsername")},
+                {QStringLiteral("room"), QStringLiteral("mentionRoom")}};
+            if (names.contains(key))
+                s.insert(names.value(key), levelOf(value));
+        } else if (kind == QLatin1String("event")) {
+            static const QHash<QString, QString> names{
+                {QStringLiteral("reactions"), QStringLiteral("eventReactions")},
+                {QStringLiteral("invites"), QStringLiteral("eventInvites")},
+                {QStringLiteral("notices"), QStringLiteral("eventNotices")}};
+            if (names.contains(key))
+                s.insert(names.value(key), levelOf(value));
+        } else if (kind == QLatin1String("keyword_set")
+                   || kind == QLatin1String("keyword_remove")) {
+            QVariantList list = s.value(QStringLiteral("keywords")).toList();
+            for (int i = 0; i < list.size(); ++i) {
+                if (list.at(i).toMap().value(QStringLiteral("keyword")).toString()
+                    == key) {
+                    list.removeAt(i);
+                    break;
+                }
+            }
+            if (kind == QLatin1String("keyword_set")) {
+                QVariantMap entry;
+                entry.insert(QStringLiteral("keyword"), key);
+                entry.insert(QStringLiteral("level"), levelOf(value));
+                list.append(entry);
+            }
+            s.insert(QStringLiteral("keywords"), list);
+        }
+    }
+    const QVariantMap snapshot = mockPushRules;
+    QTimer::singleShot(0, this, [this, op, kind, failure, snapshot] {
+        Q_EMIT pushRuleWriteFinished(op, kind, failure.isEmpty(), failure);
+        if (failure.isEmpty())
+            Q_EMIT pushRulesReceived(op, true, snapshot, QString());
     });
     return op;
 }

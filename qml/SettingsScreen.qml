@@ -5964,6 +5964,11 @@ Item {
                                 }
                             }
                         }
+                        // Account push rules and the troubleshooter live in
+                        // their own file; see NotificationRulesSettings.qml.
+                        NotificationRulesSettings {
+                            Layout.fillWidth: true
+                        }
                     }
 
                     // ════════════ Sound & video ════════════ Capture, playback
