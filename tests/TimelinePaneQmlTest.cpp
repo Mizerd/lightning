@@ -4954,7 +4954,7 @@ private Q_SLOTS:
     }
 
     // Read-receipt chips: an empty list adds no footprint; a populated one
-    // renders at most 4 avatar chips plus a "+N" chip and one summary line.
+    // renders at most 3 avatar chips plus a "+N" chip and one summary line.
     // Two separate engine loads: swapping the "model" context property after
     // load instantiates the Repeater mid-cascade, where ids do not resolve.
     void readReceiptChipsRenderBoundedAndCollapseWhenEmpty()
@@ -5086,14 +5086,14 @@ private Q_SLOTS:
             QCOMPARE(visualChildrenByName(root,
                                           QStringLiteral("readReceiptChip"))
                          .size(),
-                     4);
+                     3);
             auto *overflow = root->findChild<QQuickItem *>(
                 QStringLiteral("readReceiptOverflow"));
             QVERIFY(overflow != nullptr);
             QVERIFY(overflow->isVisible());
             QCOMPARE(overflow->childItems().first()
                          ->property("text").toString(),
-                     QStringLiteral("+2"));
+                     QStringLiteral("+3"));
             QCOMPARE(strip->property("summary").toString(),
                      QStringLiteral("Read by Alice, Bob and 4 others"));
             auto *presentation = root->findChild<QQuickItem *>(

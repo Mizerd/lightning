@@ -259,9 +259,13 @@ private Q_SLOTS:
         read.sender = QStringLiteral("@bob:mock.local");
         read.body = QStringLiteral("Seen by somebody");
         read.timestamp = QDateTime::currentDateTimeUtc();
-        read.readBy.append({ QStringLiteral("@bob:mock.local"),
-                             QDateTime::currentMSecsSinceEpoch() });
-        read.readByTotal = 1;
+        // Four readers: three faces and the "+1" pill, which is what opens the
+        // list (a face opens that reader's profile).
+        for (const char *who : { "bob", "carol", "dave", "erin" })
+            read.readBy.append({ QStringLiteral("@%1:mock.local")
+                                     .arg(QLatin1String(who)),
+                                 QDateTime::currentMSecsSinceEpoch() });
+        read.readByTotal = 4;
         QVERIFY(QMetaObject::invokeMethod(m_controller->timeline(),
                                           "onEventAppended",
                                           Q_ARG(QString, kRoom),
@@ -269,14 +273,19 @@ private Q_SLOTS:
         QQuickItem *facepile = nullptr;
         QTRY_VERIFY2((facepile = visibleReceiptRow()) != nullptr,
                      "no row drew a read-receipt facepile");
-        const QPointF centre = facepile->mapToScene(
-            QPointF(facepile->width() / 2, facepile->height() / 2));
+        QQuickItem *pill = nullptr;
+        for (QQuickItem *c : facepile->childItems())
+            if (c->objectName() == QLatin1String("readReceiptOverflow"))
+                pill = c;
+        QVERIFY2(pill && pill->isVisible(), "no +N pill on the facepile");
+        const QPointF centre = pill->mapToScene(
+            QPointF(pill->width() / 2, pill->height() / 2));
         QTest::mouseClick(m_window, Qt::LeftButton, {}, centre.toPoint());
         QObject *popover = item("mainScreen")->findChild<QObject *>(
             QStringLiteral("receiptListPopover"));
         QVERIFY(popover);
         QTRY_VERIFY2(popover->property("opened").toBool(),
-                     "the facepile click did not open the reader list");
+                     "the +N pill click did not open the reader list");
 
         escape();
         QTRY_VERIFY(!popover->property("visible").toBool());

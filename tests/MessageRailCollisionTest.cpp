@@ -465,19 +465,22 @@ private Q_SLOTS:
                      "(starts at %2)").arg(bubbleRight).arg(checkLeft)));
     }
 
-    // Hover fan: the pile opens leftwards, the reservations keep reading the
-    // COLLAPSED width, and it never leaves the strip.
-    void theFanOpensLeftwardsWithoutMovingAnyReservation_data()
+
+    void theCollapsedPileShowsThreeFacesAndAPill_data()
     {
         QTest::addColumn<int>("readers");
-        QTest::newRow("one reader") << 1;
-        QTest::newRow("four readers") << 4;
-        QTest::newRow("six readers") << 6;
-        QTest::newRow("nine readers") << 9;
+        QTest::addColumn<int>("faces");
+        QTest::addColumn<int>("overflow");
+        QTest::newRow("one reader") << 1 << 1 << 0;
+        QTest::newRow("three readers") << 3 << 3 << 0;
+        QTest::newRow("four readers") << 4 << 3 << 1;
+        QTest::newRow("nine readers") << 9 << 3 << 6;
     }
-    void theFanOpensLeftwardsWithoutMovingAnyReservation()
+    void theCollapsedPileShowsThreeFacesAndAPill()
     {
         QFETCH(int, readers);
+        QFETCH(int, faces);
+        QFETCH(int, overflow);
         AppController app(AppController::MockBackend);
         QVariantMap f = baseFixture();
         f.insert(QStringLiteral("readReceipts"), receipts(readers));
@@ -486,60 +489,134 @@ private Q_SLOTS:
         QVERIFY(build(app, f, d));
         auto *pile = d.root->findChild<QQuickItem *>(
             QStringLiteral("readReceiptRow"));
-        auto *strip = d.root->findChild<QQuickItem *>(
-            QStringLiteral("readReceiptStrip"));
-        QVERIFY(pile && strip);
-        const qreal rest = pile->property("restWidth").toReal();
-        QVERIFY(rest > 0);
-        // The reservation mirrors the collapsed row exactly.
-        QVERIFY2(qAbs(pile->width() - rest) < 0.5,
-                 qPrintable(QStringLiteral("width=%1 restWidth=%2")
-                                .arg(pile->width()).arg(rest)));
-        const qreal right0 = pile->mapToItem(strip, QPointF(pile->width(), 0)).x();
+        QVERIFY(pile);
+        QCOMPARE(receiptChips(pile).size(), faces);
+        auto *pill = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptOverflow"));
+        QVERIFY(pill);
+        QCOMPARE(pill->isVisible(), overflow > 0);
+        if (overflow > 0)
+            QCOMPARE(pill->childItems().first()->property("text").toString(),
+                     QStringLiteral("+%1").arg(overflow));
+        // 18px faces overlapping by 6: a face every 12px, plus the pill.
+        qreal want = 18 + (faces - 1) * 12;
+        if (overflow > 0)
+            want += -6 + pill->width();
+        QVERIFY2(qAbs(pile->width() - want) < 0.5,
+                 qPrintable(QStringLiteral("width=%1 want=%2")
+                                .arg(pile->width()).arg(want)));
+    }
+
+    // Hover is a lift, not a fan: the face under the pointer rises 4px and
+    // swells, its neighbours rise 4px * 0.45^distance, and not one reservation,
+    // width or position moves.
+    void hoveringAFaceLiftsItAndItsNeighboursAndMovesNothing()
+    {
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("readReceipts"), receipts(5));
+        f.insert(QStringLiteral("readReceiptsTotal"), 5);
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        QVERIFY(pile);
+        QCOMPARE(pile->property("hoverIndex").toInt(), -1);
+        QList<QQuickItem *> chips = receiptChips(pile);
+        QCOMPARE(chips.size(), 3);
+        for (QQuickItem *c : chips)
+            QCOMPARE(c->property("liftNow").toReal(), 0.0);
+
+        const qreal width0 = pile->width();
+        const qreal x0 = pile->x();
         const qreal reserve0 = d.root->property("actionBarReceiptReserve").toReal();
         const qreal rail0 = d.root->property("receiptRailReserve").toReal();
         const qreal inset0 = d.root->property("bubbleReceiptInset").toReal();
         const qreal content0 = d.root->property("contentInnerCap").toReal();
         const qreal height0 = d.root->height();
+        QList<qreal> chipX;
+        for (QQuickItem *c : chips)
+            chipX.append(c->x());
 
-        QVERIFY(QQmlProperty::write(pile, QStringLiteral("fanOpen"), true));
-        QTRY_VERIFY2(pile->property("fan").toReal() > 0.99, "the fan never opened");
+        // A real pointer over the middle face.
+        const QPointF mid = chips[1]->mapToScene(QPointF(9, 9));
+        QTest::mouseMove(d.window.get(), QPoint(10, 10));
+        QTest::mouseMove(d.window.get(), mid.toPoint());
+        QTRY_COMPARE(pile->property("hoverIndex").toInt(), 1);
+        QTRY_VERIFY2(qAbs(chips[1]->property("liftNow").toReal() - 4.0) < 0.05,
+                     "the hovered face did not rise 4px");
+        QTRY_VERIFY(qAbs(chips[0]->property("liftNow").toReal() - 1.8) < 0.05);
+        QTRY_VERIFY(qAbs(chips[2]->property("liftNow").toReal() - 1.8) < 0.05);
+        QTRY_VERIFY(qAbs(chips[1]->scale() - 1.05) < 0.001);
+        QCOMPARE(chips[0]->scale(), 1.0);
+        // The nearer a face, the higher it stacks.
+        QVERIFY(chips[1]->z() > chips[0]->z());
+        QVERIFY(chips[1]->z() > chips[2]->z());
 
-        QCOMPARE(pile->property("restWidth").toReal(), rest);
-        const qreal shown = qMin(readers, 6);
-        QVERIFY(pile->width() >= rest - 0.5);
-        if (shown > 1)
-            QVERIFY2(pile->width() > rest, "a pile of several did not open");
-        // Grows leftwards: the right edge is fixed.
-        QVERIFY(qAbs(pile->mapToItem(strip, QPointF(pile->width(), 0)).x()
-                     - right0) < 0.5);
-        // Inside the strip.
-        QVERIFY(pile->mapToItem(strip, QPointF(0, 0)).x() >= 0);
-        // Nothing the body reads moved: no reflow on hover.
+        // Nothing moved.
+        QCOMPARE(pile->width(), width0);
+        QCOMPARE(pile->x(), x0);
+        for (int i = 0; i < chips.size(); ++i)
+            QCOMPARE(chips[i]->x(), chipX[i]);
+        QCOMPARE(receiptChips(pile).size(), 3);
         QCOMPARE(d.root->property("actionBarReceiptReserve").toReal(), reserve0);
         QCOMPARE(d.root->property("receiptRailReserve").toReal(), rail0);
         QCOMPARE(d.root->property("bubbleReceiptInset").toReal(), inset0);
         QCOMPARE(d.root->property("contentInnerCap").toReal(), content0);
         QCOMPARE(d.root->height(), height0);
-        // Fanned shows up to six avatars; the collapsed pile shows four.
-        int visibleAvatars = 0;
-        QList<QQuickItem *> stack{pile};
-        while (!stack.isEmpty()) {
-            QQuickItem *it = stack.takeLast();
-            for (QQuickItem *c : it->childItems()) {
-                const QString n = c->objectName();
-                if ((n == QLatin1String("readReceiptChip")
-                     || n == QLatin1String("readReceiptFanChip"))
-                    && c->isVisible() && c->opacity() > 0.9)
-                    ++visibleAvatars;
-                stack.append(c);
-            }
-        }
-        QCOMPARE(visibleAvatars, int(shown));
 
-        QVERIFY(QQmlProperty::write(pile, QStringLiteral("fanOpen"), false));
-        QTRY_VERIFY(pile->property("fan").toReal() < 0.01);
-        QTRY_VERIFY(qAbs(pile->width() - rest) < 0.5);
+        // Leaving the stack puts everything back.
+        QTest::mouseMove(d.window.get(), QPoint(700, 440));
+        QTRY_COMPARE(pile->property("hoverIndex").toInt(), -1);
+        QTRY_VERIFY(qAbs(chips[1]->property("liftNow").toReal()) < 0.05);
+        QTRY_VERIFY(qAbs(chips[1]->scale() - 1.0) < 0.001);
+    }
+
+    // A face opens that reader's profile; the pill opens the list.
+    void aFaceOpensTheProfileAndThePillOpensTheList()
+    {
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("readReceipts"), receipts(5));
+        f.insert(QStringLiteral("readReceiptsTotal"), 5);
+        Delegate d;
+        QVERIFY(build(app, f, d));
+
+        QQmlComponent comp(d.engine.get());
+        comp.setData(
+            "import QtQuick\nQtObject { property string profileUser: \"\";"
+            " property int lists: 0; property string pinnedActionsKey: \"\";"
+            " property string hoveredActionsKey: \"\";"
+            " property var openSenderProfile:"
+            "   function(m, anchor) { profileUser = m.userId }\n"
+            " property var openReceiptList:"
+            "   function(r, total, p) { lists += 1 } }",
+            QUrl());
+        std::unique_ptr<QObject> view(comp.create());
+        QVERIFY2(view, qPrintable(comp.errorString()));
+        QQmlProperty::write(d.root, QStringLiteral("timelineView"),
+                            QVariant::fromValue(view.get()));
+        QCoreApplication::processEvents();
+
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        QVERIFY(pile);
+        const QList<QQuickItem *> chips = receiptChips(pile);
+        QCOMPARE(chips.size(), 3);
+        QTest::mouseClick(d.window.get(), Qt::LeftButton, Qt::NoModifier,
+                          chips[1]->mapToScene(QPointF(9, 9)).toPoint());
+        QTRY_COMPARE(view->property("profileUser").toString(),
+                     QStringLiteral("@r1:mock.local"));
+        QCOMPARE(view->property("lists").toInt(), 0);
+
+        auto *pill = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptOverflow"));
+        QVERIFY(pill && pill->isVisible());
+        QTest::mouseClick(d.window.get(), Qt::LeftButton, Qt::NoModifier,
+                          pill->mapToScene(QPointF(pill->width() / 2, 9)).toPoint());
+        QTRY_COMPARE(view->property("lists").toInt(), 1);
+        QCOMPARE(view->property("profileUser").toString(),
+                 QStringLiteral("@r1:mock.local"));
     }
 
     // Enter on the focused pile is a key path to the list, not a mouse-only one.
@@ -1194,6 +1271,21 @@ private Q_SLOTS:
     }
 
 private:
+    /// The visible receipt faces, in order.
+    static QList<QQuickItem *> receiptChips(QQuickItem *pile)
+    {
+        QList<QQuickItem *> out;
+        for (QQuickItem *c : pile->childItems())
+            if (c->objectName() == QLatin1String("readReceiptChip")
+                && c->isVisible())
+                out.append(c);
+        std::sort(out.begin(), out.end(), [](QQuickItem *a, QQuickItem *b) {
+            return a->property("chipIndex").toInt()
+                   < b->property("chipIndex").toInt();
+        });
+        return out;
+    }
+
     QTemporaryDir m_configHome;
 };
 

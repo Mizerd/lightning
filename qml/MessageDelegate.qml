@@ -987,7 +987,7 @@ Item {
         (!root.bubbleMode && readReceiptStrip.visible)
         ? Math.max(0, (bubble.x + bubble.width)
                       - Math.max(root.avatarGutterWidth,
-                                 readReceiptStrip.width - receiptRow.restWidth)
+                                 readReceiptStrip.width - receiptRow.width)
                       + AppTheme.spacingXS)
         : 0
 
@@ -995,8 +995,8 @@ Item {
     // inset it (and narrow a wide incoming one) by the pile's width when there
     // is a pile. receiptRow.width depends only on the chip count, so no loop.
     readonly property real bubbleReceiptInset:
-        (root.bubbleMode && readReceiptStrip.visible && receiptRow.restWidth > 0)
-        ? receiptRow.restWidth + AppTheme.spacingXS
+        (root.bubbleMode && readReceiptStrip.visible && receiptRow.width > 0)
+        ? receiptRow.width + AppTheme.spacingXS
         : 0
 
     // The width a child inside the content column may use. bubbleContent insets
@@ -1025,9 +1025,9 @@ Item {
     readonly property bool receiptBandMeetsBar:
         (layout.height - bubbleRow.y - receiptRow.height) < 33
     readonly property real actionBarReceiptReserve:
-        (readReceiptStrip.visible && receiptRow.restWidth > 0
+        (readReceiptStrip.visible && receiptRow.width > 0
          && root.receiptBandMeetsBar)
-        ? receiptRow.restWidth + AppTheme.spacingXS
+        ? receiptRow.width + AppTheme.spacingXS
         : 0
 
     // Today / Yesterday / weekday within a week / date, without the year while
@@ -2866,7 +2866,7 @@ Item {
             // The facepile rides the row's right edge in every layout, so its
             // reservation is a floor on the right margin.
             readonly property real pileReserve: readReceiptStrip.visible
-                ? receiptRow.restWidth + AppTheme.spacingXS : 0
+                ? receiptRow.width + AppTheme.spacingXS : 0
             Layout.rightMargin: reactionsFlow.followsOwnBubble
                 ? Math.max(reactionsFlow.pileReserve,
                            bubbleRow.width - (bubble.x + bubble.width))
@@ -3219,7 +3219,7 @@ Item {
         }
 
         // Read-receipt chips: other users whose receipt points at this message
-        // (the model excludes only the local user, newest first). Up to 4
+        // (the model excludes only the local user, newest first). Up to 3
         // avatars plus a "+N" chip from the uncapped readReceiptsTotal.
         // Invisible when empty. Thread rows carry no receipts: SDK receipt
         // handling is not thread-aware, so thread timelines keep tracking
@@ -3230,9 +3230,8 @@ Item {
         id: readReceiptStrip
         objectName: "readReceiptStrip"
         readonly property var receipts: model.readReceipts || []
-        // Collapsed pile shows 4; the hover fan shows up to 6.
-        readonly property int maxAvatars: 4
-        readonly property int fanAvatars: 6
+        // sable-next shows three faces and a "+N" pill for the rest.
+        readonly property int maxAvatars: 3
         // Uncapped count; degrades to the list length when the role is absent.
         readonly property int totalOthers:
             model.readReceiptsTotal >= 0 ? model.readReceiptsTotal
@@ -3253,7 +3252,7 @@ Item {
         property var shown: []
         function refreshShown() {
             var next = []
-            var n = Math.min(receipts.length, fanAvatars)
+            var n = Math.min(receipts.length, maxAvatars)
             for (var i = 0; i < n; ++i) {
                 var r = receipts[i]
                 next.push({ userId: r.userId || "",
@@ -3309,88 +3308,63 @@ Item {
         height: 0
         z: 3
 
+        // Focus ring for the pile; a sibling, because a Row refuses anchored
+        // children.
+        Rectangle {
+            z: 100
+            x: receiptRow.x - 2
+            y: receiptRow.y - 2
+            width: receiptRow.width + 4
+            height: receiptRow.height + 4
+            radius: height / 2
+            color: "transparent"
+            border.width: 2
+            border.color: AppTheme.focusRing
+            visible: receiptRow.activeFocus
+        }
+
         Row {
             id: receiptRow
             objectName: "readReceiptRow"
             x: Math.max(root.avatarGutterWidth,
                         readReceiptStrip.width - width)
             y: -height
-            // Facepile overlap; each avatar sits on an 18px surface ring. The
-            // hover fan opens it to +2 (grows leftwards: the row is anchored
-            // to the strip's right edge).
-            spacing: -4 + 6 * receiptRow.fan
+            // sable-next's pitch: 18px faces, each on a ring of the surface
+            // colour, overlapping by 6.
+            spacing: -6
 
-            // ---- Hover fan (Proposal A) ---------------------------------
-            // 0 = collapsed pile, 1 = fanned. Driven by fanOpen through a
-            // Behavior; AppTheme.reducedMotion makes both legs instant.
-            property bool fanOpen: false
-            property real fan: fanOpen ? 1 : 0
-            Behavior on fan {
-                NumberAnimation {
-                    duration: AppTheme.reducedMotion ? 0
-                              : (receiptRow.fanOpen ? 140 : 110)
-                    easing.type: Easing.OutCubic
-                }
+            // ---- Hover lift (sable-next's ReadReceiptStack) ---------------
+            // Nothing opens and nothing grows: the face under the pointer
+            // rises 4px and swells 5%, its neighbours rise by 4px * 0.45^d
+            // (d = how many faces away), and the closer a face the higher it
+            // stacks. It is a transform, so the row's width, and with it every
+            // right-rail reservation, is the same hovered or not.
+            // The face under the pointer; the "+N" pill counts as one past
+            // the last face. -1 = none.
+            property int hoverIndex: -1
+            readonly property int liftSlots:
+                restChips + (restOverflow > 0 ? 1 : 0)
+            function liftFor(i) {
+                if (hoverIndex < 0 || AppTheme.reducedMotion)
+                    return 0
+                return 4 * Math.pow(0.45, Math.abs(i - hoverIndex))
             }
-            // The fan yields to the hover action bar where their bands meet
-            // (a short row): the bar keeps the rail.
-            readonly property bool fanBlocked:
-                root.actionsVisible && root.receiptBandMeetsBar
-            readonly property bool fanWanted:
-                receiptHover.hovered && !receiptRow.fanBlocked
-                && !readReceiptStrip.sentOnly
-                && readReceiptStrip.receipts.length > 0
-            onFanWantedChanged: {
-                if (fanWanted) {
-                    fanInTimer.stop()
-                    fanOutTimer.restart()
-                } else {
-                    fanOutTimer.stop()
-                    if (fanBlocked) {
-                        fanInTimer.stop()
-                        fanOpen = false
-                    } else if (fanOpen) {
-                        fanInTimer.restart()
-                    }
-                }
+            function zFor(i) {
+                return hoverIndex < 0
+                       ? i : liftSlots - Math.abs(i - hoverIndex)
             }
-            Timer {
-                id: fanOutTimer
-                interval: 150
-                onTriggered: receiptRow.fanOpen = true
+            function scaleFor(i) {
+                return hoverIndex === i && !AppTheme.reducedMotion ? 1.05 : 1
             }
-            Timer {
-                id: fanInTimer
-                interval: 120
-                onTriggered: receiptRow.fanOpen = false
-            }
-            // The COLLAPSED width: what every right-rail reservation uses, so
-            // the body text never reflows when the pile fans out. Mirrors the
-            // collapsed row exactly (items x 18, -4 between, the pill sized
-            // from its collapsed label).
+
+            // How many faces the collapsed row shows and what the "+N" pill
+            // counts.
             readonly property int restChips:
                 Math.min(readReceiptStrip.shown.length,
                          readReceiptStrip.maxAvatars)
             readonly property int restOverflow:
                 Math.max(0, readReceiptStrip.totalOthers - restChips)
-            readonly property real restPillWidth:
-                restOverflow > 0 ? Math.max(18, restPillMetrics.implicitWidth + 8) : 0
-            readonly property int restItems:
-                restChips + (readReceiptStrip.sentOnly ? 1 : 0)
-                + (restOverflow > 0 ? 1 : 0)
-            readonly property real restWidth:
-                restItems <= 0 ? 0
-                : (restChips + (readReceiptStrip.sentOnly ? 1 : 0)) * 18
-                  + restPillWidth + (restItems - 1) * -4
-            // Measures the pill's collapsed label with the pill's own font.
-            Label {
-                id: restPillMetrics
-                visible: false
-                text: "+" + receiptRow.restOverflow
-                font.pixelSize: AppTheme.fontMicro
-                font.weight: AppTheme.weightBold
-            }
-            // The fan's per-avatar read time (the list popover's rule).
+            // The read time, by the list popover's rule.
             function readTimeText(tsMs) {
                 if (!tsMs || tsMs <= 0)
                     return ""
@@ -3404,15 +3378,42 @@ Item {
                     return Qt.formatDateTime(d, "ddd hh:mm")
                 return Qt.formatDateTime(d, "MMM d, hh:mm")
             }
-            function openList() {
+            // The names behind the "+N" pill (the bridge delivers up to 16).
+            function overflowNames() {
+                var rs = readReceiptStrip.receipts
+                var out = []
+                for (var i = restChips; i < rs.length && out.length < 8; ++i)
+                    out.push(rs[i].displayName || rs[i].userId || "")
+                var rest = restOverflow - out.length
+                if (rest > 0)
+                    out.push("+" + rest)
+                return out.join("\n")
+            }
+            // `from` is the item the list opens beside (the pill); the whole
+            // pile for the keyboard.
+            function openList(from) {
                 if (!root.timelineView || !root.timelineView.openReceiptList)
                     return
-                var p = receiptRow.mapToItem(Overlay.overlay,
-                                             receiptRow.width / 2,
-                                             receiptRow.height / 2)
+                var src = from || receiptRow
+                var p = src.mapToItem(Overlay.overlay,
+                                      src.width / 2, src.height / 2)
                 root.timelineView.openReceiptList(
                     model.readReceipts || [],
                     readReceiptStrip.totalOthers, Qt.point(p.x, p.y))
+            }
+            // A face opens that reader's profile beside the face.
+            function openProfileFor(item, reader) {
+                if (!root.timelineView || !root.timelineView.openSenderProfile)
+                    return
+                var uid = reader.userId || ""
+                if (uid.length === 0)
+                    return
+                var tl = item.mapToItem(Overlay.overlay, 0, 0)
+                root.timelineView.openSenderProfile({
+                    userId: uid,
+                    displayName: reader.displayName || "",
+                    avatarUrl: reader.avatarMxc || ""
+                }, { x: tl.x, y: tl.y, width: item.width, height: item.height })
             }
             // Keyboard: one focus stop for the pile; Enter / Space open the list.
             activeFocusOnTab: root.rowActionsEnabled
@@ -3420,16 +3421,6 @@ Item {
             Keys.onReturnPressed: receiptRow.openList()
             Keys.onEnterPressed: receiptRow.openList()
             Keys.onSpacePressed: receiptRow.openList()
-            Rectangle {
-                z: 100
-                anchors.fill: parent
-                anchors.margins: -2
-                radius: height / 2
-                color: "transparent"
-                border.width: 2
-                border.color: AppTheme.focusRing
-                visible: receiptRow.activeFocus
-            }
             // The ring must match what the row shows, including the fading
             // hover tint.
             readonly property color hoverTint:
@@ -3443,19 +3434,32 @@ Item {
                 model: readReceiptStrip.shown
                 Rectangle {
                     id: chip
-                    // The two fan-only avatars are named apart, so "the
-                    // collapsed pile shows four" stays assertable.
-                    objectName: index < readReceiptStrip.maxAvatars
-                                ? "readReceiptChip" : "readReceiptFanChip"
+                    objectName: "readReceiptChip"
+                    readonly property int chipIndex: index
+                    // Where the lift is heading, and where it is now.
+                    readonly property real lift: receiptRow.liftFor(index)
+                    property real liftNow: lift
+                    Behavior on liftNow {
+                        NumberAnimation {
+                            duration: AppTheme.reducedMotion ? 0 : 350
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                        }
+                    }
                     width: 18
                     height: 18
                     radius: 9
                     color: AppTheme.background
-                    z: index
-                    readonly property bool fanOnly:
-                        index >= readReceiptStrip.maxAvatars
-                    visible: !fanOnly || receiptRow.fan > 0
-                    opacity: fanOnly ? receiptRow.fan : 1
+                    z: receiptRow.zFor(index)
+                    scale: receiptRow.scaleFor(index)
+                    Behavior on scale {
+                        NumberAnimation {
+                            duration: AppTheme.reducedMotion ? 0 : 350
+                            easing.type: Easing.BezierSpline
+                            easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                        }
+                    }
+                    transform: Translate { y: -chip.liftNow }
                     // Composites the row's highlight tint over the ring,
                     // reading only the visual parent chain.
                     Rectangle {
@@ -3474,12 +3478,27 @@ Item {
                         name: modelData.displayName
                         colorKey: modelData.userId
                     }
-                    HoverHandler { id: chipHover }
-                    // While fanned, the reader's name and read time. Plain
-                    // text: a display name is remote input.
+                    HoverHandler {
+                        id: chipHover
+                        enabled: !readReceiptStrip.sentOnly
+                        cursorShape: Qt.PointingHandCursor
+                        onHoveredChanged: {
+                            if (hovered)
+                                receiptRow.hoverIndex = chip.chipIndex
+                            else if (receiptRow.hoverIndex === chip.chipIndex)
+                                receiptRow.hoverIndex = -1
+                        }
+                    }
+                    TapHandler {
+                        enabled: root.rowActionsEnabled
+                        gesturePolicy: TapHandler.WithinBounds
+                        onTapped: receiptRow.openProfileFor(chip, modelData)
+                    }
+                    // The reader's name and read time. Plain text: a display
+                    // name is remote input.
                     ToolTip {
-                        visible: chipHover.hovered && receiptRow.fan > 0.95
-                        delay: 250
+                        visible: chipHover.hovered
+                        delay: 400
                         timeout: 0
                         contentItem: Label {
                             textFormat: Text.PlainText
@@ -3518,58 +3537,83 @@ Item {
                 }
             }
             Rectangle {
+                id: overflowPill
                 objectName: "readReceiptOverflow"
-                // Fanned, the pile shows more avatars, so the pill counts the
-                // rest; the collapsed text is what restWidth was measured on.
-                readonly property int pillCount: receiptRow.fan > 0
-                    ? Math.max(0, readReceiptStrip.totalOthers
-                               - Math.min(readReceiptStrip.shown.length,
-                                          readReceiptStrip.fanAvatars))
-                    : readReceiptStrip.overflowCount
-                visible: pillCount > 0
+                readonly property int pillIndex: receiptRow.restChips
+                readonly property real lift: receiptRow.liftFor(pillIndex)
+                property real liftNow: lift
+                Behavior on liftNow {
+                    NumberAnimation {
+                        duration: AppTheme.reducedMotion ? 0 : 350
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                    }
+                }
+                visible: receiptRow.restOverflow > 0
                 width: Math.max(18, overflowLabel.implicitWidth + 8)
                 height: 18
                 radius: AppTheme.radiusPill
                 color: AppTheme.reactionBackground
                 border.color: AppTheme.border
                 border.width: 1
-                z: readReceiptStrip.fanAvatars
+                z: receiptRow.zFor(pillIndex)
+                scale: receiptRow.scaleFor(pillIndex)
+                Behavior on scale {
+                    NumberAnimation {
+                        duration: AppTheme.reducedMotion ? 0 : 350
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: [0.22, 1, 0.36, 1, 1, 1]
+                    }
+                }
+                transform: Translate { y: -overflowPill.liftNow }
                 Label {
                     id: overflowLabel
                     anchors.centerIn: parent
-                    text: "+" + parent.pillCount
+                    text: "+" + receiptRow.restOverflow
                     color: AppTheme.textSecondary
                     // Chrome on a fixed rail: not scaled, but uses the token.
                     font.pixelSize: AppTheme.fontMicro
                     font.weight: AppTheme.weightBold
                 }
-            }
-
-            TapHandler {
-                enabled: root.rowActionsEnabled && !readReceiptStrip.sentOnly
-                // Click opens the full reader list (up to 16, newest first,
-                // plus a truthful "+N more").
-                onTapped: (eventPoint) => {
-                    if (!root.timelineView
-                        || !root.timelineView.openReceiptList)
-                        return
-                    receiptRow.forceActiveFocus(Qt.MouseFocusReason)
-                    // eventPoint.position is local to the handler's parent,
-                    // receiptRow, so map from there.
-                    var p = receiptRow.mapToItem(
-                                Overlay.overlay,
-                                eventPoint.position.x,
-                                eventPoint.position.y)
-                    root.timelineView.openReceiptList(
-                        model.readReceipts || [],
-                        readReceiptStrip.totalOthers, Qt.point(p.x, p.y))
+                HoverHandler {
+                    id: pillHover
+                    cursorShape: Qt.PointingHandCursor
+                    onHoveredChanged: {
+                        if (hovered)
+                            receiptRow.hoverIndex = overflowPill.pillIndex
+                        else if (receiptRow.hoverIndex
+                                 === overflowPill.pillIndex)
+                            receiptRow.hoverIndex = -1
+                    }
+                }
+                // The pill opens the full reader list (up to 16, newest
+                // first, plus a truthful "+N more").
+                TapHandler {
+                    enabled: root.rowActionsEnabled
+                    gesturePolicy: TapHandler.WithinBounds
+                    onTapped: {
+                        receiptRow.forceActiveFocus(Qt.MouseFocusReason)
+                        receiptRow.openList(overflowPill)
+                    }
+                }
+                ToolTip {
+                    visible: pillHover.hovered
+                    delay: 400
+                    timeout: 0
+                    contentItem: Label {
+                        textFormat: Text.PlainText
+                        text: receiptRow.overflowNames()
+                        color: AppTheme.textPrimary
+                        font.pixelSize: AppTheme.fontCaption
+                    }
                 }
             }
+
             HoverHandler { id: receiptHover }
+            // Faces and the pill carry their own tooltips; this one is for the
+            // "Sent" check.
             ToolTip.text: readReceiptStrip.summary
-            // Fanned, each avatar carries its own name tooltip instead.
-            ToolTip.visible: receiptHover.hovered && receiptRow.fan === 0
-                             && !receiptRow.fanOpen
+            ToolTip.visible: receiptHover.hovered && readReceiptStrip.sentOnly
                              && readReceiptStrip.summary.length > 0
             ToolTip.delay: 500
             // One accessible summary; individual chips are not focus stops.
