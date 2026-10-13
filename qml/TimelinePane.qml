@@ -675,7 +675,6 @@ Rectangle {
         id: senderProfilePopover
         objectName: "senderProfilePopover"
         parent: Overlay.overlay
-        anchors.centerIn: parent
         onOpened: timeline.claimTransientInteraction("profile")
         onClosed: timeline.releaseTransientInteraction("profile")
     }
@@ -921,7 +920,7 @@ Rectangle {
                         avatarUrl: "",
                         isOwn: app.accounts
                                && dmPeerId === app.accounts.activeUserId
-                    })
+                    }, header)
                 }
 
                 Avatar {
@@ -3078,8 +3077,8 @@ Rectangle {
                 property var closeTransientRowSurfaces: function() {
                     root.closeRowAnchoredSurfaces()
                 }
-                property var openSenderProfile: function(member) {
-                    senderProfilePopover.openFor(member)
+                property var openSenderProfile: function(member, anchor) {
+                    senderProfilePopover.openFor(member, anchor)
                 }
                 // Shared reply navigation. Delegates reach the view only
                 // through `timelineView`, so the same reply preview works in
@@ -6223,7 +6222,7 @@ Rectangle {
                                     model: spaceHome.spacePeople.slice(0, 60)
                                     delegate: SpaceMemberChip {
                                         onProfileRequested: (member) =>
-                                            senderProfilePopover.openFor(member)
+                                            senderProfilePopover.openFor(member, parent)
                                     }
                                 }
                             }

@@ -135,7 +135,6 @@ Rectangle {
     MemberProfilePopover {
         id: memberProfile
         parent: Overlay.overlay
-        anchors.centerIn: parent
     }
 
     // The People list's context menu. What it offers is read from the
@@ -145,6 +144,7 @@ Rectangle {
         if (!member || !member.userId || !app.roomInfo)
             return
         memberMenu.member = member
+        memberMenu.rowItem = anchor
         memberMenu.canKick = app.roomInfo.canModerate(member.userId, "kick")
         memberMenu.canBan = app.roomInfo.canModerate(member.userId, "ban")
         memberMenu.canUnban = app.roomInfo.canModerate(member.userId, "unban")
@@ -156,6 +156,8 @@ Rectangle {
         objectName: "roomMemberMenu"
         menuWidth: 210
         property var member: ({})
+        // The People row the menu was opened on (anchor for the profile card).
+        property Item rowItem: null
         property bool canKick: false
         property bool canBan: false
         property bool canUnban: false
@@ -166,7 +168,7 @@ Rectangle {
             objectName: "roomMemberMenuProfile"
             iconName: "person"
             text: qsTr("View profile")
-            onTriggered: memberProfile.openFor(memberMenu.member)
+            onTriggered: memberProfile.openFor(memberMenu.member, memberMenu.rowItem)
         }
         AppMenuSeparator {
             visible: memberMenu.canKick || memberMenu.canBan
@@ -1932,7 +1934,7 @@ Rectangle {
                                                    .arg(member.userId)
                                                    .arg(member.roleLabel)
                                              : member.userId
-                            onClicked: memberProfile.openFor(member)
+                            onClicked: memberProfile.openFor(member, parent)
                             // Right-click: the moderation actions without
                             // opening the profile first.
                             TapHandler {

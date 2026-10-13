@@ -763,8 +763,8 @@ Rectangle {
                     threadReactionPicker.openExpanded = expanded === true
                     threadReactionPicker.open()
                 }
-                property var openSenderProfile: function(member) {
-                    threadSenderProfile.openFor(member)
+                property var openSenderProfile: function(member, anchor) {
+                    threadSenderProfile.openFor(member, anchor)
                 }
                 // Reply navigation. The policy (bounded thread pagination,
                 // thread-identity guard, failure wording) lives in
@@ -2367,7 +2367,6 @@ Rectangle {
     MemberProfilePopover {
         id: threadSenderProfile
         parent: Overlay.overlay
-        anchors.centerIn: parent
     }
     Connections {
         target: app

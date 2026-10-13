@@ -4,8 +4,13 @@ import QtQuick.Effects
 import QtQuick.Layouts
 import MatrixClient
 
-// Member profile card, a centred modal: callers use `parent: Overlay.overlay;
-// anchors.centerIn: parent` and openFor().
+// Member profile card, a Sable-style ANCHORED popover: callers use
+// `parent: Overlay.overlay` and openFor(member, anchor). The card opens beside
+// the clicked name, avatar, pill or row (anchor: an Item, or a rect
+// {x, y, width, height} in overlay coordinates), flips to the other side and
+// clamps to stay inside the window, and without an anchor centres itself.
+// Non-modal: it closes on Escape (the first Escape belongs to an open popup)
+// and on an outside press, and a press on another name simply replaces it.
 //
 // Shows banner, avatar, display name in identity ink, full MXID, bio (MSC4440
 // over MSC4133), chips (homeserver, Share, membership with the presence dot,
@@ -23,27 +28,70 @@ import MatrixClient
 // /members request per joined room.
 Popup {
     id: root
-    modal: true
-    width: 296
+    modal: false
+    dim: false
+    width: 340
     padding: 0
 
-    // Scale the whole card on large displays so its proportions survive; a
-    // non-integer item scale renders Text via distance fields, so it stays
-    // sharp. Bounded, and exactly 1.0 on an ordinary window. Scales around the
-    // centre, so anchors.centerIn still centres it.
-    readonly property real cardScale: {
-        var w = parent ? parent.width : 0
-        var h = parent ? parent.height : 0
-        if (w <= 0 || h <= 0)
-            return 1.0
-        return Math.max(1.0, Math.min(1.5, Math.min(w / 1100, h / 720)))
-    }
-    scale: cardScale
-    transformOrigin: Item.Center
+    // Gap between the anchor and the card, and the minimum margin to the
+    // window edge.
+    readonly property int anchorGap: 8
+    readonly property int edgeMargin: 8
+    // The last anchor rect in overlay coordinates; null = centre.
+    property var anchorRect: null
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     // A popup sees Escape only while it holds focus, and nothing on the card
     // takes it when it opens.
     focus: true
+
+    // Rect of `anchor` (an Item or a plain rect) in overlay coordinates.
+    function _rectOf(anchor) {
+        if (!anchor)
+            return null
+        var ov = root.parent
+        if (anchor.mapToItem !== undefined && ov) {
+            var tl = anchor.mapToItem(ov, 0, 0)
+            return { x: tl.x, y: tl.y, width: anchor.width,
+                     height: anchor.height }
+        }
+        if (anchor.x !== undefined && anchor.y !== undefined)
+            return { x: anchor.x, y: anchor.y, width: anchor.width || 1,
+                     height: anchor.height || 1 }
+        return null
+    }
+
+    // Beside the anchor: right of it when it fits, else left, else clamped;
+    // top-aligned with it and clamped vertically. Always inside the window.
+    function place() {
+        var ov = root.parent
+        if (!ov)
+            return
+        var W = ov.width, H = ov.height
+        var m = root.edgeMargin
+        var w = root.width, h = root.height
+        var r = root.anchorRect
+        var nx, ny
+        if (!r) {
+            nx = (W - w) / 2
+            ny = (H - h) / 2
+        } else {
+            if (r.x + r.width + root.anchorGap + w <= W - m)
+                nx = r.x + r.width + root.anchorGap
+            else if (r.x - root.anchorGap - w >= m)
+                nx = r.x - root.anchorGap - w
+            else
+                nx = r.x + r.width / 2 - w / 2
+            ny = r.y
+        }
+        root.x = Math.round(Math.max(m, Math.min(nx, W - w - m)))
+        root.y = Math.round(Math.max(m, Math.min(ny, H - h - m)))
+    }
+    onHeightChanged: if (visible) place()
+    Connections {
+        target: root.parent
+        function onWidthChanged() { if (root.visible) root.place() }
+        function onHeightChanged() { if (root.visible) root.place() }
+    }
 
     property string userId: ""
     property string displayName: ""
@@ -186,7 +234,8 @@ Popup {
         }
     }
 
-    function openFor(member) {
+    function openFor(member, anchor) {
+        anchorRect = _rectOf(anchor)
         userId = member.userId || ""
         displayName = member.displayName || ""
         membership = member.membership || ""
@@ -214,7 +263,9 @@ Popup {
             app.roomInfo.roomId = app.currentRoomId
         _refreshModeration()
         _refreshIgnored()
+        place()
         open()
+        place()
         // The tap that opened the card can also reach a TapHandler above its
         // caller (the timeline's takes focus for keyboard scrolling), after
         // this one: take focus once that tap is delivered, or Escape goes there.
@@ -228,8 +279,8 @@ Popup {
     // Opens straight onto the confirm step for `op` ("kick", "ban" or
     // "unban") when the viewer may do it; otherwise the plain card, whose
     // controls say what is possible.
-    function openForAction(member, op) {
-        openFor(member)
+    function openForAction(member, op, anchor) {
+        openFor(member, anchor)
         if ((op === "kick" && showKick) || (op === "ban" && showBan)
                 || (op === "unban" && showUnban))
             modAction = op
@@ -409,9 +460,6 @@ Popup {
                           : Qt.alpha(AppTheme.stormLink, 0.32)
         }
     }
-
-    // Themed scrim for this centred modal.
-    Overlay.modal: Rectangle { color: AppTheme.modalScrim }
 
     // Shadow: the effect and its source must be siblings inside one background
     // Item; MultiEffect cannot anchor across the Popup background boundary.

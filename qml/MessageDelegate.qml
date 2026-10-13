@@ -647,7 +647,7 @@ Item {
     }
     // Opens this row's sender profile. Shared by the avatar, sender name and
     // the context menu's "View profile".
-    function openSenderProfileForRow() {
+    function openSenderProfileForRow(anchor) {
         if (!root.timelineView || !root.timelineView.openSenderProfile)
             return
         var userId = model.sender || ""
@@ -657,7 +657,15 @@ Item {
             userId: userId,
             displayName: model.senderDisplayName || "",
             avatarUrl: model.senderAvatarMxc || ""
-        })
+        }, anchor || root.pointerAnchor())
+    }
+    // A 1x1 anchor at the pointer (row-local), for openers that are not an
+    // item of their own (a mention pill inside rich text, a context-menu
+    // entry): the profile opens beside where the reader just clicked.
+    function pointerAnchor() {
+        var pos = rowHover.point.position
+        var p = bubbleRow.mapToItem(Overlay.overlay, pos.x, pos.y)
+        return { x: p.x, y: p.y, width: 1, height: 1 }
     }
     // Mentions carry an internal "mention:<user-id>" link (from the sanitizer)
     // that opens the member profile; everything else is a validated http(s) or
@@ -679,7 +687,7 @@ Item {
                     userId: link.substring(8),
                     displayName: "",
                     avatarUrl: ""
-                })
+                }, root.pointerAnchor())
             }
             return
         }
@@ -1367,7 +1375,7 @@ Item {
                     TapHandler {
                         enabled: root.rowActionsEnabled
                         acceptedButtons: Qt.LeftButton
-                        onTapped: root.openSenderProfileForRow()
+                        onTapped: root.openSenderProfileForRow(parent)
                     }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                 }
@@ -1568,7 +1576,7 @@ Item {
                             TapHandler {
                                 enabled: root.rowActionsEnabled
                                 acceptedButtons: Qt.LeftButton
-                                onTapped: root.openSenderProfileForRow()
+                                onTapped: root.openSenderProfileForRow(parent)
                             }
                         }
                         // Disambiguator when two members share this display

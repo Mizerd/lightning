@@ -42,7 +42,6 @@ ApplicationWindow {
         id: popover
         objectName: "popover"
         parent: Overlay.overlay
-        anchors.centerIn: parent
     }
 
     // The timeline's shape: a surface whose TapHandler takes focus, with an
@@ -62,6 +61,12 @@ ApplicationWindow {
                                             displayName: "Carol", avatarUrl: "" })
             }
         }
+    }
+
+    // An anchored open: the rect is in overlay coordinates.
+    function openAt(userId, x, y, w, h) {
+        popover.openFor({ userId: userId, displayName: "", avatarUrl: "" },
+                        { x: x, y: y, width: w, height: h })
     }
 
     function openFor(userId, displayName, membership, role, isOwn) {
@@ -166,12 +171,123 @@ private slots:
                  "mention sees no Kick, no Ban and no Set role at all");
     }
 
-    void popoverIsFixed296WideAndCentredModal()
+    void popoverIsFixed340WideAndNonModal()
     {
         auto *popover = find(QStringLiteral("popover"));
         QVERIFY(popover);
-        QCOMPARE(popover->property("width").toInt(), 296);
-        QCOMPARE(popover->property("modal").toBool(), true);
+        QCOMPARE(popover->property("width").toInt(), 340);
+        QCOMPARE(popover->property("modal").toBool(), false);
+    }
+
+    // Anchored placement. The scene window is 500 x 600.
+    void anAnchoredCardOpensBesideItsAnchorAndStaysInsideTheWindow()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        const auto open = [&](int x, int y, int w, int h) {
+            QVERIFY(QMetaObject::invokeMethod(
+                m_root, "openAt", Q_ARG(QVariant, QStringLiteral("@bob:mock.local")),
+                Q_ARG(QVariant, x), Q_ARG(QVariant, y), Q_ARG(QVariant, w),
+                Q_ARG(QVariant, h)));
+            QTRY_VERIFY(popover->property("opened").toBool());
+        };
+        const auto rect = [&] {
+            return QRectF(popover->property("x").toReal(),
+                          popover->property("y").toReal(),
+                          popover->property("width").toReal(),
+                          popover->property("height").toReal());
+        };
+        const auto close = [&] {
+            QMetaObject::invokeMethod(popover, "close");
+            QTRY_VERIFY(!popover->property("visible").toBool());
+        };
+
+        // Room on the right: beside it, 8 px off, top-aligned (clamped).
+        open(20, 100, 40, 20);
+        QRectF r = rect();
+        QCOMPARE(r.x(), 68.0);
+        QVERIFY2(r.y() >= 8 && r.bottom() <= m_window->height() - 8,
+                 qPrintable(QStringLiteral("y=%1 bottom=%2")
+                                .arg(r.y()).arg(r.bottom())));
+        QVERIFY(qAbs(r.y() - 100) < 1.0 || r.bottom() >= m_window->height() - 9);
+        close();
+
+        // No room on the right: flips to the left of the anchor.
+        open(440, 100, 40, 20);
+        r = rect();
+        QVERIFY2(r.right() <= 440 - 8 + 0.5,
+                 qPrintable(QStringLiteral("right=%1").arg(r.right())));
+        QVERIFY(r.x() >= 8);
+        close();
+
+        // Neither side fits (500 px window, 340 px card): centred on the
+        // anchor, then clamped to the margin.
+        open(200, 580, 100, 20);
+        r = rect();
+        QVERIFY(r.x() >= 8 && r.right() <= m_window->width() - 8 + 0.5);
+        QVERIFY2(r.bottom() <= m_window->height() - 8 + 0.5 && r.y() >= 8,
+                 qPrintable(QStringLiteral("y=%1 bottom=%2")
+                                .arg(r.y()).arg(r.bottom())));
+        close();
+
+        // Anchored at the top-left corner: clamps to the margin, never
+        // negative.
+        open(0, 0, 4, 4);
+        r = rect();
+        QVERIFY(r.x() >= 8 && r.y() >= 8);
+        close();
+    }
+
+    void aSecondClickReplacesTheCardInsteadOfStackingAnother()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QStringLiteral("@bob:mock.local")),
+            Q_ARG(QVariant, 20), Q_ARG(QVariant, 80), Q_ARG(QVariant, 40),
+            Q_ARG(QVariant, 20)));
+        QTRY_VERIFY(popover->property("opened").toBool());
+        const qreal firstY = popover->property("y").toReal();
+        QCOMPARE(popover->property("userId").toString(),
+                 QStringLiteral("@bob:mock.local"));
+        // The same single instance is re-aimed at another person and place.
+        QVERIFY(QMetaObject::invokeMethod(
+            m_root, "openAt", Q_ARG(QVariant, QStringLiteral("@carol:mock.local")),
+            Q_ARG(QVariant, 20), Q_ARG(QVariant, 200), Q_ARG(QVariant, 40),
+            Q_ARG(QVariant, 20)));
+        QTRY_COMPARE(popover->property("userId").toString(),
+                     QStringLiteral("@carol:mock.local"));
+        QVERIFY(popover->property("opened").toBool());
+        QVERIFY2(popover->property("y").toReal() > firstY,
+                 "the card did not move to the second anchor");
+        QMetaObject::invokeMethod(popover, "close");
+        QTRY_VERIFY(!popover->property("visible").toBool());
+    }
+
+    void escapeAndAnOutsidePressCloseTheCard()
+    {
+        auto *popover = find(QStringLiteral("popover"));
+        QVERIFY(popover);
+        const auto open = [&] {
+            QVERIFY(QMetaObject::invokeMethod(
+                m_root, "openAt",
+                Q_ARG(QVariant, QStringLiteral("@bob:mock.local")),
+                Q_ARG(QVariant, 20), Q_ARG(QVariant, 100), Q_ARG(QVariant, 40),
+                Q_ARG(QVariant, 20)));
+            QTRY_VERIFY(popover->property("opened").toBool());
+            QTest::qWait(30);
+        };
+        open();
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QTRY_VERIFY2(!popover->property("visible").toBool(),
+                     "Escape did not close the anchored card");
+
+        open();
+        // A press well outside the card (it spans x 68..408 here).
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          QPoint(10, m_window->height() - 10));
+        QTRY_VERIFY2(!popover->property("visible").toBool(),
+                     "an outside press did not close the anchored card");
     }
 
     void omittedAffordancesNeverRenderAsPlaceholders()
@@ -730,7 +846,8 @@ private slots:
         // without the confirm step rather than offering a doomed action.
         QMetaObject::invokeMethod(popover, "openForAction",
                                   Q_ARG(QVariant, member),
-                                  Q_ARG(QVariant, QStringLiteral("ban")));
+                                  Q_ARG(QVariant, QStringLiteral("ban")),
+                                  Q_ARG(QVariant, QVariant()));
         QTRY_VERIFY(popover->property("opened").toBool());
         QCOMPARE(popover->property("showBan").toBool(), false);
         QCOMPARE(popover->property("modAction").toString(), QString());
