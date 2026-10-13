@@ -4363,7 +4363,8 @@ private slots:
             QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, c.toPoint());
             QVERIFY(box->hasActiveFocus());
             QTest::keyClick(m_window, Qt::Key_A, Qt::ControlModifier);
-            QTest::keyClicks(m_window, text);
+            for (const QChar ch : text)
+                QTest::keyClick(m_window, ch.toLatin1());
             QTest::keyClick(m_window, Qt::Key_Return);
             QCoreApplication::processEvents();
         };
