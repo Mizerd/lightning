@@ -1735,6 +1735,12 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
         let active_subscription = Arc::clone(&bridge.active_room_subscription);
         let sync_timelines = Arc::clone(&bridge.timelines);
         let sync_media_capable = Arc::clone(&bridge.call_media_capable);
+        let sync_verification_live: VerificationLive = {
+            let request = Arc::clone(&bridge.active_request);
+            let sas = Arc::clone(&bridge.active_sas);
+            let qr = Arc::clone(&bridge.active_qr);
+            Arc::new(move || flow_slots_are_live(&request, &sas, &qr))
+        };
         bridge.enqueue(json!({ "type": "status", "state": "syncing" }));
 
         let (cancel, cancel_rx) = tokio::sync::oneshot::channel::<()>();
@@ -1757,7 +1763,7 @@ pub unsafe extern "C" fn mx_rust_start_sync(ptr: *mut c_void) {
                     _ = run_authoritative_sync(
                         sync_client, events, sync_search_index, sync_mode, room_list_slot,
                         entries_slot, active_subscription, sync_timelines,
-                        sync_media_capable, cancel_rx,
+                        sync_media_capable, sync_verification_live, cancel_rx,
                     ) => {}
                     _ = stale_invites => {}
                 }
@@ -3695,8 +3701,49 @@ const VERIFICATION_POLL_MS: u64 = 500;
 /// Bounded wait for an `m.key.verification.start` to land when neither
 /// side has produced a SAS yet (60 s).
 const SAS_HANDSHAKE_TICKS: u32 = 120;
-/// Bounded wait for a started SAS to reach a terminal state (120 s).
+/// Bounded wait for a started SAS to reach the emoji screen (120 s): the
+/// start/accept/key exchange, which needs no human.
 const SAS_COMPLETION_TICKS: u32 = 240;
+/// How long the emoji screen may stay up before this driver gives up (10
+/// minutes, matrix-sdk-crypto's own VERIFICATION_TIMEOUT, so the SDK cancels
+/// first anyway). Separate from SAS_COMPLETION_TICKS because this half waits
+/// on two people comparing and confirming on two devices, each confirmation
+/// crossing a sync hop that measured 30 s on a classic-sync server: a 120 s
+/// budget counted from SAS start left about 40 s to compare, and it
+/// cancelled a good verification with `m.timeout` while the user was still
+/// reading.
+const SAS_COMPARE_TICKS: u32 = 1200;
+
+/// The SAS driver's tick budget: SAS_COMPLETION_TICKS for the machine half,
+/// re-armed ONCE to SAS_COMPARE_TICKS when the emojis are shown.
+struct SasTickBudget {
+    left: u32,
+    compare_armed: bool,
+}
+
+impl SasTickBudget {
+    fn new() -> Self {
+        Self { left: SAS_COMPLETION_TICKS, compare_armed: false }
+    }
+
+    /// Spend one tick; false once the budget is exhausted.
+    fn tick(&mut self) -> bool {
+        if self.left == 0 {
+            return false;
+        }
+        self.left -= 1;
+        true
+    }
+
+    /// The emojis are on screen: the human half gets its own budget, counted
+    /// from now. Idempotent, so a re-derived SAS cannot extend it.
+    fn emojis_shown(&mut self) {
+        if !self.compare_armed {
+            self.compare_armed = true;
+            self.left = SAS_COMPARE_TICKS;
+        }
+    }
+}
 /// Bounded wait for the peer to answer our request (5 minutes), shorter
 /// than the SDK's 10-minute VERIFICATION_TIMEOUT.
 const VERIFICATION_PEER_TICKS: u32 = 600;
@@ -4315,7 +4362,8 @@ async fn drive_sas_flow(
 
     let mut emitted_emojis = false;
     let mut emitted_confirmed = false;
-    for _ in 0..SAS_COMPLETION_TICKS {
+    let mut budget = SasTickBudget::new();
+    while budget.tick() {
         if shutdown.load(Ordering::SeqCst) {
             // Shutting down mid-flow: cancel both levels. The teardown slot sweep only
             // covers flows no driver owns.
@@ -4344,6 +4392,7 @@ async fn drive_sas_flow(
                 SasState::Started { .. } => true,
                 SasState::KeysExchanged { .. } if !emitted_emojis => {
                     emitted_emojis = true;
+                    budget.emojis_shown();
                     let mut emoji_list: Vec<serde_json::Value> = Vec::new();
                     if let Some(emojis) = sas.emoji() {
                         for e in emojis.iter() {
@@ -11011,6 +11060,7 @@ async fn run_authoritative_sync(
     active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
     timelines: Arc<timeline::TimelineRegistry>,
     call_media_capable: Arc<std::sync::atomic::AtomicBool>,
+    verification_live: VerificationLive,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
     // Call-signalling handlers live as long as this sync loop; their drop
@@ -11065,13 +11115,13 @@ async fn run_authoritative_sync(
             set_sync_mode(
                 &sync_mode, &events, SyncMode::ClassicSyncFallback, Some("unsupported")
             );
-            run_classic_sync(client, events, cancel).await;
+            run_classic_sync(client, events, verification_live, cancel).await;
         }
     } else {
         set_sync_mode(
             &sync_mode, &events, SyncMode::ClassicSyncFallback, Some("unsupported")
         );
-        run_classic_sync(client, events, cancel).await;
+        run_classic_sync(client, events, verification_live, cancel).await;
     }
 }
 
@@ -11636,17 +11686,66 @@ async fn supervise_classic_silence(
     }
 }
 
+/// Classic /sync long-poll timeout: the SDK's own default.
+const CLASSIC_SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Classic /sync long-poll timeout while a verification flow is live.
+///
+/// Measured on a Beeper account (which takes the classic fallback): every
+/// verification hop — request to ready, start to emojis, each confirmation —
+/// took exactly the long-poll timeout. That server does not wake a pending
+/// long-poll for a to-device event; it delivers it when the poll expires. A
+/// short poll only while a flow is live turns 30 s hops into ~3 s ones and
+/// costs nothing the rest of the time. Synapse wakes the poll anyway, so
+/// there it changes nothing.
+const CLASSIC_SYNC_TIMEOUT_VERIFYING: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// "Is a verification flow live right now?" Asked before every classic
+/// /sync request. A closure rather than the three slots so the sync loop
+/// needs no verification types, and so tests can drive it.
+type VerificationLive = Arc<dyn Fn() -> bool + Send + Sync>;
+
+/// The long-poll timeout for one classic /sync request.
+///
+/// The FIRST request of a loop says `timeout=0` explicitly. The SDK's idiom
+/// for "do not long-poll the first sync" (`ignore_timeout_on_first_sync`)
+/// OMITS the parameter and relies on the server reading absent as zero.
+/// Synapse does; Beeper's server applies its default long-poll instead —
+/// measured `request_ms=30095 process_ms=85` on a resumed session with
+/// nothing new, against `request_ms=227` with an explicit zero. That one
+/// request was the whole "shows nothing for 30 s after launch".
+fn classic_sync_request_timeout(first: bool, verifying: bool) -> std::time::Duration {
+    if first {
+        std::time::Duration::ZERO
+    } else if verifying {
+        CLASSIC_SYNC_TIMEOUT_VERIFYING
+    } else {
+        CLASSIC_SYNC_TIMEOUT
+    }
+}
+
+/// The settings for one classic /sync request. No `full_state`: it would ask
+/// for every room's full state on every request and adds nothing to an
+/// initial sync. The token is the SDK default, `ReusePrevious`, i.e. the
+/// stored `next_batch` — exactly what the SDK's own stream sends, since a
+/// processed response updates that token and a failed one leaves it.
+fn classic_sync_settings(timeout: std::time::Duration) -> SyncSettings {
+    SyncSettings::default().timeout(timeout)
+}
+
 async fn run_classic_sync(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
+    verification_live: VerificationLive,
     cancel: tokio::sync::oneshot::Receiver<()>,
 ) {
-    run_classic_sync_with(client, events, cancel, CLASSIC_SYNC_SILENCE).await;
+    run_classic_sync_with(client, events, verification_live, cancel, CLASSIC_SYNC_SILENCE)
+        .await;
 }
 
 async fn run_classic_sync_with(
     client: Client,
     events: Arc<Mutex<VecDeque<String>>>,
+    verification_live: VerificationLive,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
     silence: ClassicSilenceBudget,
 ) {
@@ -11695,10 +11794,6 @@ async fn run_classic_sync_with(
     let mut wedge_reported = false;
 
     loop {
-        // No `full_state(true)`: the settings apply to every request of the loop,
-        // so it would fetch every room's full state every 30 s, and it adds nothing
-        // to an initial sync. It cannot be cleared later (crate-private field).
-        let settings = SyncSettings::default().ignore_timeout_on_first_sync(true);
         let callback_client = client.clone();
         let callback_events = Arc::clone(&events);
         let callback_first = Arc::clone(&first_response);
@@ -11710,15 +11805,15 @@ async fn run_classic_sync_with(
         // A new attempt starts its silence clock now, not at the last callback
         // of the attempt before it.
         progress.touch();
-        // `sync_with_result_callback` lets the callback see failed requests and
-        // return `Ok(LoopCtrl::Continue)`, keeping the SDK loop and its token alive
-        // across an outage.
+        // The callback sees failed requests as well as responses and returns
+        // `Ok(LoopCtrl::Continue)` for a transient one, keeping the loop and its
+        // token alive across an outage.
         //
-        // Scoped in this block so the SDK loop (and whatever request, retry sleep
-        // or lock it holds) is dropped when the block ends, BEFORE the backoff
+        // Scoped in this block so the loop (and whatever request, retry sleep or
+        // lock it holds) is dropped when the block ends, BEFORE the backoff
         // below, not at the end of the loop iteration.
         let wedged = {
-        let sync = client.sync_with_result_callback(settings, move |result| {
+        let callback = move |result: Result<matrix_sdk::sync::SyncResponse, matrix_sdk::Error>| {
             let client = callback_client.clone();
             let events = Arc::clone(&callback_events);
             let first_response = Arc::clone(&callback_first);
@@ -11880,9 +11975,40 @@ async fn run_classic_sync_with(
                     enqueue(&events, json!({ "type": "initial_sync_done" }));
                 }
                 progress.touch();
-                Ok(LoopCtrl::Continue)
+                Ok::<LoopCtrl, matrix_sdk::Error>(LoopCtrl::Continue)
             }
-        });
+        };
+        // The loop itself, rather than `sync_with_result_callback`, because the
+        // long-poll timeout must be able to CHANGE between requests (see
+        // CLASSIC_SYNC_TIMEOUT_VERIFYING) and the SDK's stream fixes it once.
+        // Everything else is the SDK's `sync_with_result_callback` as 0.18 writes
+        // it: `sync_once` per request with the stored token, every result handed
+        // to the callback, an `Err` from the callback ends the loop, and a server
+        // that ignores the timeout is held to one request per second.
+        //
+        // The silence budget is unaffected: a shorter poll only makes callbacks
+        // more frequent, and the longest request is still the 30 s poll plus the
+        // client's request timeout it was sized against.
+        let loop_client = client.clone();
+        let loop_verification_live = Arc::clone(&verification_live);
+        let sync = async move {
+            let mut first = true;
+            let mut last_sync: Option<tokio::time::Instant> = None;
+            loop {
+                let timeout = classic_sync_request_timeout(first, loop_verification_live());
+                first = false;
+                let result = loop_client.sync_once(classic_sync_settings(timeout)).await;
+                if callback(result).await? == LoopCtrl::Break {
+                    break;
+                }
+                let now = tokio::time::Instant::now();
+                if last_sync.is_some_and(|t| now - t <= std::time::Duration::from_secs(1)) {
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+                last_sync = Some(now);
+            }
+            Ok::<(), matrix_sdk::Error>(())
+        };
         tokio::pin!(sync);
         let mut wedged = false;
         // Biased, SDK loop first: a loop that finished in the same poll as the
@@ -16006,11 +16132,37 @@ mod classic_sync_fault_tests {
 /// getters, so this asserts on its `Debug` output.
 #[cfg(test)]
 mod classic_sync_settings_tests {
+    use std::time::Duration;
+
     use matrix_sdk::config::SyncSettings;
 
-    /// The exact expression `run_classic_sync` builds.
+    use super::{
+        classic_sync_request_timeout, CLASSIC_SYNC_TIMEOUT, CLASSIC_SYNC_TIMEOUT_VERIFYING,
+    };
+
+    /// The exact expression `run_classic_sync` builds for each request.
     fn classic_settings() -> SyncSettings {
-        SyncSettings::default().ignore_timeout_on_first_sync(true)
+        super::classic_sync_settings(CLASSIC_SYNC_TIMEOUT)
+    }
+
+    #[test]
+    fn the_first_request_says_zero_and_never_omits_the_timeout() {
+        // Omitted is NOT zero on every server (Beeper long-polls it), so the
+        // first request must carry an explicit zero, verifying or not.
+        assert_eq!(classic_sync_request_timeout(true, false), Duration::ZERO);
+        assert_eq!(classic_sync_request_timeout(true, true), Duration::ZERO);
+        // `SyncSettings`' Debug omits a `None` timeout, so this is the
+        // explicit zero being present, not merely a zero-ish default.
+        let printed = format!("{:?}", super::classic_sync_settings(Duration::ZERO));
+        assert!(printed.contains("timeout: 0ns"), "{printed}");
+        assert!(printed.contains("ignore_timeout_on_first_sync: false"), "{printed}");
+    }
+
+    #[test]
+    fn a_live_verification_shortens_the_poll_and_nothing_else_does() {
+        assert_eq!(classic_sync_request_timeout(false, false), CLASSIC_SYNC_TIMEOUT);
+        assert_eq!(classic_sync_request_timeout(false, true), CLASSIC_SYNC_TIMEOUT_VERIFYING);
+        assert!(CLASSIC_SYNC_TIMEOUT_VERIFYING < CLASSIC_SYNC_TIMEOUT);
     }
 
     #[test]
@@ -16018,9 +16170,9 @@ mod classic_sync_settings_tests {
         let printed = format!("{:?}", classic_settings());
         assert!(printed.contains("full_state: false"),
                 "classic sync still asks the server to serialise the complete                  state of every joined room on every incremental sync: {printed}");
-        // The one flag it sets, so this cannot pass on settings that lost
+        // The one value it sets, so this cannot pass on settings that lost
         // everything.
-        assert!(printed.contains("ignore_timeout_on_first_sync: true"), "{printed}");
+        assert!(printed.contains("timeout: 30s"), "{printed}");
     }
 
     #[test]
@@ -16028,6 +16180,42 @@ mod classic_sync_settings_tests {
         // Proves the assertion above can fail.
         let printed = format!("{:?}", classic_settings().full_state(true));
         assert!(printed.contains("full_state: true"), "{printed}");
+    }
+}
+
+#[cfg(test)]
+mod sas_tick_budget_tests {
+    use super::{SasTickBudget, SAS_COMPARE_TICKS, SAS_COMPLETION_TICKS};
+
+    fn run(emojis_at: Option<u32>) -> u32 {
+        let mut budget = SasTickBudget::new();
+        let mut spent = 0;
+        while budget.tick() {
+            spent += 1;
+            if Some(spent) == emojis_at {
+                budget.emojis_shown();
+            }
+            // A re-derived SAS reports KeysExchanged again; it must not
+            // extend the compare budget.
+            if emojis_at.is_some_and(|at| spent == at + 10) {
+                budget.emojis_shown();
+            }
+        }
+        spent
+    }
+
+    #[test]
+    fn the_machine_half_keeps_its_own_bound() {
+        assert_eq!(run(None), SAS_COMPLETION_TICKS);
+    }
+
+    #[test]
+    fn the_compare_half_is_counted_from_the_emojis_not_from_sas_start() {
+        // Emojis late in the machine half (30 s hops): the whole compare
+        // budget is still there. Counted from SAS start, this left ~40 s.
+        let late = SAS_COMPLETION_TICKS - 1;
+        assert_eq!(run(Some(late)), late + SAS_COMPARE_TICKS);
+        assert_eq!(run(Some(1)), 1 + SAS_COMPARE_TICKS);
     }
 }
 
@@ -16202,7 +16390,11 @@ mod classic_sync_silence_tests {
 /// supervisor this loop said "starting" and nothing else for 15 minutes.
 #[cfg(test)]
 mod classic_sync_wedge_tests {
-    use super::{run_classic_sync_with, ClassicSilenceBudget, CLASSIC_SYNC_WEDGED_MESSAGE};
+    use super::{
+        run_classic_sync_with, ClassicSilenceBudget, VerificationLive,
+        CLASSIC_SYNC_WEDGED_MESSAGE,
+    };
+    use std::sync::atomic::AtomicBool;
     use std::collections::VecDeque;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
@@ -16302,6 +16494,139 @@ mod classic_sync_wedge_tests {
         })
     }
 
+    fn never_verifying() -> VerificationLive {
+        Arc::new(|| false)
+    }
+
+    /// A homeserver that answers `/sync` AT ONCE whatever its `timeout`, and
+    /// records the `timeout` each request carried ("absent" when there was
+    /// none). Everything else but `/versions` gets a 404, which the SDK does
+    /// not retry, so the E2EE requests `sync_once` sends first fail fast.
+    fn serve_recording_sync(seen: Arc<Mutex<Vec<String>>>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let (ready_tx, ready_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = ready_tx.send(());
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let seen = Arc::clone(&seen);
+                thread::spawn(move || {
+                    let line = read_request(&mut stream);
+                    let target = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+                    let (path, query) = target.split_once('?').unwrap_or((&target, ""));
+                    if path.starts_with("/_matrix/client/versions") {
+                        respond(&mut stream, "200 OK",
+                                r#"{"versions":["v1.1","v1.11"],"unstable_features":{}}"#);
+                    } else if path == "/_matrix/client/v3/sync" {
+                        let timeout = query
+                            .split('&')
+                            .find_map(|pair| pair.strip_prefix("timeout="))
+                            .unwrap_or("absent")
+                            .to_owned();
+                        let batch = {
+                            let mut seen = seen.lock().unwrap();
+                            seen.push(timeout);
+                            seen.len()
+                        };
+                        respond(&mut stream, "200 OK",
+                                &format!(r#"{{"next_batch":"s{batch}"}}"#));
+                    } else {
+                        respond(&mut stream, "404 Not Found",
+                                r#"{"errcode":"M_UNRECOGNIZED","error":"test"}"#);
+                    }
+                });
+            }
+        });
+        ready_rx.recv().expect("listener thread started");
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    async fn restored_client(addr: &str) -> matrix_sdk::Client {
+        let client = matrix_sdk::Client::builder()
+            .homeserver_url(format!("http://{addr}"))
+            .build()
+            .await
+            .expect("client");
+        let session = MatrixSession {
+            meta: SessionMeta {
+                user_id: OwnedUserId::try_from("@me:example.org").expect("user id"),
+                device_id: OwnedDeviceId::from("TESTDEVICE"),
+            },
+            tokens: SessionTokens {
+                access_token: "test-token".to_owned(),
+                refresh_token: None,
+            },
+        };
+        client
+            .matrix_auth()
+            .restore_session(session, RoomLoadSettings::default())
+            .await
+            .expect("restore");
+        client
+    }
+
+    /// The two classic-sync cadence fixes, end to end through the real loop
+    /// and a real HTTP request: the first request carries an explicit
+    /// `timeout=0` (an omitted timeout is a 30 s long-poll on Beeper), and a
+    /// verification going live shortens the very next poll to 3 s.
+    #[test]
+    fn the_first_poll_says_zero_and_a_live_verification_shortens_the_next() {
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let addr = serve_recording_sync(Arc::clone(&seen));
+        let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let verifying = Arc::new(AtomicBool::new(false));
+        let live: VerificationLive = {
+            let verifying = Arc::clone(&verifying);
+            Arc::new(move || verifying.load(Ordering::SeqCst))
+        };
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let client = restored_client(&addr).await;
+            let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+            let watched = Arc::clone(&seen);
+            let flag = Arc::clone(&verifying);
+            // Flip "verifying" once two polls have gone out (the loop then
+            // sleeps ~1 s before the next, so the flip lands before it), and
+            // stop after four, or at a bound.
+            let watcher = async move {
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+                while tokio::time::Instant::now() < deadline {
+                    let count = watched.lock().unwrap().len();
+                    if count >= 2 {
+                        flag.store(true, Ordering::SeqCst);
+                    }
+                    if count >= 4 {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                let _ = cancel_tx.send(());
+            };
+            let silence = ClassicSilenceBudget {
+                report_after: Duration::from_secs(60),
+                restart_after: Duration::from_secs(120),
+                resume_gap: Duration::from_secs(3600),
+            };
+            tokio::join!(
+                run_classic_sync_with(client, Arc::clone(&events), live, cancel_rx, silence),
+                watcher
+            );
+        });
+
+        let seen = seen.lock().unwrap().clone();
+        assert!(seen.len() >= 4, "the loop did not keep polling: {seen:?} {:?}", drain(&events));
+        assert_eq!(seen[0], "0", "the first request must say timeout=0 explicitly: {seen:?}");
+        assert_eq!(seen[1], "30000", "an idle poll keeps the SDK's 30 s: {seen:?}");
+        assert_eq!(seen[2], "3000", "a live verification did not shorten the poll: {seen:?}");
+        assert_eq!(seen[3], "3000", "{seen:?}");
+        // The responses really were processed, so this is the loop the UI sees.
+        assert!(drain(&events).iter().any(|v| v["state"] == "running"));
+    }
+
     #[test]
     fn a_gateway_failing_every_sync_ends_in_a_reported_restart_not_silence() {
         let failed = Arc::new(AtomicUsize::new(0));
@@ -16350,7 +16675,8 @@ mod classic_sync_wedge_tests {
                 resume_gap: Duration::from_secs(3600),
             };
             tokio::join!(
-                run_classic_sync_with(client, Arc::clone(&events), cancel_rx, silence),
+                run_classic_sync_with(
+                    client, Arc::clone(&events), never_verifying(), cancel_rx, silence),
                 watcher
             );
         });
