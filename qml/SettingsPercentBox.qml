@@ -16,6 +16,21 @@ AppTextField {
     // The Slider this box mirrors and drives.
     property Slider slider: null
     property real valueScale: 1
+    // What the slider's own `value: <setting>` binding reads, in the slider's
+    // units. Typing a number assigns `slider.value`, and an assignment to a
+    // bound property destroys its binding for good: from then on the slider
+    // would not follow the setting (a reset, a synced import, another control
+    // writing it). A Binding is not on the property, so a later assignment
+    // cannot remove it. Leave unset for a slider that is not bound to a
+    // setting.
+    property var follows: undefined
+    Binding {
+        target: box.slider
+        property: "value"
+        value: box.follows
+        when: box.slider !== null && box.follows !== undefined
+        restoreMode: Binding.RestoreNone
+    }
 
     readonly property real shownValue: slider ? slider.value * valueScale : 0
     // What the box shows when nothing is being typed.
@@ -37,13 +52,26 @@ AppTextField {
         ? qsTr("%1, percent").arg(slider.Accessible.name)
         : qsTr("Percent")
 
+    // True from the first key the user types until the value is committed.
+    // Focus alone is not editing: the box keeps the focus after Enter, and a
+    // reset, a synced import or the slider can move the setting while it does.
+    // Without this the box showed the old number and committed it again when
+    // the focus left, putting back the value that had just been changed.
+    property bool userEdited: false
+    onTextEdited: userEdited = true
+
     // Follows the slider whenever the field is not being edited.
     text: shownText
-    onShownTextChanged: if (!activeFocus) text = shownText
+    onShownTextChanged: if (!activeFocus || !userEdited) text = shownText
 
     function commitTyped() {
         if (!slider)
             return
+        if (!userEdited) {
+            text = shownText
+            return
+        }
+        userEdited = false
         const typed = parseInt(text, 10)
         if (isNaN(typed)) {
             text = shownText

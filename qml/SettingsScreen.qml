@@ -37,6 +37,7 @@ Item {
     }
     onSectionChanged: {
         root.forgetTransientBackupState()
+        root.outlinePinned = -1
         root.scheduleOutlineRefresh()
     }
 
@@ -735,6 +736,10 @@ Item {
     // Index into outlineEntries(section) of the heading in view, or -1. Set by
     // refreshOutlineActive(), which runs off a throttle timer, not per frame.
     property int outlineActive: -1
+    // The heading a click chose, and the scroll offset the page settled at,
+    // or -1 / 0 when none. See refreshOutlineActive().
+    property int outlinePinned: -1
+    property real outlinePinnedY: 0
 
     // anchor -> Item, filled lazily. The panes are never destroyed (they toggle
     // by visibility), so a hit stays good; a null one is looked up again.
@@ -765,6 +770,22 @@ Item {
         }
         var y = contentFlick.contentY
         var maxY = Math.max(0, contentFlick.contentHeight - contentFlick.height)
+        // A heading that was clicked stays the marked one while the page sits
+        // where the click left it. Position cannot say which heading was
+        // meant when the page cannot scroll far enough to put it at the top
+        // (the last groups of a short page, where the end-of-page rule below
+        // would otherwise mark the final heading), or when two headings
+        // resolve to the same card because this backend does not show one of
+        // them. Scrolling by hand lets go of it.
+        if (root.outlinePinned >= 0) {
+            if (root.outlinePinned < entries.length
+                && (searchRevealSettle.running
+                    || Math.abs(y - root.outlinePinnedY) <= 2)) {
+                root.outlineActive = root.outlinePinned
+                return
+            }
+            root.outlinePinned = -1
+        }
         // The same offset a reveal lands the heading at, so a clicked entry is
         // the active one the moment the scroll settles.
         var probe = y + AppTheme.spacing24 * 2 + 8
@@ -801,8 +822,11 @@ Item {
         if (index < 0 || index >= entries.length)
             return ""
         var used = root.jumpToFirstShown(entries[index].anchors)
-        if (used.length > 0)
+        if (used.length > 0) {
+            root.outlinePinned = index
+            root.outlinePinnedY = contentFlick.contentY
             root.outlineActive = index
+        }
         return used
     }
 
@@ -884,6 +908,9 @@ Item {
             var top = root.applySearchReveal(false)
             if (top < 0 || (lastTop >= 0 && Math.abs(top - lastTop) < 0.5)
                 || ++ticks >= 12) {
+                // Where the page came to rest: the clicked heading stays
+                // marked until the page moves from here.
+                root.outlinePinnedY = contentFlick.contentY
                 running = false
                 ticks = 0
                 lastTop = -1
@@ -1021,6 +1048,9 @@ Item {
     // boundary, so a dark disc would read as disabled).
     component SettingsSlider: Slider {
         id: styledSlider
+        // The custom background and handle have no implicit height: without
+        // this the slider is zero pixels tall and cannot be pressed.
+        implicitHeight: 24
         snapMode: Slider.SnapAlways
         background: Rectangle {
             x: styledSlider.leftPadding
@@ -2020,17 +2050,37 @@ Item {
 
                 // Right-click a setting for a link to it. Only where a
                 // searchIndex entry's control is: blank space gets no menu.
-                TapHandler {
-                    acceptedButtons: Qt.RightButton
-                    onTapped: (point) => {
-                        var entry = root.indexEntryAtContentY(
-                            contentFlick.contentY + point.position.y)
-                        if (!entry)
-                            return
-                        root.linkMenuTarget = root.settingsLink(entry.section,
-                                                                entry.anchor)
-                        settingLinkMenu.popup(contentFlick, point.position.x,
-                                              point.position.y)
+                //
+                // On a layer ABOVE the page, not as a handler on the content
+                // item: every SettingsCard is a Pane, a Control, and a Control
+                // accepts all mouse buttons, so a right-press over a card
+                // stops at the card and never reaches a handler beneath it
+                // (it only ever worked on the gaps between cards). A handler
+                // takes a passive grab, so left clicks and wheel pass through
+                // to the controls below.
+                Item {
+                    id: linkMenuLayer
+                    objectName: "settingLinkMenuLayer"
+                    z: 50
+                    x: 0
+                    y: 0
+                    width: contentFlick.width
+                    height: contentFlick.contentHeight
+                    TapHandler {
+                        acceptedButtons: Qt.RightButton
+                        onTapped: (point) => {
+                            // This layer scrolls with the content, so the
+                            // point is already in content coordinates.
+                            var entry = root.indexEntryAtContentY(
+                                point.position.y)
+                            if (!entry)
+                                return
+                            root.linkMenuTarget = root.settingsLink(
+                                entry.section, entry.anchor)
+                            settingLinkMenu.popup(
+                                contentFlick, point.position.x,
+                                point.position.y - contentFlick.contentY)
+                        }
                     }
                 }
                 AppMenu {
@@ -2870,6 +2920,12 @@ Item {
                             Slider {
                                 id: textScaleSlider
                                 objectName: "textScaleSlider"
+                                // A custom background and handle carry no
+                                // implicit height, so without this the control
+                                // is ZERO pixels tall and a mouse press never
+                                // lands on it (the thumb is drawn outside its
+                                // bounds).
+                                implicitHeight: 24
                                 Layout.fillWidth: true
                                 Layout.maximumWidth: 320
                                 from: 75
@@ -2941,6 +2997,7 @@ Item {
                             SettingsPercentBox {
                                 objectName: "textScalePercentBox"
                                 slider: textScaleSlider
+                                follows: app.settings.textScale
                             }
                         }
                         Label {
@@ -2969,6 +3026,7 @@ Item {
                             Slider {
                                 id: interfaceZoomSlider
                                 objectName: "interfaceZoomSlider"
+                                implicitHeight: 24
                                 Layout.fillWidth: true
                                 Layout.maximumWidth: 320
                                 from: 75
@@ -3028,6 +3086,7 @@ Item {
                             SettingsPercentBox {
                                 objectName: "interfaceZoomPercentBox"
                                 slider: interfaceZoomSlider
+                                follows: app.settings.interfaceZoom
                             }
                         }
                         Label {
@@ -5868,6 +5927,7 @@ Item {
                                     SettingsPercentBox {
                                         objectName: "notificationVolumePercentBox"
                                         slider: notificationSoundVolumeSlider
+                                        follows: app.settings.notificationSoundVolume
                                     }
                                     AppButton {
                                         objectName: "notificationSoundPreviewButton"
@@ -6098,6 +6158,7 @@ Item {
                                     SettingsPercentBox {
                                         objectName: "mediaVolumeSettingReadout"
                                         slider: mediaVolumeSettingSlider
+                                        follows: app.settings.mediaVolume
                                         valueScale: 100
                                     }
                                 }
@@ -6205,6 +6266,7 @@ Item {
                                     SettingsPercentBox {
                                         objectName: "callSoundVolumePercentBox"
                                         slider: callSoundVolumeSlider
+                                        follows: app.settings.callSoundVolume
                                     }
                                     AppButton {
                                         objectName: "callSoundPreviewButton"
@@ -6244,6 +6306,7 @@ Item {
                                     SettingsPercentBox {
                                         objectName: "ringerVolumePercentBox"
                                         slider: ringerVolumeSlider
+                                        follows: app.settings.ringerVolume
                                     }
                                     AppButton {
                                         objectName: "ringerPreviewButton"
