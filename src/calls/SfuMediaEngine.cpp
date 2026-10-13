@@ -2080,6 +2080,12 @@ bool SfuMediaEngine::levelElementAvailable()
     return available;
 }
 
+bool SfuMediaEngine::echoProbeElementAvailable()
+{
+    static const bool available = factoryExists("webrtcechoprobe");
+    return available;
+}
+
 bool SfuMediaEngine::applyCaptureBinding(
     GstElement *bin, const char *elementName,
     const lightning::calls::DeviceBinding &binding)
@@ -2273,8 +2279,48 @@ SfuMediaEngine::DeviceChoice SfuMediaEngine::speakerChoice() const
     return m_speakerChoice;
 }
 
-void SfuMediaEngine::setShareQuality(int maxHeight, int fps)
+int SfuMediaEngine::snapCameraHeight(int height)
 {
+    // 720 is today's behaviour, so anything unrecognised lands there.
+    if (height == 360 || height == 480 || height == 1080)
+        return height;
+    return kCameraHeight;
+}
+
+int SfuMediaEngine::snapShareBitrateCap(int kbps)
+{
+    // 0 is Auto. Anything else snaps to the offered ceilings.
+    if (kbps <= 0)
+        return 0;
+    static const int offered[] = { 500, 1000, 2000, 3000, 4500 };
+    int best = offered[0];
+    for (int v : offered) {
+        if (qAbs(v - kbps) < qAbs(best - kbps))
+            best = v;
+    }
+    return best;
+}
+
+void SfuMediaEngine::setCameraQuality(int maxHeight)
+{
+    m_cameraMaxHeight = snapCameraHeight(maxHeight);
+}
+
+QString SfuMediaEngine::echoProbeStage(bool echoCancel, bool probeAvailable)
+{
+    if (!echoCancel || !probeAvailable)
+        return {};
+    // S16LE at 48 kHz is what webrtcdsp is fed, and the probe must see the
+    // same format. A filter, so playback is untouched.
+    return QStringLiteral("! audioconvert "
+                          "! audio/x-raw,format=S16LE,rate=48000 "
+                          "! webrtcechoprobe ");
+}
+
+void SfuMediaEngine::setShareQuality(int maxHeight, int fps,
+                                     int bitrateCapKbps)
+{
+    m_shareBitrateCapKbps = snapShareBitrateCap(bitrateCapKbps);
     // Snapped to known values: these come from settings and reach the caps
     // string.
     m_shareMaxHeight = (maxHeight <= 900) ? 720
@@ -3616,7 +3662,8 @@ void SfuMediaEngine::publishAudio(const QString &cid)
     // Settings microphone test builds the same stage.
     const calls::noise::Mode noiseMode = noiseSuppressionMode();
     const bool dspAvailable = calls::noise::webrtcDspAvailable();
-    const QString gainStage = voiceProcessingDescription(noiseMode);
+    const QString gainStage = voiceProcessingDescription(
+        noiseMode, m_echoCancel.load(), m_autoGain.load());
 
     // Level meter right before the encoder, so it measures what the far end
     // receives. Optional like `webrtcdsp`. 50 ms interval: the in-call meter
@@ -4155,14 +4202,18 @@ QString SfuMediaEngine::shareLimitsCaps(int maxHeight, int fps)
 
 /// The share's encoder stage: bitrate scales with the picture, keyframe
 /// interval with the rate.
-QString SfuMediaEngine::shareEncoderStage(int maxHeight, int fps)
+QString SfuMediaEngine::shareEncoderStage(int maxHeight, int fps,
+                                          int bitrateCapKbps)
 {
     const int shareH = maxHeight;
     const int shareW = (shareH * 16) / 9;
     const double shareScale = (double(shareW) * shareH * fps)
                             / (1920.0 * 1080.0 * 30.0);
-    const int shareBitrate =
+    int shareBitrate =
         std::clamp(int(3000000.0 * shareScale), 800000, 6000000);
+    // A cap only lowers: Auto is the picture-derived rate above.
+    if (bitrateCapKbps > 0)
+        shareBitrate = std::min(shareBitrate, bitrateCapKbps * 1000);
     return QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
                           "cpu-used=4 static-threshold=100 "
                           "keyframe-max-dist=%2 "
@@ -4207,16 +4258,42 @@ QString SfuMediaEngine::portalCameraEntry()
         "height=(int)[360,1080],pixel-aspect-ratio=(fraction)1/1\"");
 }
 
-QString SfuMediaEngine::cameraLimitsCaps(bool portal)
+QString SfuMediaEngine::cameraLimitsCaps(bool portal, int maxHeight)
 {
+    const int h = snapCameraHeight(maxHeight);
+    const int w = (h * 16) / 9;
+    const QString size = QStringLiteral("video/x-raw,width=(int)[1,%1],"
+                                        "height=(int)[1,%2],")
+                             .arg(QString::number(w), QString::number(h));
     return portal
-        ? QStringLiteral("video/x-raw,width=(int)[1,1280],"
-                         "height=(int)[1,720],"
-                         "pixel-aspect-ratio=(fraction)1/1")
-        : QStringLiteral("video/x-raw,width=(int)[1,1280],"
-                         "height=(int)[1,720],"
-                         "framerate=(fraction)30/1,"
-                         "pixel-aspect-ratio=(fraction)1/1");
+        ? size + QStringLiteral("pixel-aspect-ratio=(fraction)1/1")
+        : size + QStringLiteral("framerate=(fraction)30/1,"
+                                "pixel-aspect-ratio=(fraction)1/1");
+}
+
+QString SfuMediaEngine::cameraEncoderStage(int maxHeight)
+{
+    // 720p is the reference and must not change; the others follow the
+    // picture, as the share's rate does.
+    int bitrate = 1700000;
+    switch (snapCameraHeight(maxHeight)) {
+    case 360:
+        bitrate = 700000;
+        break;
+    case 480:
+        bitrate = 1100000;
+        break;
+    case 1080:
+        bitrate = 3000000;
+        break;
+    default:
+        break;
+    }
+    return QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
+                          "cpu-used=2 static-threshold=0 "
+                          "keyframe-max-dist=30 "
+                          "end-usage=cbr target-bitrate=%1")
+        .arg(bitrate);
 }
 
 QString SfuMediaEngine::cameraRateStage(bool portal)
@@ -4877,13 +4954,11 @@ void SfuMediaEngine::publishVideo(const QString &cid, bool screenShare,
     const bool portalCamera = !screenShare && pipewireFd >= 0;
     const QString limits = screenShare
         ? shareLimitsCaps(m_shareMaxHeight, m_shareFps)
-        : cameraLimitsCaps(portalCamera);
+        : cameraLimitsCaps(portalCamera, m_cameraMaxHeight);
     const QString encoder = screenShare
-        ? shareEncoderStage(m_shareMaxHeight, m_shareFps)
-        : QStringLiteral("vp8enc deadline=1 lag-in-frames=0 threads=4 "
-                         "cpu-used=2 static-threshold=0 "
-                         "keyframe-max-dist=30 "
-                         "end-usage=cbr target-bitrate=1700000");
+        ? shareEncoderStage(m_shareMaxHeight, m_shareFps,
+                            m_shareBitrateCapKbps)
+        : cameraEncoderStage(m_cameraMaxHeight);
     const QString selfView =
         (!m_testSources || m_testSelfView) ? selfViewBranch() : QString();
     const QString scaleStage = screenShare
@@ -5979,9 +6054,12 @@ void SfuMediaEngine::setMicrophoneGain(int percent)
     }
 }
 
-QString SfuMediaEngine::voiceProcessingDescription(calls::noise::Mode mode)
+QString SfuMediaEngine::voiceProcessingDescription(calls::noise::Mode mode,
+                                                   bool echoCancel,
+                                                   bool autoGain)
 {
-    return calls::noise::voiceProcessingDescription(mode);
+    return calls::noise::voiceProcessingDescriptionWith(mode, echoCancel,
+                                                        autoGain);
 }
 
 void SfuMediaEngine::setNoiseSuppressionMode(calls::noise::Mode mode)
@@ -8776,7 +8854,8 @@ GstElement *SfuMediaEngine::buildReceiveBin(bool video,
                                             const QString &volumeElementName,
                                             bool testSink, QString *error,
                                             const QString &pulseClientName,
-                                            const OutputSink *speaker)
+                                            const OutputSink *speaker,
+                                            bool echoProbe)
 {
     // Audio volume elements keep the `outvol` prefix (deafen matches it) and a
     // per-track suffix (per-participant volume).
@@ -8812,9 +8891,12 @@ GstElement *SfuMediaEngine::buildReceiveBin(bool video,
                                 "max-size-time=200000000 leaky=downstream "
                                 "! rtpopusdepay name=recvdepay "
                                 "! opusdec name=recvdec ! audioconvert "
-                                "! audioresample ! volume name=%1 ! %2")
+                                "! audioresample ! volume name=%1 %3! %2")
                      .arg(volumeElementName,
-                          receiveSinkDescription(pulseClientName, speaker)));
+                          receiveSinkDescription(pulseClientName, speaker),
+                          echoProbeStage(echoProbe,
+                                         calls::noise::webrtcDspAvailable()
+                                             && echoProbeElementAvailable())));
 
     GError *parseError = nullptr;
     GstElement *bin = gst_parse_bin_from_description(
@@ -8921,7 +9003,7 @@ bool SfuMediaEngine::prepareReceiveChain(GstElement *pipeline,
     QString buildError;
     GstElement *bin =
         buildReceiveBin(video, volumeName, testSourceMode(), &buildError,
-                        client, speakerPtr);
+                        client, speakerPtr, m_echoCancel.load());
     if (!bin) {
         *why = QStringLiteral("could not be BUILT: %1").arg(buildError);
         return false;

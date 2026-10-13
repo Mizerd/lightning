@@ -5615,6 +5615,17 @@ Item {
                                 }
                             }
                         }
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+
+                                CallQualitySettings {
+                                    objectName: "callQualitySettings"
+                                    Layout.fillWidth: true
+                                }
+                            }
+                        }
 
                         // Noise suppression is chosen in Labs (and in the call
                         // menu during a call), but this page is where people

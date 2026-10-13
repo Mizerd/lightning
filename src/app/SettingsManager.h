@@ -177,6 +177,14 @@ class SettingsManager : public QObject
                    NOTIFY shareQualityChanged)
     Q_PROPERTY(int shareFps READ shareFps WRITE setShareFps
                    NOTIFY shareQualityChanged)
+    Q_PROPERTY(int shareBitrateCapKbps READ shareBitrateCapKbps
+                   WRITE setShareBitrateCapKbps NOTIFY shareQualityChanged)
+    Q_PROPERTY(int cameraResolution READ cameraResolution
+                   WRITE setCameraResolution NOTIFY cameraQualityChanged)
+    Q_PROPERTY(bool echoCancellation READ echoCancellation
+                   WRITE setEchoCancellation NOTIFY voiceProcessingChanged)
+    Q_PROPERTY(bool autoGainControl READ autoGainControl
+                   WRITE setAutoGainControl NOTIFY voiceProcessingChanged)
     /// True when the chosen combination asks more of the encoder than it can
     /// sustain in real time. Single predicate shared by every surface.
     Q_PROPERTY(bool shareQualityDemanding READ shareQualityDemanding
@@ -610,12 +618,33 @@ public:
     void setAnimateGifPreviews(bool v);
     bool showLinkMediaInline() const;
     void setShowLinkMediaInline(bool v);
-    /// Screen-share ceiling in scanlines: 720, 1080 or 1440. Never upscales.
+    /// Screen-share ceiling in scanlines: 0 (Auto), 720, 1080, 1440 or 2160.
+    /// Never upscales. Auto is today's default, 1080.
     int shareMaxHeight() const;
     void setShareMaxHeight(int v);
-    /// Screen-share frame rate: 15, 30 or 60.
+    /// What the encoder gets: Auto resolved.
+    int effectiveShareMaxHeight() const;
+    /// Screen-share frame rate: 0 (Auto), 15, 30 or 60. Auto is 30.
     int shareFps() const;
     void setShareFps(int v);
+    int effectiveShareFps() const;
+    /// Screen-share bitrate cap in kbit/s: 0 (Auto, derived from the picture)
+    /// or 500, 1000, 2000, 3000, 4500. A cap only ever lowers the bitrate.
+    int shareBitrateCapKbps() const;
+    void setShareBitrateCapKbps(int v);
+    /// Camera resolution ceiling in scanlines: 0 (Auto), 360, 480, 720, 1080.
+    /// Auto is today's 720. Applies to the next camera capture.
+    int cameraResolution() const;
+    void setCameraResolution(int v);
+    int effectiveCameraResolution() const;
+    /// webrtcdsp switches. Echo cancellation is off by default (it needs the
+    /// playback reference the engine adds only while it is on) and automatic
+    /// gain control on: both are what every build did before they were
+    /// settings. They apply to the next call.
+    bool echoCancellation() const;
+    void setEchoCancellation(bool v);
+    bool autoGainControl() const;
+    void setAutoGainControl(bool v);
     /// Whether the chosen height and rate exceed what software VP8 sustains.
     bool shareQualityDemanding() const;
     /// The same rule for an arbitrary combination, so a menu row can mark
@@ -990,6 +1019,8 @@ Q_SIGNALS:
     void roomNotificationModeChanged(const QString &roomId);
     void autoLoadLinkPreviewsChanged();
     void shareQualityChanged();
+    void cameraQualityChanged();
+    void voiceProcessingChanged();
     void loadPreviewsInEncryptedRoomsChanged();
     void animateGifPreviewsChanged();
     void showLinkMediaInlineChanged();

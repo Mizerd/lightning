@@ -143,7 +143,8 @@ public:
     static QString describeForTest(
         Mode mode, const QString &micSource, int channels, const QString &sink,
         int gainPercent,
-        calls::noise::Mode noiseMode = calls::noise::kDefaultMode);
+        calls::noise::Mode noiseMode = calls::noise::kDefaultMode,
+        bool autoGain = true);
 
 Q_SIGNALS:
     void availableChanged();

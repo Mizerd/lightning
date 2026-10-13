@@ -52,6 +52,11 @@ constexpr auto kPreviewsInlineMedia = "previews/inlineMedia";
 // the value reaches a GStreamer caps string.
 constexpr auto kShareMaxHeight      = "calls/shareMaxHeight";
 constexpr auto kShareFps            = "calls/shareFps";
+constexpr auto kShareBitrateCap     = "calls/shareBitrateCapKbps";
+// Camera ceiling and webrtcdsp switches. Device-global; 0 is Auto.
+constexpr auto kCameraResolution    = "calls/cameraResolution";
+constexpr auto kEchoCancellation    = "calls/echoCancellation";
+constexpr auto kAutoGainControl     = "calls/autoGainControl";
 constexpr auto kSharePresence = "presence/shareOwn";
 constexpr auto kSpacesRailVisible = "shell/spacesRailVisible";
 constexpr auto kSpaceBannersVisible = "shell/spaceBannersVisible";
@@ -2308,6 +2313,8 @@ namespace {
 /// Snap to the offered ceilings rather than trusting a stored value.
 int snapShareHeight(int v)
 {
+    if (v == 0) // Auto
+        return 0;
     if (v <= 900)
         return 720;
     if (v <= 1260)
@@ -2318,6 +2325,8 @@ int snapShareHeight(int v)
 }
 int snapShareFps(int v)
 {
+    if (v == 0) // Auto
+        return 0;
     if (v <= 22)
         return 15;
     if (v <= 45)
@@ -2328,8 +2337,14 @@ int snapShareFps(int v)
 
 int SettingsManager::shareMaxHeight() const
 {
-    // Default 1080.
-    return snapShareHeight(m_store->value(kShareMaxHeight, 1080).toInt());
+    // Default Auto, which resolves to 1080.
+    return snapShareHeight(m_store->value(kShareMaxHeight, 0).toInt());
+}
+
+int SettingsManager::effectiveShareMaxHeight() const
+{
+    const int h = shareMaxHeight();
+    return h == 0 ? 1080 : h;
 }
 
 void SettingsManager::setShareMaxHeight(int v)
@@ -2345,13 +2360,15 @@ bool SettingsManager::shareQualityDemanding() const
 {
     // Software VP8 cannot sustain 4K at 30+ fps; 4K at 15 is left unmarked for
     // text-heavy desktop shares. Kept here so every menu agrees.
-    return shareQualityDemandingAt(shareMaxHeight(), shareFps());
+    return shareQualityDemandingAt(effectiveShareMaxHeight(),
+                                   effectiveShareFps());
 }
 
 bool SettingsManager::shareQualityDemandingAt(int maxHeight, int fps) const
 {
     // Windows GDI capture sustains 30 fps but not 60 at high resolutions (the
     // rest is duplicated frames). Warn for 2160p at any rate and 1440p at 60.
+    // Auto (0) is 1080p30 and never warns.
     if (maxHeight >= 2160)
         return true;
     return maxHeight >= 1440 && fps >= 60;
@@ -2359,7 +2376,94 @@ bool SettingsManager::shareQualityDemandingAt(int maxHeight, int fps) const
 
 int SettingsManager::shareFps() const
 {
-    return snapShareFps(m_store->value(kShareFps, 30).toInt());
+    return snapShareFps(m_store->value(kShareFps, 0).toInt());
+}
+
+int SettingsManager::effectiveShareFps() const
+{
+    const int f = shareFps();
+    return f == 0 ? 30 : f;
+}
+
+namespace {
+int snapShareBitrateCapKbps(int v)
+{
+    if (v <= 0)
+        return 0; // Auto
+    static const int offered[] = { 500, 1000, 2000, 3000, 4500 };
+    int best = offered[0];
+    for (int o : offered) {
+        if (qAbs(o - v) < qAbs(best - v))
+            best = o;
+    }
+    return best;
+}
+int snapCameraResolution(int v)
+{
+    // Anything that is not an offered ceiling is Auto, never "the nearest":
+    // the stored value reaches a caps string.
+    return (v == 360 || v == 480 || v == 720 || v == 1080) ? v : 0;
+}
+} // namespace
+
+int SettingsManager::shareBitrateCapKbps() const
+{
+    return snapShareBitrateCapKbps(m_store->value(kShareBitrateCap, 0).toInt());
+}
+
+void SettingsManager::setShareBitrateCapKbps(int v)
+{
+    const int snapped = snapShareBitrateCapKbps(v);
+    if (shareBitrateCapKbps() == snapped)
+        return;
+    m_store->setValue(kShareBitrateCap, snapped);
+    Q_EMIT shareQualityChanged();
+}
+
+int SettingsManager::cameraResolution() const
+{
+    return snapCameraResolution(m_store->value(kCameraResolution, 0).toInt());
+}
+
+void SettingsManager::setCameraResolution(int v)
+{
+    const int snapped = snapCameraResolution(v);
+    if (cameraResolution() == snapped)
+        return;
+    m_store->setValue(kCameraResolution, snapped);
+    Q_EMIT cameraQualityChanged();
+}
+
+int SettingsManager::effectiveCameraResolution() const
+{
+    const int r = cameraResolution();
+    return r == 0 ? 720 : r;
+}
+
+bool SettingsManager::echoCancellation() const
+{
+    return m_store->value(kEchoCancellation, false).toBool();
+}
+
+void SettingsManager::setEchoCancellation(bool v)
+{
+    if (echoCancellation() == v)
+        return;
+    m_store->setValue(kEchoCancellation, v);
+    Q_EMIT voiceProcessingChanged();
+}
+
+bool SettingsManager::autoGainControl() const
+{
+    return m_store->value(kAutoGainControl, true).toBool();
+}
+
+void SettingsManager::setAutoGainControl(bool v)
+{
+    if (autoGainControl() == v)
+        return;
+    m_store->setValue(kAutoGainControl, v);
+    Q_EMIT voiceProcessingChanged();
 }
 
 void SettingsManager::setShareFps(int v)

@@ -2916,7 +2916,7 @@ ApplicationWindow {
         SfuMediaEngine engine;
 
         // Values around every boundary, plus absurd hand-edited ones.
-        const QList<int> heights = { -100, 0, 1, 480, 719, 720, 721, 900,
+        const QList<int> heights = { -100, 1, 480, 719, 720, 721, 900,
                                      901, 1080, 1081, 1260, 1261, 1440,
                                      1441, 1800, 1801, 2160, 2161, 4320 };
         for (int h : heights) {
@@ -2936,7 +2936,7 @@ ApplicationWindow {
                      "encoder");
         }
 
-        const QList<int> rates = { -5, 0, 1, 10, 15, 16, 22, 23, 30, 31,
+        const QList<int> rates = { -5, 1, 10, 15, 16, 22, 23, 30, 31,
                                    45, 46, 60, 61, 240 };
         for (int f : rates) {
             settings.setShareFps(f);

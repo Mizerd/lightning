@@ -10,6 +10,7 @@
 #include "calls/SfuVideoRouter.h"
 #include "calls/WindowCaptureSrc.h"
 #include "calls/noise/DenoiseElement.h"
+#include "calls/noise/MicProcessing.h"
 
 #include <QElapsedTimer>
 #include <QMutex>
@@ -5370,6 +5371,138 @@ private slots:
                     .contains(QStringLiteral("target-bitrate=3000000")));
         QVERIFY(SfuMediaEngine::shareLimitsCaps(1080, 30)
                     .contains(QStringLiteral("width=(int)[1,1920]")));
+    }
+
+    void aShareBitrateCapOnlyEverLowersTheBitrate()
+    {
+        static const QRegularExpression rate(
+            QStringLiteral("target-bitrate=(\\d+)"));
+        const auto bitrate = [&](int h, int fps, int cap) {
+            const QRegularExpressionMatch m =
+                rate.match(SfuMediaEngine::shareEncoderStage(h, fps, cap));
+            return m.hasMatch() ? m.captured(1).toInt() : -1;
+        };
+        // Auto (0) and the default argument are the picture-derived rate.
+        QCOMPARE(bitrate(1080, 30, 0), 3000000);
+        QCOMPARE(SfuMediaEngine::shareEncoderStage(1080, 30),
+                 SfuMediaEngine::shareEncoderStage(1080, 30, 0));
+        // A cap below it wins; one above it changes nothing.
+        QCOMPARE(bitrate(1080, 30, 1000), 1000000);
+        QCOMPARE(bitrate(1080, 30, 500), 500000);
+        QCOMPARE(bitrate(720, 15, 4500), bitrate(720, 15, 0));
+        // The keyframe interval still tracks the rate.
+        QVERIFY(SfuMediaEngine::shareEncoderStage(1080, 60, 2000)
+                    .contains(QStringLiteral("keyframe-max-dist=120")));
+        // The engine snaps what settings hand it.
+        SfuMediaEngine engine;
+        engine.setShareQuality(1080, 30, 1800);
+        QCOMPARE(engine.shareBitrateCapKbps(), 2000);
+        engine.setShareQuality(1080, 30, -4);
+        QCOMPARE(engine.shareBitrateCapKbps(), 0);
+        QCOMPARE(SfuMediaEngine::snapShareBitrateCap(0), 0);
+    }
+
+    void theCameraCeilingFollowsTheChoiceAndAutoIsToday()
+    {
+        // 720p is Auto and must be byte-identical to what shipped.
+        const QString today = QStringLiteral(
+            "video/x-raw,width=(int)[1,1280],height=(int)[1,720],"
+            "framerate=(fraction)30/1,pixel-aspect-ratio=(fraction)1/1");
+        QCOMPARE(SfuMediaEngine::cameraLimitsCaps(false), today);
+        QCOMPARE(SfuMediaEngine::cameraLimitsCaps(false, 720), today);
+        QVERIFY(SfuMediaEngine::cameraEncoderStage(720)
+                    .contains(QStringLiteral("target-bitrate=1700000")));
+
+        struct Case { int h; int w; int bitrate; };
+        const Case cases[] = { { 360, 640, 700000 }, { 480, 853, 1100000 },
+                               { 1080, 1920, 3000000 } };
+        for (const Case &c : cases) {
+            const QString caps = SfuMediaEngine::cameraLimitsCaps(false, c.h);
+            QVERIFY2(caps.contains(QStringLiteral("width=(int)[1,%1]")
+                                       .arg(c.w))
+                         && caps.contains(QStringLiteral("height=(int)[1,%1]")
+                                              .arg(c.h))
+                         && caps.contains(QStringLiteral("framerate=(fraction)30/1"))
+                         && caps.contains(QStringLiteral(
+                                "pixel-aspect-ratio=(fraction)1/1")),
+                     qPrintable(caps));
+            QVERIFY(SfuMediaEngine::cameraEncoderStage(c.h)
+                        .contains(QStringLiteral("target-bitrate=%1")
+                                      .arg(c.bitrate)));
+            // The portal route still pins no rate.
+            QVERIFY(!SfuMediaEngine::cameraLimitsCaps(true, c.h)
+                         .contains(QStringLiteral("framerate")));
+            // And the whole video description still parses.
+            const QString description = SfuMediaEngine::videoPipelineDescription(
+                QStringLiteral("videotestsrc is-live=true"),
+                SfuMediaEngine::cameraRateStage(false), caps,
+                SfuMediaEngine::cameraEncoderStage(c.h), QString(), 1u,
+                QStringLiteral("videoconvert ! videoscale"),
+                SfuMediaEngine::captureEntryFilter(false));
+            QVERIFY2(description.contains(caps), qPrintable(description));
+        }
+        // An unoffered height is today's, not "the nearest".
+        QCOMPARE(SfuMediaEngine::snapCameraHeight(999), 720);
+        QCOMPARE(SfuMediaEngine::snapCameraHeight(0), 720);
+        SfuMediaEngine engine;
+        QCOMPARE(engine.cameraMaxHeight(), 720);
+        engine.setCameraQuality(480);
+        QCOMPARE(engine.cameraMaxHeight(), 480);
+    }
+
+    void theVoiceSwitchesReachWebrtcdspAndTheReceiveBins()
+    {
+        using calls::noise::Mode;
+        // Defaults are today's chain: AGC on, echo cancellation off.
+        const QString today =
+            calls::noise::voiceProcessingDescription(Mode::Off, true, false);
+        QVERIFY(today.contains(QStringLiteral("echo-cancel=false")));
+        QVERIFY(today.contains(QStringLiteral("gain-control=true")));
+        QCOMPARE(calls::noise::voiceProcessingDescription(Mode::Off, true,
+                                                          false, false, true),
+                 today);
+        // Each switch flips only its own property.
+        const QString echoOn = calls::noise::voiceProcessingDescription(
+            Mode::Off, true, false, true, true);
+        QVERIFY(echoOn.contains(QStringLiteral("echo-cancel=true")));
+        QVERIFY(echoOn.contains(QStringLiteral("gain-control=true")));
+        const QString gainOff = calls::noise::voiceProcessingDescription(
+            Mode::WebRtc, true, false, false, false);
+        QVERIFY(gainOff.contains(QStringLiteral("gain-control=false")));
+        QVERIFY(gainOff.contains(QStringLiteral("echo-cancel=false")));
+        QVERIFY(gainOff.contains(QStringLiteral("noise-suppression=true")));
+        // No webrtcdsp, no fragment, whatever was asked.
+        QVERIFY(calls::noise::voiceProcessingDescription(
+                    Mode::Off, false, false, true, false)
+                    .isEmpty());
+
+        // The playback reference exists only when asked for and available.
+        QVERIFY(SfuMediaEngine::echoProbeStage(false, true).isEmpty());
+        QVERIFY(SfuMediaEngine::echoProbeStage(true, false).isEmpty());
+        const QString probe = SfuMediaEngine::echoProbeStage(true, true);
+        QVERIFY(probe.startsWith(QStringLiteral("! ")));
+        QVERIFY(probe.endsWith(QLatin1Char(' ')));
+        QVERIFY(probe.contains(QStringLiteral("webrtcechoprobe")));
+        // Both fragments must parse where the engine puts them.
+        if (gst_init_check(nullptr, nullptr, nullptr)
+            && calls::noise::webrtcDspAvailable()
+            && SfuMediaEngine::echoProbeElementAvailable()) {
+            const QString chain = QStringLiteral(
+                "audiotestsrc num-buffers=1 ! audioconvert ! audioresample "
+                "! volume %1! fakesink").arg(probe);
+            GError *error = nullptr;
+            GstElement *bin = gst_parse_launch(chain.toUtf8().constData(),
+                                               &error);
+            QVERIFY2(!error, error ? error->message : "");
+            if (bin)
+                gst_object_unref(bin);
+        }
+        SfuMediaEngine engine;
+        QVERIFY(!engine.echoCancellation());
+        QVERIFY(engine.autoGainControl());
+        engine.setVoiceProcessing(true, false);
+        QVERIFY(engine.echoCancellation());
+        QVERIFY(!engine.autoGainControl());
     }
 
     void shareAudioIsOfferedOnlyWhenSomethingCanActuallyCaptureIt()

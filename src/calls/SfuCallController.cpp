@@ -4440,6 +4440,12 @@ void SfuCallController::applyAudioState()
     // flowing.
     m_engine->setMicrophoneGain(m_settings ? m_settings->microphoneGain()
                                            : 100);
+    // webrtcdsp's echo and gain switches: read when the chain is built, so a
+    // change applies to the next call.
+    m_engine->setVoiceProcessing(m_settings ? m_settings->echoCancellation()
+                                            : false,
+                                 m_settings ? m_settings->autoGainControl()
+                                            : true);
     // Before publishAudio() builds the chain, and live afterwards.
     m_engine->setNoiseSuppressionMode(
         m_settings ? calls::noise::modeFromKey(
@@ -4568,11 +4574,16 @@ void SfuCallController::publishCameraTrack(int pipewireFd)
         return;
     }
     const QString cid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    // Set before declaring the track, like the share: AddTrack carries the
+    // real layer dimensions and must match what is published.
+    m_engine->setCameraQuality(m_settings
+                                   ? m_settings->effectiveCameraResolution()
+                                   : SfuMediaEngine::kCameraHeight);
+    const int cameraH = m_engine->cameraMaxHeight();
     // Declare the camera ceiling (see SfuMediaEngine) so the SFU does not
     // infer simulcast.
     m_client->sfuAddTrack(cid, QStringLiteral("camera"), 1,
-                          SfuMediaEngine::kCameraWidth,
-                          SfuMediaEngine::kCameraHeight,
+                          (cameraH * 16) / 9, cameraH,
                           false, m_roomEncrypted);
     // The engine takes ownership of the fd; see SfuMediaEngine::publishVideo().
     m_cameraViaPortal = pipewireFd >= 0;
@@ -4678,9 +4689,11 @@ bool SfuCallController::startScreenShare(int pipewireNodeId, int pipewireFd,
                       << "encrypted=" << m_roomEncrypted;
     // Set the quality before declaring the track: AddTrack carries the real
     // layer dimensions and must match what is published.
-    m_engine->setShareQuality(m_settings ? m_settings->shareMaxHeight()
+    m_engine->setShareQuality(m_settings ? m_settings->effectiveShareMaxHeight()
                                          : SfuMediaEngine::kScreenHeight,
-                              m_settings ? m_settings->shareFps() : 30);
+                              m_settings ? m_settings->effectiveShareFps() : 30,
+                              m_settings ? m_settings->shareBitrateCapKbps()
+                                         : 0);
     const int shareH = m_engine->shareMaxHeight();
     const int shareW = (shareH * 16) / 9;
     m_client->sfuAddTrack(cid, QStringLiteral("screen"), 1,

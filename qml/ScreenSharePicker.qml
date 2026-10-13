@@ -810,6 +810,7 @@ AppDialog {
                 textRole: "label"
                 valueRole: "value"
                 model: [
+                    { label: qsTr("Auto"), value: 0 },
                     { label: qsTr("720p"), value: 720 },
                     { label: qsTr("1080p"), value: 1080 },
                     { label: qsTr("1440p"), value: 1440 },
@@ -840,6 +841,7 @@ AppDialog {
                 textRole: "label"
                 valueRole: "value"
                 model: [
+                    { label: qsTr("Auto"), value: 0 },
                     { label: qsTr("15 fps"), value: 15 },
                     { label: qsTr("30 fps"), value: 30 },
                     { label: qsTr("60 fps"), value: 60 }

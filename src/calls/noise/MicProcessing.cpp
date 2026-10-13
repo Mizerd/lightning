@@ -97,6 +97,14 @@ GstPadProbeReturn swapDsp(GstPad *upstream, GstPadProbeInfo *, gpointer data)
         : nullptr;
     if (fresh) {
         gst_object_ref_sink(fresh);
+        // The user's echo and gain switches belong to the call, not to the
+        // suppressor: a mode change must not reset them.
+        gboolean echo = FALSE;
+        gboolean gain = TRUE;
+        g_object_get(old, "echo-cancel", &echo, "gain-control", &gain,
+                     nullptr);
+        g_object_set(fresh, "echo-cancel", echo, "gain-control", gain,
+                     nullptr);
         gst_pad_unlink(upstream, oldSink);
         gst_pad_unlink(oldSrc, downstream);
         gst_element_set_state(old, GST_STATE_NULL);
@@ -176,7 +184,8 @@ bool denoiseElementAvailable()
 }
 
 QString voiceProcessingDescription(Mode mode, bool dspAvailable,
-                                   bool denoiseAvailable)
+                                   bool denoiseAvailable, bool echoCancel,
+                                   bool autoGain)
 {
     QString out;
     if (denoiseAvailable) {
@@ -201,15 +210,19 @@ QString voiceProcessingDescription(Mode mode, bool dspAvailable,
     if (dspAvailable) {
         // webrtcdsp processes fixed 10 ms S16 chunks, hence the caps. It
         // keeps its high-pass filter and gain control in every mode; only its
-        // suppressor follows the selection. Echo cancellation stays off: it
-        // needs a webrtcechoprobe in the playback path, which does not exist.
+        // suppressor follows the selection. Echo cancellation is off unless
+        // the user turned it on: it cancels against a webrtcechoprobe in the
+        // playback path, which the engine adds to the receive bins then.
+        const auto flag = [](bool on) {
+            return on ? QLatin1String("true") : QLatin1String("false");
+        };
         out += QStringLiteral("%1! audio/x-raw,format=S16LE,rate=48000 "
-                              "! webrtcdsp name=%2 echo-cancel=false "
-                              "gain-control=true noise-suppression=%3 "
+                              "! webrtcdsp name=%2 echo-cancel=%4 "
+                              "gain-control=%5 noise-suppression=%3 "
                               "! audioconvert ")
                    .arg(backFromFloat, QLatin1String(kDspName),
-                        dspSuppressesNoise(mode) ? QLatin1String("true")
-                                                 : QLatin1String("false"));
+                        flag(dspSuppressesNoise(mode)), flag(echoCancel),
+                        flag(autoGain));
     } else {
         out += backFromFloat;
     }
@@ -218,8 +231,15 @@ QString voiceProcessingDescription(Mode mode, bool dspAvailable,
 
 QString voiceProcessingDescription(Mode mode)
 {
+    return voiceProcessingDescriptionWith(mode, false, true);
+}
+
+QString voiceProcessingDescriptionWith(Mode mode, bool echoCancel,
+                                       bool autoGain)
+{
     return voiceProcessingDescription(mode, webrtcDspAvailable(),
-                                      denoiseElementAvailable());
+                                      denoiseElementAvailable(), echoCancel,
+                                      autoGain);
 }
 
 Unavailable availability(Mode mode, bool engineAvailable)

@@ -44,10 +44,20 @@ constexpr bool dspSuppressesNoise(Mode mode) { return mode == Mode::WebRtc; }
 
 /// The parse fragment, starting with "! " and ending with a space, for the
 /// given availability. Pure, for tests.
+///
+/// `echoCancel` and `autoGain` are webrtcdsp's own switches (Settings, Voice
+/// & video). The defaults are what every build ran before they were exposed:
+/// AGC on, echo cancellation off. Echo cancellation only does anything when a
+/// `webrtcechoprobe` sits in the playback path (SfuMediaEngine adds one to
+/// each receive bin while it is on).
 QString voiceProcessingDescription(Mode mode, bool dspAvailable,
-                                   bool denoiseAvailable);
+                                   bool denoiseAvailable,
+                                   bool echoCancel = false,
+                                   bool autoGain = true);
 /// The same for this runtime.
 QString voiceProcessingDescription(Mode mode);
+QString voiceProcessingDescriptionWith(Mode mode, bool echoCancel,
+                                       bool autoGain);
 
 /// Why a mode cannot be chosen, or None.
 enum class Unavailable {

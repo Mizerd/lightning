@@ -51,6 +51,8 @@ constexpr const char *kComponents[] = {
     // and its Settings sibling.
     "CallDeviceMenu",
     "CallDeviceSettings",
+    // Quality: camera / share Auto choices and the webrtcdsp switches.
+    "CallQualitySettings",
     // The microphone level bar both of those draw.
     "AudioLevelBar",
     // Settings → Labs: the microphone noise suppression selector (#20).

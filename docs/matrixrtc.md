@@ -1303,6 +1303,27 @@ no such point today: every received track has its own receive bin and sink, in
 the subscriber pipeline, so a probe would first need an audiomixer of all of
 them in front of one sink.
 
+### Echo cancellation and AGC are Settings switches (2026-10-13)
+
+Settings -> Sound & video -> Quality / Microphone processing exposes
+`calls/echoCancellation` (default OFF) and `calls/autoGainControl` (default
+ON) -- the values every build ran before. They are read when a chain is built,
+so they apply to the NEXT call; a noise-mode swap copies both off the old
+`webrtcdsp` so it never resets them. With echo cancellation on, each receive
+bin gets `! audioconvert ! audio/x-raw,format=S16LE,rate=48000 !
+webrtcechoprobe` before its sink (`SfuMediaEngine::echoProbeStage`). The
+limit stated above still holds: `webrtcdsp` acquires ONE probe, and every
+received track has its own bin, so in a group call it can cancel only one
+remote speaker. A one-to-one `GstCallMediaBackend` call has no `webrtcdsp`
+and no video, so neither switch nor any quality choice reaches it. NOT live
+tested; the effect on a real echo needs speakers and a rig.
+
+Camera resolution (Auto = 720p, i.e. today's `[1,1280]x[1,720]` ceiling and
+1.7 Mbps; 360/480/1080 scale caps and `target-bitrate`) and the screen-share
+bitrate limit (Auto = the picture-derived rate; a limit only lowers it) are
+`calls/cameraResolution` and `calls/shareBitrateCapKbps`. Share resolution and
+frame rate gained an Auto (0) that resolves to 1080p / 30 fps.
+
 ## Microphone noise suppression: one selectable suppressor (GitHub #20)
 
 `webrtcdsp` was always created with `noise-suppression=true` (its level

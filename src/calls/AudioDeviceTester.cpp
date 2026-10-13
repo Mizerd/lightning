@@ -108,6 +108,8 @@ struct AudioDeviceTester::Relay {
         int gainPercent = 100;
         /// The microphone noise suppression, as the call would run it.
         calls::noise::Mode noiseMode = calls::noise::kDefaultMode;
+        /// webrtcdsp's automatic gain control, as the call would run it.
+        bool autoGain = true;
     };
 
     struct BusContext {
@@ -119,7 +121,8 @@ struct AudioDeviceTester::Relay {
     static QString compose(Mode mode,
                            const SfuMediaEngine::MicrophoneCapture &capture,
                            const QString &sink, int gainPercent,
-                           calls::noise::Mode noiseMode);
+                           calls::noise::Mode noiseMode,
+                           bool autoGain = true);
     static void run(std::shared_ptr<Relay> relay,
                     std::shared_ptr<Session> session, Plan plan,
                     quint64 generation);
@@ -133,7 +136,8 @@ struct AudioDeviceTester::Relay {
 
 QString AudioDeviceTester::Relay::compose(
     Mode mode, const SfuMediaEngine::MicrophoneCapture &capture,
-    const QString &sink, int gainPercent, calls::noise::Mode noiseMode)
+    const QString &sink, int gainPercent, calls::noise::Mode noiseMode,
+    bool autoGain)
 {
     if (mode == Mode::Tone) {
         // A quiet sine (-14 dBFS) in 100 ms buffers; num-buffers ends it with
@@ -151,7 +155,7 @@ QString AudioDeviceTester::Relay::compose(
     // receive.
     const QString front = SfuMediaEngine::microphoneFrontDescription(capture);
     const QString processing =
-        SfuMediaEngine::voiceProcessingDescription(noiseMode);
+        SfuMediaEngine::voiceProcessingDescription(noiseMode, false, autoGain);
     const QString gain = QString::number(
         SfuMediaEngine::audioFactorPercent(gainPercent) / 100.0, 'f', 3);
     const QString meter =
@@ -283,7 +287,7 @@ void AudioDeviceTester::Relay::run(std::shared_ptr<Relay> relay,
 
     const QString description =
         compose(plan.mode, capture, output.sink, plan.gainPercent,
-                plan.noiseMode);
+                plan.noiseMode, plan.autoGain);
     relay->deliverDescription(generation, description);
 
     GError *error = nullptr;
@@ -549,6 +553,7 @@ bool AudioDeviceTester::start(Mode mode)
         plan.noiseMode = calls::noise::modeFromKey(
             m_settings->noiseSuppressionMode().toStdString(),
             calls::noise::kDefaultMode);
+        plan.autoGain = m_settings->autoGainControl();
     }
 #endif
 
@@ -678,13 +683,15 @@ bool AudioDeviceTester::pipelineRunningForTest() const
 QString AudioDeviceTester::describeForTest(Mode mode, const QString &micSource,
                                            int channels, const QString &sink,
                                            int gainPercent,
-                                           calls::noise::Mode noiseMode)
+                                           calls::noise::Mode noiseMode,
+                                           bool autoGain)
 {
 #ifdef HAVE_LIGHTNING_WEBRTC
     SfuMediaEngine::MicrophoneCapture capture;
     capture.source = micSource;
     capture.channels = channels;
-    return Relay::compose(mode, capture, sink, gainPercent, noiseMode);
+    return Relay::compose(mode, capture, sink, gainPercent, noiseMode,
+                          autoGain);
 #else
     Q_UNUSED(mode);
     Q_UNUSED(micSource);
@@ -692,6 +699,7 @@ QString AudioDeviceTester::describeForTest(Mode mode, const QString &micSource,
     Q_UNUSED(sink);
     Q_UNUSED(gainPercent);
     Q_UNUSED(noiseMode);
+    Q_UNUSED(autoGain);
     return {};
 #endif
 }

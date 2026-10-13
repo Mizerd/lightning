@@ -124,6 +124,7 @@ AppMenu {
 
     Repeater {
         model: [
+            { label: qsTr("Auto"), value: 0 },
             { label: qsTr("720p"), value: 720 },
             { label: qsTr("1080p"), value: 1080 },
             { label: qsTr("1440p"), value: 1440 },
@@ -148,6 +149,7 @@ AppMenu {
 
     Repeater {
         model: [
+            { label: qsTr("Auto"), value: 0 },
             { label: qsTr("15 fps"), value: 15 },
             { label: qsTr("30 fps"), value: 30 },
             { label: qsTr("60 fps"), value: 60 }
@@ -165,6 +167,32 @@ AppMenu {
             radioSelected: app.settings.shareFps === modelData.value
             onTriggered: root.actAndStayOpen(function () {
                 app.settings.shareFps = modelData.value;
+            })
+        }
+    }
+
+    AppMenuSeparator {}
+
+    MenuSectionLabel { text: qsTr("Bitrate limit") }
+
+    Repeater {
+        objectName: "shareBitrateRows"
+        model: [
+            { label: qsTr("Auto"), value: 0 },
+            { label: qsTr("0.5 Mbps"), value: 500 },
+            { label: qsTr("1 Mbps"), value: 1000 },
+            { label: qsTr("2 Mbps"), value: 2000 },
+            { label: qsTr("3 Mbps"), value: 3000 },
+            { label: qsTr("4.5 Mbps"), value: 4500 }
+        ]
+        delegate: AppMenuItem {
+            required property var modelData
+            text: modelData.label
+            radio: true
+            radioSelected:
+                app.settings.shareBitrateCapKbps === modelData.value
+            onTriggered: root.actAndStayOpen(function () {
+                app.settings.shareBitrateCapKbps = modelData.value;
             })
         }
     }

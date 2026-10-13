@@ -109,6 +109,7 @@ private Q_SLOTS:
     void themeChangeEmitsSignal();
     void previewDefaultsAndEncryptedOff();
     void shareQualityDefaultsPersistAndSnap();
+    void callQualityDefaultsToAutoAndPersists();
     void roomActivityDefaultsEnabledAndPersists();
     void wheelSpeedDefaultsToFastPersistsAndFallsBack();
     void gifPolicyDefaultsPersistAndClamp();
@@ -695,8 +696,10 @@ void SettingsSessionTest::shareQualityDefaultsPersistAndSnap()
     SettingsManager settings;
 
     // The defaults are what the share always sent.
-    QCOMPARE(settings.shareMaxHeight(), 1080);
-    QCOMPARE(settings.shareFps(), 30);
+    QCOMPARE(settings.shareMaxHeight(), 0); // Auto
+    QCOMPARE(settings.effectiveShareMaxHeight(), 1080);
+    QCOMPARE(settings.shareFps(), 0); // Auto
+    QCOMPARE(settings.effectiveShareFps(), 30);
 
     // Snapped on read as well as write: an out-of-range value would reach a
     // GStreamer caps string.
@@ -708,7 +711,7 @@ void SettingsSessionTest::shareQualityDefaultsPersistAndSnap()
     QCOMPARE(reread.shareMaxHeight(), 2160);
     QCOMPARE(reread.shareFps(), 60);
 
-    raw.setValue(QStringLiteral("calls/shareMaxHeight"), 0);
+    raw.setValue(QStringLiteral("calls/shareMaxHeight"), 1);
     raw.setValue(QStringLiteral("calls/shareFps"), -5);
     raw.sync();
     SettingsManager rereadLow;
@@ -737,6 +740,92 @@ void SettingsSessionTest::shareQualityDefaultsPersistAndSnap()
     settingsRt.setShareFps(60);
     QCOMPARE(settingsRt.shareFps(), 60);
     QCOMPARE(spy.count(), 2);
+}
+
+void SettingsSessionTest::callQualityDefaultsToAutoAndPersists()
+{
+    // A clean store: the neighbouring cases leave quality values behind.
+    QSettings raw;
+    for (const char *key :
+         { "calls/shareMaxHeight", "calls/shareFps",
+           "calls/shareBitrateCapKbps", "calls/cameraResolution",
+           "calls/echoCancellation", "calls/autoGainControl" })
+        raw.remove(QString::fromLatin1(key));
+    raw.sync();
+
+    SettingsManager settings;
+    // Every default is what the build did before these were settings.
+    QCOMPARE(settings.shareMaxHeight(), 0);
+    QCOMPARE(settings.effectiveShareMaxHeight(), 1080);
+    QCOMPARE(settings.shareFps(), 0);
+    QCOMPARE(settings.effectiveShareFps(), 30);
+    QCOMPARE(settings.shareBitrateCapKbps(), 0);
+    QCOMPARE(settings.cameraResolution(), 0);
+    QCOMPARE(settings.effectiveCameraResolution(), 720);
+    QVERIFY(!settings.echoCancellation());
+    QVERIFY(settings.autoGainControl());
+    // Auto is never "demanding".
+    QVERIFY(!settings.shareQualityDemanding());
+
+    QSignalSpy share(&settings, &SettingsManager::shareQualityChanged);
+    QSignalSpy camera(&settings, &SettingsManager::cameraQualityChanged);
+    QSignalSpy voice(&settings, &SettingsManager::voiceProcessingChanged);
+
+    // Bitrate cap: snapped to the offered ceilings, 0 stays Auto.
+    settings.setShareBitrateCapKbps(1800);
+    QCOMPARE(settings.shareBitrateCapKbps(), 2000);
+    settings.setShareBitrateCapKbps(99999);
+    QCOMPARE(settings.shareBitrateCapKbps(), 4500);
+    QCOMPARE(share.count(), 2);
+    settings.setShareBitrateCapKbps(4400); // snaps to what it already holds
+    QCOMPARE(share.count(), 2);
+    settings.setShareBitrateCapKbps(0);
+    QCOMPARE(settings.shareBitrateCapKbps(), 0);
+
+    // Camera: an unoffered value is Auto, never "the nearest" size.
+    settings.setCameraResolution(480);
+    QCOMPARE(settings.cameraResolution(), 480);
+    QCOMPARE(camera.count(), 1);
+    settings.setCameraResolution(481);
+    QCOMPARE(settings.cameraResolution(), 0);
+    QCOMPARE(settings.effectiveCameraResolution(), 720);
+
+    // Share Auto round-trips and an explicit value leaves Auto.
+    settings.setShareMaxHeight(1440);
+    QCOMPARE(settings.effectiveShareMaxHeight(), 1440);
+    settings.setShareMaxHeight(0);
+    QCOMPARE(settings.shareMaxHeight(), 0);
+    settings.setShareFps(0);
+    QCOMPARE(settings.effectiveShareFps(), 30);
+
+    // The webrtcdsp switches persist and announce once.
+    settings.setEchoCancellation(true);
+    settings.setEchoCancellation(true);
+    settings.setAutoGainControl(false);
+    QCOMPARE(voice.count(), 2);
+    settings.setCameraResolution(1080);
+    settings.setShareBitrateCapKbps(1000);
+    SettingsManager reread;
+    QVERIFY(reread.echoCancellation());
+    QVERIFY(!reread.autoGainControl());
+    QCOMPARE(reread.cameraResolution(), 1080);
+    QCOMPARE(reread.shareBitrateCapKbps(), 1000);
+
+    // Garbage in the store (a newer build, a hand edit) falls back to Auto
+    // rather than reaching a caps string.
+    raw.setValue(QStringLiteral("calls/cameraResolution"), 99999);
+    raw.setValue(QStringLiteral("calls/shareBitrateCapKbps"), -3);
+    raw.sync();
+    SettingsManager garbage;
+    QCOMPARE(garbage.cameraResolution(), 0);
+    QCOMPARE(garbage.shareBitrateCapKbps(), 0);
+
+    for (const char *key :
+         { "calls/shareMaxHeight", "calls/shareFps",
+           "calls/shareBitrateCapKbps", "calls/cameraResolution",
+           "calls/echoCancellation", "calls/autoGainControl" })
+        raw.remove(QString::fromLatin1(key));
+    raw.sync();
 }
 
 void SettingsSessionTest::previewDefaultsAndEncryptedOff()

@@ -1096,6 +1096,7 @@ set(APP_QML_FILES
     qml/ShareAudioAppsDialog.qml
     qml/RoomListSortMenu.qml
     qml/CallDeviceSettings.qml
+    qml/CallQualitySettings.qml
     # The microphone level bar shared by the call's device menu and the
     # Settings microphone test.
     qml/AudioLevelBar.qml

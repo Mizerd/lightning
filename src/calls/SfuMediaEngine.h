@@ -74,7 +74,19 @@ public:
 
     /// Screen-share scanline ceiling (720/1080/1440/2160) and frame rate
     /// (15/30/60). Both are encoder cost, so the user chooses.
-    void setShareQuality(int maxHeight, int fps);
+    /// `bitrateCapKbps` 0 is Auto: the bitrate that follows the picture. A cap
+    /// only ever lowers it (and never below kMinVideoBitrate).
+    void setShareQuality(int maxHeight, int fps, int bitrateCapKbps = 0);
+    /// Camera ceiling (360/480/720/1080); 720 is today's behaviour (Auto).
+    /// Read when a camera capture is built.
+    void setCameraQuality(int maxHeight);
+    int shareBitrateCapKbps() const { return m_shareBitrateCapKbps; }
+    int cameraMaxHeight() const { return m_cameraMaxHeight; }
+    static int snapCameraHeight(int height);
+    static int snapShareBitrateCap(int kbps);
+    /// Camera caps ceiling and encoder stage for a chosen height. Pure.
+    static QString cameraLimitsCaps(bool portal, int maxHeight = kCameraHeight);
+    static QString cameraEncoderStage(int maxHeight);
 
     /// The device the user chose, as QMediaDevices names it. A camera choice
     /// is applied when a capture is built. A microphone or speaker choice also
@@ -162,7 +174,8 @@ public:
     /// template lists image/jpeg for every camera, so a raw-only camera
     /// parses behind the MJPG filter and only fails to negotiate.
     static bool captureOffersJpeg(GstElement *bin);
-    static QString shareEncoderStage(int maxHeight, int fps);
+    static QString shareEncoderStage(int maxHeight, int fps,
+                                     int bitrateCapKbps = 0);
     int shareMaxHeight() const { return m_shareMaxHeight; }
     int shareFps() const { return m_shareFps; }
     static constexpr int kCameraWidth = 1280;
@@ -199,6 +212,8 @@ public:
     static QString microphoneFrontDescription(const MicrophoneCapture &capture);
     /// Whether gst-plugins-good's `level` exists in this build.
     static bool levelElementAvailable();
+    /// `webrtcechoprobe` (gst-plugins-bad, with webrtcdsp).
+    static bool echoProbeElementAvailable();
     /// Sets `binding` on the element called `elementName` inside `bin`.
     /// Returns false when nothing was set.
     static bool applyCaptureBinding(GstElement *bin, const char *elementName,
@@ -382,8 +397,6 @@ public:
     /// capped by `videorate max-rate` rather than pinned. The direct
     /// `v4l2src` route is unchanged.
     static QString portalCameraEntry();
-    /// Camera size ceiling. `portal` omits the pinned frame rate.
-    static QString cameraLimitsCaps(bool portal);
     /// Camera rate stage. `portal` caps the rate instead of pinning it.
     static QString cameraRateStage(bool portal);
     /// Name of the receive bin's `volume` element for one stream; shared by
@@ -403,7 +416,8 @@ public:
                                        const QString &volumeElementName,
                                        bool testSink, QString *error,
                                        const QString &pulseClientName = QString(),
-                                       const OutputSink *speaker = nullptr);
+                                       const OutputSink *speaker = nullptr,
+                                       bool echoProbe = false);
     /// The sink part of an audio receive bin's description, for tests.
     /// Resolves the chosen speaker on a worker thread and caches it. Called
     /// when the choice changes and when a call starts; never from a
@@ -822,7 +836,26 @@ public:
     /// The voice-processing stage of the microphone chain for `mode`, for this
     /// runtime: the call's publish chain and the Settings microphone test
     /// both build from it, so the test runs the selected suppressor too.
-    static QString voiceProcessingDescription(calls::noise::Mode mode);
+    static QString voiceProcessingDescription(calls::noise::Mode mode,
+                                              bool echoCancel = false,
+                                              bool autoGain = true);
+    /// webrtcdsp's echo cancellation and automatic gain control (Settings,
+    /// Voice & video). Read when a microphone chain or a receive bin is
+    /// built, so a change applies to the next call (a running chain keeps
+    /// what it was built with; its noise-mode swaps preserve both).
+    void setVoiceProcessing(bool echoCancel, bool autoGain)
+    {
+        m_echoCancel = echoCancel;
+        m_autoGain = autoGain;
+    }
+    bool echoCancellation() const { return m_echoCancel; }
+    bool autoGainControl() const { return m_autoGain; }
+    /// The playback-side half of echo cancellation: webrtcdsp cancels against
+    /// what a `webrtcechoprobe` saw on its way to the speaker. Empty when
+    /// off or when the element is missing. A fragment for a receive bin,
+    /// "! audioconvert ! audio/x-raw,format=S16LE,rate=48000 !
+    /// webrtcechoprobe ".
+    static QString echoProbeStage(bool echoCancel, bool probeAvailable);
     /// Local playback mute for every remote track.
     void setOutputMuted(bool muted);
     /// Local volume for one participant, 0..200, keyed by their LiveKit
@@ -1150,6 +1183,11 @@ private:
     quint64 m_speakerSeq = 0;
     int m_shareMaxHeight = kScreenHeight;
     int m_shareFps = 30;
+    /// 0 = Auto (the height/rate-derived bitrate).
+    int m_shareBitrateCapKbps = 0;
+    int m_cameraMaxHeight = kCameraHeight;
+    std::atomic<bool> m_echoCancel{false};
+    std::atomic<bool> m_autoGain{true};
     /// Bumped on every start/stop so a late callback is discarded.
     std::atomic<quint64> m_generation{0};
     /// Read on a streaming thread in pad-added, so a track arriving while
