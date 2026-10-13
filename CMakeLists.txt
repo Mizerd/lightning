@@ -1282,7 +1282,7 @@ function(_lightning_configure_qml_module target _scope)
     endif()
     # qmltyperegistrar probes each QML_ELEMENT header as <HeaderName.h>, so
     # every directory holding a registered type must be on the include path.
-    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update src/calls src/theme src/stickers)
+    target_include_directories(${target} ${_scope} src/models src/threads src/crypto src/gif src/update src/calls src/theme src/stickers src/privacy)
     # Build-only GIF key header (may be keyless); include path only, no values.
     target_include_directories(${target} ${_scope} "${LIGHTNING_GENERATED_DIR}")
 
