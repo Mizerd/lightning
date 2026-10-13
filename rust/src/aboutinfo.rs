@@ -427,7 +427,7 @@ mod tests {
         );
         assert_eq!(parse_versions(&json!("nonsense")), (vec![], vec![]));
         let (n, ver) = parse_software(&json!({"server": {"name": "Synapse", "version": "1.2\u{7}3"}}));
-        assert_eq!((n.as_str(), ver.as_str()), ("Synapse", "123"));
+        assert_eq!((n.as_str(), ver.as_str()), ("Synapse", "1.23"));
         assert_eq!(parse_software(&json!({})), (String::new(), String::new()));
     }
 
