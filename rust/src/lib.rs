@@ -95,6 +95,7 @@ mod mediafiles;
 mod mediahistory;
 mod mediastore;
 mod storelocking;
+mod sendrecovery;
 mod namecolor;
 mod widgets;
 mod oauth;
@@ -10275,6 +10276,8 @@ async fn build_client_with(
     // `respawn_tasks_for_rooms_with_unsent_requests()` does not belong here;
     // see `resume_unsent_requests`.
     client.send_queue().enable_upload_progress(true);
+    // Re-enable a room's queue after a recoverable send error (sendrecovery.rs).
+    sendrecovery::spawn(client.clone(), sendrecovery::RecoveryPolicy::production());
     // 0600 on the databases just created, from the one place all login paths
     // pass through: the SDK sqlite files, their -wal/-shm siblings and the
     // search index are created here at the process umask. Best effort.
