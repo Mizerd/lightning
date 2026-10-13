@@ -151,6 +151,7 @@ private Q_SLOTS:
     void everyCategoryTheModelEmitsHasASectionLabel();
     void theFavouritesSectionIsClosedOffByADivider();
     void theFavouritesBoundaryIsRetiredWithTheGroup();
+    void aThreadHeldRoomReportsItsKindAndClearsWhenTheThreadIsRead();
     void roomActivityOnlyEverMovesForward();
     void aDirectMessageIsNeverScopedByTheSelectedSpace();
 };
@@ -1027,6 +1028,45 @@ void RoomStateModelTest::theFavouritesSectionIsClosedOffByADivider()
     QVERIFY2(rowSource.contains(
                  QStringLiteral("anchors.bottomMargin: root.showGroupDivider ? 1 : 0")),
              "the selection chip must yield the row's last pixel line to the rule");
+}
+
+void RoomStateModelTest::aThreadHeldRoomReportsItsKindAndClearsWhenTheThreadIsRead()
+{
+    FakeClient client;
+    RoomListModel model;
+    client.mirror = { room(QStringLiteral("!thr:example.org"), false, 2) };
+    client.mirror[0].unreadCount = 3;
+    client.mirror[0].hasUnreadMessages = true;
+    model.setClient(&client);
+    const auto kind = [&] {
+        return model.data(model.index(0), RoomListModel::ThreadUnreadKindRole).toInt();
+    };
+    QCOMPARE(kind(), 0);   // plain unread is not a thread's
+    QVERIFY(model.roleNames().values().contains("threadUnreadKind"));
+
+    client.mirror[0].unreadThreadsOnly = true;
+    Q_EMIT client.roomUpdated(client.mirror[0].id);
+    QCoreApplication::processEvents();
+    QCOMPARE(kind(), 1);
+
+    client.mirror[0].mentionInThreads = true;
+    Q_EMIT client.roomUpdated(client.mirror[0].id);
+    QCoreApplication::processEvents();
+    QCOMPARE(kind(), 2);
+
+    // A muted room is silent, thread unread included.
+    model.setNotificationModeSource([](const QString &) { return 2; });
+    QCOMPARE(kind(), 0);
+    model.setNotificationModeSource([](const QString &) { return 0; });
+
+    // Opening the thread drops the server's count; the bridge stops sending
+    // the flags and the indicator clears instead of latching.
+    client.mirror[0].unreadThreadsOnly = false;
+    client.mirror[0].mentionInThreads = false;
+    client.mirror[0].unreadCount = 0;
+    Q_EMIT client.roomUpdated(client.mirror[0].id);
+    QCoreApplication::processEvents();
+    QCOMPARE(kind(), 0);
 }
 
 void RoomStateModelTest::theFavouritesBoundaryIsRetiredWithTheGroup()

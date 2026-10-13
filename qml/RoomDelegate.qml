@@ -11,7 +11,11 @@ Item {
         if (model.membership === "invited")
             return qsTr("Invitation to %1").arg(model.name)
         // A muted room is silent, mentions included.
-        var base = (model.highlightCount > 0 && !root.muted)
+        var base = root.threadOnly
+                   ? (model.threadUnreadKind === 2
+                      ? qsTr("%1, mention in a thread", "room row")
+                      : qsTr("%1, unread in a thread", "room row")).arg(model.name)
+                   : (model.highlightCount > 0 && !root.muted)
                    ? qsTr("%1, %2 mentions").arg(model.name)
                                             .arg(model.highlightCount)
                    : model.name
@@ -83,8 +87,14 @@ Item {
     // One predicate for whether there is a count, shared by the pill and the
     // dots so they never both render.
     // A muted room is fully silent (as in Element): no count, no mention.
+    // When only a thread holds the remainder, the count is replaced by the
+    // thread glyph: a number would suggest messages the main timeline does not
+    // show.
+    readonly property bool threadOnly:
+        !root.muted && (model.threadUnreadKind || 0) > 0
     readonly property bool hasCountBadge:
-        !root.muted && (model.unreadCount > 0 || model.highlightCount > 0)
+        !root.muted && !root.threadOnly
+        && (model.unreadCount > 0 || model.highlightCount > 0)
 
     // A clock time only for today, as Element does. Identical to
     // HomePane.activityLabel().
@@ -315,12 +325,17 @@ Item {
                 Rectangle {
                     objectName: "roomUnreadDot"
                     visible: root.isUnread && !root.hasCountBadge && !root.muted
+                             && !root.threadOnly
                     implicitWidth: 8
                     implicitHeight: 8
                     radius: 4
                     Layout.alignment: Qt.AlignVCenter
                     // Muted rooms keep the dot in muted ink.
                     color: root.muted ? root.metaInk : AppTheme.unreadBadge
+                }
+                ThreadUnreadBadge {
+                    kind: root.threadOnly ? model.threadUnreadKind : 0
+                    Layout.alignment: Qt.AlignVCenter
                 }
                 Label {
                     objectName: "roomUnreadBadge"

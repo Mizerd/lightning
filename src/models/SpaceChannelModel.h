@@ -142,6 +142,8 @@ public:
         UnreadCountRole,
         HighlightCountRole,
         HasUnreadRole,
+        /// 0 none, 1 unread in a thread, 2 mention in a thread (mute-aware).
+        ThreadUnreadKindRole,
         /// Headers only: whether this one is collapsed.
         CollapsedRole,
         /// Headers only: unread/highlight totals of the rooms hidden inside, so
@@ -261,6 +263,7 @@ private:
         int unread = 0;
         int highlight = 0;
         bool hasUnread = false;
+        int threadUnreadKind = 0;
         bool favourite = false;
         int hiddenUnread = 0;
         int hiddenHighlight = 0;

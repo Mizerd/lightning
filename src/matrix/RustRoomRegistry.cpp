@@ -53,6 +53,12 @@ RoomInfo roomInfoFromJson(const QJsonObject &obj, const RoomInfo &previous)
     room.markedUnread = obj.value(QStringLiteral("marked_unread")).toBool(room.markedUnread);
     room.hasUnreadMessages = obj.value(QStringLiteral("has_unread_messages"))
                                  .toBool(room.hasUnreadMessages || room.unreadCount > 0);
+    // Recomputed by Rust on every emission, so absence means "no" and a read
+    // thread clears the hint instead of latching it.
+    room.unreadThreadsOnly =
+        obj.value(QStringLiteral("unread_threads_only")).toBool(false);
+    room.mentionInThreads =
+        obj.value(QStringLiteral("mention_in_threads")).toBool(false);
     room.encrypted = obj.value(QStringLiteral("encrypted")).toBool(room.encrypted);
     // EncryptionState::Unknown must never read as "not encrypted": an absent
     // field means not known (fail closed).

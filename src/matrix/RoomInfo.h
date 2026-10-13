@@ -45,6 +45,12 @@ struct RoomInfo {
     int highlightCount = 0;
     bool markedUnread = false;
     bool hasUnreadMessages = false;
+    // The room's REMAINING unread is explained by threads alone (main timeline
+    // read, server count still above it), and whether that includes a mention.
+    // A conservative hint from the bridge: never a per-thread count, and never
+    // set for an encrypted room (no honest signal there).
+    bool unreadThreadsOnly = false;
+    bool mentionInThreads = false;
     bool encrypted = false;
     // Whether `encrypted` is known rather than a not-yet-synced default. The
     // Rust bridge sets it from the SDK's tri-state EncryptionState; Mock/HTTP
@@ -118,6 +124,8 @@ inline bool operator==(const RoomInfo &a, const RoomInfo &b)
         && a.highlightCount == b.highlightCount
         && a.markedUnread == b.markedUnread
         && a.hasUnreadMessages == b.hasUnreadMessages
+        && a.unreadThreadsOnly == b.unreadThreadsOnly
+        && a.mentionInThreads == b.mentionInThreads
         && a.encrypted == b.encrypted
         && a.encryptionKnown == b.encryptionKnown
         && a.isSpace == b.isSpace

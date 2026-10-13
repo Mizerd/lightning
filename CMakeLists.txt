@@ -977,6 +977,9 @@ set(APP_QML_FILES
     qml/SpaceSettingsDialog.qml
     qml/RoomCloseDialog.qml
     qml/UnreadBadge.qml
+    # "Unread in a thread" glyph: why a room stays unread after its main
+    # timeline is read. Shared by both room-list layouts.
+    qml/ThreadUnreadBadge.qml
     # Room-row call indicator, shared by both layouts. It must never ask
     # RtcController to refresh (that falls back to a full /state per idle room).
     qml/RoomCallGlyph.qml

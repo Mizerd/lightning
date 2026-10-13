@@ -152,6 +152,106 @@ Item {
     }
 
 
+    static QQuickItem *threadBadgeOf(QQuickItem *row)
+    {
+        return row->findChild<QQuickItem *>(QStringLiteral("threadUnreadBadge"));
+    }
+
+    // The Classic row, instantiated by a ListView from model roles exactly as
+    // the room list gives them.
+    struct ClassicRow {
+        QStringList warnings;
+        std::unique_ptr<QObject> appStub;
+        std::unique_ptr<QQmlEngine> engine;
+        std::unique_ptr<QQuickWindow> window;
+        std::unique_ptr<QObject> rootOwner;
+        QQuickItem *row = nullptr;
+    };
+
+    bool buildClassicRow(ClassicRow &h, int unread, int highlight, int kind)
+    {
+        h.engine = std::make_unique<QQmlEngine>();
+        connect(h.engine.get(), &QQmlEngine::warnings, this,
+                [&h](const QList<QQmlError> &errors) {
+                    for (const auto &e : errors)
+                        h.warnings << e.toString();
+                });
+        QQmlComponent stub(h.engine.get());
+        stub.setData(QByteArrayLiteral(R"(
+import QtQuick
+QtObject {
+    property QtObject settings: QtObject {
+        signal roomNotificationModeChanged(string roomId)
+        property string clockTimeFormat: "HH:mm"
+        function roomNotificationMode(id) { return 0 }
+    }
+    property QtObject discovery: QtObject { function cancelKnock(id) {} }
+    function textFontWithEmoji(f) { return f }
+}
+)"),
+                     QUrl(QStringLiteral("qrc:/classicrow-appstub.qml")));
+        if (!stub.errors().isEmpty()) {
+            qWarning("%s", qPrintable(stub.errorString()));
+            return false;
+        }
+        h.appStub.reset(stub.create());
+        h.engine->rootContext()->setContextProperty(QStringLiteral("app"),
+                                                    h.appStub.get());
+        QQmlComponent component(h.engine.get());
+        const QString source = QStringLiteral(R"(
+import QtQuick
+import MatrixClient
+Item {
+    width: 300
+    height: 200
+    ListView {
+        objectName: "list"
+        anchors.fill: parent
+        model: ListModel {
+            ListElement { roomId: "!r:x"; name: "Room"; membership: "joined"
+                          hasUnread: true; markedUnread: false
+                          unreadCount: %1; highlightCount: %2
+                          threadUnreadKind: %3; isDirect: false
+                          lastMessagePreview: "hello"; lastActivity: 0
+                          avatarUrl: ""; encrypted: false; isSpace: false
+                          invitePending: false; inviter: ""; isFavourite: false
+                          identityColorKey: "!r:x"; network: ""; networkLabel: ""
+                          category: "conversation"; memberCount: 3 }
+        }
+        delegate: RoomDelegate { width: 300 }
+    }
+}
+)").arg(unread).arg(highlight).arg(kind);
+        component.setData(source.toUtf8(),
+                          QUrl(QStringLiteral("qrc:/classicrow.qml")));
+        if (!component.errors().isEmpty()) {
+            qWarning("%s", qPrintable(component.errorString()));
+            return false;
+        }
+        h.rootOwner.reset(component.create());
+        auto *root = qobject_cast<QQuickItem *>(h.rootOwner.get());
+        if (!root)
+            return false;
+        h.window = std::make_unique<QQuickWindow>();
+        h.window->resize(400, 300);
+        root->setParentItem(h.window->contentItem());
+        h.window->show();
+        QCoreApplication::processEvents();
+        auto *list = root->findChild<QQuickItem *>(QStringLiteral("list"));
+        if (!list)
+            return false;
+        QQuickItem *content = list->property("contentItem").value<QQuickItem *>();
+        const auto kids = content->childItems();
+        for (QQuickItem *k : kids) {
+            if (k->property("showGroupDivider").isValid()) {
+                h.row = k;
+                break;
+            }
+        }
+        return h.row != nullptr;
+    }
+
+
     // ---- Space Home lobby ----
     // SpaceLobby.qml draws SpaceManager::lobbySections: a root "Rooms" section,
     // then one per subspace. Loads the real component with a fixture of that
@@ -594,6 +694,136 @@ private Q_SLOTS:
             QVERIFY(QMetaObject::invokeMethod(accept, "triggered"));
             QCOMPARE(accepted.count(), 1);
         }
+    }
+
+
+    // ---- Unread that only a thread holds ----
+    // A room's badge is cleared by reading its main timeline, but a thread
+    // reply only by opening the thread, so a room can stay unread with nothing
+    // in the main timeline to explain it. Both layouts draw a thread glyph (no
+    // number) in place of the plain count.
+    void aChannelRowHeldUnreadByAThreadDrawsTheThreadGlyphNotACount()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral(R"(
+        ChannelDelegate {
+            width: 300
+            roomId: "!room:example.org"
+            channelName: "general"
+            unreadCount: 3
+            hasUnread: true
+            threadUnreadKind: 1
+        })"),
+                         /*withAppStub=*/true));
+        QQuickItem *row = h.item();
+        QVERIFY(row);
+        QQuickItem *badge = threadBadgeOf(row);
+        QVERIFY2(badge != nullptr && badge->isVisible(),
+                 "an unread held by a thread shows no thread indicator");
+        QCOMPARE(badge->property("kind").toInt(), 1);
+        QCOMPARE(badge->property("label").toString(),
+                 QStringLiteral("Unread in a thread"));
+        QVERIFY2(row->property("threadOnly").toBool(), "row ignores the kind");
+        // The plain count pill must not also be drawn: a "3" would promise
+        // messages the main timeline does not have.
+        const auto labels = row->findChildren<QQuickItem *>();
+        for (QQuickItem *item : labels)
+            QVERIFY2(!QString::fromLatin1(item->metaObject()->className())
+                          .startsWith(QStringLiteral("UnreadBadge")),
+                     "the plain unread pill is drawn beside the thread glyph");
+        // Geometry: inside the row, in x and y.
+        const QRectF r = badge->mapRectToItem(
+            row, QRectF(0, 0, badge->width(), badge->height()));
+        QVERIFY2(QRectF(0, 0, row->width(), row->height()).contains(r),
+                 qPrintable(QStringLiteral("thread glyph outside its row: %1,%2 %3x%4")
+                                .arg(r.x()).arg(r.y()).arg(r.width()).arg(r.height())));
+    }
+
+    void aChannelRowWithMentionInAThreadSaysSo()
+    {
+        Harness h;
+        QVERIFY(build(h, QStringLiteral(R"(
+        ChannelDelegate {
+            width: 300
+            roomId: "!room:example.org"
+            channelName: "general"
+            unreadCount: 1
+            highlightCount: 1
+            hasUnread: true
+            threadUnreadKind: 2
+        })"),
+                         /*withAppStub=*/true));
+        QQuickItem *badge = threadBadgeOf(h.item());
+        QVERIFY(badge && badge->isVisible());
+        QCOMPARE(badge->property("kind").toInt(), 2);
+        QCOMPARE(badge->property("label").toString(),
+                 QStringLiteral("Mention in a thread"));
+    }
+
+    void aChannelRowWithPlainUnreadOrMutedDrawsNoThreadGlyph()
+    {
+        {
+            Harness h;
+            QVERIFY(build(h, QStringLiteral(R"(
+            ChannelDelegate {
+                width: 300
+                roomId: "!room:example.org"
+                channelName: "general"
+                unreadCount: 3
+                hasUnread: true
+            })"),
+                             /*withAppStub=*/true));
+            QQuickItem *badge = threadBadgeOf(h.item());
+            QVERIFY2(!badge || !badge->isVisible(),
+                     "plain unread was labelled as a thread");
+        }
+        {
+            Harness h;
+            QVERIFY(build(h, QStringLiteral(R"(
+            ChannelDelegate {
+                width: 300
+                roomId: "!room:example.org"
+                channelName: "general"
+                unreadCount: 3
+                hasUnread: true
+                threadUnreadKind: 1
+                notificationMode: 2
+            })"),
+                             /*withAppStub=*/true));
+            QQuickItem *badge = threadBadgeOf(h.item());
+            QVERIFY2(!badge || !badge->isVisible(),
+                     "a muted room is silent, thread unread included");
+        }
+    }
+
+    void aClassicRowHeldUnreadByAThreadDrawsTheGlyphInsteadOfTheCount()
+    {
+        ClassicRow h;
+        QVERIFY(buildClassicRow(h, 4, 0, 1));
+        QQuickItem *badge = threadBadgeOf(h.row);
+        QVERIFY2(badge && badge->isVisible(), "no thread glyph on the Classic row");
+        QVERIFY2(!h.row->findChild<QQuickItem *>(QStringLiteral("roomUnreadBadge"))
+                      ->isVisible(),
+                 "the numeric pill is drawn beside the thread glyph");
+        QVERIFY2(!h.row->findChild<QQuickItem *>(QStringLiteral("roomUnreadDot"))
+                      ->isVisible(),
+                 "the plain unread dot is drawn beside the thread glyph");
+        const QRectF r = badge->mapRectToItem(
+            h.row, QRectF(0, 0, badge->width(), badge->height()));
+        QVERIFY2(QRectF(0, 0, h.row->width(), h.row->height()).contains(r),
+                 "thread glyph outside the Classic row");
+        for (const QString &w : h.warnings)
+            QVERIFY2(!w.contains(QStringLiteral("ReferenceError")), qPrintable(w));
+    }
+
+    void aClassicRowWithAPlainCountKeepsItsPill()
+    {
+        ClassicRow h;
+        QVERIFY(buildClassicRow(h, 4, 0, 0));
+        QVERIFY(h.row->findChild<QQuickItem *>(QStringLiteral("roomUnreadBadge"))
+                    ->isVisible());
+        QQuickItem *badge = threadBadgeOf(h.row);
+        QVERIFY(!badge || !badge->isVisible());
     }
 
     // A muted favourite's star must not be drawn over the mute bell. The

@@ -205,8 +205,28 @@ public:
         m_threadReadOpIds.append(opId);
         // Accepted at once, like the base backend, unless a test holds the
         // answer back to drive the server's reply itself.
-        if (m_autoAcceptThreadReads)
+        if (m_autoAcceptThreadReads) {
+            // The server's counts drop once the thread is read, so the
+            // "unread in a thread" hint clears, as the Rust bridge's would.
+            setRoomThreadUnreadForTest(roomId, 0);
             Q_EMIT threadReadMarkerAdvanced(roomId, rootEventId, opId);
+        }
+    }
+    /// 0 none, 1 unread in a thread, 2 mention in a thread: sets the bridge
+    /// hint a room's remaining unread would carry when only threads hold it.
+    void setRoomThreadUnreadForTest(const QString &roomId, int kind)
+    {
+        for (auto &r : m_rooms) {
+            if (r.id != roomId
+                || (r.unreadThreadsOnly == (kind > 0)
+                    && r.mentionInThreads == (kind == 2)))
+                continue;
+            r.unreadThreadsOnly = kind > 0;
+            r.mentionInThreads = kind == 2;
+            if (kind > 0 && r.unreadCount == 0)
+                r.unreadCount = 1;
+            Q_EMIT roomUpdated(roomId);
+        }
     }
     void setAutoAcceptThreadReadsForTest(bool on) { m_autoAcceptThreadReads = on; }
     int markThreadReadCallsForTest() const { return m_markThreadReadCalls; }

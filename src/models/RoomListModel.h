@@ -93,6 +93,9 @@ public:
         // native Matrix room (no badge). Presentation only, never routing.
         NetworkRole,
         NetworkLabelRole,
+        // 0 none, 1 "unread in a thread", 2 "mention in a thread": the room's
+        // remaining unread is held by threads alone. Mute-aware.
+        ThreadUnreadKindRole,
     };
 
     explicit RoomListModel(QObject *parent = nullptr);

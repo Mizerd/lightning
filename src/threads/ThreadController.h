@@ -33,6 +33,12 @@ class ThreadController : public QObject
     // Exposed only as app.threads; registered so QML can name the State enum.
     QML_UNCREATABLE("ThreadController is exposed via app.threads")
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
+    /// Why the open room is still unread once its main timeline is read: 0 no
+    /// thread holds it, 1 unread in a thread, 2 a mention in a thread. A
+    /// conservative hint (never a count) that clears when the thread is opened
+    /// and the server's counts drop. Drives the header's Threads dot.
+    Q_PROPERTY(int roomThreadUnread READ roomThreadUnread
+                   NOTIFY roomThreadUnreadChanged)
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
     Q_PROPERTY(bool active READ active NOTIFY stateChanged)
     Q_PROPERTY(QString roomId READ roomId NOTIFY stateChanged)
@@ -219,6 +225,7 @@ public:
     // The active room changed; a thread panel never survives into another
     // room. Called by AppController.
     void handleCurrentRoomChanged(const QString &currentRoomId);
+    int roomThreadUnread() const { return m_roomThreadUnread; }
 
 Q_SIGNALS:
     /// The thread's own read receipt was sent: everything in it up to
@@ -226,6 +233,7 @@ Q_SIGNALS:
     void threadReadSent(const QString &roomId, const QString &rootEventId,
                         qint64 timestampMs);
     void supportedChanged();
+    void roomThreadUnreadChanged();
     void stateChanged();
     void replyCountChanged();
     /// The root's own row changed in place (decrypted, edited, redacted, or
@@ -320,6 +328,11 @@ private:
     // Conservative unread hint for a list entry: the loaded room timeline's
     // SDK thread summary for that root, when present.
     bool threadUnreadHint(const QString &rootEventId) const;
+    // The open room's thread-unread kind, re-read from the client's room
+    // record whenever the room changes or the record does.
+    void refreshRoomThreadUnread();
+    QString m_currentRoomId;
+    int m_roomThreadUnread = 0;
     bool m_followSupported = false;
     bool m_followed = false;
     bool m_followAutomatic = false;

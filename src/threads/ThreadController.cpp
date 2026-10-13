@@ -179,11 +179,19 @@ void ThreadController::setClient(MatrixClient *client)
     close();
     m_pendingThreadReads.clear();
     m_client = client;
+    refreshRoomThreadUnread();
     m_model.setClient(client);
     m_attachments->setClient(client);
     if (m_client) {
         connect(m_client, &MatrixClient::attachmentQueueFinished, this,
                 &ThreadController::onAttachmentQueueFinished);
+        connect(m_client, &MatrixClient::roomsChanged, this,
+                &ThreadController::refreshRoomThreadUnread);
+        connect(m_client, &MatrixClient::roomUpdated, this,
+                [this](const QString &roomId) {
+                    if (roomId == m_currentRoomId)
+                        refreshRoomThreadUnread();
+                });
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
             // Unresolved thread recordings must not outlive the session on
             // disk. Mirrors MessageComposer's cleanup.
@@ -996,8 +1004,25 @@ QVariantMap ThreadController::rootInfo() const
     return info;
 }
 
+void ThreadController::refreshRoomThreadUnread()
+{
+    int kind = 0;
+    if (m_client && !m_currentRoomId.isEmpty()) {
+        const RoomInfo room = m_client->roomInfo(m_currentRoomId);
+        if (room.id == m_currentRoomId && room.membership == RoomInfo::Joined
+            && room.unreadThreadsOnly)
+            kind = room.mentionInThreads ? 2 : 1;
+    }
+    if (kind == m_roomThreadUnread)
+        return;
+    m_roomThreadUnread = kind;
+    Q_EMIT roomThreadUnreadChanged();
+}
+
 void ThreadController::handleCurrentRoomChanged(const QString &currentRoomId)
 {
+    m_currentRoomId = currentRoomId;
+    refreshRoomThreadUnread();
     if (m_listOpen && currentRoomId != m_listRoomId)
         closeList();
     if (m_state == Closed)

@@ -30,6 +30,10 @@ ItemDelegate {
     property bool encrypted: false
     property int unreadCount: 0
     property int highlightCount: 0
+    // 0 none, 1 unread in a thread, 2 mention in a thread: the remaining
+    // unread is held by threads alone (see ThreadUnreadBadge).
+    property int threadUnreadKind: 0
+    readonly property bool threadOnly: threadUnreadKind > 0 && !isInvite && !muted
     property bool hasUnread: false
     property bool active: false
     /// Indentation level: 0 at the top of the column, 1 inside a folder.
@@ -79,7 +83,7 @@ ItemDelegate {
     // the pill falls back to a dot.
     readonly property bool showsPill:
         (root.highlightCount > 0 || root.unreadCount > 0
-         || root.hasUnread || root.isInvite) && !root.muted
+         || root.hasUnread || root.isInvite || root.threadOnly) && !root.muted
     readonly property bool readsUnread: (root.isInvite || root.hasUnread || root.unreadCount > 0 || root.highlightCount > 0)
 
     // Loaded by the Channels presenter (five row kinds). The Loader takes its
@@ -96,6 +100,10 @@ ItemDelegate {
             return qsTr("%1, invitation").arg(base);
         if (root.muted)
             base = qsTr("%1, muted").arg(base);
+        else if (root.threadOnly)
+            base = (root.threadUnreadKind === 2
+                    ? qsTr("%1, mention in a thread", "channel row")
+                    : qsTr("%1, unread in a thread", "channel row")).arg(base);
         else if (root.highlightCount > 0)
             base = qsTr("%1, %2 mentions").arg(base).arg(root.highlightCount);
         else if (root.readsUnread)
@@ -287,7 +295,16 @@ ItemDelegate {
             anchors.right: parent.right
             anchors.rightMargin: 14
             anchors.verticalCenter: parent.verticalCenter
-            sourceComponent: UnreadBadge {
+            sourceComponent: root.threadOnly ? threadBadgeComponent : countBadgeComponent
+        }
+
+        Component {
+            id: threadBadgeComponent
+            ThreadUnreadBadge { kind: root.threadUnreadKind }
+        }
+        Component {
+            id: countBadgeComponent
+            UnreadBadge {
                 // Mentions win the colour and number; an unread room with no
                 // count shows a dot.
                 count: root.highlightCount > 0 ? root.highlightCount

@@ -12470,6 +12470,39 @@ fn unread_and_highlight_counts(
     }
 }
 
+/// Whether the room's remaining unread comes from THREADS only, and whether
+/// that includes a mention.
+///
+/// With `ThreadingSupport::Enabled` the SDK's own event-cache counts
+/// (`num_unread_notifications` / `num_unread_mentions`) deliberately SKIP
+/// events that belong to a thread (`read_receipts.rs`, `extract_thread_root`),
+/// while the counts the server sends in `unread_notifications` are not split by
+/// thread unless the client asks for MSC3773 `unread_thread_notifications`,
+/// which Lightning does not. So for an UNENCRYPTED room, a server count above a
+/// client count that has reached zero is unread the main timeline cannot
+/// contain: it cleared the receipt, and a thread still holds the badge.
+/// Conservative on purpose: both client counts must be zero (a room with
+/// plain main-timeline unread is just unread), and an encrypted room reports
+/// nothing, because its server counts are not used at all (see
+/// `unread_and_highlight_counts`) and the client counts exclude threads, so
+/// there is no honest signal. Never an exact per-thread count.
+fn unread_in_threads_only(
+    is_encrypted: bool,
+    client_notifications: u64,
+    client_mentions: u64,
+    server_notification_count: u64,
+    server_highlight_count: u64,
+) -> (bool, bool) {
+    if is_encrypted
+        || client_notifications != 0
+        || client_mentions != 0
+        || (server_notification_count == 0 && server_highlight_count == 0)
+    {
+        return (false, false);
+    }
+    (true, server_highlight_count > 0)
+}
+
 async fn room_payload(room: &Room) -> serde_json::Value {
     let membership = match room.state() {
         matrix_sdk::RoomState::Joined => "joined",
@@ -12484,6 +12517,13 @@ async fn room_payload(room: &Room) -> serde_json::Value {
     // (max-of-both) behaviour, the existing, safer default for a room whose
     // state has not settled yet.
     let (unread_count, highlight_count) = unread_and_highlight_counts(
+        room.encryption_state().is_encrypted(),
+        room.num_unread_notifications(),
+        room.num_unread_mentions(),
+        notifications.notification_count,
+        notifications.highlight_count,
+    );
+    let (unread_threads_only, mention_in_threads) = unread_in_threads_only(
         room.encryption_state().is_encrypted(),
         room.num_unread_notifications(),
         room.num_unread_mentions(),
@@ -12526,6 +12566,9 @@ async fn room_payload(room: &Room) -> serde_json::Value {
         "unread_count": unread_count,
         "highlight_count": highlight_count,
         "marked_unread": room.is_marked_unread(),
+        // Unread that only threads can explain; see `unread_in_threads_only`.
+        "unread_threads_only": unread_threads_only,
+        "mention_in_threads": mention_in_threads,
         // The `m.favourite` tag itself, via the SDK's notable-tag bit, so favourites
         // set in other clients show here.
         "is_favourite": room.is_favourite(),
@@ -13692,6 +13735,26 @@ mod tests {
             super::unread_and_highlight_counts(false, 0, 0, 5, 1),
             (5, 1)
         );
+    }
+
+    #[test]
+    fn unread_only_a_thread_can_explain_is_reported_for_a_plaintext_room() {
+        // Main timeline read (client counts 0), server still counts 4 and one
+        // highlight: the remainder is a thread.
+        assert_eq!(super::unread_in_threads_only(false, 0, 0, 4, 1), (true, true));
+        assert_eq!(super::unread_in_threads_only(false, 0, 0, 4, 0), (true, false));
+    }
+
+    #[test]
+    fn thread_only_unread_is_not_claimed_when_it_cannot_be_known() {
+        // Nothing unread at all.
+        assert_eq!(super::unread_in_threads_only(false, 0, 0, 0, 0), (false, false));
+        // Plain main-timeline unread is just unread, even if threads add to it.
+        assert_eq!(super::unread_in_threads_only(false, 2, 0, 9, 0), (false, false));
+        assert_eq!(super::unread_in_threads_only(false, 0, 1, 9, 1), (false, false));
+        // Encrypted: client counts exclude threads and server counts are unused,
+        // so there is no honest signal.
+        assert_eq!(super::unread_in_threads_only(true, 0, 0, 9, 3), (false, false));
     }
 
     #[test]

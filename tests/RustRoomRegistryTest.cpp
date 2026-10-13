@@ -351,6 +351,31 @@ private Q_SLOTS:
     // A present-but-empty preview must not clobber one already learned from
     // an open timeline: Rust sends "" whenever the SDK has no latest event
     // yet, and set/insert diffs arrive on every unread/order change.
+    void theThreadOnlyUnreadFlagsFollowThePayloadAndNeverLatch()
+    {
+        QHash<QString, RoomInfo> map;
+        QStringList order;
+        Registry registry{map, order};
+
+        QJsonObject held = roomJson(roomId(0));
+        held.insert(QStringLiteral("unread_count"), 2);
+        held.insert(QStringLiteral("unread_threads_only"), true);
+        held.insert(QStringLiteral("mention_in_threads"), true);
+        QJsonArray first;
+        first.append(held);
+        applyIndexReset(registry, first);
+        QVERIFY(map.value(roomId(0)).unreadThreadsOnly);
+        QVERIFY(map.value(roomId(0)).mentionInThreads);
+
+        // A later emission without the fields (the thread was read) clears
+        // them: Rust recomputes both on every emission.
+        QJsonArray second;
+        second.append(roomJson(roomId(0)));
+        applySnapshot(registry, second);
+        QVERIFY(!map.value(roomId(0)).unreadThreadsOnly);
+        QVERIFY(!map.value(roomId(0)).mentionInThreads);
+    }
+
     void anEmptyPreviewNeverClobbersAKnownOne()
     {
         QHash<QString, RoomInfo> map;

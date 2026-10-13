@@ -82,6 +82,41 @@ private:
     }
 
 private Q_SLOTS:
+    void theRoomThreadUnreadHintFollowsTheOpenRoomAndClearsOnThreadRead()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        QCOMPARE(controller.roomThreadUnread(), 0);
+        QSignalSpy changed(&controller, &ThreadController::roomThreadUnreadChanged);
+
+        // A hint on a room that is not open is not this room's.
+        controller.handleCurrentRoomChanged(kGeneral);
+        client.setRoomThreadUnreadForTest(kDevs, 2);
+        QCOMPARE(controller.roomThreadUnread(), 0);
+
+        client.setRoomThreadUnreadForTest(kGeneral, 1);
+        QCOMPARE(controller.roomThreadUnread(), 1);
+        client.setRoomThreadUnreadForTest(kGeneral, 2);
+        QCOMPARE(controller.roomThreadUnread(), 2);
+        QCOMPARE(changed.count(), 2);
+
+        // Switching rooms re-reads the new room's record.
+        controller.handleCurrentRoomChanged(kDevs);
+        QCOMPARE(controller.roomThreadUnread(), 2);
+        controller.handleCurrentRoomChanged(kGeneral);
+        QCOMPARE(controller.roomThreadUnread(), 2);
+
+        // Opening the thread sends its receipt; the server's counts drop and
+        // the hint clears.
+        QString root;
+        QVERIFY(openFixtureThread(client, controller, kGeneral, &root));
+        QTRY_COMPARE(controller.state(), ThreadController::Ready);
+        controller.markRead();
+        QTRY_COMPARE(controller.roomThreadUnread(), 0);
+    }
+
     // An edit addressed to the open thread lands in the thread's own list: the
     // mock keeps a separate copy under the composite thread id, which is what
     // TimelineModel::onEventEdited re-reads for a thread model. Editing only

@@ -37,6 +37,16 @@ inline int mentionCount(const RoomInfo &r, int mode)
     return mode == kModeMute ? 0 : r.highlightCount;
 }
 
+/// Why a room is still unread when only a thread holds it: 0 = not that,
+/// 1 = unread in a thread, 2 = mention in a thread. A muted room is silent,
+/// so it reports 0.
+inline int threadUnreadKind(const RoomInfo &r, int mode)
+{
+    if (mode == kModeMute || !r.unreadThreadsOnly)
+        return 0;
+    return r.mentionInThreads ? 2 : 1;
+}
+
 struct Summary {
     int total = 0;
     bool any = false;

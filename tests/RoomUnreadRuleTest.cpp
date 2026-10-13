@@ -121,6 +121,40 @@ private Q_SLOTS:
         QCOMPARE(asked, 1);
     }
 
+    void threadUnreadKindIsOffUnlessThreadsAloneHoldTheRoom()
+    {
+        RoomInfo r = room(QStringLiteral("!t:x"), 4, true);
+        QCOMPARE(roomunread::threadUnreadKind(r, roomunread::kModeAllMessages), 0);
+        r.unreadThreadsOnly = true;
+        QCOMPARE(roomunread::threadUnreadKind(r, roomunread::kModeAllMessages), 1);
+        r.mentionInThreads = true;
+        QCOMPARE(roomunread::threadUnreadKind(r, roomunread::kModeAllMessages), 2);
+        // Muted is silent.
+        QCOMPARE(roomunread::threadUnreadKind(r, roomunread::kModeMute), 0);
+        // A mention flag without the thread-only flag means nothing.
+        r.unreadThreadsOnly = false;
+        QCOMPARE(roomunread::threadUnreadKind(r, roomunread::kModeAllMessages), 0);
+    }
+
+    void theThreadsButtonCarriesTheDotAndBothRowsDrawTheGlyph()
+    {
+        const auto read = [](const char *path) {
+            QFile f(QStringLiteral(SOURCE_DIR "/") + QLatin1String(path));
+            return f.open(QIODevice::ReadOnly) ? QString::fromUtf8(f.readAll())
+                                               : QString();
+        };
+        const QString pane = read("qml/TimelinePane.qml");
+        const int at = pane.indexOf(QStringLiteral("objectName: \"threadsUnreadDot\""));
+        QVERIFY2(at >= 0, "the header's Threads button has no unread dot");
+        QVERIFY(pane.contains(QStringLiteral("app.thread.roomThreadUnread")));
+        for (const char *row : {"qml/RoomDelegate.qml", "qml/ChannelDelegate.qml"}) {
+            const QString src = read(row);
+            QVERIFY2(src.contains(QStringLiteral("ThreadUnreadBadge")), row);
+            QVERIFY2(src.contains(QStringLiteral("hread")) &&
+                         src.contains(QStringLiteral("unread in a thread")), row);
+        }
+    }
+
     void refreshTrayUnreadUsesTheSharedRule()
     {
         QFile f(QStringLiteral(SOURCE_DIR "/src/app/AppController.cpp"));

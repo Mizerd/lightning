@@ -51,6 +51,7 @@ bool SpaceChannelModel::Row::operator==(const Row &other) const
            && isDirect == other.isDirect && isInvite == other.isInvite
            && encrypted == other.encrypted && unread == other.unread
            && highlight == other.highlight && hasUnread == other.hasUnread
+           && threadUnreadKind == other.threadUnreadKind
            && favourite == other.favourite
            && hiddenUnread == other.hiddenUnread
            && hiddenHighlight == other.hiddenHighlight
@@ -552,6 +553,7 @@ QHash<int, QByteArray> SpaceChannelModel::roleNames() const
         { UnreadCountRole, "unreadCount" },
         { HighlightCountRole, "highlightCount" },
         { HasUnreadRole, "hasUnread" },
+        { ThreadUnreadKindRole, "threadUnreadKind" },
         { CollapsedRole, "collapsed" },
         { HiddenUnreadRole, "hiddenUnread" },
         { HiddenHighlightRole, "hiddenHighlight" },
@@ -603,6 +605,8 @@ QVariant SpaceChannelModel::data(const QModelIndex &index, int role) const
         return row.highlight;
     case HasUnreadRole:
         return row.hasUnread;
+    case ThreadUnreadKindRole:
+        return row.threadUnreadKind;
     case CollapsedRole:
         return (row.kind == SpaceKind || row.kind == GroupKind)
                && isCollapsed(row.id);
@@ -699,6 +703,8 @@ SpaceChannelModel::Row SpaceChannelModel::roomRow(const RoomInfo &info) const
     // unread counters of its own.
     row.hasUnread = row.isInvite
                     || roomunread::countsAsUnread(info, mode);
+    row.threadUnreadKind =
+        row.isInvite ? 0 : roomunread::threadUnreadKind(info, mode);
     row.favourite = info.isFavourite;
     // The stamp the row is ordered by, which is not always the live one.
     row.lastActivity = m_hold.keyFor(info.id, info.lastActivity);

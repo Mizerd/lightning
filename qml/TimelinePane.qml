@@ -1182,12 +1182,36 @@ Rectangle {
                             app.currentRoomId !== "" && app.thread.supported
                         iconName: "forum"
                         active: root.threadSurfaceOpen
-                        property string actionLabel: qsTr("Threads")
+                        // 0 / 1 unread in a thread / 2 mention in a thread.
+                        readonly property int threadUnread:
+                            app.thread.roomThreadUnread
+                        property string actionLabel: threadUnread === 2
+                            ? qsTr("Threads, mention in a thread")
+                            : threadUnread === 1
+                              ? qsTr("Threads, unread in a thread")
+                              : qsTr("Threads")
                         Accessible.name: actionLabel
-                        ToolTip.text: qsTr("Threads in this room")
+                        ToolTip.text: threadUnread === 2
+                            ? qsTr("Mention in a thread")
+                            : threadUnread === 1
+                              ? qsTr("Unread in a thread")
+                              : qsTr("Threads in this room")
                         ToolTip.visible: hovered
                         ToolTip.delay: 500
                         onClicked: root.toggleThreadSurface()
+                        Rectangle {
+                            objectName: "threadsUnreadDot"
+                            visible: threadsViewButton.threadUnread > 0
+                            width: 9
+                            height: 9
+                            radius: 4.5
+                            x: parent.width - width - 4
+                            y: 4
+                            color: threadsViewButton.threadUnread === 2
+                                   ? AppTheme.mentionBadge : AppTheme.unreadBadge
+                            border.width: 1
+                            border.color: AppTheme.background
+                        }
                     }
                     IconButton {
                         id: timelineSearchButton

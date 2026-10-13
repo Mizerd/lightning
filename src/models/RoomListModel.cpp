@@ -186,6 +186,9 @@ QVariant RoomListModel::data(const QModelIndex &index, int role) const
     case HighlightCountRole:     return r.highlightCount;
     case MarkedUnreadRole:       return r.markedUnread;
     case HasUnreadRole:          return r.hasUnreadMessages;
+    case ThreadUnreadKindRole:
+        return r.membership == RoomInfo::Joined
+            ? roomunread::threadUnreadKind(r, notificationModeOf(r.id)) : 0;
     case MembershipRole:
         switch (r.membership) {
         case RoomInfo::Invited: return QStringLiteral("invited");
@@ -231,6 +234,7 @@ QHash<int, QByteArray> RoomListModel::roleNames() const
         { HighlightCountRole,     "highlightCount" },
         { MarkedUnreadRole,       "markedUnread" },
         { HasUnreadRole,          "hasUnread" },
+        { ThreadUnreadKindRole,   "threadUnreadKind" },
         { MembershipRole,         "membership" },
         { IsDirectRole,           "isDirect" },
         { IsFavouriteRole,        "isFavourite" },
