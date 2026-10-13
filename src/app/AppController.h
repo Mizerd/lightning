@@ -42,6 +42,7 @@
 #include "profile/NameColorManager.h"
 #include "profile/ProfileBannerManager.h"
 #include "backdrop/ChatBackdropController.h"
+#include "settings/SettingsSyncController.h"
 #include "profile/ProfileBadges.h"
 #include "profile/ProfileBioManager.h"
 #include "profile/UserProfileResolver.h"
@@ -277,6 +278,8 @@ class AppController : public QObject
     Q_PROPERTY(ProfileBannerManager* banners READ banners CONSTANT)
     // Chat backgrounds (shared per room/Space, personal) and surface depth.
     Q_PROPERTY(ChatBackdropController* backdrops READ backdrops CONSTANT)
+    // Settings export / import and the account-wide settings sync.
+    Q_PROPERTY(SettingsSyncController* settingsSync READ settingsSync CONSTANT)
     Q_PROPERTY(NameColorManager* nameColors READ nameColors CONSTANT)
     // Profile bios (MSC4440 / MSC4133), stable and unstable field names.
     // Plain text only.
@@ -589,6 +592,7 @@ public:
     RailEntryModel *railEntries() const;
     ProfileBannerManager *banners() const;
     ChatBackdropController *backdrops() const { return m_backdrops.get(); }
+    SettingsSyncController *settingsSync() const { return m_settingsSync.get(); }
     NameColorManager *nameColors() const;
     ProfileBioManager *bio() const;
     UserProfileResolver *userProfiles() const { return m_userProfiles.get(); }
@@ -1377,6 +1381,7 @@ private:
     std::unique_ptr<RailEntryModel> m_railEntries;
     std::unique_ptr<ProfileBannerManager> m_banners;
     std::unique_ptr<ChatBackdropController> m_backdrops;
+    std::unique_ptr<SettingsSyncController> m_settingsSync;
     std::unique_ptr<NameColorManager> m_nameColors;
     std::unique_ptr<ProfileBioManager> m_bio;
     std::unique_ptr<UserProfileResolver> m_userProfiles;

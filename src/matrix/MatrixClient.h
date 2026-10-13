@@ -558,6 +558,21 @@ public:
         Q_UNUSED(roomId); Q_UNUSED(localPath); Q_UNUSED(contentJson);
         Q_UNUSED(opId);
     }
+    // Preferences kept on the homeserver (account data; rust/src/settingsync.rs
+    // and src/settings/SettingsPortable.*). The backend is a transport: it
+    // reads the blob and the account-wide switch from the SERVER (never the
+    // store) and writes them; what is in them is decided in C++.
+    virtual bool supportsSettingsSync() const { return false; }
+    // Answers on syncedSettingsRead.
+    virtual void readSyncedSettings(quint64 opId) { Q_UNUSED(opId); }
+    // kind: 0 the blob (the backend re-reads the switch first and stops with
+    // category "sync_disabled" when it is off), 1 the switch ({"enabled":bool}),
+    // 2 clear the blob. Answers on syncedSettingsWritten.
+    virtual void writeSyncedSettings(int kind, const QString &contentJson,
+                                     quint64 opId)
+    {
+        Q_UNUSED(kind); Q_UNUSED(contentJson); Q_UNUSED(opId);
+    }
     // Personal chat backgrounds kept on the homeserver (account data; see
     // rust/src/bgsync.rs). Scope "" is the every-room default, a room id is
     // that room; "*" (read only) is the default and every joined room. The
@@ -1978,6 +1993,17 @@ Q_SIGNALS:
     // is non-zero or the switch did not go off.
     void personalBackgroundsCleared(quint64 opId, bool ok, int cleared,
                                     int failed, int skipped, bool switchedOff);
+    // The settings blob and the switch as the SERVER holds them. blobState is
+    // "absent", "present" or "unreadable"; switchState 1 on, 0 off, -1 unknown.
+    // ok is false when either could not be asked (category says why).
+    void syncedSettingsRead(quint64 opId, bool ok, const QString &category,
+                            const QString &blobState, const QString &blobJson,
+                            int switchState);
+    void syncedSettingsWritten(quint64 opId, int kind, bool ok,
+                               const QString &category);
+    // The blob or the switch changed in sync (another device, or our own
+    // write coming back). No content: the consumer re-reads.
+    void syncedSettingsChanged();
     // A scope's account data changed in sync (another device, or our own
     // write coming back). No content: the consumer re-reads it.
     void personalBackgroundChanged(const QString &scope);

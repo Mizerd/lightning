@@ -923,6 +923,21 @@ char *mx_rust_personal_backgrounds_read(void *client,
                                         const char *scope,
                                         unsigned long long op_id);
 /*
+ * Synced preferences (rust/src/settingsync.rs). Read the settings blob and the
+ * account-wide switch from the server; answers on the command lane as
+ *   {"type":"settings_sync_read","op_id",…,"ok","category","blob_state":
+ *    "absent"|"present"|"unreadable","blob","switch":bool|null}
+ */
+char *mx_rust_settings_sync_read(void *client, unsigned long long op_id);
+/*
+ * kind 0 = blob, 1 = switch ({"enabled":bool}), 2 = clear the blob. Answers
+ *   {"type":"settings_sync_written","op_id",…,"kind","ok","category"}
+ */
+char *mx_rust_settings_sync_write(void *client, unsigned int kind,
+                                  const char *content_json,
+                                  unsigned long long op_id);
+
+/*
  * Download and decrypt one scope's picture; the bytes are parked in their OWN
  * map for mx_rust_personal_background_take(op_id), never in the timeline
  * media map (the op ids come from another counter). Answers on the command

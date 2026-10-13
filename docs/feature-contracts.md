@@ -2218,6 +2218,53 @@ two or more frames or an animated WebP.
   anything malformed: GIF comments and every application extension except the
   looping ones (XMP), WebP EXIF and XMP chunks.
 
+### Settings file and settings sync
+
+Settings -> Account -> "Settings file" (Export / Import) and "Sync across your
+devices". One allow-listed preference set (`src/settings/SettingsPortable.*`,
+keyed by `SettingsManager` property name; each field is `Export`, or `Export`
++ `Sync`) feeds both, through one codec. Nothing outside the list can travel:
+no token, key, recovery material, device or hardware id, path, account id,
+homeserver URL, window geometry or dismissal flag, and the tests assert it.
+
+- **File.** `{"format":"lightning-settings","version":1,"settings":{...},
+  "shortcuts":{id: seq},"customThemes":[...],"activeCustomTheme":n}`. Export
+  captures the ACTIVE account's effective values (an account-scoped value with
+  its global fallback, as the UI shows it); import writes through the setters,
+  so it lands on the active account and the signed-out fallback exactly like a
+  click would. Import shows a preview (what changes, what is skipped), applies
+  validated values in one pass and puts every earlier one back if a setter
+  refuses; an invalid value is REJECTED per key with a reason (never clamped),
+  unknown keys and a newer file version are tolerated and reported. Shortcuts
+  go through `ShortcutRegistry::setBinding` (conflicts refused, counted).
+  Custom themes are added through `CustomThemeStore::importTheme` (identical
+  ones are reused).
+- **Sync.** Account data `org.lightning_matrix.settings`
+  (`{version:1, settings:{key:{v,t}}}`, per-key last-writer-wins, `t` = ms) and
+  the account-wide switch `org.lightning_matrix.settings.sync`
+  (`{version:1, enabled}`; ABSENT = OFF, it is opt-in). Reads ask the server
+  (never the store); a blob write re-reads the switch from the server first
+  (`sync_disabled`). Only an explicitly changed setting is ever uploaded (an
+  untouched default is not a choice), so later default improvements still
+  reach a device that never chose. Local edits are noticed by the properties'
+  change signals, debounced 2 s, then read-merge-write. A later server value
+  replaces an unsynced local edit only after being REPORTED in Settings; a
+  server clock >5 min ahead is clamped; a key a concurrent writer dropped is
+  re-asserted; keys this build does not know are carried through every write;
+  a newer schema is read-only. First enable: a fresh device adopts the
+  account's settings, an empty account takes this device's explicit choices,
+  and when both hold different explicit choices nothing moves until the user
+  picks "Use my account's settings" or "Upload this device's settings".
+  "Turn off and remove" switches it off for every device and empties the blob.
+- **Never synced (export only):** window state and widths, zoom, smooth
+  scrolling, volumes and microphone gain, share size/fps, picture-in-picture,
+  video prefetch, tray/start behaviour, AND every setting that widens what
+  leaves the app or what is shown outside its protection (strict device trust,
+  link previews in encrypted rooms, notification previews, keeping media on
+  device): the homeserver can write account data, so it must not be able to
+  loosen them. Custom themes and shortcuts are export only (size, layout).
+- Not live-validated between two real sessions unless stated in the task note.
+
 ### Chat backgrounds and surface depth
 
 A picture behind a room's timeline, from one of four places, resolved per room

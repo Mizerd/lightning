@@ -74,6 +74,7 @@ use serde_json::json;
 
 mod backdrop;
 mod bgsync;
+mod settingsync;
 mod banner;
 mod bio;
 mod bridges;
@@ -6845,6 +6846,33 @@ pub unsafe extern "C" fn mx_rust_personal_backgrounds_clear_all(
     })
 }
 
+/// Read the settings blob and the account-wide switch from the SERVER
+/// (`settingsync.rs`). Result event (command lane): `settings_sync_read
+/// { op_id, lifecycle, ok, category, blob_state, blob, switch }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_settings_sync_read(ptr: *mut c_void, op_id: u64) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        settingsync::read(bridge, op_id).map(|_| String::new())
+    })
+}
+
+/// Write the settings blob (kind 0), the switch (1) or clear the blob (2).
+/// Result event: `settings_sync_written { op_id, lifecycle, kind, ok, category }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_settings_sync_write(
+    ptr: *mut c_void,
+    kind: u32,
+    content_json: *const c_char,
+    op_id: u64,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let content = unsafe { cstr_arg(content_json) }?;
+        settingsync::write(bridge, op_id, kind, content).map(|_| String::new())
+    })
+}
+
 /// Move a decrypted personal background out of its own map. Returns a buffer
 /// the caller releases with `mx_rust_media_free`, or null for an unknown op.
 #[no_mangle]
@@ -10831,6 +10859,8 @@ fn install_event_handlers(
     // device set or removed one, or our own write came back). Only the scope
     // crosses; C++ re-reads it. See bgsync::install_change_handlers.
     bgsync::install_change_handlers(client, Arc::clone(&events));
+    // Synced preferences (settingsync.rs): same pattern, one payload.
+    settingsync::install_change_handlers(client, Arc::clone(&events));
 
     // A power-level change invalidates cached permission flags now. Routed
     // through the existing members poke, since the member snapshot carries

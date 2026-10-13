@@ -205,6 +205,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_backdrops = std::make_unique<ChatBackdropController>(this);
     // Personal backgrounds and the depth preference are account-scoped.
     m_backdrops->setSettings(m_settings.get());
+    m_settingsSync = std::make_unique<SettingsSyncController>(this);
+    m_settingsSync->setSettings(m_settings.get());
+    m_settingsSync->setShortcuts(m_shortcuts.get());
+    m_settingsSync->setCustomThemes(m_customTheme.get());
     m_nameColors = std::make_unique<NameColorManager>(this);
     m_bio = std::make_unique<ProfileBioManager>(this);
     m_userProfiles = std::make_unique<UserProfileResolver>(this);
@@ -1711,6 +1715,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_mentionSuggestions->setClient(m_client.get());
     m_banners->setClient(m_client.get());
     m_backdrops->setClient(m_client.get());
+    m_settingsSync->setClient(m_client.get());
     // Shared pictures are fetched and measured through the media bridge only;
     // personal ones are served from memory via the staged-image store.
     m_backdrops->setMediaBridge(m_mediaBridge.get());

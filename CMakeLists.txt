@@ -504,6 +504,11 @@ set(APP_SOURCES
     src/app/RepeatLogLimiter.cpp
     src/app/ShortcutRegistry.h
     src/app/ShortcutRegistry.cpp
+    src/settings/SettingsPortable.h
+    src/settings/SettingsPortable.cpp
+    src/settings/SettingsSchemaTable.inc
+    src/settings/SettingsSyncController.h
+    src/settings/SettingsSyncController.cpp
     src/app/SyncLatencyTracer.h
     src/app/SyncLatencyTracer.cpp
 
@@ -1059,6 +1064,7 @@ set(APP_QML_FILES
     qml/ChatBackdrop.qml
     qml/ChatBackgroundEditor.qml
     qml/ChatBackgroundSettings.qml
+    qml/SettingsBackupSection.qml
     qml/ChatBackgroundDialog.qml
     qml/ThemedSurface.qml
     qml/GradientEditor.qml
@@ -4596,6 +4602,19 @@ if(BUILD_TESTING)
     set_tests_properties(background-sync PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # Settings sync: the account-wide switch, the first-enable question,
+    # server-first reads, debounced pushes, conflict reporting and the settings
+    # file export / import, against a recording client.
+    qt_add_executable(settings-sync-controller-test
+        tests/SettingsSyncControllerTest.cpp
+    )
+    target_include_directories(settings-sync-controller-test PRIVATE src)
+    target_link_libraries(settings-sync-controller-test
+        PRIVATE lightning-app-testlib Qt6::Test)
+    add_test(NAME settings-sync-controller COMMAND settings-sync-controller-test)
+    set_tests_properties(settings-sync-controller PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Profile banners (MSC4427 over MSC4133), policy half: "no banner", "not
     # asked yet" and "server has no extended profiles" are distinct states.
     qt_add_executable(profile-banner-test
@@ -5606,6 +5625,24 @@ if(BUILD_TESTING)
     target_link_libraries(shortcut-registry-test PRIVATE
         Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME shortcut-registry COMMAND shortcut-registry-test)
+
+    # Settings export / import and sync: the allow-list schema, the file codec
+    # and the sync merge rules (pure Qt Core, plus a real SettingsManager for
+    # the property round trip).
+    qt_add_executable(settings-portable-test
+        tests/SettingsPortableTest.cpp
+        src/settings/SettingsPortable.h
+        src/settings/SettingsPortable.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    target_include_directories(settings-portable-test PRIVATE src)
+    target_link_libraries(settings-portable-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME settings-portable COMMAND settings-portable-test)
 
     # When a rail folder exists: an empty folder is deleted, decided from the
     # store rather than the rendered rail. Also pins that a reorder does not

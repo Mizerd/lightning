@@ -494,6 +494,15 @@ Item {
           breadcrumb: qsTr("Labs"),
           anchor: "labsRefreshRoomButton" },
 
+        { title: qsTr("Export and import settings"),
+          keywords: qsTr("export import backup settings file restore"),
+          section: "account", breadcrumb: qsTr("Account · Settings file"),
+          anchor: "settingsFileCard" },
+        { title: qsTr("Sync settings across your devices"),
+          keywords: qsTr("sync settings devices account data backup"),
+          section: "account", breadcrumb: qsTr("Account · Sync"),
+          anchor: "settingsSyncCard" },
+
         { title: qsTr("About"), keywords: qsTr("about version license"),
           section: "about", breadcrumb: qsTr("About"),
           anchor: "aboutAppLogo" },
@@ -6897,6 +6906,11 @@ Item {
                                     onToggled: app.settings.startMinimized = checked
                                 }
                             }
+                        }
+
+                        // Settings file and cross-device sync.
+                        SettingsBackupSection {
+                            Layout.fillWidth: true
                         }
                     }
 

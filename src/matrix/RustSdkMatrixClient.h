@@ -385,6 +385,10 @@ public:
     void fetchRoomBackground(const QString &roomId, quint64 opId) override;
     void setRoomBackground(const QString &roomId, const QString &localPath,
                            const QString &contentJson, quint64 opId) override;
+    bool supportsSettingsSync() const override { return true; }
+    void readSyncedSettings(quint64 opId) override;
+    void writeSyncedSettings(int kind, const QString &contentJson,
+                             quint64 opId) override;
     bool supportsPersonalBackgroundSync() const override { return true; }
     void readPersonalBackgrounds(const QString &scope, quint64 opId) override;
     void downloadPersonalBackground(const QString &scope, const QString &expectedId,

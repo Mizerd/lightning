@@ -128,6 +128,7 @@ constexpr const char *kComponents[] = {
     "ThemedSurface",
     "ChatBackgroundEditor",
     "ChatBackgroundSettings",
+    "SettingsBackupSection",
     "GradientEditor",
     // The "Chat background…" dialog the room header, the room menu and Home
     // open; hosts ChatBackgroundEditor behind a Loader.

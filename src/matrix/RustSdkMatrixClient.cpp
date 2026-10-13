@@ -3466,6 +3466,47 @@ void RustSdkMatrixClient::setRoomBackground(const QString &roomId,
 // "" or a room id; none of these log a path, a picture or a room id.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Synced preferences (rust/src/settingsync.rs). Nothing here logs content.
+// ---------------------------------------------------------------------------
+
+void RustSdkMatrixClient::readSyncedSettings(quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT syncedSettingsRead(opId, false, QStringLiteral("signed_out"),
+                                  QStringLiteral("unreadable"), QString(), -1);
+        return;
+    }
+    const QString result =
+        takeRustString(mx_rust_settings_sync_read(m_rustHandle, opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "settings sync read rejected op=" << opId
+                          << "reason=" << result.left(120);
+        Q_EMIT syncedSettingsRead(opId, false, result.left(40),
+                                  QStringLiteral("unreadable"), QString(), -1);
+    }
+}
+
+void RustSdkMatrixClient::writeSyncedSettings(int kind,
+                                              const QString &contentJson,
+                                              quint64 opId)
+{
+    if (!m_loggedIn || !m_rustHandle) {
+        Q_EMIT syncedSettingsWritten(opId, kind, false,
+                                     QStringLiteral("signed_out"));
+        return;
+    }
+    const QByteArray content = contentJson.toUtf8();
+    const QString result = takeRustString(mx_rust_settings_sync_write(
+        m_rustHandle, static_cast<unsigned int>(qBound(0, kind, 2)),
+        content.constData(), opId));
+    if (!result.isEmpty()) {
+        qCWarning(lcRust) << "settings sync write rejected op=" << opId
+                          << "kind=" << kind << "reason=" << result.left(120);
+        Q_EMIT syncedSettingsWritten(opId, kind, false, result.left(40));
+    }
+}
+
 void RustSdkMatrixClient::readPersonalBackgrounds(const QString &scope,
                                                   quint64 opId)
 {
@@ -10293,6 +10334,31 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
     }
     // Personal backgrounds (rust/src/bgsync.rs). Entries carry no key and no
     // url; the picture bytes arrive only through the parked media payload.
+    if (type == QLatin1String("settings_sync_changed")) {
+        Q_EMIT syncedSettingsChanged();
+        return true;
+    }
+    if (type == QLatin1String("settings_sync_read")) {
+        const QJsonValue sw = event.value(QStringLiteral("switch"));
+        const QJsonValue blob = event.value(QStringLiteral("blob"));
+        Q_EMIT syncedSettingsRead(
+            opId(), event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("category")).toString(),
+            event.value(QStringLiteral("blob_state")).toString(),
+            blob.isObject()
+                ? QString::fromUtf8(QJsonDocument(blob.toObject())
+                                        .toJson(QJsonDocument::Compact))
+                : QString(),
+            sw.isBool() ? (sw.toBool() ? 1 : 0) : -1);
+        return true;
+    }
+    if (type == QLatin1String("settings_sync_written")) {
+        Q_EMIT syncedSettingsWritten(
+            opId(), event.value(QStringLiteral("kind")).toInt(),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("category")).toString());
+        return true;
+    }
     if (type == QLatin1String("personal_background_changed")) {
         Q_EMIT personalBackgroundChanged(
             event.value(QStringLiteral("scope")).toString());
