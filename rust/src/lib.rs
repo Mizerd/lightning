@@ -2659,8 +2659,44 @@ pub unsafe extern "C" fn mx_rust_set_receipt_privacy(
     })
 }
 
-/// Mark a room read without opening it. The target is the SDK's
-/// `Room::latest_event()`, so no timeline is needed; the public receipt and
+/// Where "mark room read" puts the receipt: the newest event we can actually
+/// name, in order of trust. `Room::latest_event()` alone is NOT enough: it is
+/// only computed for rooms in the capped `LatestEvents` watch set (large
+/// accounts and big public rooms fall outside it and read `None`), it stops
+/// moving after a lagged receive, and it has no id while a local echo is
+/// sending. Marking such a room read then cleared only the manual flag, sent
+/// no receipt, and reported success. The event cache's newest event is what
+/// sync delivered last; `latest_event` is a stale-prone fallback; a one-event
+/// `/messages` page is the last resort.
+pub(crate) fn pick_receipt_target(
+    cache_newest: Option<OwnedEventId>,
+    latest_event: Option<OwnedEventId>,
+    fetched_newest: Option<OwnedEventId>,
+) -> Option<OwnedEventId> {
+    cache_newest.or(latest_event).or(fetched_newest)
+}
+
+async fn resolve_mark_read_target(room: &Room) -> Option<OwnedEventId> {
+    let cache_newest = match room.event_cache().await {
+        Ok((cache, _drop_handles)) => cache.events().await.ok().and_then(|events| {
+            events.iter().rev().find_map(|event| event.event_id())
+        }),
+        Err(_) => None,
+    };
+    let latest = room.latest_event().event_id();
+    if cache_newest.is_some() || latest.is_some() {
+        return pick_receipt_target(cache_newest, latest, None);
+    }
+    let mut opts = MessagesOptions::backward();
+    opts.limit = uint!(1);
+    let fetched = room.messages(opts).await.ok()
+        .and_then(|page| page.chunk.iter().find_map(|event| event.event_id()));
+    pick_receipt_target(None, None, fetched)
+}
+
+/// Mark a room read without opening it. The target comes from
+/// `resolve_mark_read_target` (event cache, then `latest_event()`, then a
+/// one-event `/messages`), so no timeline is needed; the public receipt and
 /// `m.fully_read` are sent together as in the room. With no latest event
 /// only the manual unread flag is cleared, as `Timeline::mark_as_read` does.
 #[no_mangle]
@@ -2679,7 +2715,7 @@ pub unsafe extern "C" fn mx_rust_mark_room_read(
         let mode = bridge.receipt_privacy.load(Ordering::SeqCst);
         bridge.spawn_room_action(async move {
             let delays = &roomaction::ROOM_ACTION_RETRY_DELAYS;
-            let latest = room.latest_event().event_id();
+            let latest = resolve_mark_read_target(&room).await;
             // The first failure, with its attempt count; it is what gets reported.
             let mut failure: Option<(matrix_sdk::Error, u32)> = None;
             if let Some(event_id) = latest {
@@ -12974,6 +13010,27 @@ fn classify_import_error(message: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mark_read_target_does_not_depend_on_latest_event() {
+        let id = |s: &str| super::EventId::parse(s).unwrap();
+        // Unwatched room: latest_event() is None, the event cache has the newest.
+        assert_eq!(
+            super::pick_receipt_target(Some(id("$new:x")), None, None),
+            Some(id("$new:x")));
+        // Stale latest_event must lose to what sync delivered last.
+        assert_eq!(
+            super::pick_receipt_target(Some(id("$new:x")), Some(id("$old:x")), None),
+            Some(id("$new:x")));
+        assert_eq!(
+            super::pick_receipt_target(None, Some(id("$old:x")), Some(id("$f:x"))),
+            Some(id("$old:x")));
+        // Nothing local: the fetched page is used rather than sending no receipt.
+        assert_eq!(
+            super::pick_receipt_target(None, None, Some(id("$f:x"))),
+            Some(id("$f:x")));
+        assert_eq!(super::pick_receipt_target(None, None, None), None);
+    }
+
 
     // ── Read-receipt privacy ────────────────────────────────────────────
     //
