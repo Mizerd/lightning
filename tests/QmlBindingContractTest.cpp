@@ -216,8 +216,10 @@ private Q_SLOTS:
         const QString closing = bracedBody(
             main, main.indexOf(QStringLiteral("onClosing:")));
         QVERIFY(!closing.isEmpty());
-        QVERIFY(closing.contains(QStringLiteral("!window.quitRequested")));
-        QVERIFY(closing.contains(QStringLiteral("closeToTray")));
+        // The decision (close-to-tray; always on macOS) lives in C++ and takes
+        // the quit flag, so a declared quit is never vetoed.
+        QVERIFY(closing.contains(
+            QStringLiteral("app.closeHidesWindow(window.quitRequested)")));
 
         // Every other deliberate quit (e.g. applying an update from C++) must
         // announce itself the same way, or close-to-tray aborts it.

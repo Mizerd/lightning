@@ -29,6 +29,7 @@
 #include "crypto/OwnDeviceKeyWatch.h"
 #include "storage/AppDataPaths.h"
 #include "storage/BridgeLabelStore.h"
+#include "app/CloseBehavior.h"
 #include "app/TrayIcon.h"
 #include "notifications/InviteNoticeTracker.h"
 #include "text/SpellChecker.h"
@@ -1057,6 +1058,18 @@ public:
             : QStringLiteral("image://lightning-qr/") + m_verificationQrToken;
     }
     bool trayAvailable() const { return m_trayAvailable; }
+    /// Whether a window close request hides the window and keeps the process
+    /// running (close-to-tray; always on macOS). `quitIntended` is the
+    /// window's own quit flag. See app/CloseBehavior.h.
+    Q_INVOKABLE bool closeHidesWindow(bool quitIntended) const;
+    /// macOS: a native quit (Cmd+Q in the app menu, Dock > Quit) arrives as a
+    /// spontaneous QEvent::Quit to the application, not through our Shortcut;
+    /// announce it so the window does not veto the close it triggers.
+    bool eventFilter(QObject *watched, QEvent *event) override;
+    /// Whether the app becoming active should bring a window we hid back (the
+    /// macOS Dock icon click). `hiddenByClose`: the window hid itself on close.
+    Q_INVOKABLE bool activationRestoresWindow(bool hiddenByClose,
+                                              bool windowHidden) const;
     // The folder a file chooser should start in when it has nothing
     // remembered yet: Pictures, then Documents, then home, the first that
     // actually exists. Never `/`, a chooser's own default on a fresh profile

@@ -90,6 +90,9 @@ public:
     // Whether an activation raises the window. Not the Context reason: that is
     // the right click which opens the menu (Windows reports both).
     static bool activationShowsWindow(int reason);
+    // Whether this activation should have US pop the menu up (the platform
+    // menu is not attached; see closebehavior::trayUsesNativeMenu).
+    static bool activationOpensOwnMenu(int reason, bool nativeMenu);
 
 Q_SIGNALS:
     void showRequested();
@@ -101,6 +104,7 @@ Q_SIGNALS:
 private:
     void refreshTooltip();
     void refreshIcon();
+    void popUpMenu();
 #ifdef Q_OS_WIN
     // The balloon raised natively; false when Qt's call must carry it.
     bool showNativeBalloon(const QString &title, const QString &body,

@@ -192,6 +192,8 @@ ApplicationWindow {
     property int lastOnScreenVisibility: Window.Windowed
 
     onVisibilityChanged: {
+        if (window.visibility !== Window.Hidden)
+            window.hiddenByClose = false
         if (window.visibility === Window.Maximized
                 || window.visibility === Window.Windowed)
             window.lastOnScreenVisibility = window.visibility
@@ -227,14 +229,31 @@ ApplicationWindow {
     // Qt asks every top-level window to close while quitting, and a refusal
     // aborts the quit.
     property bool quitRequested: false
+    // The window hid itself on a close request (not at startup, not minimised):
+    // the macOS Dock icon brings it back from here (GitHub #34).
+    property bool hiddenByClose: false
     onClosing: (close) => {
         // Flush first: the 400 ms debounce may still be pending, and both
         // branches end this window's useful life.
         window.flushGeometry()
-        if (!window.quitRequested && app.settings
-                && app.settings.closeToTray && app.trayAvailable) {
+        // app.closeHidesWindow: close-to-tray where a tray exists; on macOS
+        // every close, since Cmd+W is not Cmd+Q (see app/CloseBehavior.h).
+        if (app.closeHidesWindow(window.quitRequested)) {
             close.accepted = false
+            window.hiddenByClose = true
             window.hide()
+        }
+    }
+    // Dock icon click (Qt reports it as a forced ApplicationActive) or Cmd+Tab
+    // while the window is closed to the background.
+    Connections {
+        target: Qt.application
+        function onStateChanged() {
+            if (Qt.application.state === Qt.ApplicationActive
+                    && app.activationRestoresWindow(
+                        window.hiddenByClose,
+                        window.visibility === Window.Hidden))
+                window.raiseIntoView()
         }
     }
     Connections {

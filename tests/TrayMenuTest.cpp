@@ -11,6 +11,7 @@
 #include <QSystemTrayIcon>
 #include <QTest>
 
+#include "app/CloseBehavior.h"
 #include "app/TrayIcon.h"
 
 class TrayMenuTest : public QObject
@@ -167,6 +168,48 @@ private slots:
                                   QImage(), false));
         QVERIFY(!tray.showMessage(QStringLiteral("t"), QStringLiteral("b"),
                                   QImage(), true));
+    }
+
+    // GitHub #34: a native menu on a macOS status item throws from Qt's
+    // menu-tracking observer. There the menu is ours, popped from the Context
+    // activation; elsewhere the platform's menu stands and we never pop one.
+    void macOsTrayMenuIsOursNotTheStatusItems()
+    {
+        using closebehavior::trayUsesNativeMenu;
+        QVERIFY(!trayUsesNativeMenu(true));
+        QVERIFY(trayUsesNativeMenu(false));
+        QVERIFY(TrayIcon::activationOpensOwnMenu(QSystemTrayIcon::Context, false));
+        QVERIFY(!TrayIcon::activationOpensOwnMenu(QSystemTrayIcon::Context, true));
+        QVERIFY(!TrayIcon::activationOpensOwnMenu(QSystemTrayIcon::Trigger, false));
+        // A left click still raises the window on the same platform.
+        QVERIFY(TrayIcon::activationShowsWindow(QSystemTrayIcon::Trigger));
+    }
+
+    // GitHub #34: closing the window on macOS hides it (Cmd+W is not Cmd+Q),
+    // on other platforms only with close-to-tray and a tray; a declared quit
+    // is never vetoed.
+    void closeHidesWindowFollowsThePlatformConvention()
+    {
+        using closebehavior::closeHidesWindow;
+        // isMac, closeToTray, trayAvailable, quitIntended
+        QVERIFY(closeHidesWindow(true, false, false, false));
+        QVERIFY(closeHidesWindow(true, true, true, false));
+        QVERIFY(!closeHidesWindow(true, true, true, true));
+        QVERIFY(!closeHidesWindow(false, false, true, false));
+        QVERIFY(!closeHidesWindow(false, true, false, false));
+        QVERIFY(closeHidesWindow(false, true, true, false));
+        QVERIFY(!closeHidesWindow(false, true, true, true));
+    }
+
+    // The Dock icon (a forced ApplicationActive) brings back only a window
+    // that a close hid, and only on macOS.
+    void dockActivationRestoresOnlyAWindowThatACloseHid()
+    {
+        using closebehavior::activationRestoresWindow;
+        QVERIFY(activationRestoresWindow(true, true, true));
+        QVERIFY(!activationRestoresWindow(true, false, true)); // start in tray
+        QVERIFY(!activationRestoresWindow(true, true, false)); // already shown
+        QVERIFY(!activationRestoresWindow(false, true, true));
     }
 };
 

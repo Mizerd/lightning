@@ -1,5 +1,7 @@
 #include "app/TrayIcon.h"
 
+#include "app/CloseBehavior.h"
+
 #include <QColor>
 #include <QFont>
 #include <QGuiApplication>
@@ -11,7 +13,9 @@
 #include <QAction>
 #include <QMenu>
 #include <QApplication>
+#include <QCursor>
 #include <QSystemTrayIcon>
+#include <QTimer>
 
 #ifdef Q_OS_WIN
 #include <QLoggingCategory>
@@ -217,9 +221,22 @@ void TrayIcon::setEnabled(bool enabled)
     m_icon = new QSystemTrayIcon(this);
     // refreshIcon() so an icon created while unread starts with its badge.
     refreshIcon();
-    m_icon->setContextMenu(contextMenu());
+    // macOS must NOT attach the menu: with one, NSStatusBarButtonCell pops it
+    // up itself and Qt's menu-tracking observer asks NSApp.currentEvent for a
+    // clickCount; on macOS 26/27 that event is a SysDefined scene action and
+    // AppKit throws NSInternalInconsistencyException, killing the process as
+    // the tray was used (GitHub #34). Without a menu Qt reports the click from
+    // the button action, a real mouse event, and we show the QMenu ourselves.
+    const bool nativeMenu = closebehavior::trayUsesNativeMenu(closebehavior::kIsMac);
+    if (nativeMenu)
+        m_icon->setContextMenu(contextMenu());
     connect(m_icon, &QSystemTrayIcon::activated, this,
-            [this](QSystemTrayIcon::ActivationReason reason) {
+            [this, nativeMenu](QSystemTrayIcon::ActivationReason reason) {
+                if (activationOpensOwnMenu(reason, nativeMenu)) {
+                    // Not from inside the status button's action dispatch.
+                    QTimer::singleShot(0, this, [this] { popUpMenu(); });
+                    return;
+                }
                 if (activationShowsWindow(reason))
                     Q_EMIT showRequested();
             });
@@ -245,6 +262,25 @@ QMenu *TrayIcon::contextMenu()
 bool TrayIcon::activationShowsWindow(int reason)
 {
     return reason != QSystemTrayIcon::Context;
+}
+
+bool TrayIcon::activationOpensOwnMenu(int reason, bool nativeMenu)
+{
+    return !nativeMenu && reason == QSystemTrayIcon::Context;
+}
+
+void TrayIcon::popUpMenu()
+{
+    if (!m_icon)
+        return;
+    QMenu *menu = contextMenu();
+    // Under the status item when Qt knows where it is, else at the pointer
+    // (which, for a click on the menu bar, is on it).
+    const QRect geometry = m_icon->geometry();
+    const QPoint at = geometry.isValid()
+        ? QPoint(geometry.left(), geometry.bottom())
+        : QCursor::pos();
+    menu->popup(at);
 }
 
 QString TrayIcon::badgeLabel(int count, bool anyUnread)

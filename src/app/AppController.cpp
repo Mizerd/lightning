@@ -276,6 +276,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     connect(m_settings.get(), &SettingsManager::notificationsEnabledChanged,
             this, &AppController::refreshTrayState);
     refreshTrayState();
+#ifdef Q_OS_MACOS
+    if (QCoreApplication::instance())
+        QCoreApplication::instance()->installEventFilter(this);
+#endif
     // Qt has no signal for a StatusNotifierWatcher (or, on Windows, the
     // shell's tray host) appearing or leaving the session — the only way to
     // learn availability changed is to ask again. Cheap (one call into
@@ -5184,6 +5188,31 @@ void AppController::onLoginSucceeded()
     Q_EMIT errorReported(QString{});
     setCurrentScreen(MainScreen);
     Q_EMIT loggedInChanged();
+}
+
+bool AppController::closeHidesWindow(bool quitIntended) const
+{
+    return closebehavior::closeHidesWindow(
+        closebehavior::kIsMac, m_settings && m_settings->closeToTray(),
+        m_trayAvailable, quitIntended);
+}
+
+bool AppController::activationRestoresWindow(bool hiddenByClose,
+                                             bool windowHidden) const
+{
+    return closebehavior::activationRestoresWindow(
+        closebehavior::kIsMac, hiddenByClose, windowHidden);
+}
+
+bool AppController::eventFilter(QObject *watched, QEvent *event)
+{
+    if (event->type() == QEvent::Quit && watched == QCoreApplication::instance()
+        && event->spontaneous()) {
+        // The platform asked us to terminate; the window's close handler runs
+        // next and must let it through.
+        Q_EMIT applicationQuitIntended();
+    }
+    return QObject::eventFilter(watched, event);
 }
 
 void AppController::refreshTrayAvailability()
