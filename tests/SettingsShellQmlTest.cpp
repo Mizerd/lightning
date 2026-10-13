@@ -1119,15 +1119,15 @@ private slots:
     {
         auto *slider = item("textScaleSlider");
         QVERIFY(slider);
-        QCOMPARE(slider->property("from").toInt(), 90);
-        QCOMPARE(slider->property("to").toInt(), 140);
+        QCOMPARE(slider->property("from").toInt(), 75);
+        QCOMPARE(slider->property("to").toInt(), 150);
         m_controller->settings()->setTextScale(120);
         QCoreApplication::processEvents();
         QCOMPARE(slider->property("value").toInt(), 120);
 
         // The slider thumbs stay white across the whole range (past ~115% they
         // flipped to a dark ink and read as disabled).
-        m_controller->settings()->setTextScale(140);
+        m_controller->settings()->setTextScale(150);
         QCoreApplication::processEvents();
         auto *handle = slider->property("handle").value<QQuickItem *>();
         QVERIFY(handle);
@@ -2896,68 +2896,8 @@ private slots:
 
     // Appearance is about twenty groups long; its contents chips take the
     // reader to each group from the top of the page, in page order.
-    void theAppearanceContentsChipsReachEveryGroup()
-    {
-        m_controller->showSettingsSection(QStringLiteral("appearance"));
-        QCoreApplication::processEvents();
-        auto *screen = item("settingsScreenRoot");
-        auto *flick = item("settingsContentFlick");
-        auto *bar = item("appearanceJumpBar");
-        QVERIFY2(bar, "Appearance has no contents chips");
-        QVERIFY(screen && flick);
-        auto *content = flick->property("contentItem").value<QQuickItem *>();
-        QVERIFY(content);
-
-        const QVariantList entries = bar->property("entries").toList();
-        QVERIFY2(entries.size() >= 9,
-                 qPrintable(QStringLiteral("only %1 contents chips")
-                                .arg(entries.size())));
-
-        QStringList wrong;
-        qreal lastTop = -1.0;
-        int reached = 0;
-        for (int i = 0; i < entries.size(); ++i) {
-            flick->setProperty("contentY", 0.0);
-            QCoreApplication::processEvents();
-            auto *chip = item(qPrintable(QStringLiteral("appearanceJumpBar_%1")
-                                             .arg(i)));
-            QVERIFY2(chip, qPrintable(QStringLiteral("chip %1 is not live").arg(i)));
-            const QStringList anchors =
-                entries.at(i).toMap().value(QStringLiteral("anchors")).toStringList();
-            QVERIFY(!anchors.isEmpty());
-            QQuickItem *target = findItem(content, anchors.first());
-            QVERIFY2(target, qPrintable(anchors.first()));
-            const qreal top = target->mapToItem(content, QPointF(0, 0)).y();
-
-            clickItem(chip);
-            for (int t = 0; t < 50; ++t) {
-                const qreal y = flick->property("contentY").toReal();
-                if (top >= y && top <= y + flick->height())
-                    break;
-                QTest::qWait(10);
-            }
-            const qreal y = flick->property("contentY").toReal();
-            if (screen->property("searchRevealAnchor").toString() != anchors.first()
-                || top < y || top > y + flick->height())
-                wrong.append(QStringLiteral("%1 -> %2 at %3, viewport %4..%5")
-                                 .arg(entries.at(i).toMap()
-                                          .value(QStringLiteral("label")).toString(),
-                                      anchors.first())
-                                 .arg(top).arg(y).arg(y + flick->height()));
-            // Page order, so the chips read as the page's contents.
-            if (top < lastTop)
-                wrong.append(QStringLiteral("%1 comes before the chip ahead of it "
-                                            "on the page")
-                                 .arg(anchors.first()));
-            lastTop = top;
-            ++reached;
-        }
-        flick->setProperty("contentY", 0.0);
-        QCoreApplication::processEvents();
-
-        QCOMPARE(reached, entries.size());
-        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join(QStringLiteral("\n  "))));
-    }
+    // (The page-contents chips became the sidebar outline; see
+    // theOutlineReachesEveryGroupOfEachPageAndFollowsTheScroll.)
 
     // The chat background belongs with the theme, not a screen and a half
     // down below the layout pickers where nobody found it.
@@ -3694,6 +3634,587 @@ private slots:
                  qPrintable(QStringLiteral("only %1 gradient roles to look for")
                                 .arg(expected.size())));
         QCOMPARE(listed, expected);
+    }
+
+    // ───────────── Settings structure (2026-10-13) ─────────────
+
+    // The first item with this name that is actually showing: Repeater
+    // delegates repeat across the per-section outlines, and only the open
+    // section's is visible.
+    QQuickItem *visibleItem(const QString &name) const
+    {
+        QList<QQuickItem *> all;
+        collectItems(m_window->contentItem(), name, all);
+        for (QQuickItem *it : all) {
+            if (it->isVisible() && it->width() > 0 && it->height() > 0)
+                return it;
+        }
+        return nullptr;
+    }
+
+    QVariant callScreen(const char *method, const QVariant &a = QVariant(),
+                        const QVariant &b = QVariant())
+    {
+        auto *screen = item("settingsScreenRoot");
+        QVariant ret;
+        bool ok = false;
+        if (b.isValid())
+            ok = QMetaObject::invokeMethod(screen, method,
+                                           Q_RETURN_ARG(QVariant, ret),
+                                           Q_ARG(QVariant, a), Q_ARG(QVariant, b));
+        else if (a.isValid())
+            ok = QMetaObject::invokeMethod(screen, method,
+                                           Q_RETURN_ARG(QVariant, ret),
+                                           Q_ARG(QVariant, a));
+        else
+            ok = QMetaObject::invokeMethod(screen, method,
+                                           Q_RETURN_ARG(QVariant, ret));
+        if (!ok)
+            qWarning("could not call %s on the settings screen", method);
+        return ret;
+    }
+
+    void openSection(const QString &section)
+    {
+        m_controller->showSettings();
+        if (auto *search = item("settingsSearchField"))
+            search->setProperty("text", QString());
+        m_controller->showSettingsSection(section);
+        QCoreApplication::processEvents();
+        if (auto *flick = item("settingsContentFlick"))
+            flick->setProperty("contentY", 0.0);
+        QCoreApplication::processEvents();
+    }
+
+    QVariant themeValue(const QString &expression) const
+    {
+        QQmlExpression expr(qmlContext(m_window), m_window,
+                            QStringLiteral("AppTheme.") + expression);
+        return expr.evaluate();
+    }
+
+    // Each page's "On this page" outline lists headings that exist, in page
+    // order; a click scrolls to one and marks it; scrolling to one marks it.
+    void theOutlineReachesEveryGroupOfEachPageAndFollowsTheScroll_data()
+    {
+        QTest::addColumn<QString>("section");
+        QTest::addColumn<int>("atLeast");
+        QTest::newRow("appearance") << "appearance" << 11;
+        QTest::newRow("privacy") << "privacy" << 5;
+        QTest::newRow("notifications") << "notifications" << 4;
+        QTest::newRow("sound") << "sound" << 4;
+        QTest::newRow("account") << "account" << 2;
+    }
+    void theOutlineReachesEveryGroupOfEachPageAndFollowsTheScroll()
+    {
+        QFETCH(QString, section);
+        QFETCH(int, atLeast);
+        openSection(section);
+        auto *screen = item("settingsScreenRoot");
+        auto *flick = item("settingsContentFlick");
+        QVERIFY(screen && flick);
+        auto *content = flick->property("contentItem").value<QQuickItem *>();
+        QVERIFY(content);
+
+        const QVariantList entries =
+            callScreen("outlineEntries", section).toList();
+        QVERIFY2(entries.size() >= atLeast,
+                 qPrintable(QStringLiteral("%1 has only %2 outline entries")
+                                .arg(section).arg(entries.size())));
+
+        QStringList wrong;
+        qreal lastTop = -1.0;
+        int reached = 0;
+        for (int i = 0; i < entries.size(); ++i) {
+            const QStringList anchors = entries.at(i).toMap()
+                .value(QStringLiteral("anchors")).toStringList();
+            QQuickItem *target = nullptr;
+            for (const QString &a : anchors) {
+                QQuickItem *t = findItem(content, a);
+                if (t && t->isVisible()) {
+                    target = t;
+                    break;
+                }
+            }
+            if (!target)
+                continue;   // a card this backend does not show
+
+            flick->setProperty("contentY", 0.0);
+            QCoreApplication::processEvents();
+            auto *button = visibleItem(
+                QStringLiteral("settingsNavOutlineEntry_%1").arg(i));
+            QVERIFY2(button, qPrintable(QStringLiteral(
+                "%1 outline entry %2 is not showing").arg(section).arg(i)));
+            const qreal top = target->mapToItem(content, QPointF(0, 0)).y();
+            clickItem(button);
+            for (int t = 0; t < 60; ++t) {
+                const qreal y = flick->property("contentY").toReal();
+                if (top >= y && top <= y + flick->height())
+                    break;
+                QTest::qWait(10);
+            }
+            const qreal y = flick->property("contentY").toReal();
+            if (top < y || top > y + flick->height())
+                wrong.append(QStringLiteral("%1 -> %2 at %3, viewport %4..%5")
+                                 .arg(entries.at(i).toMap()
+                                          .value(QStringLiteral("label")).toString(),
+                                      anchors.first())
+                                 .arg(top).arg(y).arg(y + flick->height()));
+            if (top < lastTop)
+                wrong.append(QStringLiteral("%1 comes before the entry ahead of it")
+                                 .arg(anchors.first()));
+            lastTop = top;
+            QTRY_COMPARE_WITH_TIMEOUT(screen->property("outlineActive").toInt(),
+                                      i, 2000);
+            ++reached;
+        }
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join(QStringLiteral("\n  "))));
+        QVERIFY2(reached >= atLeast - 1,
+                 qPrintable(QStringLiteral("only %1 entries reachable").arg(reached)));
+
+        // Scrolling, not clicking, moves the mark. Skip entries the page
+        // cannot scroll far enough to put at the top.
+        const qreal maxY = qMax(0.0, flick->property("contentHeight").toReal()
+                                         - flick->height());
+        int followed = 0;
+        for (int i = 0; i < entries.size(); ++i) {
+            const QStringList anchors = entries.at(i).toMap()
+                .value(QStringLiteral("anchors")).toStringList();
+            QQuickItem *target = nullptr;
+            for (const QString &a : anchors) {
+                QQuickItem *t = findItem(content, a);
+                if (t && t->isVisible()) {
+                    target = t;
+                    break;
+                }
+            }
+            if (!target)
+                continue;
+            const qreal want = target->mapToItem(content, QPointF(0, 0)).y() - 40;
+            if (want > maxY - 4 || want < 0)
+                continue;
+            flick->setProperty("contentY", 0.0);
+            QCoreApplication::processEvents();
+            flick->setProperty("contentY", want);
+            QTRY_COMPARE_WITH_TIMEOUT(screen->property("outlineActive").toInt(),
+                                      i, 2000);
+            ++followed;
+        }
+        QVERIFY2(followed >= 1, "no outline entry could be followed by scrolling");
+        flick->setProperty("contentY", 0.0);
+        QCoreApplication::processEvents();
+    }
+
+    void theNavIsGroupedUserInterfaceBehaviorAbout()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *nav = item("settingsNavColumn");
+        QVERIFY(nav);
+        const auto yOf = [&](const char *name) {
+            QQuickItem *it = item(name);
+            [&] { QVERIFY2(it, name); }();
+            return it ? it->mapToItem(nav, QPointF(0, 0)).y() : -1.0;
+        };
+        const qreal user = yOf("settingsNavGroup_user");
+        const qreal iface = yOf("settingsNavGroup_interface");
+        const qreal behavior = yOf("settingsNavGroup_behavior");
+        const qreal about = yOf("settingsNavGroup_about");
+        QVERIFY(user >= 0 && user < iface && iface < behavior && behavior < about);
+        QCOMPARE(item("settingsNavGroup_user")->property("text").toString(),
+                 QStringLiteral("User"));
+        QCOMPARE(item("settingsNavGroup_interface")->property("text").toString(),
+                 QStringLiteral("Interface"));
+        QCOMPARE(item("settingsNavGroup_behavior")->property("text").toString(),
+                 QStringLiteral("Behavior"));
+        QCOMPARE(item("settingsNavGroup_about")->property("text").toString(),
+                 QStringLiteral("About"));
+
+        const auto inside = [&](const char *row, qreal from, qreal to) {
+            const qreal y = yOf(row);
+            QVERIFY2(y > from && y < to, row);
+        };
+        inside("settingsNavRow_account", user, iface);
+        inside("settingsNavRow_privacy", user, iface);
+        inside("settingsNavRow_sessions", user, iface);
+        inside("settingsNavRow_appearance", iface, behavior);
+        inside("settingsNavRow_shortcuts", iface, behavior);
+        inside("settingsNavRow_notifications", behavior, about);
+        inside("settingsNavRow_sound", behavior, about);
+        inside("settingsNavRow_labs", behavior, about);
+        inside("settingsNavRow_updates", about, 1e9);
+        inside("settingsNavRow_about", about, 1e9);
+    }
+
+    void aSearchHidesTheGroupHeadingsOfSectionsItRulesOut()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *search = item("settingsSearchField");
+        QVERIFY(search);
+        search->setProperty("text", QStringLiteral("microphone"));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(!item("settingsNavGroup_user")->isVisible());
+        QVERIFY(!item("settingsNavGroup_interface")->isVisible());
+        QVERIFY(item("settingsNavGroup_behavior")->isVisible());
+        // The outline gives way to the results.
+        QVERIFY(!visibleItem(QStringLiteral("settingsNavOutlineEntry_0")));
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(item("settingsNavGroup_user")->isVisible());
+    }
+
+    void aSettingLinkRoundTripsAndOpensItsSetting()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *screen = item("settingsScreenRoot");
+        QCOMPARE(callScreen("settingsLink", QStringLiteral("privacy"),
+                            QStringLiteral("readReceiptModeCombo")).toString(),
+                 QStringLiteral("lightning://settings/privacy?focus="
+                                "readReceiptModeCombo"));
+
+        // Every indexed setting yields a link that parses back to itself.
+        const QVariantList index = screen->property("searchIndex").toList();
+        QVERIFY(index.size() >= 60);
+        int checked = 0;
+        for (const QVariant &v : index) {
+            const QVariantMap e = v.toMap();
+            const QString section = e.value(QStringLiteral("section")).toString();
+            const QString anchor = e.value(QStringLiteral("anchor")).toString();
+            const QString link = callScreen("settingsLink", section, anchor).toString();
+            const QVariantMap parsed = callScreen("parseSettingsLink", link).toMap();
+            QVERIFY2(parsed.value(QStringLiteral("section")).toString() == section
+                         && parsed.value(QStringLiteral("anchor")).toString() == anchor,
+                     qPrintable(link));
+            ++checked;
+        }
+        QCOMPARE(checked, index.size());
+
+        // Things that are not links to a setting.
+        for (const QString &bad : {
+                 QStringLiteral("https://example.org/settings/privacy"),
+                 QStringLiteral("lightning://settings/nowhere?focus=x"),
+                 QStringLiteral("lightning://settings/privacy?focus=a%20b"),
+                 QStringLiteral("lightning://settings/privacy?focus=%E0%A4%A"),
+                 QStringLiteral(""),
+             }) {
+            QVERIFY2(callScreen("parseSettingsLink", bad).isNull()
+                         || !callScreen("parseSettingsLink", bad).isValid()
+                         || callScreen("parseSettingsLink", bad).toMap().isEmpty(),
+                     qPrintable(bad));
+            QVERIFY2(!callScreen("openSettingsLink", bad).toBool(), qPrintable(bad));
+        }
+        // A section alone is a link to the section.
+        QVERIFY(callScreen("openSettingsLink",
+                           QStringLiteral("lightning://settings/sound")).toBool());
+        QCOMPARE(screen->property("section").toString(), QStringLiteral("sound"));
+
+        // Pasting one into the search box opens it and empties the box.
+        openSection(QStringLiteral("appearance"));
+        auto *search = item("settingsSearchField");
+        search->setProperty("text",
+            QStringLiteral("lightning://settings/privacy?focus=readReceiptModeCombo"));
+        QTRY_COMPARE(screen->property("section").toString(), QStringLiteral("privacy"));
+        QCOMPARE(screen->property("searchRevealAnchor").toString(),
+                 QStringLiteral("readReceiptModeCombo"));
+        QTRY_COMPARE(search->property("text").toString(), QString());
+        QCoreApplication::processEvents();
+        auto *flick = item("settingsContentFlick");
+        auto *content = flick->property("contentItem").value<QQuickItem *>();
+        QQuickItem *target = findItem(content, QStringLiteral("readReceiptModeCombo"));
+        QVERIFY(target);
+        QTRY_VERIFY(target->mapToItem(content, QPointF(0, 0)).y()
+                    >= flick->property("contentY").toReal() - 1);
+    }
+
+    void aSearchResultAndARightClickCopyTheSettingsLink()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *clipboard = QGuiApplication::clipboard();
+        clipboard->clear();
+
+        auto *search = item("settingsSearchField");
+        search->setProperty("text", QStringLiteral("reduce motion"));
+        QCoreApplication::processEvents();
+        QQuickItem *button = nullptr;
+        QTRY_VERIFY((button = visibleItem(
+            QStringLiteral("settingsSearchResultCopyLink_0"))) != nullptr);
+        clickItem(button);
+        QCOMPARE(clipboard->text(),
+                 QStringLiteral("lightning://settings/appearance?focus=reducedMotionCheck"));
+        search->setProperty("text", QString());
+        QCoreApplication::processEvents();
+
+        // Right-click the setting itself.
+        clipboard->clear();
+        openSection(QStringLiteral("appearance"));
+        auto *check = item("reducedMotionCheck");
+        QVERIFY(check);
+        ensureVisible(check);
+        const QPointF at = check->mapToScene(QPointF(check->width() / 2,
+                                                     check->height() / 2));
+        QTest::mouseClick(m_window, Qt::RightButton, Qt::NoModifier, at.toPoint());
+        QCoreApplication::processEvents();
+        QQuickItem *copy = nullptr;
+        QTRY_VERIFY((copy = visibleItem(QStringLiteral("settingLinkMenuCopy"))) != nullptr);
+        clickItem(copy);
+        QTRY_COMPARE(clipboard->text(),
+                     QStringLiteral("lightning://settings/appearance?focus=reducedMotionCheck"));
+    }
+
+    // A disabled dependent row names the setting it needs, takes no layout
+    // space, and goes away when the setting is on.
+    void aDisabledRowSaysWhichSettingItNeeds()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *settings = m_controller->settings();
+        const bool before = settings->showRoomActivity();
+        auto *membership = item("showMembershipEventsCheck");
+        auto *below = item("collapseEmbedsCheck");
+        QVERIFY(membership && below);
+        ensureVisible(membership);
+
+        settings->setShowRoomActivity(true);
+        QCoreApplication::processEvents();
+        auto *badge = findItem(membership, QStringLiteral("settingsNeedsBadge"));
+        QVERIFY2(badge, "the dependent row carries no Needs badge");
+        QVERIFY(!badge->isVisible());
+        const qreal belowY = contentPosY(below);
+
+        settings->setShowRoomActivity(false);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(badge->isVisible());
+        QVERIFY(!membership->isEnabled());
+        QVERIFY2(badge->property("needs").toString()
+                     == QStringLiteral("Show room activity"),
+                 qPrintable(badge->property("needs").toString()));
+        // Beside the row, not under it: nothing below moves.
+        QCOMPARE(contentPosY(below), belowY);
+        // Inside the card, clear of the control.
+        QVERIFY(badge->x() >= membership->width());
+        auto *flick = item("settingsContentFlick");
+        QVERIFY(badge->mapToItem(flick, QPointF(badge->width(), 0)).x()
+                <= flick->width());
+
+        settings->setShowRoomActivity(before);
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(!badge->isVisible());
+    }
+
+    void callSoundRowsNameTheirParentToo()
+    {
+        openSection(QStringLiteral("sound"));
+        auto *settings = m_controller->settings();
+        const bool before = settings->callSoundsEnabled();
+        auto *row = item("callSoundsPresenceCheck");
+        QVERIFY(row);
+        auto *badge = findItem(row, QStringLiteral("settingsNeedsBadge"));
+        QVERIFY(badge);
+        settings->setCallSoundsEnabled(false);
+        QTRY_VERIFY(badge->isVisible());
+        QCOMPARE(badge->property("needs").toString(),
+                 QStringLiteral("Play sounds during calls"));
+        settings->setCallSoundsEnabled(true);
+        QTRY_VERIFY(!badge->isVisible());
+        settings->setCallSoundsEnabled(before);
+    }
+
+    void riskyTogglesCarryAShortPrivacyHintUnderThem()
+    {
+        openSection(QStringLiteral("privacy"));
+        struct Pair { const char *check; const char *hint; const char *next; };
+        const Pair pairs[] = {
+            { "autoPreviewCheck", "autoPreviewHint", "encryptedPreviewCheck" },
+            { "encryptedPreviewCheck", "encryptedPreviewHint", "inlineLinkMediaCheck" },
+            { "gifProviderCombo", "gifProviderHint", nullptr },
+        };
+        for (const Pair &p : pairs) {
+            auto *check = item(p.check);
+            auto *hint = item(p.hint);
+            QVERIFY2(check && hint, p.hint);
+            QVERIFY2(!hint->property("text").toString().isEmpty(), p.hint);
+            const qreal checkBottom = contentPosY(check) + check->height();
+            QVERIFY2(contentPosY(hint) >= checkBottom - 1, p.hint);
+            QVERIFY2(contentPosY(hint) - checkBottom < 24, p.hint);
+            if (p.next) {
+                QVERIFY2(contentPosY(item(p.next)) >= contentPosY(hint) + hint->height() - 1,
+                         p.hint);
+            }
+        }
+    }
+
+    void aTypedPercentageDrivesTheSliderAndClamps()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *settings = m_controller->settings();
+        settings->setTextScale(100);
+        QCoreApplication::processEvents();
+        auto *slider = item("textScaleSlider");
+        auto *box = item("textScalePercentBox");
+        QVERIFY(slider && box);
+        QCOMPARE(slider->property("from").toInt(), 75);
+        QCOMPARE(slider->property("to").toInt(), 150);
+        QCOMPARE(box->property("text").toString(), QStringLiteral("100"));
+
+        const auto type = [&](const QString &text) {
+            ensureVisible(box);
+            const QPointF c = box->mapToScene(QPointF(box->width() / 2,
+                                                      box->height() / 2));
+            QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, c.toPoint());
+            QVERIFY(box->hasActiveFocus());
+            QTest::keyClick(m_window, Qt::Key_A, Qt::ControlModifier);
+            QTest::keyClicks(m_window, text);
+            QTest::keyClick(m_window, Qt::Key_Return);
+            QCoreApplication::processEvents();
+        };
+        type(QStringLiteral("107"));
+        QCOMPARE(settings->textScale(), 107);
+        QCOMPARE(box->property("text").toString(), QStringLiteral("107"));
+        type(QStringLiteral("400"));
+        QCOMPARE(settings->textScale(), 150);
+        type(QStringLiteral("10"));
+        QCOMPARE(settings->textScale(), 75);
+        // Nothing typed leaves the stored value alone and shows it.
+        type(QString());
+        QCOMPARE(settings->textScale(), 75);
+        QCOMPARE(box->property("text").toString(), QStringLiteral("75"));
+        // Interface zoom takes the same box.
+        auto *zoomBox = item("interfaceZoomPercentBox");
+        QVERIFY(zoomBox);
+        QCOMPARE(zoomBox->property("text").toString(),
+                 QString::number(settings->interfaceZoom()));
+        settings->setTextScale(100);
+    }
+
+    // Dragging only moves the number; the setting (which relayouts the window)
+    // is written on release.
+    void aSliderDragCommitsOnRelease()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *settings = m_controller->settings();
+        settings->setTextScale(100);
+        QCoreApplication::processEvents();
+        auto *slider = item("textScaleSlider");
+        auto *box = item("textScalePercentBox");
+        QVERIFY(slider && box);
+        ensureVisible(slider);
+        auto *handle = slider->property("handle").value<QQuickItem *>();
+        QVERIFY(handle);
+        const QPointF from = handle->mapToScene(QPointF(handle->width() / 2,
+                                                        handle->height() / 2));
+        QTest::mousePress(m_window, Qt::LeftButton, Qt::NoModifier, from.toPoint());
+        QTest::mouseMove(m_window, from.toPoint() + QPoint(40, 0));
+        QTest::mouseMove(m_window, from.toPoint() + QPoint(80, 0));
+        QCoreApplication::processEvents();
+        QVERIFY(slider->property("pressed").toBool());
+        const int draft = qRound(slider->property("value").toReal());
+        QVERIFY2(draft > 100, qPrintable(QString::number(draft)));
+        QCOMPARE(box->property("text").toString(), QString::number(draft));
+        QCOMPARE(settings->textScale(), 100);   // not yet
+        QTest::mouseRelease(m_window, Qt::LeftButton, Qt::NoModifier,
+                            (from.toPoint() + QPoint(80, 0)));
+        QCoreApplication::processEvents();
+        QCOMPARE(settings->textScale(), draft);
+        settings->setTextScale(100);
+    }
+
+    void theAccessibilitySettingsReachTheThemeAndTheLinks()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *settings = m_controller->settings();
+
+        // Increase contrast: secondary and muted inks move toward the main
+        // ink, borders strengthen, and turning it off restores them.
+        settings->setHighContrast(false);
+        QCoreApplication::processEvents();
+        const QColor mutedBefore = themeValue(QStringLiteral("textMuted")).value<QColor>();
+        const QColor borderBefore = themeValue(QStringLiteral("border")).value<QColor>();
+        const QColor primary = themeValue(QStringLiteral("textPrimary")).value<QColor>();
+        auto *contrastCheck = item("highContrastCheck");
+        QVERIFY(contrastCheck);
+        clickItem(contrastCheck);
+        QVERIFY(settings->highContrast());
+        QCoreApplication::processEvents();
+        const QColor mutedAfter = themeValue(QStringLiteral("textMuted")).value<QColor>();
+        const QColor borderAfter = themeValue(QStringLiteral("border")).value<QColor>();
+        const auto distance = [](const QColor &a, const QColor &b) {
+            return std::abs(a.redF() - b.redF()) + std::abs(a.greenF() - b.greenF())
+                 + std::abs(a.blueF() - b.blueF());
+        };
+        QVERIFY2(distance(mutedAfter, primary) < distance(mutedBefore, primary),
+                 "muted text did not move toward the primary ink");
+        QVERIFY2(distance(borderAfter, primary) < distance(borderBefore, primary),
+                 "borders did not strengthen");
+        clickItem(contrastCheck);
+        QVERIFY(!settings->highContrast());
+        QCoreApplication::processEvents();
+        QCOMPARE(themeValue(QStringLiteral("textMuted")).value<QColor>(), mutedBefore);
+        QCOMPARE(themeValue(QStringLiteral("border")).value<QColor>(), borderBefore);
+
+        // Always underline links.
+        settings->setUnderlineLinks(false);
+        QCoreApplication::processEvents();
+        QCOMPARE(themeValue(QStringLiteral("underlineLinks")).toBool(), false);
+        clickItem(item("underlineLinksCheck"));
+        QVERIFY(settings->underlineLinks());
+        QCoreApplication::processEvents();
+        QCOMPARE(themeValue(QStringLiteral("underlineLinks")).toBool(), true);
+        clickItem(item("underlineLinksCheck"));
+        QVERIFY(!settings->underlineLinks());
+
+        // Name colour readability: Strong 4.5, Weak 3, Off 1 and the colours
+        // follow.
+        QStringList users;
+        for (int i = 0; i < 9; ++i)
+            users << QStringLiteral("@user%1:mock.local").arg(i);
+        const auto colours = [&]() {
+            QList<QColor> out;
+            for (const QString &u : users)
+                out << themeValue(QStringLiteral("userColor(\"%1\")").arg(u))
+                           .value<QColor>();
+            return out;
+        };
+        clickItem(item("nameColorCorrectionControl_0"));
+        QCOMPARE(settings->nameColorCorrection(), 0);
+        QCoreApplication::processEvents();
+        QCOMPARE(themeValue(QStringLiteral("nameColorMinContrast")).toDouble(), 4.5);
+        const QList<QColor> strong = colours();
+        clickItem(item("nameColorCorrectionControl_1"));
+        QCOMPARE(settings->nameColorCorrection(), 1);
+        QCoreApplication::processEvents();
+        QCOMPARE(themeValue(QStringLiteral("nameColorMinContrast")).toDouble(), 3.0);
+        const QList<QColor> weak = colours();
+        clickItem(item("nameColorCorrectionControl_2"));
+        QCOMPARE(settings->nameColorCorrection(), 2);
+        QCoreApplication::processEvents();
+        QCOMPARE(themeValue(QStringLiteral("nameColorMinContrast")).toDouble(), 1.0);
+        const QList<QColor> off = colours();
+        int differsWeak = 0, differsOff = 0;
+        for (int i = 0; i < strong.size(); ++i) {
+            differsWeak += strong.at(i) != weak.at(i);
+            differsOff += strong.at(i) != off.at(i);
+        }
+        QVERIFY2(differsOff > 0,
+                 "turning the correction off changed no sender colour");
+        QVERIFY2(differsWeak + differsOff > 0, "Weak and Off equal Strong everywhere");
+        settings->setNameColorCorrection(0);
+        QCoreApplication::processEvents();
+        QCOMPARE(colours(), strong);
+    }
+
+    void messageSpacingIsASettingTheThemeFollows()
+    {
+        openSection(QStringLiteral("appearance"));
+        auto *settings = m_controller->settings();
+        QCOMPARE(settings->messageSpacing(), 1);
+        for (int mode : {0, 2, 1}) {
+            clickItem(item(qPrintable(
+                QStringLiteral("messageSpacingControl_%1").arg(mode))));
+            QCOMPARE(settings->messageSpacing(), mode);
+            QCoreApplication::processEvents();
+            QCOMPARE(themeValue(QStringLiteral("messageSpacing")).toInt(), mode);
+        }
+        // Out of range reads back as Cozy, not the nearest end.
+        settings->setMessageSpacing(7);
+        QCOMPARE(settings->messageSpacing(), 1);
     }
 
     void noQmlWarnings()

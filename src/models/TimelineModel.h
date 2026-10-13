@@ -420,12 +420,14 @@ public:
     // token source). accentColor marks mentions of the local user; linkColor
     // covers other mentions and URLs (empty falls back to accentColor). Values
     // must be opaque #rrggbb; anything else degrades to Qt's default link look.
-    // Live theme switches re-announce FormattedBodyRole. softColor is unused
+    // underlineLinks (Settings > Accessibility) also underlines mentions; URLs
+    // are always underlined. Live theme switches re-announce FormattedBodyRole. softColor is unused
     // and kept for the QML call's arity.
     Q_INVOKABLE void setMentionStyle(const QString &accentColor,
                                      const QString &softColor,
                                      const QString &codeBackground = QString(),
-                                     const QString &linkColor = QString());
+                                     const QString &linkColor = QString(),
+                                     bool underlineLinks = false);
 
     // Styles the literal "@room" in a body that carries m.mentions.room, for
     // both formatted and linkified plain bodies. The caller owns the
@@ -664,6 +666,7 @@ private:
     QString m_mentionAccentColor;
     QString m_mentionLinkColor;
     QString m_codeBackgroundColor;
+    bool m_underlineMentions = false;
 
     // Mirrors SettingsManager::showRoomActivity. Only
     // DividerIntroducesVisibleContentRole reads it; no rows are filtered here.

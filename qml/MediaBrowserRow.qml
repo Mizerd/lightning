@@ -77,6 +77,7 @@ ItemDelegate {
                 visible: row.kind === "link"
                 text: row.url
                 color: AppTheme.link
+                font.underline: AppTheme.underlineLinks
                 font.pixelSize: AppTheme.textMeta
                 elide: Label.ElideRight
             }

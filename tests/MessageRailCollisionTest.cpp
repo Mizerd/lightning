@@ -286,6 +286,67 @@ private Q_SLOTS:
             QStringLiteral("message-rail-collision-test"));
     }
 
+    // Settings > Appearance > Message spacing: Compact, Cozy and Roomy move the
+    // gap above a sender's first message and above each continuation line, in
+    // every layout, by exactly the amounts the theme declares. Cozy is the
+    // shipped spacing (no change).
+    void messageSpacingMovesTheGapInEveryLayout_data()
+    {
+        QTest::addColumn<int>("layout");
+        QTest::newRow("modern") << 0;
+        QTest::newRow("bubbles") << 1;
+        QTest::newRow("compact") << 2;
+    }
+    void messageSpacingMovesTheGapInEveryLayout()
+    {
+        QFETCH(int, layout);
+        AppController app(AppController::MockBackend);
+        QVERIFY(app.settings());
+        app.settings()->setMessageLayout(layout);
+
+        const auto heightAt = [&](bool leader, int spacing) -> qreal {
+            QVariantMap f = baseFixture();
+            f.insert(QStringLiteral("showSenderIdentity"), leader);
+            Delegate d;
+            if (!build(app, f, d, kRowWidth, layout == 1))
+                return -1.0;
+            // The spacing reaches the delegate through the theme singleton of
+            // its own engine (Main.qml's Binding is not loaded here).
+            QQmlComponent comp(d.engine.get());
+            comp.setData(QByteArray(
+                             "import QtQuick\nimport MatrixClient\n"
+                             "QtObject { Component.onCompleted: "
+                             "AppTheme.messageSpacing = ")
+                             + QByteArray::number(spacing) + " }",
+                         QUrl());
+            std::unique_ptr<QObject> setter(comp.create());
+            if (!setter)
+                return -2.0;
+            for (int i = 0; i < 6; ++i)
+                QCoreApplication::processEvents();
+            return QQmlProperty::read(d.root, QStringLiteral("implicitHeight"))
+                .toReal();
+        };
+
+        for (const bool leader : {true, false}) {
+            const qreal compact = heightAt(leader, 0);
+            const qreal cozy = heightAt(leader, 1);
+            const qreal roomy = heightAt(leader, 2);
+            const QString what = QStringLiteral("layout %1, %2")
+                .arg(layout).arg(leader ? "sender's first message" : "continuation");
+            QVERIFY2(compact > 0 && cozy > 0 && roomy > 0, qPrintable(what));
+            // Base gap above the row, then what each mode adds to it
+            // (AppTheme.messageGroupGapExtra / messageContinuationGapExtra).
+            const qreal base = leader ? (layout == 2 ? 2 : 12)
+                                      : (layout == 2 ? 0 : 1);
+            const qreal compactExtra = leader ? -4 : -1;
+            const qreal roomyExtra = leader ? 6 : 2;
+            QCOMPARE(compact - cozy, std::max(0.0, base + compactExtra) - base);
+            QCOMPARE(roomy - cozy, base + roomyExtra - base);
+            QVERIFY2(compact <= cozy && cozy < roomy, qPrintable(what));
+        }
+    }
+
     // A short row with receipts: the bar must end before the facepile begins.
     void theActionBarClearsTheReceiptPileOnAShortRow()
     {

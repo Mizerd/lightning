@@ -94,6 +94,10 @@ constexpr auto kShowMembership      = "timeline/showMembershipEvents";
 constexpr auto kShowProfileChanges  = "timeline/showProfileChangeEvents";
 constexpr auto kCollapseEmbeds      = "timeline/collapseEmbeds";
 constexpr auto kReducedMotion       = "ui/reducedMotion";
+constexpr auto kHighContrast        = "ui/highContrast";
+constexpr auto kUnderlineLinks      = "ui/underlineLinks";
+constexpr auto kNameColorCorrection = "ui/nameColorCorrection";
+constexpr auto kMessageSpacing      = "ui/messageSpacing";
 constexpr auto kSmoothScrolling     = "ui/smoothScrolling";
 constexpr auto kHiddenComposerButtons = "ui/hiddenComposerButtons";
 constexpr auto kClockFormat         = "ui/clockFormat";
@@ -573,6 +577,10 @@ void SettingsManager::setActiveAccountUserId(const QString &userId)
     Q_EMIT uiFontChanged();
     Q_EMIT monoFontChanged();
     Q_EMIT reducedMotionChanged();
+    Q_EMIT highContrastChanged();
+    Q_EMIT underlineLinksChanged();
+    Q_EMIT nameColorCorrectionChanged();
+    Q_EMIT messageSpacingChanged();
     Q_EMIT smoothScrollingChanged();
     Q_EMIT collapseEmbedsChanged();
     Q_EMIT hiddenComposerButtonsChanged();
@@ -3122,6 +3130,69 @@ void SettingsManager::setReducedMotion(bool v)
         return;
     setAppearanceValue(kReducedMotion, v);
     Q_EMIT reducedMotionChanged();
+}
+
+bool SettingsManager::highContrast() const
+{
+    return appearanceValue(kHighContrast, false).toBool();
+}
+
+void SettingsManager::setHighContrast(bool v)
+{
+    if (highContrast() == v)
+        return;
+    setAppearanceValue(kHighContrast, v);
+    Q_EMIT highContrastChanged();
+}
+
+bool SettingsManager::underlineLinks() const
+{
+    return appearanceValue(kUnderlineLinks, false).toBool();
+}
+
+void SettingsManager::setUnderlineLinks(bool v)
+{
+    if (underlineLinks() == v)
+        return;
+    setAppearanceValue(kUnderlineLinks, v);
+    Q_EMIT underlineLinksChanged();
+}
+
+int SettingsManager::nameColorCorrection() const
+{
+    // An enum, not a quantity: an unknown value (a newer build wrote a
+    // fourth mode) falls back to the default instead of clamping to the last.
+    const int stored = appearanceValue(kNameColorCorrection,
+                                       kNameColorStrong).toInt();
+    return (stored < kNameColorStrong || stored > kNameColorOff)
+        ? kNameColorStrong : stored;
+}
+
+void SettingsManager::setNameColorCorrection(int mode)
+{
+    if (mode < kNameColorStrong || mode > kNameColorOff)
+        mode = kNameColorStrong;
+    if (nameColorCorrection() == mode)
+        return;
+    setAppearanceValue(kNameColorCorrection, mode);
+    Q_EMIT nameColorCorrectionChanged();
+}
+
+int SettingsManager::messageSpacing() const
+{
+    const int stored = appearanceValue(kMessageSpacing, kSpacingCozy).toInt();
+    return (stored < kSpacingCompact || stored > kSpacingRoomy)
+        ? kSpacingCozy : stored;
+}
+
+void SettingsManager::setMessageSpacing(int mode)
+{
+    if (mode < kSpacingCompact || mode > kSpacingRoomy)
+        mode = kSpacingCozy;
+    if (messageSpacing() == mode)
+        return;
+    setAppearanceValue(kMessageSpacing, mode);
+    Q_EMIT messageSpacingChanged();
 }
 
 bool SettingsManager::smoothScrolling() const

@@ -346,6 +346,35 @@ private Q_SLOTS:
             "<a href=\"mention:@bob:example.org\">@bob</a> hey"));
     }
 
+    // Settings > Accessibility > Always underline links: a mention is ink and
+    // weight by default and gains an underline when asked; a URL is underlined
+    // either way (the default, which the setting must not take away).
+    void underlineLinksAddsAnUnderlineToMentionsOnly()
+    {
+        const QString html = QStringLiteral(
+            "<a href=\"https://matrix.to/#/@bob:example.org\">bob</a> "
+            "<a href=\"https://example.org/x\">site</a>");
+        MessageHtml::MentionStyle style{QStringLiteral("#112233"),
+                                        QStringLiteral("#445566"), QString()};
+        const QString flat = MessageHtml::sanitize(html, nullptr, QString(), style);
+        QVERIFY(flat.contains(QStringLiteral("href=\"mention:@bob:example.org\"")));
+        QVERIFY(flat.contains(QStringLiteral(";text-decoration:none\"")));
+
+        style.underlineMentions = true;
+        const QString underlined = MessageHtml::sanitize(html, nullptr, QString(), style);
+        QVERIFY2(underlined.contains(QStringLiteral(";text-decoration:underline\"")),
+                 qPrintable(underlined));
+        QVERIFY(!underlined.contains(QStringLiteral("text-decoration:none")));
+        // The URL carries no text-decoration of its own in either case, so Qt's
+        // default underline stays.
+        for (const QString &out : {flat, underlined}) {
+            const int at = out.indexOf(QStringLiteral("href=\"https://example.org/x\""));
+            QVERIFY(at >= 0);
+            const QString tag = out.mid(at, out.indexOf(QLatin1Char('>'), at) - at);
+            QVERIFY2(!tag.contains(QStringLiteral("text-decoration")), qPrintable(tag));
+        }
+    }
+
     void mentionUsesResolvedDisplayName()
     {
         const QString out = MessageHtml::sanitize(

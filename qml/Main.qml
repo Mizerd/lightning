@@ -453,6 +453,30 @@ ApplicationWindow {
         property: "textScale"
         value: app.settings ? app.settings.textScale / 100 : 1
     }
+    // Settings > Appearance > Accessibility and message spacing.
+    Binding {
+        target: AppTheme
+        property: "highContrast"
+        value: app.settings ? app.settings.highContrast : false
+    }
+    Binding {
+        target: AppTheme
+        property: "underlineLinks"
+        value: app.settings ? app.settings.underlineLinks : false
+    }
+    Binding {
+        target: AppTheme
+        property: "nameColorMinContrast"
+        // Strong 4.5:1, Weak 3:1, Off 1 (no correction).
+        value: !app.settings ? 4.5
+               : app.settings.nameColorCorrection === 2 ? 1.0
+               : app.settings.nameColorCorrection === 1 ? 3.0 : 4.5
+    }
+    Binding {
+        target: AppTheme
+        property: "messageSpacing"
+        value: app.settings ? app.settings.messageSpacing : 1
+    }
     // The UI font. Controls inherit through the window font; AppTheme.uiFont
     // covers non-inheriting text. Uses FontManager's resolved family, never a
     // family the host cannot draw; the stored choice is kept, so reinstalling a

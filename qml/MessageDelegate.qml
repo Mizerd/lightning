@@ -155,10 +155,13 @@ Item {
 
     // Group leaders get a larger gap than continuation lines. Compact stays
     // dense.
+    // Settings > Appearance > Message spacing moves both gaps by a fixed
+    // amount (Cozy adds nothing); a gap never goes negative.
     readonly property real messageTopSpacing: showsIdentity
-                                               ? (compactMode ? 2
-                                                              : AppTheme.spacingM)
-                                               : (compactMode ? 0 : 1)
+        ? Math.max(0, (compactMode ? 2 : AppTheme.spacingM)
+                      + AppTheme.messageGroupGapExtra)
+        : Math.max(0, (compactMode ? 0 : 1)
+                      + AppTheme.messageContinuationGapExtra)
     readonly property real avatarGutterWidth: compactMode ? 8
                                               : (bubbleMode ? 44 : 40)
 

@@ -962,6 +962,11 @@ set(APP_QML_FILES
     qml/UpdatesSettingsSection.qml
     qml/AboutToolsSection.qml
     qml/DeveloperToolsSection.qml
+    qml/SettingsPercentBox.qml
+    qml/SettingsNeedsBadge.qml
+    qml/SettingsHint.qml
+    qml/SettingsNavGroupLabel.qml
+    qml/SettingsNavOutline.qml
     qml/UpdateAvailableDialog.qml
     qml/MainScreen.qml
     qml/HomePane.qml

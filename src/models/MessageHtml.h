@@ -49,6 +49,8 @@ struct MentionStyle {
                             // this ink. Callers rendering untrusted bodies must
                             // supply it, or covered spoiler text is not hidden;
                             // TimelineModel always does.
+    // Underline a mention too (Settings > Accessibility > underline links).
+    bool underlineMentions = false;
 };
 
 // resolveDisplayName maps a user id to a room display name (empty or the id

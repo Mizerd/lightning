@@ -836,7 +836,9 @@ QString MessageHtml::sanitize(
                     out += QStringLiteral(" style=\"color:")
                         + ink.toHtmlEscaped()
                         + QStringLiteral(";font-weight:600")
-                        + QStringLiteral(";text-decoration:none\"");
+                        + (mentionStyle.underlineMentions
+                               ? QStringLiteral(";text-decoration:underline\"")
+                               : QStringLiteral(";text-decoration:none\""));
                 }
                 out += QStringLiteral(">");
                 // <b> stays the self-mention marker because it survives an

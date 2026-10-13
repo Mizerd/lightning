@@ -49,6 +49,7 @@ Item {
                     // Link ink: the one action here, and it behaves like a
                     // link.
                     color: AppTheme.link
+                    font.underline: AppTheme.underlineLinks
                 }
             }
 

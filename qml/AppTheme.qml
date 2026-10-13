@@ -31,6 +31,28 @@ QtObject {
     // widths, indents, tiles and badges. Whole-window scaling is the separate
     // Interface zoom setting (QT_SCALE_FACTOR).
     property real textScale: 1.0
+    // Settings > Appearance > Accessibility, pushed in from Main.qml.
+    // highContrast pulls secondary and muted text toward the primary ink and
+    // thickens the border inks; the defaults leave every token untouched.
+    property bool highContrast: false
+    // Floor for a sender-name ink: 4.5 Strong, 3.0 Weak, 1.0 Off.
+    property real nameColorMinContrast: 4.5
+    // Timeline row rhythm: 0 Compact, 1 Cozy (the shipped spacing), 2 Roomy.
+    property int messageSpacing: 1
+    // Pixels added to the gap above a sender's first message, and above each
+    // continuation line, per mode. Cozy is 0 so the shipped layout is
+    // bit-for-bit what it was. MessageDelegate.messageTopSpacing is the one
+    // reader, so all three layouts follow.
+    readonly property int messageGroupGapExtra:
+        messageSpacing === 0 ? -4 : messageSpacing === 2 ? 6 : 0
+    readonly property int messageContinuationGapExtra:
+        messageSpacing === 0 ? -1 : messageSpacing === 2 ? 2 : 0
+    // Also underline mentions and in-app links (URLs always are).
+    property bool underlineLinks: false
+    // A token pulled `amount` of the way toward `ink` when high contrast is on.
+    function _contrast(base, ink, amount) {
+        return highContrast ? Qt.tint(base, Qt.alpha(ink, amount)) : base
+    }
     // Includes the UI font's optical correction so text size and font choice
     // stay independent (Manrope, the default, has factor 1.0).
     function scaled(px) { return Math.round(px * textScale * uiFontOptical) }
@@ -970,12 +992,16 @@ QtObject {
     readonly property color dangerSoft:          Qt.alpha(dangerTint, 0.10)
     readonly property color dangerBorder:        Qt.alpha(dangerTint, 0.25)
     readonly property color textPrimary:         _p.textPrimary
-    readonly property color textSecondary:       _p.textSecondary
-    readonly property color textMuted:           _p.textMuted
+    readonly property color textSecondary:       _contrast(_p.textSecondary,
+                                                           _p.textPrimary, 0.7)
+    readonly property color textMuted:           _contrast(_p.textMuted,
+                                                           _p.textPrimary, 0.75)
     readonly property color textDisabled:        _p.textDisabled
-    readonly property color border:              _p.border
+    readonly property color border:              _contrast(_p.border,
+                                                           _p.textPrimary, 0.45)
     readonly property color borderSubtle:        border
-    readonly property color borderStrong:        _p.borderStrong
+    readonly property color borderStrong:        _contrast(_p.borderStrong,
+                                                           _p.textPrimary, 0.7)
     readonly property color separator:           border
     readonly property color inputBackground:     _p.inputBg
     readonly property color inputBorder:         border
@@ -1287,8 +1313,8 @@ QtObject {
     }
     readonly property color stormInset:         storm ? _stoInset : inputBackground
     readonly property color stormDeep:          storm ? _stoDeep : background
-    readonly property color stormBorder:        storm ? _stoBorder : border
-    readonly property color stormBorderStrong:  storm ? _stoBorderStrong : borderStrong
+    readonly property color stormBorder:        storm ? _contrast(_stoBorder, _stoText, 0.45) : border
+    readonly property color stormBorderStrong:  storm ? _contrast(_stoBorderStrong, _stoText, 0.7) : borderStrong
     readonly property color stormSelection:     storm ? _stoSelection : hover
     // The accent: active/selected/complete/primary only.
     readonly property color bolt:               storm ? _stoBolt : accent
@@ -1301,8 +1327,8 @@ QtObject {
                                                 : Qt.tint(textSecondary,
                                                           Qt.alpha(accent, 0.55))
     readonly property color stormText:          storm ? _stoText : textPrimary
-    readonly property color stormTextSecondary: storm ? _stoTextSecondary : textSecondary
-    readonly property color stormTextMuted:     storm ? _stoTextMuted : textMuted
+    readonly property color stormTextSecondary: storm ? _contrast(_stoTextSecondary, _stoText, 0.7) : textSecondary
+    readonly property color stormTextMuted:     storm ? _contrast(_stoTextMuted, _stoText, 0.75) : textMuted
     // Deliberately dim ink for section headers, footers and metadata; never
     // sentence text.
     readonly property color stormTextFaint:     storm ? _stoTextFaint : textDisabled
@@ -1476,6 +1502,7 @@ QtObject {
     function userColor(key) {
         if (!key || key.length === 0)
             return textPrimary
+        const floor = nameColorMinContrast
         // A colour the user chose (from their Matrix profile) outranks the
         // derived one, but its lightness is clamped to stay legible on this
         // window's surfaces; the hue is kept.
@@ -1486,10 +1513,10 @@ QtObject {
             const dependOnAnswers = app.nameColors.revision
             const chosen = app.nameColors.colorFor(key)
             if (chosen && chosen.length > 0)
-                return IdentityPalette.legibleChoice(chosen, _nameGrounds)
+                return IdentityPalette.legibleChoice(chosen, _nameGrounds, floor)
         }
         return IdentityPalette.nameInk(identityIndex(key), identityAnchor,
-                                       _nameGrounds)
+                                       _nameGrounds, floor)
     }
 
     // ---- Legacy aliases retained for existing QML. ----

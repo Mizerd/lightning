@@ -318,6 +318,28 @@ class SettingsManager : public QObject
     Q_PROPERTY(bool reducedMotion READ reducedMotion WRITE setReducedMotion
                    NOTIFY reducedMotionChanged)
 
+    // Accessibility (Settings > Appearance > Accessibility). All per account
+    // with a global fallback, like reducedMotion.
+    //
+    // highContrast: stronger text and border inks (AppTheme.highContrast).
+    Q_PROPERTY(bool highContrast READ highContrast WRITE setHighContrast
+                   NOTIFY highContrastChanged)
+    // underlineLinks: also underline mentions and in-app links. URLs in a
+    // message are always underlined; this is off by default so nothing
+    // changes for an existing install.
+    Q_PROPERTY(bool underlineLinks READ underlineLinks WRITE setUnderlineLinks
+                   NOTIFY underlineLinksChanged)
+    // nameColorCorrection: how hard a sender-name colour is pushed to stay
+    // readable. 0 Strong (4.5:1, the long-standing behaviour), 1 Weak (3:1),
+    // 2 Off (no correction). Out-of-range reads back as Strong.
+    Q_PROPERTY(int nameColorCorrection READ nameColorCorrection
+                   WRITE setNameColorCorrection
+                   NOTIFY nameColorCorrectionChanged)
+    // messageSpacing: vertical rhythm of timeline rows. 0 Compact, 1 Cozy
+    // (today's spacing), 2 Roomy. Out-of-range reads back as Cozy.
+    Q_PROPERTY(int messageSpacing READ messageSpacing WRITE setMessageSpacing
+                   NOTIFY messageSpacingChanged)
+
     // Smooth scrolling. Separate from reducedMotion so the wheel can land
     // directly without disabling every animation. Default on.
     Q_PROPERTY(bool smoothScrolling READ smoothScrolling WRITE setSmoothScrolling
@@ -447,8 +469,8 @@ public:
     void setRoomFilterMode(int mode);
 
     // Text scale percent. Out-of-range values read back as 100.
-    static constexpr int kMinTextScale = 90;
-    static constexpr int kMaxTextScale = 140;
+    static constexpr int kMinTextScale = 75;
+    static constexpr int kMaxTextScale = 150;
     int textScale() const;
     QString uiFont() const;
     void setUiFont(const QString &family);
@@ -747,6 +769,20 @@ public:
     bool collapseEmbeds() const;
     void setCollapseEmbeds(bool v);
     bool reducedMotion() const;
+    bool highContrast() const;
+    void setHighContrast(bool v);
+    bool underlineLinks() const;
+    void setUnderlineLinks(bool v);
+    static constexpr int kNameColorStrong = 0;
+    static constexpr int kNameColorWeak = 1;
+    static constexpr int kNameColorOff = 2;
+    int nameColorCorrection() const;
+    void setNameColorCorrection(int mode);
+    static constexpr int kSpacingCompact = 0;
+    static constexpr int kSpacingCozy = 1;
+    static constexpr int kSpacingRoomy = 2;
+    int messageSpacing() const;
+    void setMessageSpacing(int mode);
     bool smoothScrolling() const;
     void setSmoothScrolling(bool v);
     QStringList hiddenComposerButtons() const;
@@ -1051,6 +1087,10 @@ Q_SIGNALS:
     void showProfileChangeEventsChanged();
     void collapseEmbedsChanged();
     void reducedMotionChanged();
+    void highContrastChanged();
+    void underlineLinksChanged();
+    void nameColorCorrectionChanged();
+    void messageSpacingChanged();
     void smoothScrollingChanged();
     void hiddenComposerButtonsChanged();
     void microphoneGainChanged();

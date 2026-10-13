@@ -135,6 +135,14 @@ constexpr const char *kComponents[] = {
     // The "Chat background…" dialog the room header, the room menu and Home
     // open; hosts ChatBackgroundEditor behind a Loader.
     "ChatBackgroundDialog",
+    // Settings structure (2026-10-13): the typed percentage beside a slider,
+    // the "Needs X" pill, the one-line hint, the nav group heading and the
+    // "On this page" outline. Each has empty defaults and reads no `app`.
+    "SettingsPercentBox",
+    "SettingsNeedsBadge",
+    "SettingsHint",
+    "SettingsNavGroupLabel",
+    "SettingsNavOutline",
 };
 
 // Deliberately NOT loaded standalone, each with the reason. Kept here rather

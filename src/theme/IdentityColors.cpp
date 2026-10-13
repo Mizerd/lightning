@@ -31,7 +31,6 @@ constexpr double kLimeLowDegrees = 62.0;
 constexpr double kLimeHighDegrees = 108.0;
 constexpr double kLimeDamping = 0.55;
 
-constexpr double kMinInkContrast = 4.5;
 
 double channelLinear(double c)
 {
@@ -117,7 +116,7 @@ QColor discColor(int index, const QColor &accent)
     const bool preferWhite = lightness <= 0.5;
     for (int guard = 0; guard < 24; ++guard) {
         const QColor ink = preferWhite ? QColor(Qt::white) : darkInk();
-        if (contrastRatio(disc, ink) >= kMinInkContrast)
+        if (contrastRatio(disc, ink) >= kDefaultMinInkContrast)
             break;
         lightness = preferWhite ? lightness * 0.95
                                 : qMin(0.92, lightness * 1.05);
@@ -135,7 +134,8 @@ QColor discInk(int index, const QColor &accent)
             : darkInk();
 }
 
-QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces)
+QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces,
+               double minContrast)
 {
     const int slot = clampSlot(index);
 
@@ -197,13 +197,13 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces)
     // when lightness has run out.
     double lightness = darkGround ? 0.70 : 0.40;
     for (int guard = 0; guard < 48; ++guard) {
-        if (worstContrast(build(lightness, saturation)) >= kMinInkContrast)
+        if (worstContrast(build(lightness, saturation)) >= minContrast)
             break;
         lightness = darkGround ? qMin(0.96, lightness + 0.02)
                                : qMax(0.06, lightness - 0.02);
     }
     for (int guard = 0; guard < 24; ++guard) {
-        if (worstContrast(build(lightness, saturation)) >= kMinInkContrast)
+        if (worstContrast(build(lightness, saturation)) >= minContrast)
             break;
         saturation = qMax(0.18, saturation - 0.04);
     }
@@ -212,7 +212,8 @@ QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces)
     return build(lightness, saturation);
 }
 
-QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces)
+QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces,
+                     double minContrast)
 {
     if (!chosen.isValid())
         return chosen;
@@ -228,7 +229,7 @@ QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces)
     };
 
     QColor ink = quantise(chosen);
-    if (surfaces.isEmpty() || worstContrast(ink) >= kMinInkContrast)
+    if (surfaces.isEmpty() || worstContrast(ink) >= minContrast)
         return ink;   // already legible here; leave it exactly as chosen
 
     double meanLuminance = 0.0;
@@ -244,7 +245,7 @@ QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces)
     for (int guard = 0; guard < 48; ++guard) {
         ink = quantise(QColor::fromHslF(float(hue), float(saturation),
                                         float(lightness)).toRgb());
-        if (worstContrast(ink) >= kMinInkContrast)
+        if (worstContrast(ink) >= minContrast)
             break;
         lightness = darkGround ? qMin(0.97, lightness + 0.02)
                                : qMax(0.03, lightness - 0.02);

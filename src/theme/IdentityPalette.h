@@ -32,29 +32,35 @@ public:
     {
         return lightning::theme::discInk(slot, accent);
     }
-    // `surfaces` arrives from QML as a QVariantList of colours.
+    // `surfaces` arrives from QML as a QVariantList of colours. `minContrast`
+    // is the readability floor (4.5 Strong, 3.0 Weak, 1.0 Off).
     Q_INVOKABLE QColor nameInk(int slot, const QColor &accent,
-                               const QVariantList &surfaces) const
+                               const QVariantList &surfaces,
+                               double minContrast
+                                   = lightning::theme::kDefaultMinInkContrast) const
     {
-        QList<QColor> grounds;
-        grounds.reserve(surfaces.size());
-        for (const QVariant &value : surfaces) {
-            const QColor ground = value.value<QColor>();
-            if (ground.isValid())
-                grounds.append(ground);
-        }
-        return lightning::theme::nameInk(slot, accent, grounds);
+        return lightning::theme::nameInk(slot, accent, grounds(surfaces),
+                                         minContrast);
     }
     Q_INVOKABLE QColor legibleChoice(const QColor &chosen,
-                                     const QVariantList &surfaces) const
+                                     const QVariantList &surfaces,
+                                     double minContrast
+                                         = lightning::theme::kDefaultMinInkContrast) const
     {
-        QList<QColor> grounds;
-        grounds.reserve(surfaces.size());
+        return lightning::theme::legibleChoice(chosen, grounds(surfaces),
+                                               minContrast);
+    }
+
+private:
+    static QList<QColor> grounds(const QVariantList &surfaces)
+    {
+        QList<QColor> out;
+        out.reserve(surfaces.size());
         for (const QVariant &value : surfaces) {
             const QColor ground = value.value<QColor>();
             if (ground.isValid())
-                grounds.append(ground);
+                out.append(ground);
         }
-        return lightning::theme::legibleChoice(chosen, grounds);
+        return out;
     }
 };

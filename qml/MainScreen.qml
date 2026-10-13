@@ -376,9 +376,11 @@ Item {
         // ink, and <a href> needs a colour or Qt uses its built-in blue.
         var linkInk = "" + AppTheme.link
         if (app.timeline && app.timeline.setMentionStyle)
-            app.timeline.setMentionStyle(accent, soft, code, linkInk)
+            app.timeline.setMentionStyle(accent, soft, code, linkInk,
+                                         AppTheme.underlineLinks)
         if (app.thread && app.thread.model && app.thread.model.setMentionStyle)
-            app.thread.model.setMentionStyle(accent, soft, code, linkInk)
+            app.thread.model.setMentionStyle(accent, soft, code, linkInk,
+                                             AppTheme.underlineLinks)
     }
     Component.onCompleted: _pushMentionStyle()
     Connections {
@@ -388,6 +390,7 @@ Item {
         function onCodeBlockChanged() { _pushMentionStyle() }
         // Some themes change only the link ink.
         function onLinkChanged() { _pushMentionStyle() }
+        function onUnderlineLinksChanged() { _pushMentionStyle() }
     }
 
     SplitView {

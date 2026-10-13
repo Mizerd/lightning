@@ -235,6 +235,7 @@ Item {
                 visible: root.tooLarge
                 text: qsTr("%1 · Open in browser").arg(root.limitText)
                 color: AppTheme.link
+                font.underline: AppTheme.underlineLinks
                 font.pixelSize: AppTheme.scaled(AppTheme.textMicro)
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap

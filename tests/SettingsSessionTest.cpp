@@ -115,6 +115,7 @@ private Q_SLOTS:
     void gifPolicyDefaultsPersistAndClamp();
     void videoPrefetchDefaultsPersistAndValidate();
     void messageLayoutAndTextScalePersistAndClamp();
+    void accessibilityAndSpacingSettingsPersistAndFallBack();
     void interfaceZoomAndRoomFilterPersistAndClamp();
     void spacesRailWidthDefaultsToTheOldFixedWidthAndClamps();
     void spacesRailDepthStyleDefaultsToRegionsAndClamps();
@@ -1048,6 +1049,67 @@ void SettingsSessionTest::messageLayoutAndTextScalePersistAndClamp()
     SettingsManager reopened;
     QCOMPARE(reopened.messageLayout(), 1);
     QCOMPARE(reopened.textScale(), 130);
+}
+
+// Accessibility (high contrast, underline links, name colour readability) and
+// message spacing: defaults leave the shipped look unchanged, values persist,
+// and an enum that is out of range or written by a newer build falls back to
+// its DEFAULT rather than clamping to an end.
+void SettingsSessionTest::accessibilityAndSpacingSettingsPersistAndFallBack()
+{
+    // The text size range widened to 75-150.
+    QCOMPARE(SettingsManager::kMinTextScale, 75);
+    QCOMPARE(SettingsManager::kMaxTextScale, 150);
+    {
+        SettingsManager settings;
+        settings.setTextScale(80);
+        QCOMPARE(settings.textScale(), 80);   // was clamped to 90
+        settings.setTextScale(100);
+
+        QCOMPARE(settings.highContrast(), false);
+        QCOMPARE(settings.underlineLinks(), false);
+        QCOMPARE(settings.nameColorCorrection(), SettingsManager::kNameColorStrong);
+        QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingCozy);
+
+        QSignalSpy contrastSpy(&settings, &SettingsManager::highContrastChanged);
+        QSignalSpy underlineSpy(&settings, &SettingsManager::underlineLinksChanged);
+        QSignalSpy nameSpy(&settings, &SettingsManager::nameColorCorrectionChanged);
+        QSignalSpy spacingSpy(&settings, &SettingsManager::messageSpacingChanged);
+        settings.setHighContrast(true);
+        settings.setHighContrast(true);   // no change, no signal
+        settings.setUnderlineLinks(true);
+        settings.setNameColorCorrection(SettingsManager::kNameColorOff);
+        settings.setMessageSpacing(SettingsManager::kSpacingRoomy);
+        QCOMPARE(contrastSpy.count(), 1);
+        QCOMPARE(underlineSpy.count(), 1);
+        QCOMPARE(nameSpy.count(), 1);
+        QCOMPARE(spacingSpy.count(), 1);
+
+        // Out of range writes go to the default, not the nearest end.
+        settings.setNameColorCorrection(9);
+        QCOMPARE(settings.nameColorCorrection(), SettingsManager::kNameColorStrong);
+        settings.setMessageSpacing(-3);
+        QCOMPARE(settings.messageSpacing(), SettingsManager::kSpacingCozy);
+        settings.setNameColorCorrection(SettingsManager::kNameColorWeak);
+        settings.setMessageSpacing(SettingsManager::kSpacingCompact);
+    }
+    {
+        SettingsManager reopened;
+        QCOMPARE(reopened.highContrast(), true);
+        QCOMPARE(reopened.underlineLinks(), true);
+        QCOMPARE(reopened.nameColorCorrection(), SettingsManager::kNameColorWeak);
+        QCOMPARE(reopened.messageSpacing(), SettingsManager::kSpacingCompact);
+    }
+    // A value a newer build wrote (a fourth mode) reads back as the default.
+    {
+        QSettings raw;
+        raw.setValue(QStringLiteral("ui/nameColorCorrection"), 3);
+        raw.setValue(QStringLiteral("ui/messageSpacing"), 12);
+        raw.sync();
+        SettingsManager reopened;
+        QCOMPARE(reopened.nameColorCorrection(), SettingsManager::kNameColorStrong);
+        QCOMPARE(reopened.messageSpacing(), SettingsManager::kSpacingCozy);
+    }
 }
 
 // Interface zoom (global, applied at startup via QT_SCALE_FACTOR) and the

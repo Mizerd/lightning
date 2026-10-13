@@ -45,12 +45,19 @@ QColor anchorForTheme(int themeId);
 // The sender-name ink for a slot, in the same hue family as its disc, adjusted
 // until it clears 4.5:1 against the worst of `surfaces` (every ground a name
 // is painted on).
-QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces);
+//
+// `minContrast` is the floor (Settings > Accessibility > name colour
+// readability): 4.5 Strong, 3.0 Weak, 1.0 Off. Only the derived ink and the
+// clamp on a chosen colour move with it.
+inline constexpr double kDefaultMinInkContrast = 4.5;
+QColor nameInk(int index, const QColor &accent, const QList<QColor> &surfaces,
+               double minContrast = kDefaultMinInkContrast);
 
 // A colour another user chose, made legible on the viewer's surfaces. Only
 // lightness moves, just far enough to clear 4.5:1 on the worst ground. The
 // value is remote profile data, so painting it verbatim would let anyone make
 // their name unreadable for everyone else.
-QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces);
+QColor legibleChoice(const QColor &chosen, const QList<QColor> &surfaces,
+                     double minContrast = kDefaultMinInkContrast);
 
 } // namespace lightning::theme

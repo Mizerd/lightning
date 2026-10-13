@@ -1303,7 +1303,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
                                       m_mentionLinkColor,
-                                      m_codeBackgroundColor},
+                                      m_codeBackgroundColor, m_underlineMentions},
             m_spoilersRevealed.contains(e.eventId));
         if (!e.eventId.isEmpty()) {
             m_sanitizedHtmlCache.insert(e.eventId, sanitized);
@@ -1340,7 +1340,7 @@ QVariant TimelineModel::data(const QModelIndex &index, int role) const
             m_selfUserId,
             MessageHtml::MentionStyle{m_mentionAccentColor,
                                       m_mentionLinkColor,
-                                      m_codeBackgroundColor},
+                                      m_codeBackgroundColor, m_underlineMentions},
             m_spoilersRevealed.contains(e.eventId));
         QVariantList out;
         bool hasCodeBlock = false;
@@ -1833,7 +1833,8 @@ QString TimelineModel::markRoomMention(const QString &safeHtml) const
 void TimelineModel::setMentionStyle(const QString &accentColor,
                                     const QString &softColor,
                                     const QString &codeBackground,
-                                    const QString &linkColor)
+                                    const QString &linkColor,
+                                    bool underlineLinks)
 {
     // Only opaque hex colour literals may enter the sanitizer's style
     // attribute:
@@ -1857,8 +1858,10 @@ void TimelineModel::setMentionStyle(const QString &accentColor,
     if (hexColor.match(codeBackground).hasMatch())
         nextCode = codeBackground.toLower();
     if (nextAccent == m_mentionAccentColor && nextLink == m_mentionLinkColor
-        && nextCode == m_codeBackgroundColor)
+        && nextCode == m_codeBackgroundColor
+        && underlineLinks == m_underlineMentions)
         return;
+    m_underlineMentions = underlineLinks;
     m_mentionAccentColor = nextAccent;
     m_mentionLinkColor = nextLink;
     m_codeBackgroundColor = nextCode;
@@ -2564,7 +2567,7 @@ QString TimelineModel::sanitizedHtmlForEvent(const QString &eventId) const
         },
         m_selfUserId,
         MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,
-                                  m_codeBackgroundColor},
+                                  m_codeBackgroundColor, m_underlineMentions},
         // Edit recovery needs the real text: the user is editing their own
         // spoiler.
         /*revealSpoilers=*/true);
@@ -2864,6 +2867,6 @@ QString TimelineModel::sanitizeHtml(const QString &html) const
         },
         m_selfUserId,
         MessageHtml::MentionStyle{m_mentionAccentColor, m_mentionLinkColor,
-                                  m_codeBackgroundColor},
+                                  m_codeBackgroundColor, m_underlineMentions},
         /*revealSpoilers=*/true);
 }

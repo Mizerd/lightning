@@ -35,7 +35,10 @@ Item {
                 settingsSearchField.text = ""
         }
     }
-    onSectionChanged: root.forgetTransientBackupState()
+    onSectionChanged: {
+        root.forgetTransientBackupState()
+        root.scheduleOutlineRefresh()
+    }
 
     // Whether the sanitized E2EE recovery diagnostics are expanded.
     property bool showRecoveryDiagnostics: false
@@ -84,6 +87,10 @@ Item {
           section: "appearance", breadcrumb: qsTr("Appearance"),
           control: "messageLayout",
           anchor: "messageLayoutControl" },
+        { title: qsTr("Message spacing"),
+          keywords: qsTr("message spacing density compact cozy roomy gap padding"),
+          section: "appearance", breadcrumb: qsTr("Appearance"),
+          anchor: "messageSpacingControl" },
         { title: qsTr("Chat background"),
           keywords: qsTr("chat background wallpaper picture image photo backdrop "
                          + "room conversation own set custom others shared hide"),
@@ -172,6 +179,21 @@ Item {
           breadcrumb: qsTr("Appearance · Motion and time"),
           control: "reducedMotion",
           anchor: "reducedMotionCheck" },
+        { title: qsTr("Increase contrast"),
+          keywords: qsTr("high contrast accessibility borders text readable vision"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Accessibility"),
+          anchor: "highContrastCheck" },
+        { title: qsTr("Always underline links"),
+          keywords: qsTr("underline links mentions accessibility colour blind"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Accessibility"),
+          anchor: "underlineLinksCheck" },
+        { title: qsTr("Name colour readability"),
+          keywords: qsTr("name color colour contrast sender readable strong weak off"),
+          section: "appearance",
+          breadcrumb: qsTr("Appearance · Accessibility"),
+          anchor: "nameColorCorrectionControl" },
         { title: qsTr("Smooth scrolling"),
           keywords: qsTr("smooth scrolling scroll wheel glide animation instant jumpy mouse"),
           section: "appearance",
@@ -635,6 +657,208 @@ Item {
         return ""
     }
 
+    // ── Navigation: the "On this page" outline and copyable links ──────────
+    //
+    // pageOutlines[section] lists a page's headings in page order, each as
+    // {label, anchors}: the first anchor (an objectName, as in searchIndex)
+    // that is on screen on this backend is where a click lands. A section
+    // that is absent has no outline. A new section adds ONE line here.
+    readonly property var pageOutlines: ({
+        "account": [
+            { label: qsTr("Profile"), anchors: ["accountIdentityCard"] },
+            { label: qsTr("Password"), anchors: ["changePasswordCard"] },
+        ],
+        "appearance": [
+            { label: qsTr("Theme"), anchors: ["featuredThemeFlow"] },
+            { label: qsTr("Custom colours and gradients"),
+              anchors: ["customThemeRow"] },
+            { label: qsTr("Chat background and depth"),
+              anchors: ["chatBackgroundSettingsSection"] },
+            { label: qsTr("Layout"), anchors: ["roomNavigationLayoutCards"] },
+            { label: qsTr("Text and fonts"), anchors: ["textScaleSlider"] },
+            { label: qsTr("Spaces rail and room list"),
+              anchors: ["showSpacesRailCheck"] },
+            { label: qsTr("Timeline"), anchors: ["showRoomActivityCheck"] },
+            { label: qsTr("Language"), anchors: ["languageCombo"] },
+            { label: qsTr("Accessibility"), anchors: ["accessibilityHeading"] },
+            { label: qsTr("Motion and time"), anchors: ["reducedMotionCheck"] },
+            { label: qsTr("Message box"),
+              anchors: ["enterInsertsNewlineCheck"] },
+        ],
+        "notifications": [
+            { label: qsTr("Desktop notifications"),
+              anchors: ["notificationsEnabledCheck"] },
+            { label: qsTr("Previews"), anchors: ["notificationPreviewCombo"] },
+            { label: qsTr("Sound"), anchors: ["notificationSoundCombo"] },
+            { label: qsTr("Calls"), anchors: ["ringForCallsCheck"] },
+        ],
+        "sound": [
+            { label: qsTr("Microphone"), anchors: ["callDevice_microphone"] },
+            { label: qsTr("Speaker"), anchors: ["callDevice_speaker"] },
+            { label: qsTr("Camera"), anchors: ["callDevice_camera"] },
+            { label: qsTr("Media volume"),
+              anchors: ["mediaVolumeSettingSlider"] },
+            { label: qsTr("Call sounds"), anchors: ["callSoundsEnabledCheck"] },
+        ],
+        "privacy": [
+            { label: qsTr("Device trust"), anchors: ["strictDeviceTrustCheck"] },
+            { label: qsTr("Receipts and typing"),
+              anchors: ["readReceiptModeCombo"] },
+            { label: qsTr("Ignored users"), anchors: ["ignoredUsersCard"] },
+            { label: qsTr("Message search"), anchors: ["searchIndexHelpText"] },
+            { label: qsTr("Link previews and GIFs"),
+              anchors: ["autoPreviewCheck"] },
+            { label: qsTr("Media and downloads"),
+              anchors: ["keepMediaOnDeviceCheck"] },
+            { label: qsTr("Encryption"),
+              anchors: ["cryptoHealthSummary", "privacyStorageFactsCard"] },
+            { label: qsTr("Recovery key"),
+              anchors: ["recoveryEntry", "crossSigningSetupCard",
+                        "privacyStorageFactsCard"] },
+        ],
+    })
+    function outlineEntries(sectionKey) {
+        return root.pageOutlines[sectionKey] || []
+    }
+
+    // Index into outlineEntries(section) of the heading in view, or -1. Set by
+    // refreshOutlineActive(), which runs off a throttle timer, not per frame.
+    property int outlineActive: -1
+
+    // anchor -> Item, filled lazily. The panes are never destroyed (they toggle
+    // by visibility), so a hit stays good; a null one is looked up again.
+    property var anchorCache: ({})
+    function anchorItem(anchor) {
+        var hit = root.anchorCache[anchor]
+        if (hit)
+            return hit
+        hit = root.findInPane(contentColumn, anchor)
+        if (hit)
+            root.anchorCache[anchor] = hit
+        return hit
+    }
+    function firstShownAnchor(anchors) {
+        for (var i = 0; i < anchors.length; ++i) {
+            var target = root.anchorItem(anchors[i])
+            if (target && target.visible)
+                return target
+        }
+        return null
+    }
+
+    function refreshOutlineActive() {
+        var entries = root.outlineEntries(root.section)
+        if (entries.length === 0) {
+            root.outlineActive = -1
+            return
+        }
+        var y = contentFlick.contentY
+        var maxY = Math.max(0, contentFlick.contentHeight - contentFlick.height)
+        // The same offset a reveal lands the heading at, so a clicked entry is
+        // the active one the moment the scroll settles.
+        var probe = y + AppTheme.spacing24 * 2 + 8
+        var active = -1
+        var firstShown = -1
+        var lastShown = -1
+        for (var i = 0; i < entries.length; ++i) {
+            var target = root.firstShownAnchor(entries[i].anchors)
+            if (!target)
+                continue
+            if (firstShown < 0)
+                firstShown = i
+            lastShown = i
+            if (target.mapToItem(contentFlick.contentItem, 0, 0).y <= probe)
+                active = i
+        }
+        // A short last group can never reach the probe line: at the very end
+        // of the page the last heading is the one being read.
+        if (maxY > 0 && y >= maxY - 2 && lastShown >= 0)
+            active = lastShown
+        root.outlineActive = active >= 0 ? active : firstShown
+    }
+    Timer {
+        id: outlineTimer
+        interval: 50
+        onTriggered: root.refreshOutlineActive()
+    }
+    function scheduleOutlineRefresh() {
+        if (!outlineTimer.running)
+            outlineTimer.start()
+    }
+    function revealOutlineEntry(sectionKey, index) {
+        var entries = root.outlineEntries(sectionKey)
+        if (index < 0 || index >= entries.length)
+            return ""
+        var used = root.jumpToFirstShown(entries[index].anchors)
+        if (used.length > 0)
+            root.outlineActive = index
+        return used
+    }
+
+    // A link to one setting, as text: lightning://settings/<section>?focus=<anchor>.
+    // Not registered with the operating system; pasting it into the settings
+    // search box (or calling openSettingsLink) opens that setting. The anchor is
+    // the same objectName searchIndex uses, so links survive translation.
+    readonly property string settingsLinkPrefix: "lightning://settings/"
+    function settingsLink(sectionKey, anchor) {
+        return root.settingsLinkPrefix + sectionKey + "?focus="
+               + encodeURIComponent(anchor)
+    }
+    // {section, anchor} for a well-formed link to a known section, else null.
+    function parseSettingsLink(text) {
+        var t = String(text || "").trim()
+        if (t.indexOf(root.settingsLinkPrefix) !== 0)
+            return null
+        var rest = t.slice(root.settingsLinkPrefix.length)
+        var q = rest.indexOf("?")
+        var sectionKey = q < 0 ? rest : rest.slice(0, q)
+        if (root.sectionTitle(sectionKey) === sectionKey)
+            return null   // sectionTitle() echoes an unknown key back
+        var anchor = ""
+        if (q >= 0) {
+            var m = /(?:^|&)focus=([^&]*)/.exec(rest.slice(q + 1))
+            if (m) {
+                try { anchor = decodeURIComponent(m[1]) } catch (e) { return null }
+            }
+        }
+        if (anchor.length > 0 && !/^[A-Za-z0-9_.-]+$/.test(anchor))
+            return null
+        return { section: sectionKey, anchor: anchor }
+    }
+    // Opens the setting a link names. False when `text` is not such a link.
+    function openSettingsLink(text) {
+        var link = root.parseSettingsLink(text)
+        if (!link)
+            return false
+        root.revealSearchResult({ section: link.section, anchor: link.anchor })
+        return true
+    }
+    // The searchIndex entry whose control sits at content-y `y` on the open
+    // page (within a small margin), or null. Used by the right-click menu.
+    function indexEntryAtContentY(y) {
+        var best = null
+        var bestDistance = 1e9
+        for (var i = 0; i < root.searchIndex.length; ++i) {
+            var e = root.searchIndex[i]
+            if (e.section !== root.section)
+                continue
+            var t = root.anchorItem(e.anchor)
+            if (!t || !t.visible)
+                continue
+            var top = t.mapToItem(contentFlick.contentItem, 0, 0).y
+            var bottom = top + t.height
+            if (y < top - AppTheme.spacing8 || y > bottom + AppTheme.spacing8)
+                continue
+            var d = Math.abs(y - (top + bottom) / 2)
+            if (d < bestDistance) {
+                best = e
+                bestDistance = d
+            }
+        }
+        return best
+    }
+    property string linkMenuTarget: ""
+
     // Where the custom theme editor opens: "" for its overview, or a role
     // ("background" for "Add a gradient").
     property string themeEditorStartRole: ""
@@ -693,52 +917,6 @@ Item {
                 to: 360
                 duration: 900
                 loops: Animation.Infinite
-            }
-        }
-    }
-
-    // Contents for a long page: one chip per group, in page order. A click
-    // scrolls to the group (see jumpToFirstShown). Entries are
-    // {label, anchors: [objectName, ...]}.
-    component PageJumpBar: Flow {
-        id: jumpBar
-        property var entries: []
-        Layout.fillWidth: true
-        spacing: AppTheme.spacing6
-        Accessible.role: Accessible.ToolBar
-        Repeater {
-            model: jumpBar.entries
-            delegate: AbstractButton {
-                id: jumpChip
-                required property var modelData
-                required property int index
-                objectName: jumpBar.objectName + "_" + jumpChip.index
-                hoverEnabled: true
-                focusPolicy: Qt.TabFocus
-                implicitWidth: jumpLabel.implicitWidth + AppTheme.spacing12 * 2
-                implicitHeight: jumpLabel.implicitHeight + AppTheme.spacing6 * 2
-                Accessible.role: Accessible.Button
-                Accessible.name: qsTr("Go to %1").arg(jumpChip.modelData.label)
-                onClicked: root.jumpToFirstShown(jumpChip.modelData.anchors)
-                background: Rectangle {
-                    radius: AppTheme.radiusPill
-                    color: jumpChip.down ? AppTheme.stormSelection
-                         : jumpChip.hovered ? Qt.alpha(AppTheme.stormSelection, 0.55)
-                         : "transparent"
-                    border.width: jumpChip.visualFocus ? 2 : 1
-                    border.color: jumpChip.visualFocus ? AppTheme.bolt
-                                                       : AppTheme.stormBorderStrong
-                }
-                contentItem: Label {
-                    id: jumpLabel
-                    text: jumpChip.modelData.label
-                    textFormat: Text.PlainText
-                    color: AppTheme.stormTextSecondary
-                    font.pixelSize: AppTheme.textMeta
-                    font.weight: AppTheme.weightMedium
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
             }
         }
     }
@@ -868,6 +1046,29 @@ Item {
             border.color: styledSlider.visualFocus ? AppTheme.bolt
                                                    : AppTheme.stormBorderStrong
         }
+    }
+
+    // True when at least one of `keys` is a nav row a search leaves showing
+    // (the same rule SettingsNavRow.visible applies).
+    function navGroupShown(keys) {
+        if (root.settingsSearchQuery.trim().length === 0
+                || root.matchedSearchResults.length === 0)
+            return true
+        for (var i = 0; i < keys.length; ++i) {
+            if (root.matchedSearchSections[keys[i]] === true)
+                return true
+        }
+        return false
+    }
+
+    // The outline under one section's nav row.
+    component SettingsNavOutlineFor: SettingsNavOutline {
+        required property string sectionKey
+        shown: root.section === sectionKey
+               && root.settingsSearchQuery.trim().length === 0
+        entries: root.outlineEntries(sectionKey)
+        activeIndex: root.section === sectionKey ? root.outlineActive : -1
+        onEntryActivated: (index) => root.revealOutlineEntry(sectionKey, index)
     }
 
     // Nav row: 32px, radiusTile; the active row fills selectedHover, brightens
@@ -1313,7 +1514,15 @@ Item {
                             storm: true
                             placeholderText: qsTr("Search settings…")
                             Accessible.name: qsTr("Search settings")
-                            onTextChanged: root.settingsSearchQuery = text
+                            onTextChanged: {
+                                root.settingsSearchQuery = text
+                                // A pasted settings link opens its setting and
+                                // leaves the box empty.
+                                if (root.openSettingsLink(text))
+                                    Qt.callLater(function() {
+                                        settingsSearchField.text = ""
+                                    })
+                            }
                             // Enter takes the first match, landing on the
                             // control like a click.
                             onAccepted: {
@@ -1451,6 +1660,21 @@ Item {
                                         }
                                     }
 
+                                    IconButton {
+                                        storm: true
+                                        objectName: "settingsSearchResultCopyLink_"
+                                                    + resultRow.index
+                                        iconName: "link"
+                                        size: "sm"
+                                        Accessible.name: qsTr("Copy link to this setting")
+                                        ToolTip.text: qsTr("Copy link to this setting")
+                                        ToolTip.visible: hovered
+                                        ToolTip.delay: 500
+                                        onClicked: root.copyToClipboard(
+                                            root.settingsLink(
+                                                resultRow.modelData.section,
+                                                resultRow.modelData.anchor))
+                                    }
                                     // Inline live controls, each bound two-way
                                     // to the same SettingsManager property as
                                     // its real control.
@@ -1630,36 +1854,26 @@ Item {
                         }
                     }
 
+                    // The order here is the order on screen. A group label
+                    // hides with its rows during a search; an outline sits
+                    // under its section's row and shows only for the open one.
+                    SettingsNavGroupLabel {
+                        objectName: "settingsNavGroup_user"
+                        text: qsTr("User")
+                        shown: root.navGroupShown(["account", "privacy", "sessions"])
+                    }
                     SettingsNavRow {
                         sectionKey: "account"
                         iconName: "account_circle"
                         navLabel: qsTr("Account")
                     }
-                    SettingsNavRow {
-                        sectionKey: "appearance"
-                        iconName: "palette"
-                        navLabel: qsTr("Appearance")
-                    }
-                    SettingsNavRow {
-                        sectionKey: "shortcuts"
-                        iconName: "keyboard_return"
-                        navLabel: qsTr("Keyboard shortcuts")
-                    }
-                    SettingsNavRow {
-                        sectionKey: "notifications"
-                        iconName: "notifications"
-                        navLabel: qsTr("Notifications")
-                    }
-                    SettingsNavRow {
-                        sectionKey: "sound"
-                        iconName: "volume_up"
-                        navLabel: qsTr("Sound & video")
-                    }
+                    SettingsNavOutlineFor { sectionKey: "account" }
                     SettingsNavRow {
                         sectionKey: "privacy"
                         iconName: "verified_user"
                         navLabel: qsTr("Privacy & security")
                     }
+                    SettingsNavOutlineFor { sectionKey: "privacy" }
                     SettingsNavRow {
                         sectionKey: "sessions"
                         iconName: "devices"
@@ -1668,15 +1882,45 @@ Item {
                         // badge points at.
                         alert: app.sessionVerificationWarning
                     }
+
+                    SettingsNavGroupLabel {
+                        objectName: "settingsNavGroup_interface"
+                        text: qsTr("Interface")
+                        shown: root.navGroupShown(["appearance", "shortcuts"])
+                    }
+                    SettingsNavRow {
+                        sectionKey: "appearance"
+                        iconName: "palette"
+                        navLabel: qsTr("Appearance")
+                    }
+                    SettingsNavOutlineFor { sectionKey: "appearance" }
+                    SettingsNavRow {
+                        sectionKey: "shortcuts"
+                        iconName: "keyboard_return"
+                        navLabel: qsTr("Keyboard shortcuts")
+                    }
+
+                    SettingsNavGroupLabel {
+                        objectName: "settingsNavGroup_behavior"
+                        text: qsTr("Behavior")
+                        shown: root.navGroupShown(["notifications", "sound", "labs"])
+                    }
+                    SettingsNavRow {
+                        sectionKey: "notifications"
+                        iconName: "notifications"
+                        navLabel: qsTr("Notifications")
+                    }
+                    SettingsNavOutlineFor { sectionKey: "notifications" }
+                    SettingsNavRow {
+                        sectionKey: "sound"
+                        iconName: "volume_up"
+                        navLabel: qsTr("Sound & video")
+                    }
+                    SettingsNavOutlineFor { sectionKey: "sound" }
                     SettingsNavRow {
                         sectionKey: "labs"
                         iconName: "science"
                         navLabel: qsTr("Labs")
-                    }
-                    SettingsNavRow {
-                        sectionKey: "updates"
-                        iconName: "download"
-                        navLabel: qsTr("Updates")
                     }
                     Item { Layout.fillHeight: true }
 
@@ -1713,6 +1957,16 @@ Item {
                         }
                     }
 
+                    SettingsNavGroupLabel {
+                        objectName: "settingsNavGroup_about"
+                        text: qsTr("About")
+                        shown: root.navGroupShown(["updates", "about"])
+                    }
+                    SettingsNavRow {
+                        sectionKey: "updates"
+                        iconName: "download"
+                        navLabel: qsTr("Updates")
+                    }
                     SettingsNavRow {
                         sectionKey: "about"
                         iconName: "info"
@@ -1745,6 +1999,37 @@ Item {
                     function onSectionChanged() {
                         settingsWheelArea.stopGlide()
                         contentFlick.contentY = 0
+                    }
+                }
+
+                // The "On this page" outline follows the scroll position, and
+                // the page growing or shrinking (a card appearing).
+                onContentYChanged: root.scheduleOutlineRefresh()
+                onContentHeightChanged: root.scheduleOutlineRefresh()
+
+                // Right-click a setting for a link to it. Only where a
+                // searchIndex entry's control is: blank space gets no menu.
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: (point) => {
+                        var entry = root.indexEntryAtContentY(
+                            contentFlick.contentY + point.position.y)
+                        if (!entry)
+                            return
+                        root.linkMenuTarget = root.settingsLink(entry.section,
+                                                                entry.anchor)
+                        settingLinkMenu.popup(contentFlick, point.position.x,
+                                              point.position.y)
+                    }
+                }
+                AppMenu {
+                    id: settingLinkMenu
+                    objectName: "settingLinkMenu"
+                    AppMenuItem {
+                        objectName: "settingLinkMenuCopy"
+                        iconName: "link"
+                        text: qsTr("Copy link to this setting")
+                        onTriggered: root.copyToClipboard(root.linkMenuTarget)
                     }
                 }
 
@@ -1820,33 +2105,6 @@ Item {
                             wrapMode: Text.WordWrap
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
-                        }
-
-                        // This page holds about twenty groups; the chips are
-                        // its contents, so a setting further down (the chat
-                        // background, gradients) is one click from the top.
-                        PageJumpBar {
-                            objectName: "appearanceJumpBar"
-                            entries: [
-                                { label: qsTr("Theme"),
-                                  anchors: ["featuredThemeFlow"] },
-                                { label: qsTr("Custom colours and gradients"),
-                                  anchors: ["customThemeRow"] },
-                                { label: qsTr("Chat background and depth"),
-                                  anchors: ["chatBackgroundSettingsSection"] },
-                                { label: qsTr("Layout"),
-                                  anchors: ["roomNavigationLayoutCards"] },
-                                { label: qsTr("Text and fonts"),
-                                  anchors: ["textScaleSlider"] },
-                                { label: qsTr("Spaces rail and room list"),
-                                  anchors: ["showSpacesRailCheck"] },
-                                { label: qsTr("Timeline"),
-                                  anchors: ["showRoomActivityCheck"] },
-                                { label: qsTr("Language and motion"),
-                                  anchors: ["languageCombo", "reducedMotionCheck"] },
-                                { label: qsTr("Message box"),
-                                  anchors: ["enterInsertsNewlineCheck"] },
-                            ]
                         }
 
                         SettingsGroupLabel { text: qsTr("Theme") }
@@ -2568,6 +2826,22 @@ Item {
                                        + "the Modern rows. Compact tightens every timeline.")
                         }
 
+                        SettingsGroupLabel { text: qsTr("Message spacing") }
+                        SegmentedControl {
+                            storm: true
+                            objectName: "messageSpacingControl"
+                            model: [
+                                { label: qsTr("Compact"), value: 0 },
+                                { label: qsTr("Cozy"), value: 1 },
+                                { label: qsTr("Roomy"), value: 2 },
+                            ]
+                            current: app.settings.messageSpacing
+                            onActivated: (value) =>
+                                app.settings.messageSpacing = value
+                            Accessible.description: qsTr(
+                                "Space between messages and between senders")
+                        }
+
                         SettingsGroupLabel { text: qsTr("Text size") }
                         RowLayout {
                             Layout.fillWidth: true
@@ -2584,12 +2858,20 @@ Item {
                                 objectName: "textScaleSlider"
                                 Layout.fillWidth: true
                                 Layout.maximumWidth: 320
-                                from: 90
-                                to: 140
+                                from: 75
+                                to: 150
                                 stepSize: 5
                                 snapMode: Slider.SnapAlways
                                 value: app.settings.textScale
-                                onMoved: app.settings.textScale = Math.round(value)
+                                // Commit on release: a text-size change
+                                // relayouts the whole window, so dragging
+                                // only moves the number until the thumb is
+                                // let go. A key press or a typed value
+                                // (moved() with no press) commits at once.
+                                onMoved: if (!pressed)
+                                    app.settings.textScale = Math.round(value)
+                                onPressedChanged: if (!pressed)
+                                    app.settings.textScale = Math.round(value)
                                 Accessible.name: qsTr("Message text size")
                                 background: Rectangle {
                                     x: textScaleSlider.leftPadding
@@ -2642,6 +2924,10 @@ Item {
                                 color: AppTheme.stormTextMuted
                                 font.pixelSize: 18
                             }
+                            SettingsPercentBox {
+                                objectName: "textScalePercentBox"
+                                slider: textScaleSlider
+                            }
                         }
                         Label {
                             Layout.fillWidth: true
@@ -2676,8 +2962,11 @@ Item {
                                 stepSize: 5
                                 snapMode: Slider.SnapAlways
                                 value: app.settings.interfaceZoom
-                                onMoved: app.settings.interfaceZoom
-                                         = Math.round(value)
+                                // Commit on release, like the text size.
+                                onMoved: if (!pressed)
+                                    app.settings.interfaceZoom = Math.round(value)
+                                onPressedChanged: if (!pressed)
+                                    app.settings.interfaceZoom = Math.round(value)
                                 Accessible.name: qsTr("Interface zoom")
                                 background: Rectangle {
                                     x: interfaceZoomSlider.leftPadding
@@ -2722,13 +3011,9 @@ Item {
                                                   : AppTheme.stormBorderStrong
                                 }
                             }
-                            Label {
-                                text: app.settings.interfaceZoom + "%"
-                                color: AppTheme.stormTextMuted
-                                // Mono for a live numeric readout that must not
-                                // reflow.
-                                font.pixelSize: AppTheme.textMeta
-                                font.family: AppTheme.monoFont
+                            SettingsPercentBox {
+                                objectName: "interfaceZoomPercentBox"
+                                slider: interfaceZoomSlider
                             }
                         }
                         Label {
@@ -3160,6 +3445,9 @@ Item {
                                     Accessible.description: qsTr(
                                         "Choose how the Spaces rail shows which "
                                         + "Space contains which")
+                                    SettingsNeedsBadge {
+                                        needs: qsTr("Show the Spaces rail")
+                                    }
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -3204,6 +3492,7 @@ Item {
                                     enabled: app.settings.closeToTray
                                     checked: app.settings.startInTray
                                     onToggled: app.settings.startInTray = checked
+                                    SettingsNeedsBadge { needs: qsTr("Keep running in the tray") }
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -3262,6 +3551,7 @@ Item {
                                     onToggled: app.settings.showMembershipEvents = checked
                                     Accessible.description: qsTr(
                                         "Show membership changes in timelines")
+                                    SettingsNeedsBadge { needs: qsTr("Show room activity") }
                                 }
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
@@ -3273,6 +3563,7 @@ Item {
                                     onToggled: app.settings.showProfileChangeEvents = checked
                                     Accessible.description: qsTr(
                                         "Show profile changes in timelines")
+                                    SettingsNeedsBadge { needs: qsTr("Show room activity") }
                                 }
                                 // In the Timeline card rather than Privacy: it
                                 // changes nothing fetched or sent, only
@@ -3527,6 +3818,76 @@ Item {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing12
 
+                        // Accessibility: how readable and how findable
+                        // things are. Defaults leave every look unchanged.
+                        SettingsCard {
+                            ColumnLayout {
+                                width: parent.width
+                                spacing: AppTheme.spacing8
+                                Label {
+                                    objectName: "accessibilityHeading"
+                                    text: qsTr("Accessibility")
+                                    color: AppTheme.stormTextSecondary
+                                    font.pixelSize: AppTheme.textBody
+                                    font.weight: AppTheme.weightStrong
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "highContrastCheck"
+                                    text: qsTr("Increase contrast")
+                                    checked: app.settings.highContrast
+                                    onToggled: app.settings.highContrast = checked
+                                    Accessible.description: qsTr(
+                                        "Make secondary text and borders stronger")
+                                }
+                                SettingsHint {
+                                    text: qsTr("Pulls secondary text toward the main text "
+                                               + "colour and strengthens borders, on any theme.")
+                                }
+                                CheckBox {
+                                    palette.windowText: AppTheme.stormText
+                                    objectName: "underlineLinksCheck"
+                                    text: qsTr("Always underline links")
+                                    checked: app.settings.underlineLinks
+                                    onToggled: app.settings.underlineLinks = checked
+                                    Accessible.description: qsTr(
+                                        "Underline mentions and in-app links as well")
+                                }
+                                SettingsHint {
+                                    text: qsTr("Web links in messages are always underlined. "
+                                               + "This adds mentions and the link texts in "
+                                               + "cards and previews.")
+                                }
+                                Label {
+                                    Layout.topMargin: AppTheme.spacing8
+                                    text: qsTr("Name colour readability")
+                                    color: AppTheme.stormText
+                                    font.pixelSize: AppTheme.textBody
+                                }
+                                SegmentedControl {
+                                    storm: true
+                                    objectName: "nameColorCorrectionControl"
+                                    model: [
+                                        { label: qsTr("Strong"), value: 0 },
+                                        { label: qsTr("Weak"), value: 1 },
+                                        { label: qsTr("Off"), value: 2 },
+                                    ]
+                                    current: app.settings.nameColorCorrection
+                                    onActivated: (value) =>
+                                        app.settings.nameColorCorrection = value
+                                    Accessible.description: qsTr(
+                                        "How strongly sender name colours are adjusted "
+                                        + "to stay readable")
+                                }
+                                SettingsHint {
+                                    text: qsTr("Sender names are lightened or darkened until "
+                                               + "they read against the background: Strong "
+                                               + "aims for 4.5:1, Weak for 3:1, Off keeps the "
+                                               + "colour exactly as chosen.")
+                                }
+                            }
+                        }
+
                         SettingsCard {
                             ColumnLayout {
                                 width: parent.width
@@ -3637,6 +3998,7 @@ Item {
                                     text: qsTr("Show the whole banner instead of a strip")
                                     checked: app.settings.spaceBannerExpanded
                                     onToggled: app.settings.spaceBannerExpanded = checked
+                                    SettingsNeedsBadge { needs: qsTr("Show Space banners") }
                                 }
                                 Label {
                                     Layout.topMargin: AppTheme.spacing8
@@ -4110,33 +4472,6 @@ Item {
                             wrapMode: Text.WordWrap
                             lineHeight: AppTheme.lineHeightBody
                             lineHeightMode: Text.ProportionalHeight
-                        }
-                        // The longest page in Settings, with encryption and the
-                        // recovery key at its very end: its contents, in page
-                        // order. A chip whose cards this backend does not show
-                        // falls back to the next anchor it names.
-                        PageJumpBar {
-                            objectName: "privacyJumpBar"
-                            entries: [
-                                { label: qsTr("Device trust"),
-                                  anchors: ["strictDeviceTrustCheck"] },
-                                { label: qsTr("Receipts and typing"),
-                                  anchors: ["readReceiptModeCombo"] },
-                                { label: qsTr("Ignored users"),
-                                  anchors: ["ignoredUsersCard"] },
-                                { label: qsTr("Message search"),
-                                  anchors: ["searchIndexHelpText"] },
-                                { label: qsTr("Link previews and GIFs"),
-                                  anchors: ["autoPreviewCheck"] },
-                                { label: qsTr("Media and downloads"),
-                                  anchors: ["keepMediaOnDeviceCheck"] },
-                                { label: qsTr("Encryption"),
-                                  anchors: ["cryptoHealthSummary",
-                                            "privacyStorageFactsCard"] },
-                                { label: qsTr("Recovery key"),
-                                  anchors: ["recoveryEntry", "crossSigningSetupCard",
-                                            "privacyStorageFactsCard"] },
-                            ]
                         }
 
                         // MSC4153. Under Privacy because it is a choice about
@@ -4673,12 +5008,23 @@ Item {
                                     checked: app.settings.autoLoadLinkPreviews
                                     onToggled: app.settings.autoLoadLinkPreviews = checked
                                 }
+                                SettingsHint {
+                                    objectName: "autoPreviewHint"
+                                    text: qsTr("If your homeserver cannot build the preview, "
+                                               + "Lightning fetches the link itself and the "
+                                               + "site sees your IP address.")
+                                }
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "encryptedPreviewCheck"
                                     text: qsTr("Load previews in encrypted rooms")
                                     checked: app.settings.loadPreviewsInEncryptedRooms
                                     onToggled: app.settings.loadPreviewsInEncryptedRooms = checked
+                                }
+                                SettingsHint {
+                                    objectName: "encryptedPreviewHint"
+                                    text: qsTr("Asking for a preview tells your homeserver which "
+                                               + "link was in an encrypted message.")
                                 }
                                 // A link that is itself a picture or a video.
                                 // Only for previews the switches above allow;
@@ -4936,6 +5282,11 @@ Item {
                                         }
                                     }
                                     onActivated: app.settings.gifPreferredProvider = currentValue
+                                }
+                                SettingsHint {
+                                    objectName: "gifProviderHint"
+                                    text: qsTr("Only the words you search for go to the provider. "
+                                               + "Your Matrix ID, rooms and messages never do.")
                                 }
                                 // Per-provider availability.
                                 Label {
@@ -5482,12 +5833,9 @@ Item {
                                         font.pixelSize: AppTheme.textBody
                                         font.weight: AppTheme.weightMedium
                                     }
-                                    Label {
-                                        text: Math.round(
-                                            notificationSoundVolumeSlider.value) + "%"
-                                        color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
-                                        font.weight: AppTheme.weightMedium
+                                    SettingsPercentBox {
+                                        objectName: "notificationVolumePercentBox"
+                                        slider: notificationSoundVolumeSlider
                                     }
                                     AppButton {
                                         objectName: "notificationSoundPreviewButton"
@@ -5556,6 +5904,7 @@ Item {
                                              + "ringing. Turning this off "
                                              + "still shows the call — it "
                                              + "only silences the ring.")
+                                    SettingsNeedsBadge { needs: qsTr("Desktop notifications") }
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -5709,13 +6058,10 @@ Item {
                                         font.pixelSize: AppTheme.textBody
                                         font.weight: AppTheme.weightMedium
                                     }
-                                    Label {
+                                    SettingsPercentBox {
                                         objectName: "mediaVolumeSettingReadout"
-                                        text: Math.round(
-                                            mediaVolumeSettingSlider.value * 100) + "%"
-                                        color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
-                                        font.weight: AppTheme.weightMedium
+                                        slider: mediaVolumeSettingSlider
+                                        valueScale: 100
                                     }
                                 }
                                 SettingsSlider {
@@ -5783,6 +6129,7 @@ Item {
                                     checked: app.settings.callSoundsPresence
                                     onToggled:
                                         app.settings.callSoundsPresence = checked
+                                    SettingsNeedsBadge { needs: qsTr("Play sounds during calls") }
                                 }
                                 CheckBox {
                                     objectName: "callSoundsControlsCheck"
@@ -5793,6 +6140,7 @@ Item {
                                     checked: app.settings.callSoundsControls
                                     onToggled:
                                         app.settings.callSoundsControls = checked
+                                    SettingsNeedsBadge { needs: qsTr("Play sounds during calls") }
                                 }
                                 CheckBox {
                                     objectName: "callSoundsShareAndHandCheck"
@@ -5803,6 +6151,7 @@ Item {
                                     checked: app.settings.callSoundsShareAndHand
                                     onToggled:
                                         app.settings.callSoundsShareAndHand = checked
+                                    SettingsNeedsBadge { needs: qsTr("Play sounds during calls") }
                                 }
 
                                 RowLayout {
@@ -5816,12 +6165,9 @@ Item {
                                         font.pixelSize: AppTheme.textBody
                                         font.weight: AppTheme.weightMedium
                                     }
-                                    Label {
-                                        text: Math.round(
-                                            callSoundVolumeSlider.value) + "%"
-                                        color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
-                                        font.weight: AppTheme.weightMedium
+                                    SettingsPercentBox {
+                                        objectName: "callSoundVolumePercentBox"
+                                        slider: callSoundVolumeSlider
                                     }
                                     AppButton {
                                         objectName: "callSoundPreviewButton"
@@ -5858,12 +6204,9 @@ Item {
                                         font.pixelSize: AppTheme.textBody
                                         font.weight: AppTheme.weightMedium
                                     }
-                                    Label {
-                                        text: Math.round(
-                                            ringerVolumeSlider.value) + "%"
-                                        color: AppTheme.stormText
-                                        font.pixelSize: AppTheme.textBody
-                                        font.weight: AppTheme.weightMedium
+                                    SettingsPercentBox {
+                                        objectName: "ringerVolumePercentBox"
+                                        slider: ringerVolumeSlider
                                     }
                                     AppButton {
                                         objectName: "ringerPreviewButton"
