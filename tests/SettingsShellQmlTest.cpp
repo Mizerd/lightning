@@ -4074,6 +4074,23 @@ private slots:
         QVERIFY2(reached >= atLeast - 1,
                  qPrintable(QStringLiteral("only %1 entries reachable").arg(reached)));
 
+        // A click's reveal keeps re-asserting its position for up to twelve
+        // frames (searchRevealSettle), so a jump made while it is still
+        // running is undone by it: the last click's settle put contentY back
+        // at the end of the page under the first "scroll" below. Let it finish
+        // before scrolling by hand.
+        {
+            qreal last = -1.0;
+            int steady = 0;
+            for (int t = 0; t < 200 && steady < 8; ++t) {
+                QTest::qWait(25);
+                const qreal now = flick->property("contentY").toReal();
+                steady = (qAbs(now - last) < 0.5) ? steady + 1 : 0;
+                last = now;
+            }
+            QVERIFY2(steady >= 8, "the page never stopped moving after the last click");
+        }
+
         // Scrolling, not clicking, moves the mark. Skip entries the page
         // cannot scroll far enough to put at the top.
         const qreal maxY = qMax(0.0, flick->property("contentHeight").toReal()
@@ -4152,7 +4169,10 @@ private slots:
         openSection(QStringLiteral("appearance"));
         auto *search = item("settingsSearchField");
         QVERIFY(search);
-        search->setProperty("text", QStringLiteral("microphone"));
+        // Not "microphone": the Message box buttons setting (Appearance, in
+        // the Interface group) is findable by it, because the composer has a
+        // voice-message microphone button. "speaker" is only the Sound page.
+        search->setProperty("text", QStringLiteral("speaker"));
         QCoreApplication::processEvents();
         QTRY_VERIFY(!item("settingsNavGroup_user")->isVisible());
         QVERIFY(!item("settingsNavGroup_interface")->isVisible());
