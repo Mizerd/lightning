@@ -102,7 +102,22 @@ private Q_SLOTS:
 
         // No standalone "React" row in the dropdown; bounded to this block so
         // the hover bar's React button (before "id: moreMenu") cannot match.
-        QCOMPARE(block.count(QStringLiteral("iconName: \"add_reaction\"")), 0);
+        // The one add_reaction glyph left in the dropdown belongs to "Add
+        // custom emoji to my pack" (saveEmoticonsMenuItem); any OTHER item
+        // carrying it would be the standalone React row coming back.
+        const QStringList items =
+            block.split(QStringLiteral("AppMenuItem {"));
+        int glyphs = 0;
+        for (const QString &item : items) {
+            if (!item.contains(QStringLiteral("iconName: \"add_reaction\"")))
+                continue;
+            ++glyphs;
+            QVERIFY2(item.contains(QStringLiteral(
+                         "objectName: \"saveEmoticonsMenuItem\"")),
+                     "a menu row other than the emoji-pack one uses the "
+                     "add_reaction glyph: the standalone React row is back");
+        }
+        QVERIFY(glyphs <= 1);
     }
 
     void messageMenuAcceleratorsArePresent()
