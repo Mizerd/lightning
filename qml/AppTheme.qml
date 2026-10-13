@@ -1423,12 +1423,9 @@ QtObject {
     // Status.
     readonly property color presenceDot:        _p.presenceDot !== undefined
                                                 ? _p.presenceDot : presenceOnline
-    // The chip drawn in the legacy style (StatusChip with `storm: false`)
-    // follows its group whatever the GLOBAL theme is: the chip, not the theme,
-    // chooses its vocabulary, and Storm's legacy chips have always been
-    // presenceOnline / dangerTint.
     readonly property color chipSuccess:        _p.chipSuccess !== undefined
-                                                ? _p.chipSuccess : presenceOnline
+                                                ? _p.chipSuccess
+                                                : (storm ? stormSuccess : presenceOnline)
     // A chip drawn in the Storm style keeps the Storm ink it always had until
     // a theme sets the chip itself.
     readonly property color stormChipSuccess:   _p.chipSuccess !== undefined
@@ -1438,7 +1435,8 @@ QtObject {
     readonly property color chipWarning:        _p.chipWarning !== undefined
                                                 ? _p.chipWarning : warning
     readonly property color chipDanger:         _p.chipDanger !== undefined
-                                                ? _p.chipDanger : dangerTint
+                                                ? _p.chipDanger
+                                                : (storm ? stormDanger : dangerTint)
     readonly property color menuDangerTint:     _p.menuDangerTint !== undefined
                                                 ? _p.menuDangerTint
                                                 : (storm ? _stoDanger : dangerTint)
