@@ -310,9 +310,11 @@ ApplicationWindow {
     Rectangle { objectName: "toneStormDanger";  visible: false; color: AppTheme.stormDanger }
     Rectangle { objectName: "toneStormInfo";    visible: false; color: AppTheme.info }
     Rectangle { objectName: "toneLegacyAccentTok";  visible: false; color: AppTheme.accent }
-    Rectangle { objectName: "toneLegacySuccessTok"; visible: false; color: AppTheme.presenceOnline }
+    // The chip's own roles since 2026-10-13 (chipSuccess / chipDanger follow
+    // presenceOnline / dangerTint, and Storm's palette for the preview).
+    Rectangle { objectName: "toneLegacySuccessTok"; visible: false; color: AppTheme.chipSuccess }
     Rectangle { objectName: "toneLegacyWarningTok"; visible: false; color: AppTheme.warning }
-    Rectangle { objectName: "toneLegacyDangerTok";  visible: false; color: AppTheme.mentionBadge }
+    Rectangle { objectName: "toneLegacyDangerTok";  visible: false; color: AppTheme.chipDanger }
     Rectangle { objectName: "toneLegacyInfoTok";    visible: false; color: AppTheme.info }
 
     // ── The composer command autocomplete ────────────────────────────────
