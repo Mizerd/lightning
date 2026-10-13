@@ -1107,7 +1107,9 @@ public:
     /// A redacted message must not stay findable by its own text.
     virtual void forgetIndexedEvent(const QString &eventId) { Q_UNUSED(eventId); }
     virtual void forgetIndexedRoom(const QString &roomId) { Q_UNUSED(roomId); }
-    virtual void clearSearchIndex() {}
+    /// True when the index was cleared; false when nothing was (no index, no
+    /// session, or the clear failed).
+    virtual bool clearSearchIndex() { return false; }
     /// "Index all rooms": every encrypted joined room's history, one room at a time,
     /// with the same bounded walk as deepenSearchIndex. Persisted per
     /// account, so a restart continues. `resumeOnly` continues a run the last

@@ -121,6 +121,7 @@ void AboutController::resetLocalCache()
     if (m_resetState == QLatin1String("running"))
         return;
     m_resetFailed.clear();
+    m_resetDone.clear();
     m_resetSummary.clear();
     if (!m_client) {
         m_resetState = QStringLiteral("failed");
@@ -130,16 +131,24 @@ void AboutController::resetLocalCache()
     }
     m_resetState = QStringLiteral("running");
     m_resetPending = 0;
+    // A step whose request was refused (op id 0) removed nothing: it is a
+    // failure, never a silent success (CLAUDE.md section 6).
     m_mediaOp = m_client->clearStoredMedia();
     if (m_mediaOp != 0)
         ++m_resetPending;
+    else
+        m_resetFailed.append(tr("media cache"));
     m_eventCacheOp = m_client->clearEventCache();
     if (m_eventCacheOp != 0)
         ++m_resetPending;
+    else
+        m_resetFailed.append(tr("event cache"));
     // The index clears synchronously, through the controller that owns its
-    // counters.
-    if (m_search)
-        m_search->clearIndex();
+    // counters, and says whether it did.
+    if (m_search && m_search->clearIndex())
+        m_resetDone.append(tr("search index"));
+    else
+        m_resetFailed.append(tr("search index"));
     Q_EMIT resetChanged();
     if (m_resetPending == 0)
         finishReset(false);
@@ -167,7 +176,9 @@ void AboutController::stepFinished(const QString &what, bool ok)
 {
     if (m_resetState != QLatin1String("running"))
         return;
-    if (!ok)
+    if (ok)
+        m_resetDone.append(what);
+    else
         m_resetFailed.append(what);
     if (--m_resetPending <= 0)
         finishReset(false);
@@ -182,17 +193,22 @@ void AboutController::finishReset(bool timedOut)
         m_resetState = QStringLiteral("failed");
         m_resetSummary = tr("Clearing did not finish. Some of the cache may "
                             "still be on disk; you can try again.");
-    } else if (m_resetFailed.isEmpty()) {
+    } else if (m_resetFailed.isEmpty() && !m_resetDone.isEmpty()) {
         m_resetState = QStringLiteral("done");
         m_resetSummary = tr("Cleared the event cache, the media cache and "
                             "the search index. Your sign-in and encryption "
                             "keys were not touched.");
+    } else if (m_resetDone.isEmpty()) {
+        m_resetState = QStringLiteral("failed");
+        m_resetSummary = tr("Nothing was cleared (%1). Your sign-in and "
+                            "encryption keys were not touched.")
+                             .arg(m_resetFailed.join(QStringLiteral(", ")));
     } else {
         m_resetState = QStringLiteral("failed");
-        m_resetSummary = tr("Could not clear: %1. Everything else was "
-                            "cleared; your sign-in and encryption keys were "
-                            "not touched.")
-                             .arg(m_resetFailed.join(QStringLiteral(", ")));
+        m_resetSummary = tr("Cleared: %1. Could not clear: %2. Your sign-in "
+                            "and encryption keys were not touched.")
+                             .arg(m_resetDone.join(QStringLiteral(", ")),
+                                  m_resetFailed.join(QStringLiteral(", ")));
     }
     Q_EMIT resetChanged();
 }

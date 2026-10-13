@@ -166,11 +166,10 @@ void MessageSearchController::indexRoomHistory(const QString &roomId)
         Q_EMIT indexingChanged();
 }
 
-void MessageSearchController::clearIndex()
+bool MessageSearchController::clearIndex()
 {
-    if (!m_client)
-        return;
-    m_client->clearSearchIndex();
+    if (!m_client || !m_client->clearSearchIndex())
+        return false;
     m_indexedMessages = 0;
     m_indexedRooms = 0;
     Q_EMIT indexStatsChanged();
@@ -179,6 +178,7 @@ void MessageSearchController::clearIndex()
     refreshIndexAllStatus();
     if (effectiveSource() == QLatin1String("local"))
         clear();
+    return true;
 }
 
 // ── "Index all rooms" ────────────────────────────────────────────────────

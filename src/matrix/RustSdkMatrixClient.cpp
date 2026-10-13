@@ -8209,11 +8209,12 @@ void RustSdkMatrixClient::forgetIndexedRoom(const QString &roomId)
                                                     id.constData()));
 }
 
-void RustSdkMatrixClient::clearSearchIndex()
+bool RustSdkMatrixClient::clearSearchIndex()
 {
     if (!m_rustHandle)
-        return;
-    takeRustString(mx_rust_search_index_clear(m_rustHandle));
+        return false;
+    // An empty string is success; anything else is the refusal.
+    return takeRustString(mx_rust_search_index_clear(m_rustHandle)).isEmpty();
 }
 
 quint64 RustSdkMatrixClient::indexAllRooms(bool resumeOnly)

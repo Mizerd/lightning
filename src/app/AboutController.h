@@ -116,6 +116,7 @@ private:
     quint64 m_mediaOp = 0;
     quint64 m_eventCacheOp = 0;
     QStringList m_resetFailed;
+    QStringList m_resetDone;
     int m_resetPending = 0;
     QTimer m_resetWatchdog;
 

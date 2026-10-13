@@ -505,7 +505,9 @@ public:
     quint64 deepenSearchIndex(const QString &roomId) override;
     void forgetIndexedEvent(const QString &eventId) override;
     void forgetIndexedRoom(const QString &roomId) override;
-    void clearSearchIndex() override;
+    bool clearSearchIndex() override;
+    quint64 clearStoredMedia() override;
+    int mediaClears = 0;
     // About page: canned answers one event-loop turn later, and a record of
     // what was asked.
     quint64 clearEventCache() override;

@@ -109,12 +109,18 @@ pub(crate) fn events_from_sync(body: &Value, room_id: &str) -> Vec<Value> {
 
 /// The filter the enumerating sync carries: nothing but account data.
 pub(crate) fn sync_filter(room_id: &str) -> Value {
+    // Global: a room filter naming a room id that cannot exist (Synapse treats
+    // an empty `rooms` list as "no filter" on some versions, which would mean
+    // every room) plus `not_rooms: ["*"]`, so the server has no room to
+    // gather. The response is still capped.
     let rooms: Vec<&str> = if room_id.is_empty() { vec![] } else { vec![room_id] };
+    let not_rooms: Vec<&str> = if room_id.is_empty() { vec!["*"] } else { vec![] };
     json!({
         "presence": { "types": [] },
         "account_data": { "limit": if room_id.is_empty() { 1000 } else { 0 } },
         "room": {
             "rooms": rooms,
+            "not_rooms": not_rooms,
             "ephemeral": { "types": [] },
             "state": { "types": [] },
             "timeline": { "types": [], "limit": 0 },
@@ -435,6 +441,8 @@ mod tests {
     fn the_sync_filter_asks_for_account_data_only() {
         let f = sync_filter("");
         assert_eq!(f["room"]["rooms"], json!([]));
+        assert_eq!(f["room"]["not_rooms"], json!(["*"]));
+        assert_eq!(sync_filter("!r:b")["room"]["not_rooms"], json!([]));
         assert_eq!(f["room"]["timeline"]["limit"], 0);
         assert_eq!(sync_filter("!r:b")["room"]["rooms"], json!(["!r:b"]));
     }

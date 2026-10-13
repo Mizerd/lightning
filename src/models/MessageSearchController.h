@@ -166,7 +166,8 @@ public:
     Q_INVOKABLE void sweepIndex();
     /// Page one room's history in and index it ("search this room").
     Q_INVOKABLE void indexRoomHistory(const QString &roomId);
-    Q_INVOKABLE void clearIndex();
+    /// False when nothing was cleared (no client, or the clear failed).
+    Q_INVOKABLE bool clearIndex();
     /// Start "index all rooms", or continue a paused or interrupted pass.
     Q_INVOKABLE void indexAllRooms();
     Q_INVOKABLE void pauseIndexAll();

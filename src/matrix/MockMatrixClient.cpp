@@ -3256,11 +3256,20 @@ quint64 MockMatrixClient::requestAccountDataListing(const QString &roomId)
     return op;
 }
 
-void MockMatrixClient::clearSearchIndex()
+bool MockMatrixClient::clearSearchIndex()
 {
     indexCleared = true;
     forgottenIndexEvents.clear();
     forgottenIndexRooms.clear();
+    return true;
+}
+
+quint64 MockMatrixClient::clearStoredMedia()
+{
+    ++mediaClears;
+    const quint64 op = m_aboutOp++;
+    QTimer::singleShot(0, this, [this, op] { Q_EMIT storedMediaCleared(op, true, 0, 0); });
+    return op;
 }
 
 namespace {

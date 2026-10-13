@@ -26,6 +26,16 @@ public:
     quint64 clearStoredMedia() override { return mediaOp = 4242; }
 };
 
+/// A backend that refuses every clear.
+class RefusingClient final : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    quint64 clearStoredMedia() override { return 0; }
+    quint64 clearEventCache() override { return 0; }
+    bool clearSearchIndex() override { return false; }
+};
+
 QString readSource(const QString &relative)
 {
     QFile file(QStringLiteral(REPO_ROOT "/") + relative);
@@ -142,8 +152,11 @@ private Q_SLOTS:
     void resetWaitsForTheMediaCacheToo()
     {
         ResetClient client;
+        MessageSearchController search;
+        search.setClient(&client);
         AboutController about;
         about.setClient(&client);
+        about.setSearch(&search);
 
         about.resetLocalCache();
         // The event cache answered; the media cache has not.
@@ -156,27 +169,65 @@ private Q_SLOTS:
     void aPartialFailureNamesWhatFailedAndStillSaysKeysAreSafe()
     {
         ResetClient client;
+        MessageSearchController search;
+        search.setClient(&client);
         AboutController about;
         about.setClient(&client);
+        about.setSearch(&search);
 
         about.resetLocalCache();
         QTest::qWait(30);
         Q_EMIT client.storedMediaCleared(client.mediaOp, false, 0, 0);
         QCOMPARE(about.resetState(), QStringLiteral("failed"));
-        QVERIFY(about.resetSummary().contains(QStringLiteral("media cache")));
-        QVERIFY(!about.resetSummary().contains(QStringLiteral("event cache")));
+        QVERIFY(about.resetSummary().contains(
+            QStringLiteral("Could not clear: media cache")));
+        QVERIFY(about.resetSummary().contains(
+            QStringLiteral("Cleared: event cache, search index")));
         QVERIFY(about.resetSummary().contains(QStringLiteral("not touched")));
     }
 
     void anAnswerForSomeOtherOperationDoesNotFinishTheReset()
     {
         ResetClient client;
+        MessageSearchController search;
+        search.setClient(&client);
         AboutController about;
         about.setClient(&client);
+        about.setSearch(&search);
         about.resetLocalCache();
         QTest::qWait(30);
         Q_EMIT client.storedMediaCleared(client.mediaOp + 1, true, 0, 0);
         QCOMPARE(about.resetState(), QStringLiteral("running"));
+    }
+
+    // A refused request removed nothing; it must not read as success.
+    void aRefusedStepIsAFailureNotASilentSuccess()
+    {
+        RefusingClient client;
+        MessageSearchController search;
+        search.setClient(&client);
+        AboutController about;
+        about.setClient(&client);
+        about.setSearch(&search);
+
+        about.resetLocalCache();
+        QCOMPARE(about.resetState(), QStringLiteral("failed"));
+        const QString summary = about.resetSummary();
+        QVERIFY(summary.startsWith(QStringLiteral("Nothing was cleared")));
+        for (const char *what : {"media cache", "event cache", "search index"})
+            QVERIFY2(summary.contains(QLatin1String(what)), what);
+        QVERIFY(!summary.startsWith(QStringLiteral("Cleared the")));
+    }
+
+    void withNoSearchControllerTheIndexStepFailsHonestly()
+    {
+        MockMatrixClient client;
+        AboutController about;
+        about.setClient(&client);
+        about.resetLocalCache();
+        QTRY_COMPARE(about.resetState(), QStringLiteral("failed"));
+        QVERIFY(about.resetSummary().contains(
+            QStringLiteral("Could not clear: search index")));
     }
 
     void resetWithoutAnAccountClearsNothingAndSaysSo()

@@ -542,7 +542,7 @@ public:
     quint64 deepenSearchIndex(const QString &roomId) override;
     void forgetIndexedEvent(const QString &eventId) override;
     void forgetIndexedRoom(const QString &roomId) override;
-    void clearSearchIndex() override;
+    bool clearSearchIndex() override;
     quint64 indexAllRooms(bool resumeOnly) override;
     quint64 pauseIndexAll() override;
     quint64 cancelIndexAll() override;
