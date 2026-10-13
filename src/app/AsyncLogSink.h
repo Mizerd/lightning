@@ -36,6 +36,12 @@ public:
         // up to three times this is held; while a write is stuck, twice.
         int maxLines = 8192;
         qint64 maxBytes = 4 * 1024 * 1024;
+        // When non-zero the writer lets lines gather for this long after the
+        // first one arrives, so a trickle of log lines costs one write per
+        // interval instead of one per line (the always-on rolling log). A
+        // flush(), a fatal line, shutdown() or a large backlog cuts the wait
+        // short. Zero keeps the write-as-soon-as-possible behaviour.
+        int coalesceMs = 0;
     };
 
     // Bounded waits used by the --log-file handler.

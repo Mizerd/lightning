@@ -3,6 +3,7 @@
 #include "matrix/BridgeNetwork.h"
 
 #include "app/FontManager.h"
+#include "app/LogExport.h"
 #include "app/GuiStallTracer.h"
 
 #include "app/RichComposerBridge.h"
@@ -49,6 +50,7 @@
 #include "calls/CallSoundPlayer.h"
 #ifdef HAVE_LIGHTNING_WEBRTC
 #include "calls/CameraPortal.h"
+#include "calls/GstBootstrap.h"
 #include "calls/GstCallMediaBackend.h"
 #include "calls/ScreenCastPortal.h"
 #include "calls/SfuMediaEngine.h"
@@ -434,6 +436,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
                 m_settings->rememberFileFolder(purpose, folder);
         });
     m_fileChooser->setDefaultFolder([this] { return defaultFileDialogFolder(); });
+    m_logExport = std::make_unique<LogExportController>(this);
+    m_logExport->setDiagnosticsProvider(
+        [this] { return logExportDiagnostics(); });
+    m_logExport->setLiteralsProvider([this] { return logExportLiterals(); });
     m_fileLauncher = std::make_unique<FileLauncher>(this);
     m_downloads = std::make_unique<DownloadsController>(
         m_mediaBridge.get(), m_fileChooser.get(), m_fileLauncher.get(), this);
@@ -5090,6 +5096,79 @@ QString AppController::sessionDiagnosticsText() const
     }
 
     return matrix::app_diagnostics::renderReport(r);
+}
+
+QString AppController::logExportDiagnostics() const
+{
+    QString out;
+    out += QStringLiteral("Lightning log export: diagnostics\n");
+    out += QStringLiteral("generated_utc: %1\n")
+               .arg(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    // version, source commit, target, build type, backends, artifact kind.
+    out += lightning::logexport::buildInfo();
+    out += QStringLiteral("package: %1\n")
+               .arg(lightning::update::installTypeId(
+                   lightning::update::detectInstallType()));
+    out += QStringLiteral("os: %1\n").arg(QSysInfo::prettyProductName());
+    out += QStringLiteral("kernel: %1 %2\n")
+               .arg(QSysInfo::kernelType(), QSysInfo::kernelVersion());
+    out += QStringLiteral("cpu_arch: %1\n").arg(QSysInfo::currentCpuArchitecture());
+    out += QStringLiteral("desktop: %1\n")
+               .arg(qEnvironmentVariable("XDG_CURRENT_DESKTOP"));
+    out += QStringLiteral("session_type: %1\n")
+               .arg(qEnvironmentVariable("XDG_SESSION_TYPE"));
+    out += QStringLiteral("qt_platform_plugin: %1\n")
+               .arg(QGuiApplication::platformName());
+    out += QStringLiteral("qt_runtime: %1\nqt_build: %2\n")
+               .arg(QString::fromLatin1(qVersion()),
+                    QStringLiteral(QT_VERSION_STR));
+#ifdef HAVE_LIGHTNING_WEBRTC
+    out += QStringLiteral("call_media_engine_built_in: yes\n");
+    if (qEnvironmentVariableIsSet("LIGHTNING_DISABLE_WEBRTC")) {
+        out += QStringLiteral("call_media_engine: disabled by environment\n");
+    } else {
+        QString whyOneToOne;
+        const bool oneToOne = GstCallMediaBackend::runtimeAvailable(&whyOneToOne);
+        QString whySfu;
+        const bool sfu = SfuMediaEngine::runtimeAvailable(&whySfu);
+        out += QStringLiteral("gstreamer: %1\n").arg(lightning::gst::versionString());
+        out += QStringLiteral("call_engine_1to1: %1\n")
+                   .arg(oneToOne ? QStringLiteral("available")
+                                 : QStringLiteral("unavailable (%1)").arg(whyOneToOne));
+        out += QStringLiteral("call_engine_group: %1\n")
+                   .arg(sfu ? QStringLiteral("available")
+                            : QStringLiteral("unavailable (%1)").arg(whySfu));
+        out += QStringLiteral("camera_compressed_chain: %1\n")
+                   .arg(SfuMediaEngine::jpegCameraChainAvailable()
+                            ? QStringLiteral("available")
+                            : QStringLiteral("unavailable"));
+    }
+#else
+    out += QStringLiteral("call_media_engine_built_in: no\n");
+#endif
+    out += QStringLiteral("\n");
+    out += sessionDiagnosticsText();
+    return out;
+}
+
+QStringList AppController::logExportLiterals() const
+{
+    QStringList out;
+    out << qEnvironmentVariable("USER") << qEnvironmentVariable("USERNAME")
+        << qEnvironmentVariable("LOGNAME") << QDir::home().dirName()
+        << QDir::homePath() << QSysInfo::machineHostName();
+    if (m_settings) {
+        for (const QString &uid : m_settings->savedAccountUserIds()) {
+            out << uid << matrix::app_data::safeUserSlug(uid);
+            // "@local:server" -> "local"
+            const int colon = uid.indexOf(QLatin1Char(':'));
+            if (uid.startsWith(QLatin1Char('@')) && colon > 1)
+                out << uid.mid(1, colon - 1);
+        }
+        out << m_settings->activeAccountUserId();
+    }
+    out.removeAll(QString());
+    return out;
 }
 
 void AppController::copySessionDiagnostics()

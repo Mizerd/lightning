@@ -121,6 +121,8 @@ struct AsyncLogSink::State {
     bool closed = false;
     bool stopping = false;
     bool exited = false;
+    // A caller is waiting for the writer: skip the coalescing wait.
+    bool urgent = false;
 };
 
 namespace {
@@ -168,6 +170,18 @@ void runWriter(const std::shared_ptr<AsyncLogSink::State> &state)
                 s.exited = true;
                 break;
             }
+            if (s.limits.coalesceMs > 0 && !s.stopping && !s.urgent) {
+                // Let a burst gather; anything that needs the file now, or a
+                // backlog near the bound, ends the wait.
+                s.wake.wait_for(
+                    lock, std::chrono::milliseconds(s.limits.coalesceMs),
+                    [&s] {
+                        return s.stopping || s.urgent
+                            || s.queuedBytes >= s.limits.maxBytes / 4
+                            || qsizetype(s.queue.size()) >= s.limits.maxLines / 2;
+                    });
+            }
+            s.urgent = false;
             batch.swap(s.queue);
             s.queuedBytes = 0;
             dropped = std::exchange(s.dropped, quint64(0));
@@ -264,6 +278,12 @@ bool AsyncLogSink::enqueue(qint64 whenMs, QByteArray text, bool stamp)
             s.queuedBytes += size;
             ++s.accepted;
             queued = true;
+            // A writer gathering a burst must not sit on a near-full queue.
+            if (s.limits.coalesceMs > 0
+                && (s.queuedBytes >= s.limits.maxBytes / 4
+                    || qsizetype(s.queue.size()) >= s.limits.maxLines / 2)) {
+                wakeWriter = true;
+            }
         }
     }
     // Only an idle writer waits, and it waits only on an empty queue.
@@ -279,6 +299,10 @@ bool AsyncLogSink::flush(int timeoutMs)
     State &s = *m_state;
     std::unique_lock<std::mutex> lock(s.mutex);
     const quint64 target = s.accepted;
+    if (s.written < target) {
+        s.urgent = true;
+        s.wake.notify_one();
+    }
     return s.progress.wait_for(lock, boundOf(timeoutMs),
                                [&s, target] { return s.written >= target; });
 }
@@ -315,6 +339,7 @@ bool AsyncLogSink::logFatal(const char *category, const QString &message,
     s.queuedBytes += body.size();
     s.queue.push_back({whenMs, std::move(body), true});
     const quint64 target = ++s.accepted;
+    s.urgent = true;
     s.wake.notify_one();
     return s.progress.wait_for(lock, boundOf(timeoutMs),
                                [&s, target] { return s.written >= target; });

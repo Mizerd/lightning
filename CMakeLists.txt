@@ -734,6 +734,10 @@ set(APP_SOURCES
     src/app/SaveNaming.cpp
     src/app/FileChooser.h
     src/app/FileChooser.cpp
+    src/app/LogExport.h
+    src/app/LogExport.cpp
+    src/app/LogExportController.h
+    src/app/LogExportController.cpp
     src/app/FileLauncher.h
     src/app/FileLauncher.cpp
     src/app/DownloadsController.h
@@ -979,6 +983,7 @@ set(APP_QML_FILES
     qml/SettingsHint.qml
     qml/SettingsNavGroupLabel.qml
     qml/SettingsNavOutline.qml
+    qml/LogExportCard.qml
     qml/UpdateAvailableDialog.qml
     qml/MainScreen.qml
     qml/HomePane.qml
@@ -1951,6 +1956,27 @@ if(BUILD_TESTING)
     target_include_directories(async-log-sink-test PRIVATE src)
     target_link_libraries(async-log-sink-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME async-log-sink COMMAND async-log-sink-test)
+
+    # Log export (Settings -> About): the sanitizer's rules, the rolling log's
+    # bounds and write cost, the zip, and what an exported file contains.
+    qt_add_executable(log-export-test
+        tests/LogExportTest.cpp
+        src/app/LogExport.h
+        src/app/LogExport.cpp
+        src/app/LogExportController.h
+        src/app/LogExportController.cpp
+        src/app/AsyncLogSink.h
+        src/app/AsyncLogSink.cpp
+        src/app/SessionDiagnostics.h
+        src/app/SessionDiagnostics.cpp
+        src/crypto/E2eeDiagnostics.h
+        src/crypto/E2eeDiagnostics.cpp
+    )
+    target_include_directories(log-export-test PRIVATE src)
+    target_link_libraries(log-export-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
+    add_test(NAME log-export COMMAND log-export-test)
+    set_tests_properties(log-export PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # The outermost message handler's limiter: a message repeated without end
     # costs a bounded number of lines, and says how many it suppressed.

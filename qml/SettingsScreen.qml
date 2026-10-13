@@ -9367,6 +9367,7 @@ Item {
 
                         AboutToolsSection { }
                         DeveloperToolsSection { }
+                        LogExportCard {}
 
                         // Reserve the Storm Band's height so content can scroll
                         // clear of its opaque lower part.

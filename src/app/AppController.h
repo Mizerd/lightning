@@ -50,6 +50,7 @@
 #include "media/MediaBridge.h"
 #include "app/DownloadsController.h"
 #include "app/FileChooser.h"
+#include "app/LogExportController.h"
 #include "app/FileLauncher.h"
 #include "media/StagedImageStore.h"
 #include "media/ImageCropper.h"
@@ -413,6 +414,8 @@ class AppController : public QObject
     // Every file and folder chooser (NativeFileDialog.qml): the desktop's
     // own dialog through the XDG portal, or QFileDialog. Never QtQuick.Dialogs.
     Q_PROPERTY(FileChooser* files READ files CONSTANT)
+    // Settings -> About -> Export logs: a sanitized .zip of the rolling log.
+    Q_PROPERTY(LogExportController* logExport READ logExport CONSTANT)
     // Element's download workflow: straight to Downloads, then Open / Show in
     // folder. See DownloadsController.
     Q_PROPERTY(DownloadsController* downloads READ downloads CONSTANT)
@@ -729,6 +732,7 @@ public:
     RoomClosureController *roomClosure() const { return m_roomClosure.get(); }
     MediaBridge *mediaBridge() const { return m_mediaBridge.get(); }
     FileChooser *files() const { return m_fileChooser.get(); }
+    LogExportController *logExport() const { return m_logExport.get(); }
     DownloadsController *downloads() const { return m_downloads.get(); }
     AccountAvatarStore *accountAvatars() const
     {
@@ -1499,6 +1503,13 @@ private:
     std::unique_ptr<RoomClosureController> m_roomClosure;
     std::unique_ptr<MediaBridge> m_mediaBridge;
     std::unique_ptr<FileChooser> m_fileChooser;
+    std::unique_ptr<LogExportController> m_logExport;
+    // Header text for an exported log: build, platform, Qt, GStreamer and
+    // call-engine facts, then the sanitized session diagnostics. Safe fields
+    // only; the export sanitizes it again.
+    QString logExportDiagnostics() const;
+    // Strings that identify this user and must not survive in a shared log.
+    QStringList logExportLiterals() const;
     std::unique_ptr<FileLauncher> m_fileLauncher;
     // Declared after the bridge, chooser and launcher it points at, so it is
     // destroyed first.

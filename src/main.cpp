@@ -25,6 +25,7 @@
 #include "media/SvgRasterJob.h"
 #include "media/StagedImageProvider.h"
 #include "app/AsyncLogSink.h"
+#include "app/LogExport.h"
 #include "app/GuiStallTracer.h"
 #include "app/QmlGcPolicy.h"
 #include "app/RepeatLogLimiter.h"
@@ -80,6 +81,7 @@
 #include <QTextStream>
 
 #include <atomic>
+#include <mutex>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -169,6 +171,16 @@ std::atomic<QtMessageHandler> g_previousHandler{nullptr};
 void logFileHandler(QtMsgType type, const QMessageLogContext &context,
                     const QString &message)
 {
+    // The always-on rolling log (Settings -> About -> Export logs). Same
+    // rules: queue only, never wait.
+    if (AsyncLogSink *rolling = lightning::logexport::rollingLogSink()) {
+        if (type == QtFatalMsg) {
+            rolling->logFatal(context.category, message,
+                              AsyncLogSink::kFatalDrainMs);
+        } else {
+            rolling->log(type, context.category, message);
+        }
+    }
     // First: it never blocks and stamps the line now, so a stalled stderr
     // can neither hold it back nor re-date it.
     if (AsyncLogSink *sink = processLogSink()) {
@@ -204,6 +216,18 @@ void flushLogFileAtExit()
 {
     if (AsyncLogSink *sink = processLogSink())
         sink->shutdown(AsyncLogSink::kShutdownMs);
+    if (AsyncLogSink *rolling = lightning::logexport::rollingLogSink())
+        rolling->shutdown(AsyncLogSink::kShutdownMs);
+}
+
+// One handler serves both destinations; whichever is installed first
+// installs it, and the second finds it there.
+void ensureLogHandlerInstalled()
+{
+    static std::atomic<bool> installed{false};
+    if (installed.exchange(true))
+        return;
+    g_previousHandler.store(qInstallMessageHandler(logFileHandler));
 }
 } // namespace
 
@@ -286,7 +310,34 @@ void installLogFile(const QString &path)
         "sharing.\n"));
     lightning::logging::setProcessLogSink(sink);
     std::atexit(flushLogFileAtExit);
-    g_previousHandler.store(qInstallMessageHandler(logFileHandler));
+    ensureLogHandlerInstalled();
+}
+
+// The rolling log: the last few MB of the application's own log, always
+// written, so "Export logs" has something to export after the problem
+// already happened. Cache directory (expendable; follows a portable folder),
+// append-only, bounded (RollingLimits), coalesced to about one write per
+// second. LIGHTNING_NO_ROLLING_LOG=1 turns it off.
+void installRollingLog()
+{
+    if (qEnvironmentVariableIsSet("LIGHTNING_NO_ROLLING_LOG"))
+        return;
+    const QString cache = matrix::app_data::cacheRoot();
+    if (cache.isEmpty())
+        return;
+    const QString dir = cache + QStringLiteral("/logs");
+    auto device = std::make_unique<lightning::logexport::RollingLogDevice>(
+        dir, lightning::logexport::RollingLimits{});
+    if (!device->open(QIODevice::WriteOnly))
+        return;
+    AsyncLogSink::Limits limits;
+    limits.coalesceMs = 1000;
+    auto *sink = new AsyncLogSink(std::move(device), limits);
+    lightning::logexport::setRollingLogDirectory(dir);
+    lightning::logexport::setRollingLogSink(sink);
+    static std::once_flag exitHook;
+    std::call_once(exitHook, [] { std::atexit(flushLogFileAtExit); });
+    ensureLogHandlerInstalled();
 }
 
 #ifndef LIGHTNING_BUILD_TYPE
@@ -2197,6 +2248,10 @@ int main(int argc, char *argv[])
         return 5;
     }
     }
+    // After the claim: a second launch that only raises the first window
+    // must not open a log file beside the running one's.
+    installRollingLog();
+    lightning::logexport::setBuildInfo(buildInfoString());
     // Closed once quitting starts; the lock stays held past that and past
     // this guard's own destruction (see holdLockUntilProcessExit() above),
     // until the process truly exits, so a relaunch during teardown waits for
