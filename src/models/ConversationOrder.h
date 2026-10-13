@@ -53,14 +53,36 @@ enum SortMode {
     /// Inside a real Space: the Space's own m.space.child order (its lobby's),
     /// favourites first. Everywhere else it behaves exactly like Activity.
     SortBySpaceOrder = 2,
+    /// Unread conversations first (an unmuted room with something to read),
+    /// then the rest; inside each half, by activity. Groups are unchanged.
+    SortByUnread = 3,
 };
 
 /// An unknown value (hand-edited, or written by a newer build with a fourth
 /// mode) is Activity, not the nearest mode: modes have no magnitude.
 inline int normalizedSortMode(int mode)
 {
-    return mode == SortByName || mode == SortBySpaceOrder ? mode
-                                                          : SortByActivity;
+    return mode == SortByName || mode == SortBySpaceOrder
+                   || mode == SortByUnread
+               ? mode
+               : SortByActivity;
+}
+
+/// How the Spaces rail orders its Spaces. Manual is the user's own drag
+/// arrangement (RailLayoutStore) and is never overwritten by the other two:
+/// they sort a copy at read time, so switching back restores the drag order
+/// exactly. Stored as an int (SettingsManager::railSort); an unknown value is
+/// Manual, like an unknown room-list mode is Activity.
+enum RailSort {
+    RailSortManual = 0,
+    RailSortName = 1,
+    RailSortActivity = 2,
+};
+
+inline int normalizedRailSort(int mode)
+{
+    return mode == RailSortName || mode == RailSortActivity ? mode
+                                                            : RailSortManual;
 }
 
 /// The collator A-Z compares with: the user's locale, case-insensitive. Built

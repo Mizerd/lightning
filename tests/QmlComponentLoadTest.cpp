@@ -31,6 +31,7 @@
 #include "auth/AuthManager.h"
 #include "models/RoomListModel.h"
 #include "models/SpaceChannelModel.h"
+#include "spaces/RailLayoutStore.h"
 
 #include <memory>
 
@@ -369,6 +370,40 @@ ApplicationWindow {
         QCOMPARE(controller.settings()->roomListSort(), 0);
         QCOMPARE(controller.roomList()->sortMode(), 0);
         QCOMPARE(controller.spaceChannels()->sortMode(), 0);
+
+        // Unread first is a fourth, selectable mode that reaches both layouts.
+        auto *unread = menu->findChild<QObject *>(
+            QStringLiteral("roomSortUnreadItem"));
+        QVERIFY2(unread, "the menu lost its Unread first sort");
+        QVERIFY(QMetaObject::invokeMethod(unread, "triggered"));
+        QCOMPARE(controller.settings()->roomListSort(), 3);
+        QVERIFY(unread->property("radioSelected").toBool());
+        QCOMPARE(controller.roomList()->sortMode(), 3);
+        QCOMPARE(controller.spaceChannels()->sortMode(), 3);
+    }
+
+    // The Spaces rail's sort setting reaches the arrangement store, and the
+    // rail's context menu offers all three orders.
+    void theRailSortSettingReachesTheStoreAndTheMenuOffersIt()
+    {
+        AppController controller(AppController::MockBackend);
+        QCOMPARE(controller.railLayout()->sortMode(), 0);
+        controller.settings()->setRailSort(1);
+        QCOMPARE(controller.railLayout()->sortMode(), 1);
+        controller.settings()->setRailSort(2);
+        QCOMPARE(controller.railLayout()->sortMode(), 2);
+        controller.settings()->setRailSort(0);
+        QCOMPARE(controller.railLayout()->sortMode(), 0);
+
+        QFile rail(QStringLiteral(QML_DIR "/SpacesRail.qml"));
+        QVERIFY(rail.open(QIODevice::ReadOnly));
+        const QString text = QString::fromUtf8(rail.readAll());
+        for (const char *name : { "railSortManual", "railSortName",
+                                  "railSortActivity" }) {
+            QVERIFY2(text.contains(QStringLiteral("objectName: \"%1\"")
+                                       .arg(QLatin1String(name))),
+                     name);
+        }
     }
 
     // Settings' microphone test (Discord's "Let's check") and speaker test:

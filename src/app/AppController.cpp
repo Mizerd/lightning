@@ -1666,6 +1666,14 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // The rail arrangement is per-account behind a process-lifetime cache, so
     // the store must be told about sign-out and switches.
     m_railLayout->setClient(m_client.get());
+    // A-Z / Recent activity sort a copy of the arrangement at read time, so
+    // Manual restores the dragged order untouched.
+    const auto applyRailSort = [this] {
+        m_railLayout->setSortMode(m_settings->railSort());
+    };
+    connect(m_settings.get(), &SettingsManager::railSortChanged, this,
+            applyRailSort);
+    applyRailSort();
     // The Channels layout is global: it needs the account's rooms and the
     // rail order, not the selected Space.
     m_spaceChannels = std::make_unique<SpaceChannelModel>(this);

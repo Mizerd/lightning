@@ -170,13 +170,24 @@ void SpaceChannelModel::sortGroup(QVector<Row> &rooms, bool favouritesFirst)
                   });
         return;
     }
+    // Unread first: after the favourite split, rooms with something to read
+    // lead (hasUnread already honours the room's mute), then by activity.
+    const bool unreadFirst = m_sortMode == conversation::SortByUnread;
     std::sort(rooms.begin(), rooms.end(),
-              favouritesFirst ? byFavouriteThenRecency : byRecency);
+              [favouritesFirst, unreadFirst](const Row &a, const Row &b) {
+                  if (favouritesFirst && a.favourite != b.favourite)
+                      return a.favourite;
+                  if (unreadFirst && a.hasUnread != b.hasUnread)
+                      return a.hasUnread;
+                  return byRecency(a, b);
+              });
     if (m_sortPending)
         return;
-    const auto byTarget = [favouritesFirst](const Row &a, const Row &b) {
+    const auto byTarget = [favouritesFirst, unreadFirst](const Row &a, const Row &b) {
         if (favouritesFirst && a.favourite != b.favourite)
             return a.favourite;
+        if (unreadFirst && a.hasUnread != b.hasUnread)
+            return a.hasUnread;
         return conversation::moreRecent(a.targetActivity, a.name, a.id,
                                         b.targetActivity, b.name, b.id);
     };

@@ -624,8 +624,19 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
             m_spaces && m_sortMode == conversation::SortBySpaceOrder
                 ? m_spaces->childOrder(m_spaces->activeSpaceId())
                 : QHash<QString, int>();
-        const auto order = [&superseded, &spaceOrder](const QHash<QString, QDateTime> &stamps) {
-            return [&superseded, &spaceOrder, p = &stamps](const RoomInfo &a, const RoomInfo &b) {
+        // Unread first: inside a rank, rooms with something to read lead.
+        // The room's own notification mode applies (a muted room is silent).
+        QSet<QString> unreadIds;
+        if (m_sortMode == conversation::SortByUnread) {
+            for (const auto &r : desired) {
+                if (r.membership != RoomInfo::Invited
+                    && roomunread::countsAsUnread(r, notificationModeOf(r.id)))
+                    unreadIds.insert(r.id);
+            }
+        }
+        const bool unreadFirst = m_sortMode == conversation::SortByUnread;
+        const auto order = [&superseded, &spaceOrder, &unreadIds, unreadFirst](const QHash<QString, QDateTime> &stamps) {
+            return [&superseded, &spaceOrder, &unreadIds, unreadFirst, p = &stamps](const RoomInfo &a, const RoomInfo &b) {
                 const int aRank = orderRankOf(a);
                 const int bRank = orderRankOf(b);
                 if (aRank != bRank)
@@ -634,6 +645,12 @@ QList<RoomInfo> RoomListModel::desiredRooms(const QSet<QString> &superseded)
                 const bool bOld = superseded.contains(b.id);
                 if (aOld != bOld)
                     return bOld;
+                if (unreadFirst) {
+                    const bool aUnread = unreadIds.contains(a.id);
+                    const bool bUnread = unreadIds.contains(b.id);
+                    if (aUnread != bUnread)
+                        return aUnread;
+                }
                 if (!spaceOrder.isEmpty()) {
                     const int aPos = spaceOrder.value(a.id, -1);
                     const int bPos = spaceOrder.value(b.id, -1);

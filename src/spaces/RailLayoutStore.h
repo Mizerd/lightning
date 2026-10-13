@@ -33,6 +33,8 @@ class RailLayoutStore : public QObject
     // Explicit top-level order. Unlisted ids follow in model order, so a
     // newly joined Space appears at the bottom.
     Q_PROPERTY(QStringList order READ order NOTIFY layoutChanged)
+    Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode
+                   NOTIFY layoutChanged)
 
 public:
     explicit RailLayoutStore(SettingsManager *settings,
@@ -46,6 +48,16 @@ public:
 
     QVariantList folders() const;
     QStringList order() const;
+    /// conversation::RailSort. Manual reads the stored arrangement; A-Z and
+    /// Recent activity sort a COPY at read time, so the stored arrangement is
+    /// untouched and switching back restores it exactly.
+    int sortMode() const { return m_sortMode; }
+    void setSortMode(int mode);
+    /// `ids` ordered by the current sort mode, or unchanged in Manual. `byId`
+    /// supplies each id's `name` and `lastActivityMs` (SpaceManager::allSpaces
+    /// rows). Unknown ids sort last, in their given order.
+    QStringList sortedForMode(const QStringList &ids,
+                              const QHash<QString, QVariantMap> &byId) const;
     QStringList expandedSpaceIds() const;
     Q_INVOKABLE bool spaceExpanded(const QString &spaceId) const;
     Q_INVOKABLE void setSpaceExpanded(const QString &spaceId, bool expanded);
@@ -166,6 +178,10 @@ private:
         QHash<QString, QStringList> roomOrder;
     };
 
+    /// byId plus one entry per folder (its name; its newest member's activity)
+    /// so folders sort among Spaces.
+    QHash<QString, QVariantMap> sortKeys(
+        const Layout &layout, const QHash<QString, QVariantMap> &byId) const;
     const Layout &load() const;
     void save(const Layout &layout);
     /// Removes every folder this write emptied (empty now, non-empty when
@@ -181,4 +197,5 @@ private:
     MatrixClient *m_client = nullptr;
     mutable Layout m_cache;
     mutable bool m_loaded = false;
+    int m_sortMode = 0;   // conversation::RailSortManual
 };

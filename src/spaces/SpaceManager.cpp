@@ -3,6 +3,8 @@
 #include "matrix/MatrixClient.h"
 #include "matrix/RoomUnreadRule.h"
 
+#include <algorithm>
+
 SpaceManager::SpaceManager(QObject *parent)
     : QAbstractListModel(parent)
 {
@@ -303,11 +305,33 @@ QVariantList SpaceManager::allSpaces() const
 {
     QVariantList out;
     const QHash<int, QByteArray> names = roleNames();
+    // When somebody last spoke in any room of each Space, for the rail's
+    // "Recent activity" order. Read off the room list once, not per Space.
+    QHash<QString, qint64> roomMs;
+    if (m_client) {
+        const QList<RoomInfo> all = m_client->rooms();
+        roomMs.reserve(all.size());
+        for (const RoomInfo &r : all) {
+            if (!r.isSpace && r.lastActivity.isValid())
+                roomMs.insert(r.id, r.lastActivity.toMSecsSinceEpoch());
+        }
+    }
     for (int row = 0; row < rowCount(); ++row) {
         QVariantMap entry;
         const QModelIndex idx = index(row, 0);
         for (auto it = names.constBegin(); it != names.constEnd(); ++it)
             entry.insert(QString::fromUtf8(it.value()), data(idx, it.key()));
+        qint64 newest = 0;
+        const QString spaceId =
+            entry.value(QStringLiteral("spaceId")).toString();
+        if (!spaceId.isEmpty() && spaceId.startsWith(QLatin1Char('!'))) {
+            const auto members = m_membership.constFind(spaceId);
+            if (members != m_membership.constEnd()) {
+                for (const QString &roomId : *members)
+                    newest = std::max(newest, roomMs.value(roomId, 0));
+            }
+        }
+        entry.insert(QStringLiteral("lastActivityMs"), newest);
         out.append(entry);
     }
     return out;

@@ -16,6 +16,7 @@
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+#include "matrix/RoomUnreadRule.h"
 #include "models/RoomListModel.h"
 #include "models/SpaceChannelModel.h"
 #include "spaces/RailLayoutStore.h"
@@ -826,6 +827,70 @@ private Q_SLOTS:
         QCOMPARE(idsOf(c.model), kSortActivity);
     }
 
+    // --- Unread first ------------------------------------------------------
+
+    static QList<RoomInfo> unreadRooms()
+    {
+        QList<RoomInfo> out = sortRooms();
+        for (RoomInfo &r : out) {
+            if (r.id == kR2)
+                r.unreadCount = 3;
+            if (r.id == kR3)
+                r.hasUnreadMessages = true;
+        }
+        return out;
+    }
+
+    void classicUnreadFirstLeadsEachGroupAndKeepsActivityInside()
+    {
+        Classic c;
+        c.build(false, unreadRooms());
+        QCOMPARE(idsOf(c.model), kSortActivity);
+        QSignalSpy changed(&c.model, &RoomListModel::sortModeChanged);
+        c.model.setSortMode(conversation::SortByUnread);
+        QCOMPARE(changed.count(), 1);
+        // Invitation and favourites keep their groups; inside the feed the
+        // two unread rooms lead (newer first), then the read ones.
+        QCOMPARE(idsOf(c.model),
+                 (QStringList{ kInvite, kFavY, kFavD, kR2, kR3, kR1, kR4 }));
+        c.model.setSortMode(conversation::SortByActivity);
+        QCOMPARE(idsOf(c.model), kSortActivity);
+    }
+
+    void classicAMutedUnreadRoomDoesNotLeadUnderUnreadFirst()
+    {
+        Classic c;
+        c.build(false, unreadRooms());
+        c.model.setNotificationModeSource([](const QString &id) {
+            return id == kR3 ? roomunread::kModeMute
+                             : roomunread::kModeAllMessages;
+        });
+        c.model.setSortMode(conversation::SortByUnread);
+        QCOMPARE(idsOf(c.model),
+                 (QStringList{ kInvite, kFavY, kFavD, kR2, kR1, kR4, kR3 }));
+    }
+
+    void channelsUnreadFirstLeadsTheFeedAndTheSettingNormalises()
+    {
+        Channels c;
+        c.build(false, unreadRooms());
+        c.model.setSortMode(conversation::SortByUnread);
+        c.settle();
+        const QStringList ids = roomIdsOf(c.model);
+        QVERIFY2(ids.indexOf(kR2) < ids.indexOf(kR1)
+                     && ids.indexOf(kR3) < ids.indexOf(kR1)
+                     && ids.indexOf(kR1) < ids.indexOf(kR4),
+                 qPrintable(ids.join(QLatin1Char(','))));
+        QCOMPARE(conversation::normalizedSortMode(3),
+                 int(conversation::SortByUnread));
+        QCOMPARE(conversation::normalizedSortMode(4),
+                 int(conversation::SortByActivity));
+        c.model.setSortMode(conversation::SortByActivity);
+        c.settle();
+        const QStringList back = roomIdsOf(c.model);
+        QVERIFY(back.indexOf(kR1) < back.indexOf(kR2));
+    }
+
     void classicAnUnknownSortModeIsActivityNotTheNearestMode()
     {
         Classic c;
@@ -946,8 +1011,8 @@ private Q_SLOTS:
         QCOMPARE(SettingsManager().roomListSort(),
                  int(conversation::SortBySpaceOrder));
         // A value from a newer build, or a hand edit, is Activity, not the
-        // nearest mode (std::clamp would have said Space order for 3).
-        for (const int unknown : { 3, 7, -1 }) {
+        // nearest mode (std::clamp would have said Unread first for 4).
+        for (const int unknown : { 4, 7, -1 }) {
             raw.setValue(QStringLiteral("shell/roomListSort"), unknown);
             raw.sync();
             SettingsManager reader;

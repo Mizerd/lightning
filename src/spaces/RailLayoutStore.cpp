@@ -2,6 +2,9 @@
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+#include "models/ConversationOrder.h"
+
+#include <algorithm>
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -667,11 +670,72 @@ void RailLayoutStore::applyArrangement(const QStringList &topLevel,
     save(next);
 }
 
+QHash<QString, QVariantMap> RailLayoutStore::sortKeys(
+    const Layout &layout, const QHash<QString, QVariantMap> &byId) const
+{
+    QHash<QString, QVariantMap> keys = byId;
+    for (const Folder &f : layout.folders) {
+        qint64 newest = 0;
+        for (const QString &m : f.spaceIds) {
+            newest = std::max(newest,
+                              byId.value(m).value(QStringLiteral(
+                                  "lastActivityMs")).toLongLong());
+        }
+        keys.insert(f.id, QVariantMap{
+            { QStringLiteral("name"), f.name },
+            { QStringLiteral("lastActivityMs"), newest } });
+    }
+    return keys;
+}
+
+void RailLayoutStore::setSortMode(int mode)
+{
+    const int valid = conversation::normalizedRailSort(mode);
+    if (valid == m_sortMode)
+        return;
+    m_sortMode = valid;
+    Q_EMIT layoutChanged();
+}
+
+QStringList RailLayoutStore::sortedForMode(
+    const QStringList &ids, const QHash<QString, QVariantMap> &byId) const
+{
+    if (m_sortMode == conversation::RailSortManual || ids.size() < 2)
+        return ids;
+    const QCollator collator = conversation::makeNameCollator();
+    const auto nameOf = [&byId](const QString &id) {
+        return byId.value(id).value(QStringLiteral("name")).toString();
+    };
+    const auto activityOf = [&byId](const QString &id) {
+        return byId.value(id).value(QStringLiteral("lastActivityMs"))
+            .toLongLong();
+    };
+    QStringList out = ids;
+    std::stable_sort(out.begin(), out.end(),
+                     [&](const QString &a, const QString &b) {
+        const bool aKnown = byId.contains(a);
+        const bool bKnown = byId.contains(b);
+        if (aKnown != bKnown)
+            return aKnown;
+        if (!aKnown)
+            return false;
+        if (m_sortMode == conversation::RailSortActivity) {
+            const qint64 aWhen = activityOf(a);
+            const qint64 bWhen = activityOf(b);
+            if (aWhen != bWhen)
+                return aWhen > bWhen;   // never-active (0) sorts last
+        }
+        return conversation::byName(collator, nameOf(a), a, nameOf(b), b);
+    });
+    return out;
+}
+
 QStringList RailLayoutStore::orderedSpaceIds(const QVariantList &spaces) const
 {
     const Layout &layout = load();
     QStringList natural;
     QSet<QString> present;
+    QHash<QString, QVariantMap> byId;
     for (const QVariant &value : spaces) {
         const QString id =
             value.toMap().value(QStringLiteral("spaceId")).toString();
@@ -679,6 +743,7 @@ QStringList RailLayoutStore::orderedSpaceIds(const QVariantList &spaces) const
             continue;
         present.insert(id);
         natural.append(id);
+        byId.insert(id, value.toMap());
     }
 
     QHash<QString, QString> folderOfSpace;
@@ -696,7 +761,7 @@ QStringList RailLayoutStore::orderedSpaceIds(const QVariantList &spaces) const
         for (const Folder &folder : layout.folders) {
             if (folder.id != folderId)
                 continue;
-            for (const QString &id : folder.spaceIds) {
+            for (const QString &id : sortedForMode(folder.spaceIds, byId)) {
                 if (present.contains(id) && !out.contains(id))
                     out.append(id);
             }
@@ -723,6 +788,9 @@ QStringList RailLayoutStore::orderedSpaceIds(const QVariantList &spaces) const
     for (const QString &id : natural) {
         if (!folderOfSpace.contains(id) && !top.contains(id))
             top.append(id);
+    }
+    if (m_sortMode != conversation::RailSortManual) {
+        top = sortedForMode(top, sortKeys(layout, byId));
     }
     for (const QString &id : top) {
         if (isFolderId(id))
@@ -785,6 +853,13 @@ QVariantList RailLayoutStore::arrange(const QVariantList &spaces) const
             top.append(id);
     }
 
+    // Automatic order: sort a copy of the top level (a folder sorts by its own
+    // name, or by its newest member's activity). The stored arrangement above
+    // is untouched, so Manual restores it.
+    if (m_sortMode != conversation::RailSortManual) {
+        top = sortedForMode(top, sortKeys(layout, byId));
+    }
+
     QVariantList out = pseudo;
     for (const QString &id : top) {
         const Folder *folder = nullptr;
@@ -814,7 +889,8 @@ QVariantList RailLayoutStore::arrange(const QVariantList &spaces) const
         // Up to four member avatars for the folder tile's composite preview,
         // so a collapsed folder is identifiable.
         QVariantList preview;
-        for (const QString &memberId : folder->spaceIds) {
+        for (const QString &memberId :
+             sortedForMode(folder->spaceIds, byId)) {
             auto it = byId.constFind(memberId);
             if (it == byId.constEnd())
                 continue;

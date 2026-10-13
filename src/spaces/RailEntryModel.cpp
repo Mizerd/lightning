@@ -3,6 +3,7 @@
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
 #include "matrix/RoomUnreadRule.h"
+#include "models/ConversationOrder.h"
 #include "spaces/RailLayoutStore.h"
 #include "spaces/SpaceManager.h"
 
@@ -197,6 +198,12 @@ void RailEntryModel::setOrphansEntryVisible(bool visible)
     refresh();
 }
 
+bool RailEntryModel::railIsManual() const
+{
+    return !m_layout
+           || m_layout->sortMode() == conversation::RailSortManual;
+}
+
 void RailEntryModel::refresh()
 {
     if (m_dragging) {
@@ -273,7 +280,9 @@ void RailEntryModel::refresh()
         entry.insert(QStringLiteral("pseudo"), pseudo);
         entry.insert(QStringLiteral("hierarchyChild"), false);
         // A folder is arrangeable; a pseudo row never is.
-        entry.insert(QStringLiteral("draggable"), !pseudo);
+        // In A-Z / Recent activity the order is derived, so a drop could not
+        // land where it was made; the rail is not draggable until Manual.
+        entry.insert(QStringLiteral("draggable"), !pseudo && railIsManual());
         // Expandable means "reveals something": subspaces or direct rooms.
         // Not `childCount`, which is transitive and would mark an umbrella
         // Space whose rooms all live in subspaces.
@@ -413,9 +422,12 @@ void RailEntryModel::appendSubspaces(const QString &parentId,
     if (!m_layout->spaceExpanded(parentId))
         return;
     // The user's local order for this parent's children.
-    for (const QString &childId :
-         m_layout->orderedChildren(parentId,
-                                   m_spaces->childSpaceIds(parentId))) {
+    // Manual: the user's local order. A-Z / Recent activity: sorted at read
+    // time from the same ids, the stored order untouched.
+    const QStringList children = m_layout->sortedForMode(
+        m_layout->orderedChildren(parentId, m_spaces->childSpaceIds(parentId)),
+        byId);
+    for (const QString &childId : children) {
         const auto it = byId.constFind(childId);
         if (it == byId.constEnd())
             continue;
@@ -430,7 +442,8 @@ void RailEntryModel::appendSubspaces(const QString &parentId,
         entry.insert(QStringLiteral("hierarchyChild"), true);
         // Draggable among its own siblings only; legalGap() prevents a
         // reparent, which is Matrix state and may need power we lack.
-        entry.insert(QStringLiteral("draggable"), true);
+        // Not in an automatic order: a drag would write an order nothing shows.
+        entry.insert(QStringLiteral("draggable"), railIsManual());
         // Same expandable rule as the top-level rows.
         const int childSpaces =
             entry.value(QStringLiteral("childSpaceCount")).toInt();

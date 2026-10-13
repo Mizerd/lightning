@@ -11,6 +11,7 @@
 
 #include "app/SettingsManager.h"
 #include "matrix/MatrixClient.h"
+#include "models/ConversationOrder.h"
 #include "spaces/RailEntryModel.h"
 #include "spaces/RailLayoutStore.h"
 #include "spaces/SpaceManager.h"
@@ -22,9 +23,11 @@
 
 namespace {
 
-QVariantMap space(const QString &id, const QString &name, int unread = 0)
+QVariantMap space(const QString &id, const QString &name, int unread = 0,
+                  qint64 activityMs = 0)
 {
     QVariantMap entry;
+    entry.insert(QStringLiteral("lastActivityMs"), activityMs);
     entry.insert(QStringLiteral("spaceId"), id);
     entry.insert(QStringLiteral("name"), name);
     entry.insert(QStringLiteral("unreadTotal"), unread);
@@ -1829,6 +1832,200 @@ private Q_SLOTS:
         model.endDrag(true);
         QVERIFY2(model.rowForEntry(QStringLiteral("!c:x")) >= 0,
                  "the deferred refresh never happened, so the rail is stale");
+    }
+
+    // --- Rail sort: Manual / A-Z / Recent activity -----------------------
+
+    void aZSortsTheRailByNameAndManualRestoresTheDraggedOrder()
+    {
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        store.setTopLevelOrder({ QStringLiteral("!z:x"), QStringLiteral("!m:x"),
+                                 QStringLiteral("!a:x") });
+        const QVariantList spaces = withPseudo({
+            space(QStringLiteral("!a:x"), QStringLiteral("apple")),
+            space(QStringLiteral("!m:x"), QStringLiteral("Mango")),
+            space(QStringLiteral("!z:x"), QStringLiteral("zebra")),
+        });
+        const QStringList manual{ QStringLiteral("!z:x"), QStringLiteral("!m:x"),
+                                  QStringLiteral("!a:x") };
+        QCOMPARE(idsOf(store.arrange(spaces)).mid(2), manual);
+
+        QSignalSpy changed(&store, &RailLayoutStore::layoutChanged);
+        store.setSortMode(conversation::RailSortName);
+        QCOMPARE(changed.count(), 1);
+        // Case-insensitive, and the pseudo rows stay on top.
+        QCOMPARE(idsOf(store.arrange(spaces)),
+                 (QStringList{ QString(), QStringLiteral("@orphans"),
+                               QStringLiteral("!a:x"), QStringLiteral("!m:x"),
+                               QStringLiteral("!z:x") }));
+        // Sorting is read-time only: the stored arrangement is untouched.
+        QCOMPARE(store.order(), manual);
+
+        store.setSortMode(conversation::RailSortManual);
+        QCOMPARE(idsOf(store.arrange(spaces)).mid(2), manual);
+    }
+
+    void recentActivitySortsNewestFirstAndNeverActiveLast()
+    {
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        store.setSortMode(conversation::RailSortActivity);
+        const QVariantList spaces = withPseudo({
+            space(QStringLiteral("!a:x"), QStringLiteral("A"), 0, 100),
+            space(QStringLiteral("!b:x"), QStringLiteral("B"), 0, 0),
+            space(QStringLiteral("!c:x"), QStringLiteral("C"), 0, 300),
+            space(QStringLiteral("!d:x"), QStringLiteral("D"), 0, 300),
+        });
+        // Equal stamps fall back to name; never-active (0) is last.
+        QCOMPARE(idsOf(store.arrange(spaces)).mid(2),
+                 (QStringList{ QStringLiteral("!c:x"), QStringLiteral("!d:x"),
+                               QStringLiteral("!a:x"), QStringLiteral("!b:x") }));
+    }
+
+    void aFolderSortsAmongSpacesAndItsMembersSortInside()
+    {
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        const QString folder = store.createFolderWithSpaces(
+            { QStringLiteral("!y:x"), QStringLiteral("!b:x") }, 0,
+            QStringLiteral("Kitchen"));
+        QVERIFY(!folder.isEmpty());
+        const QVariantList spaces = withPseudo({
+            space(QStringLiteral("!y:x"), QStringLiteral("Yam"), 0, 50),
+            space(QStringLiteral("!b:x"), QStringLiteral("Bean"), 0, 10),
+            space(QStringLiteral("!a:x"), QStringLiteral("Apple"), 0, 1),
+            space(QStringLiteral("!z:x"), QStringLiteral("Zed"), 0, 2),
+        });
+        store.setSortMode(conversation::RailSortName);
+        // Apple, [Kitchen] (members Bean, Yam), Zed
+        QCOMPARE(idsOf(store.arrange(spaces)).mid(2),
+                 (QStringList{ QStringLiteral("!a:x"), QStringLiteral("[Kitchen]"),
+                               QStringLiteral("!b:x"), QStringLiteral("!y:x"),
+                               QStringLiteral("!z:x") }));
+        store.setSortMode(conversation::RailSortActivity);
+        // The folder's activity is its newest member's (50): first.
+        QCOMPARE(idsOf(store.arrange(spaces)).mid(2),
+                 (QStringList{ QStringLiteral("[Kitchen]"), QStringLiteral("!y:x"),
+                               QStringLiteral("!b:x"), QStringLiteral("!z:x"),
+                               QStringLiteral("!a:x") }));
+        // The Channels layout's Space order follows the same mode.
+        QCOMPARE(store.orderedSpaceIds(spaces),
+                 (QStringList{ QStringLiteral("!y:x"), QStringLiteral("!b:x"),
+                               QStringLiteral("!z:x"), QStringLiteral("!a:x") }));
+        store.setSortMode(conversation::RailSortManual);
+        QCOMPARE(store.orderedSpaceIds(spaces).mid(0, 2),
+                 (QStringList{ QStringLiteral("!y:x"), QStringLiteral("!b:x") }));
+    }
+
+    void anUnknownSortModeIsManualAndTheSettingPersists()
+    {
+        SettingsManager settings;
+        QCOMPARE(settings.railSort(), int(conversation::RailSortManual));
+        settings.setRailSort(conversation::RailSortName);
+        QCOMPARE(settings.railSort(), int(conversation::RailSortName));
+        settings.setRailSort(99);
+        QCOMPARE(settings.railSort(), int(conversation::RailSortManual));
+        QCOMPARE(conversation::normalizedRailSort(-1),
+                 int(conversation::RailSortManual));
+        RailLayoutStore store(&settings);
+        store.setSortMode(77);
+        QCOMPARE(store.sortMode(), int(conversation::RailSortManual));
+    }
+
+    void anAutomaticOrderRefusesDragsAndManualDragsAgain()
+    {
+        FakeClient client;
+        client.roomList = { spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B")),
+                            spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A")),
+                            spaceRoom(QStringLiteral("!c:x"), QStringLiteral("C")) };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+
+        // Manual: the model's own order, draggable.
+        QVERIFY(model.beginDrag(QStringLiteral("!b:x")));
+        model.endDrag(false);
+
+        store.setSortMode(conversation::RailSortName);
+        QVERIFY(model.rowForEntry(QStringLiteral("!a:x"))
+                < model.rowForEntry(QStringLiteral("!b:x")));
+        QVERIFY(model.rowForEntry(QStringLiteral("!b:x"))
+                < model.rowForEntry(QStringLiteral("!c:x")));
+        const int row = model.rowForEntry(QStringLiteral("!a:x"));
+        QVERIFY(!model.data(model.index(row, 0),
+                            RailEntryModel::DraggableRole).toBool());
+        QVERIFY2(!model.beginDrag(QStringLiteral("!a:x")),
+                 "a drag was accepted in a derived order, where the drop "
+                 "could not land where it was made");
+        QVERIFY(!model.dragging());
+
+        store.setSortMode(conversation::RailSortManual);
+        QVERIFY(model.beginDrag(QStringLiteral("!a:x")));
+        model.endDrag(false);
+    }
+
+    void aSortedSubspaceListFollowsTheModeAndTheStoredChildOrderSurvives()
+    {
+        FakeClient client;
+        client.roomList = {
+            spaceRoom(QStringLiteral("!p:x"), QStringLiteral("Parent"),
+                      { QStringLiteral("!y:x"), QStringLiteral("!x:x") }),
+            spaceRoom(QStringLiteral("!y:x"), QStringLiteral("Yy"), {},
+                      { QStringLiteral("!p:x") }),
+            spaceRoom(QStringLiteral("!x:x"), QStringLiteral("Xx"), {},
+                      { QStringLiteral("!p:x") }),
+        };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        SettingsManager settings;
+        RailLayoutStore store(&settings);
+        store.setSpaceExpanded(QStringLiteral("!p:x"), true);
+        store.setChildOrder(QStringLiteral("!p:x"),
+                            { QStringLiteral("!y:x"), QStringLiteral("!x:x") });
+        RailEntryModel model;
+        model.setSources(&spaces, &store);
+        QVERIFY(model.rowForEntry(QStringLiteral("!y:x"))
+                < model.rowForEntry(QStringLiteral("!x:x")));
+        store.setSortMode(conversation::RailSortName);
+        QVERIFY(model.rowForEntry(QStringLiteral("!x:x"))
+                < model.rowForEntry(QStringLiteral("!y:x")));
+        store.setSortMode(conversation::RailSortManual);
+        QVERIFY(model.rowForEntry(QStringLiteral("!y:x"))
+                < model.rowForEntry(QStringLiteral("!x:x")));
+    }
+
+    void spaceManagerStampsTheNewestRoomActivityOnEachSpace()
+    {
+        FakeClient client;
+        RoomInfo quiet;
+        quiet.id = QStringLiteral("!q:x");
+        quiet.name = QStringLiteral("quiet");
+        quiet.membership = RoomInfo::Joined;
+        quiet.lastActivity = QDateTime::fromMSecsSinceEpoch(1000, QTimeZone::UTC);
+        RoomInfo busy = quiet;
+        busy.id = QStringLiteral("!r:x");
+        busy.lastActivity = QDateTime::fromMSecsSinceEpoch(5000, QTimeZone::UTC);
+        client.roomList = {
+            spaceRoom(QStringLiteral("!a:x"), QStringLiteral("A"),
+                      { quiet.id, busy.id }),
+            spaceRoom(QStringLiteral("!b:x"), QStringLiteral("B")),
+            quiet, busy };
+        SpaceManager spaces;
+        spaces.setClient(&client);
+        qint64 a = -1, b = -1;
+        for (const QVariant &v : spaces.allSpaces()) {
+            const QVariantMap m = v.toMap();
+            if (m.value(QStringLiteral("spaceId")) == QStringLiteral("!a:x"))
+                a = m.value(QStringLiteral("lastActivityMs")).toLongLong();
+            if (m.value(QStringLiteral("spaceId")) == QStringLiteral("!b:x"))
+                b = m.value(QStringLiteral("lastActivityMs")).toLongLong();
+        }
+        QCOMPARE(a, qint64(5000));
+        QCOMPARE(b, qint64(0));
     }
 
 private:

@@ -200,6 +200,12 @@ class SettingsManager : public QObject
     /// reads as Activity: an enum has no "nearest", so no clamp.
     Q_PROPERTY(int roomListSort READ roomListSort WRITE setRoomListSort
                    NOTIFY roomListSortChanged)
+    /// How the Spaces rail orders its Spaces: 0 = Manual (the dragged
+    /// arrangement, default), 1 = A-Z, 2 = Recent activity. The two automatic
+    /// modes sort at read time and never touch the stored arrangement.
+    /// Device-scoped, like the arrangement itself. Unknown reads as Manual.
+    Q_PROPERTY(int railSort READ railSort WRITE setRailSort
+                   NOTIFY railSortChanged)
     Q_PROPERTY(bool spaceBannerExpanded READ spaceBannerExpanded
                    WRITE setSpaceBannerExpanded NOTIFY spaceBannerExpandedChanged)
     Q_PROPERTY(bool roomListVisible READ roomListVisible
@@ -617,6 +623,8 @@ public:
     void setKeepRoomListOrderStill(bool v);
     int roomListSort() const;
     void setRoomListSort(int mode);
+    int railSort() const;
+    void setRailSort(int mode);
     bool spaceBannerExpanded() const;
     void setSpacesRailVisible(bool v);
     void setSpaceBannersVisible(bool v);
@@ -983,6 +991,7 @@ Q_SIGNALS:
     void spaceBannersVisibleChanged();
     void keepRoomListOrderStillChanged();
     void roomListSortChanged();
+    void railSortChanged();
     void spaceBannerExpandedChanged();
     void roomListVisibleChanged();
     void memberPanelOpenChanged();

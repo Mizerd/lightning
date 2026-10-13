@@ -273,6 +273,18 @@ Rectangle {
         rooms.sort(function(a, b) {
             return (b.lastActivity || 0) - (a.lastActivity || 0)
         })
+        // A-Z and Recent activity are derived orders: the stored arrangement
+        // is left alone (Manual restores it) and not consulted.
+        var sortMode = app.settings ? app.settings.railSort : 0
+        if (sortMode === 1) {
+            rooms.sort(function(a, b) {
+                var c = (a.name || "").localeCompare(b.name || "")
+                return c !== 0 ? c : (a.roomId < b.roomId ? -1 : 1)
+            })
+            return rooms
+        }
+        if (sortMode === 2)
+            return rooms
         // Then the user's own arrangement from the store, if any. Activity
         // order is the default; unknown rooms keep their place at the end.
         if (!app.railLayout)
@@ -1376,6 +1388,9 @@ Rectangle {
                         return Math.floor(Math.max(0, py) / pitch)
                     }
                     DragHandler {
+                        // A derived order (A-Z, Recent activity) cannot take a
+                        // drop; Manual is where rooms are arranged.
+                        enabled: app.settings.railSort === 0
                         target: null
                         xAxis.enabled: false
                         onActiveChanged: {
@@ -2004,6 +2019,29 @@ Rectangle {
                 onTriggered: app.railLayout.setSpaceFolder(railMenu.spaceId,
                                                            modelData.id)
             }
+        }
+        AppMenuSeparator {}
+        MenuSectionLabel { text: qsTr("Order Spaces by") }
+        AppMenuItem {
+            objectName: "railSortManual"
+            radio: true
+            radioSelected: app.settings.railSort === 0
+            text: qsTr("Manual")
+            onTriggered: app.settings.railSort = 0
+        }
+        AppMenuItem {
+            objectName: "railSortName"
+            radio: true
+            radioSelected: app.settings.railSort === 1
+            text: qsTr("A–Z")
+            onTriggered: app.settings.railSort = 1
+        }
+        AppMenuItem {
+            objectName: "railSortActivity"
+            radio: true
+            radioSelected: app.settings.railSort === 2
+            text: qsTr("Recent activity")
+            onTriggered: app.settings.railSort = 2
         }
     }
 

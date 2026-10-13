@@ -58,6 +58,7 @@ constexpr auto kSpaceBannersVisible = "shell/spaceBannersVisible";
 constexpr auto kSpaceBannerExpanded = "shell/spaceBannerExpanded";
 constexpr auto kKeepRoomListOrderStill = "shell/keepRoomListOrderStill";
 constexpr auto kRoomListSort = "shell/roomListSort";
+constexpr auto kRailSort = "shell/railSort";
 constexpr auto kRoomListVisible   = "shell/roomListVisible";
 constexpr auto kRoomListWidth     = "shell/roomListWidth";
 constexpr auto kMemberPanelOpen   = "shell/memberPanelOpen";
@@ -2479,6 +2480,21 @@ void SettingsManager::setRoomListSort(int mode)
         return;
     m_store->setValue(kRoomListSort, valid);
     Q_EMIT roomListSortChanged();
+}
+
+int SettingsManager::railSort() const
+{
+    return conversation::normalizedRailSort(
+        m_store->value(kRailSort, conversation::RailSortManual).toInt());
+}
+
+void SettingsManager::setRailSort(int mode)
+{
+    const int valid = conversation::normalizedRailSort(mode);
+    if (railSort() == valid)
+        return;
+    m_store->setValue(kRailSort, valid);
+    Q_EMIT railSortChanged();
 }
 
 bool SettingsManager::spaceBannerExpanded() const

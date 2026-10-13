@@ -216,6 +216,9 @@ private:
     /// Writes one parent's subspace order, read off the drag preview.
     void commitChildOrder(const QString &dragged);
     bool rowIsFolder(int row) const;
+    /// True while the rail shows the user's own arrangement (the only mode a
+    /// drag can edit).
+    bool railIsManual() const;
 
     SpaceManager *m_spaces = nullptr;
     RailLayoutStore *m_layout = nullptr;
