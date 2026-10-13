@@ -418,6 +418,93 @@ private Q_SLOTS:
         QVERIFY(client.actions.isEmpty());
         QVERIFY(!c.error().isEmpty());
     }
+
+    // ---- Sign-out key-loss warning (SDK facts only) -----------------------
+    static QVariantList sessions(bool otherVerified)
+    {
+        return {
+            QVariantMap{ { "isCurrent", true }, { "verified", true } },
+            QVariantMap{ { "isCurrent", false }, { "verified", otherVerified } },
+        };
+    }
+
+    void signOutRiskIsCheckingUntilTheSdkAnswers()
+    {
+        FakeBackupClient client;
+        BackupController c;
+        c.setClient(&client);
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), {})
+                     .value("level").toString(), QStringLiteral("checking"));
+        Q_EMIT client.backupProgress(QStringLiteral("enabled"),
+                                     QStringLiteral("done"), 0, 0);
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), {})
+                     .value("level").toString(), QStringLiteral("ok"));
+        // A new request invalidates the old answer: a stale "ok" must not
+        // describe the next dialog opening.
+        c.requestProgress();
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), {})
+                     .value("level").toString(), QStringLiteral("checking"));
+    }
+
+    void signOutRiskNamesEachWayKeysCanBeLost()
+    {
+        FakeBackupClient client;
+        BackupController c;
+        c.setClient(&client);
+        const auto level = [&](const QString &backup, const QString &upload,
+                               qint64 done, qint64 total,
+                               const QString &recovery) {
+            Q_EMIT client.backupProgress(backup, upload, done, total);
+            return c.signOutKeyRisk(recovery, {});
+        };
+        QCOMPARE(level("disabled", "idle", 0, 0, "disabled").value("level"),
+                 QVariant("no_backup"));
+        QVERIFY(level("disabled", "idle", 0, 0, "disabled").value("warns").toBool());
+        const auto up = level("enabled", "uploading", 3, 10, "enabled");
+        QCOMPARE(up.value("level"), QVariant("uploading"));
+        QCOMPARE(up.value("pendingKeys").toLongLong(), qint64(7));
+        QCOMPARE(level("enabled", "done", 0, 0, "disabled").value("level"),
+                 QVariant("no_recovery"));
+        // "Not known" is never reported as "no backup" nor as "fine".
+        QCOMPARE(level("unknown", "unknown", 0, 0, "enabled").value("level"),
+                 QVariant("unknown"));
+        QCOMPARE(level("enabled", "unknown", 0, 0, "unknown").value("level"),
+                 QVariant("unknown"));
+        QCOMPARE(level("creating", "idle", 0, 0, "enabled").value("level"),
+                 QVariant("unknown"));
+        // Backed up and recoverable: no warning. "incomplete" is a recovery
+        // key held elsewhere, so signing out loses nothing more.
+        QVERIFY(!level("enabled", "done", 0, 0, "enabled").value("warns").toBool());
+        QVERIFY(!level("enabled", "idle", 0, 0, "incomplete").value("warns").toBool());
+    }
+
+    void signOutRiskCountsOnlyOtherTrustedSessions()
+    {
+        FakeBackupClient client;
+        BackupController c;
+        c.setClient(&client);
+        Q_EMIT client.backupProgress(QStringLiteral("disabled"),
+                                     QStringLiteral("idle"), 0, 0);
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("disabled"), sessions(false))
+                     .value("otherVerifiedDevices").toInt(), 0);
+        // The current session is "verified" by construction in the SDK and
+        // must never count as a second copy of the keys.
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("disabled"), sessions(true))
+                     .value("otherVerifiedDevices").toInt(), 1);
+    }
+
+    void signOutRiskDoesNotSurviveLogout()
+    {
+        FakeBackupClient client;
+        BackupController c;
+        c.setClient(&client);
+        Q_EMIT client.backupProgress(QStringLiteral("enabled"),
+                                     QStringLiteral("done"), 0, 0);
+        Q_EMIT client.loggedOut();
+        QVERIFY(!c.progressAnswered());
+        QCOMPARE(c.signOutKeyRisk(QStringLiteral("enabled"), {})
+                     .value("level").toString(), QStringLiteral("checking"));
+    }
 };
 
 QTEST_MAIN(BackupControllerTest)

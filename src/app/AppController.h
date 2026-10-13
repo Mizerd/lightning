@@ -339,6 +339,8 @@ class AppController : public QObject
     Q_PROPERTY(CryptoHealthModel* cryptoHealth READ cryptoHealth CONSTANT)
     // Key backup and recovery management.
     Q_PROPERTY(QObject* backup READ backup CONSTANT)
+    // MSC4278 media-preview config and Element's recent emoji (account data).
+    Q_PROPERTY(QObject* accountPrefs READ accountPrefs CONSTANT)
     // "Send later".
     Q_PROPERTY(QObject* scheduledSends READ scheduledSends CONSTANT)
     // Activity Center model.
@@ -619,6 +621,7 @@ public:
     AboutController *about() const { return m_about.get(); }
     CryptoHealthModel *cryptoHealth() const { return m_cryptoHealth.get(); }
     QObject *backup() const;
+    QObject *accountPrefs() const;
     QObject *scheduledSends() const;
     QObject *activity() const;
     QObject *mediaHistory() const;
@@ -1416,6 +1419,7 @@ private:
     std::unique_ptr<CryptoManager> m_crypto;
     std::unique_ptr<CryptoHealthModel> m_cryptoHealth;
     std::unique_ptr<class BackupController> m_backup;
+    std::unique_ptr<class AccountPrefsController> m_accountPrefs;
     std::unique_ptr<class ScheduledSendController> m_scheduledSends;
     std::unique_ptr<class ActivityModel> m_activity;
     std::unique_ptr<class MediaHistoryModel> m_mediaHistory;

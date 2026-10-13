@@ -25,6 +25,8 @@
 #include "app/SettingsManager.h"
 #include "auth/AccountManager.h"
 #include "auth/AuthManager.h"
+#include "crypto/CryptoHealthModel.h"
+#include "matrix/MatrixClient.h"
 #include "storage/SecretStore.h"
 
 namespace {
@@ -335,6 +337,74 @@ private slots:
         QVERIFY(!card.contains(QStringLiteral("property int trustCompleted")));
         QVERIFY(!card.contains(QStringLiteral("property bool e2eeReady")));
         QVERIFY(!card.contains(QStringLiteral("TrustMeter")));
+    }
+
+    // The sign-out dialog warns when room keys would be lost, from SDK facts
+    // only, and never forbids signing out.
+    void signOutWarnsWhenRoomKeysAreNotBackedUp()
+    {
+        auto *health = m_controller->cryptoHealth();
+        health->setSupported(true);
+        health->applySnapshot({ { "recovery_state", "enabled" } },
+                              health->generation());
+        auto *client = m_controller->findChild<MatrixClient *>();
+        QVERIFY(client);
+
+        openMenu();
+        QMetaObject::invokeMethod(find(QStringLiteral("accountFooterSignOut")),
+                                  "clicked");
+        auto *dialog = find(QStringLiteral("signOutConfirmDialog"));
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        auto *warning = find(QStringLiteral("signOutKeyWarning"));
+        auto *confirm = find(QStringLiteral("signOutConfirmButton"));
+        auto *setUp = find(QStringLiteral("signOutSetUpRecovery"));
+        QVERIFY2(warning && confirm && setUp,
+                 "the sign-out dialog has no key-loss warning");
+
+        // The SDK has not answered yet: a quiet "checking", no alarm, and the
+        // button still reads plain "Sign out".
+        QVERIFY(warning->property("visible").toBool());
+        QVERIFY(warning->property("text").toString().contains(
+            QStringLiteral("Checking")));
+        QCOMPARE(confirm->property("text").toString(), QStringLiteral("Sign out"));
+
+        // No backup: says what is lost, offers recovery and "Sign out anyway".
+        Q_EMIT client->backupProgress(QStringLiteral("disabled"),
+                                      QStringLiteral("idle"), 0, 0);
+        QTRY_VERIFY(warning->property("text").toString().contains(
+            QStringLiteral("not backed up")));
+        QVERIFY(warning->property("text").toString().contains(
+            QStringLiteral("cannot be read again")));
+        QVERIFY(setUp->property("visible").toBool());
+        QCOMPARE(confirm->property("text").toString(),
+                 QStringLiteral("Sign out anyway"));
+
+        // Keys still uploading: names how many.
+        Q_EMIT client->backupProgress(QStringLiteral("enabled"),
+                                      QStringLiteral("uploading"), 3, 10);
+        QTRY_VERIFY(warning->property("text").toString().contains(
+            QStringLiteral("7 room key")));
+
+        // Backed up and recoverable: no warning, plain "Sign out".
+        Q_EMIT client->backupProgress(QStringLiteral("enabled"),
+                                      QStringLiteral("done"), 0, 0);
+        QTRY_VERIFY(!warning->property("visible").toBool());
+        QVERIFY(!setUp->property("visible").toBool());
+        QCOMPARE(confirm->property("text").toString(), QStringLiteral("Sign out"));
+
+        // Reopening forgets the old answer: a stale "all good" must not
+        // describe the next time.
+        QMetaObject::invokeMethod(dialog, "close");
+        QTRY_VERIFY(!dialog->property("opened").toBool());
+        QMetaObject::invokeMethod(dialog, "open");
+        QTRY_VERIFY(dialog->property("opened").toBool());
+        QVERIFY(warning->property("text").toString().contains(
+            QStringLiteral("Checking")));
+        QMetaObject::invokeMethod(dialog, "close");
+        QTRY_VERIFY(!dialog->property("opened").toBool());
+        QVERIFY(m_controller->auth()->isLoggedIn());
+        health->setSupported(false);
     }
 
     void liveActiveUserIdGuardIgnoresReactivatingTheActiveCard()

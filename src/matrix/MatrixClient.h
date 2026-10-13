@@ -1036,6 +1036,16 @@ public:
         return 0;
     }
     virtual void requestBackupProgress() {}
+
+    // Two standard account-data preferences, nothing else: "m.media_preview_config"
+    // (MSC4278) and "m.recent_emoji". readAccountPref answers from the SDK's
+    // state store on accountPrefRead; writeAccountPref (a JSON object, bounded)
+    // answers on accountPrefWritten. A change made elsewhere arrives as
+    // accountPrefChanged, after which the caller re-reads.
+    virtual void readAccountPref(const QString &prefType) { Q_UNUSED(prefType); }
+    virtual void writeAccountPref(const QString &prefType,
+                                  const QVariantMap &content)
+    { Q_UNUSED(prefType); Q_UNUSED(content); }
     // Edit history and event source, answered on editHistoryReceived /
     // eventSourceReceived. Display data held only while a dialog is open; never
     // cached.
@@ -2081,6 +2091,13 @@ Q_SIGNALS:
     void crossSigningApprovalRequired(quint64 opId, const QString &url);
     void backupProgress(const QString &backupState, const QString &uploadState,
                         qint64 backedUp, qint64 total);
+    // `present` is false when the account holds no such data (not the same as
+    // an empty object).
+    void accountPrefRead(const QString &prefType, bool present,
+                         const QVariantMap &content);
+    void accountPrefChanged(const QString &prefType);
+    void accountPrefWritten(const QString &prefType, bool ok,
+                            const QString &category);
     // `revisions` is [{eventId, sender, timestamp(QDateTime), body,
     // formattedBody, redacted, undecryptable, isOriginal, isLatest}] in
     // chronological order; `encryption` is {encrypted, senderKey, senderDevice,

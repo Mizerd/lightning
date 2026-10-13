@@ -297,6 +297,23 @@ void EmojiCatalog::recordUse(const QString &emoji)
     if (m_category == QLatin1String("Recently Used") && m_searchText.trimmed().isEmpty())
         rebuild();
     Q_EMIT recentEmojiChanged();
+    Q_EMIT recentEmojiUsed(emoji);
+}
+
+void EmojiCatalog::adoptRecents(const QStringList &mru)
+{
+    if (!m_settings)
+        return;
+    QStringList valid;
+    for (const QString &emoji : mru)
+        if (contains(emoji))
+            valid.append(emoji);
+    if (valid == m_settings->recentEmoji())
+        return;
+    m_settings->setRecentEmoji(valid);
+    if (m_category == QLatin1String("Recently Used") && m_searchText.trimmed().isEmpty())
+        rebuild();
+    Q_EMIT recentEmojiChanged();
 }
 
 void EmojiCatalog::clearRecent()

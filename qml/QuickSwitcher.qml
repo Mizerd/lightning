@@ -689,7 +689,10 @@ Popup {
 
                     Avatar {
                         size: 28
-                        mxc: model.avatarUrl
+                        // Invite pictures follow the account's MSC4278 choice.
+                        mxc: (model.category === "invite" && app.accountPrefs
+                              && !app.accountPrefs.inviteAvatars)
+                             ? "" : model.avatarUrl
                         name: model.name
                         colorKey: model.identityColorKey || model.roomId
                         circle: model.category === "dm"
@@ -802,7 +805,10 @@ Popup {
                     Avatar {
                         visible: model.kind === "entity"
                         size: 28
-                        mxc: model.kind === "entity" ? model.avatarUrl : ""
+                        mxc: model.kind === "entity"
+                             && !(model.category === "invite" && app.accountPrefs
+                                  && !app.accountPrefs.inviteAvatars)
+                             ? model.avatarUrl : ""
                         name: model.kind === "entity" ? model.name : ""
                         colorKey: model.kind === "entity" ? (model.identityColorKey || model.roomId) : ""
                         circle: model.kind === "entity" && model.category === "dm"

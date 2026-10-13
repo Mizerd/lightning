@@ -73,6 +73,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 mod backdrop;
+mod accountprefs;
 mod bgsync;
 mod settingsync;
 mod banner;
@@ -6764,6 +6765,38 @@ pub unsafe extern "C" fn mx_rust_set_room_background(
     })
 }
 
+/// Read one of the two standard account-data preferences (`accountprefs.rs`:
+/// `m.media_preview_config`, `m.recent_emoji`) from the state store. Any other
+/// type is refused. Result event: `account_pref { pref_type, present, content,
+/// lifecycle }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_account_pref_read(
+    ptr: *mut c_void,
+    pref_type: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let pref_type = unsafe { cstr_arg(pref_type) }?;
+        accountprefs::read(bridge, pref_type).map(|_| String::new())
+    })
+}
+
+/// Write one of the two standard preferences (a bounded JSON object). Result
+/// event: `account_pref_written { pref_type, ok, category, lifecycle }`.
+#[no_mangle]
+pub unsafe extern "C" fn mx_rust_account_pref_write(
+    ptr: *mut c_void,
+    pref_type: *const c_char,
+    content_json: *const c_char,
+) -> *mut c_char {
+    ffi_string(|| {
+        let bridge = unsafe { bridge(ptr)? };
+        let pref_type = unsafe { cstr_arg(pref_type) }?;
+        let content = unsafe { cstr_arg(content_json) }?;
+        accountprefs::write(bridge, pref_type, content).map(|_| String::new())
+    })
+}
+
 /// Read this account's personal backgrounds kept in account data
 /// (`bgsync.rs`). `scope` is "" (the every-room default), a room id, or "*"
 /// for the default and every joined room. Result event: `personal_backgrounds
@@ -10861,6 +10894,10 @@ fn install_event_handlers(
     bgsync::install_change_handlers(client, Arc::clone(&events));
     // Synced preferences (settingsync.rs): same pattern, one payload.
     settingsync::install_change_handlers(client, Arc::clone(&events));
+
+    // MSC4278 media-preview config and Element's recent emoji changed in
+    // account data. Only the type crosses; C++ re-reads it.
+    accountprefs::install_change_handlers(client, Arc::clone(&events));
 
     // A power-level change invalidates cached permission flags now. Routed
     // through the existing members poke, since the member snapshot carries

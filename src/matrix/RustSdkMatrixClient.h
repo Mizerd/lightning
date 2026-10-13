@@ -571,6 +571,9 @@ public:
     quint64 crossSigningAction(const QString &action, const QString &recoveryKey,
                                bool replaceRecoveryKeyConfirmed) override;
     void requestBackupProgress() override;
+    void readAccountPref(const QString &prefType) override;
+    void writeAccountPref(const QString &prefType,
+                          const QVariantMap &content) override;
     // Room upgrade.
     void requestRoomVersions() override;
     quint64 upgradeRoom(const QString &roomId, const QString &newVersion) override;

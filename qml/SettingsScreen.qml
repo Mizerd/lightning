@@ -4987,6 +4987,11 @@ Item {
                                 }
                             }
                         }
+                        // When media and invite avatars load (account data).
+                        MediaPreviewSettings {
+                            objectName: "mediaPreviewSettingsSection"
+                            Layout.fillWidth: true
+                        }
                         // Link-preview and GIF policy.
                         Label {
                             text: qsTr("Link previews & media")

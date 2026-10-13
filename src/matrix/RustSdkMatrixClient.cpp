@@ -8315,6 +8315,37 @@ void RustSdkMatrixClient::requestBackupProgress()
     takeRustString(mx_rust_request_backup_progress(m_rustHandle));
 }
 
+void RustSdkMatrixClient::readAccountPref(const QString &prefType)
+{
+    if (!m_rustHandle)
+        return;
+    const QByteArray type = prefType.toUtf8();
+    const QString refused = takeRustString(
+        mx_rust_account_pref_read(m_rustHandle, type.constData()));
+    if (!refused.isEmpty())
+        qCWarning(lcRust) << "account preference read refused:"
+                          << refused.left(80);
+}
+
+void RustSdkMatrixClient::writeAccountPref(const QString &prefType,
+                                           const QVariantMap &content)
+{
+    if (!m_rustHandle) {
+        Q_EMIT accountPrefWritten(prefType, false, QStringLiteral("signed_out"));
+        return;
+    }
+    const QByteArray type = prefType.toUtf8();
+    const QByteArray json = QJsonDocument(QJsonObject::fromVariantMap(content))
+                                .toJson(QJsonDocument::Compact);
+    const QString refused = takeRustString(mx_rust_account_pref_write(
+        m_rustHandle, type.constData(), json.constData()));
+    if (!refused.isEmpty()) {
+        qCWarning(lcRust) << "account preference write refused:"
+                          << refused.left(80);
+        Q_EMIT accountPrefWritten(prefType, false, refused.left(40));
+    }
+}
+
 void RustSdkMatrixClient::requestRoomVersions()
 {
     if (!m_rustHandle)
@@ -11268,6 +11299,26 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             event.value(QStringLiteral("upload_state")).toString(),
             event.value(QStringLiteral("backed_up")).toVariant().toLongLong(),
             event.value(QStringLiteral("total")).toVariant().toLongLong());
+        return true;
+    }
+
+    if (type == QLatin1String("account_pref")) {
+        Q_EMIT accountPrefRead(
+            event.value(QStringLiteral("pref_type")).toString(),
+            event.value(QStringLiteral("present")).toBool(false),
+            event.value(QStringLiteral("content")).toObject().toVariantMap());
+        return true;
+    }
+    if (type == QLatin1String("account_pref_changed")) {
+        Q_EMIT accountPrefChanged(
+            event.value(QStringLiteral("pref_type")).toString());
+        return true;
+    }
+    if (type == QLatin1String("account_pref_written")) {
+        Q_EMIT accountPrefWritten(
+            event.value(QStringLiteral("pref_type")).toString(),
+            event.value(QStringLiteral("ok")).toBool(false),
+            event.value(QStringLiteral("category")).toString());
         return true;
     }
 

@@ -2,6 +2,8 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariantList>
+#include <QVariantMap>
 
 class MatrixClient;
 
@@ -48,6 +50,8 @@ class BackupController : public QObject
     Q_PROPERTY(QString uploadState READ uploadState NOTIFY progressChanged)
     Q_PROPERTY(qint64 backedUp READ backedUp NOTIFY progressChanged)
     Q_PROPERTY(qint64 total READ total NOTIFY progressChanged)
+    // True once the SDK has answered the latest requestProgress().
+    Q_PROPERTY(bool progressAnswered READ progressAnswered NOTIFY progressChanged)
 
 public:
     explicit BackupController(QObject *parent = nullptr);
@@ -67,6 +71,7 @@ public:
     QString uploadState() const { return m_uploadState; }
     qint64 backedUp() const { return m_backedUp; }
     qint64 total() const { return m_total; }
+    bool progressAnswered() const { return m_progressAnswered; }
 
     // The only approval pages Lightning opens: https, or http on a loopback
     // host (a local test server). Anything else from the server is refused.
@@ -97,6 +102,13 @@ public:
     // actually happened.
     Q_INVOKABLE void cancelAuth();
     Q_INVOKABLE void requestProgress();
+    // Would signing out lose room keys? Reads the SDK facts only (the last
+    // progress answer, `recoveryState` from CryptoHealthModel and the session
+    // list) and returns {level, pendingKeys, totalKeys, otherVerifiedDevices,
+    // warns}; level is ok | checking | unknown | uploading | no_recovery |
+    // no_backup. Never blocks sign-out; the dialog only warns.
+    Q_INVOKABLE QVariantMap signOutKeyRisk(const QString &recoveryState,
+                                           const QVariantList &devices) const;
     Q_INVOKABLE void dismissRecoveryKey();
 
 Q_SIGNALS:
@@ -132,4 +144,5 @@ private:
     QString m_uploadState;
     qint64 m_backedUp = 0;
     qint64 m_total = 0;
+    bool m_progressAnswered = false;
 };

@@ -254,7 +254,20 @@ Item {
     // nothing.
     readonly property bool collapseEmbedsSetting:
         typeof app !== "undefined" && app && app.settings
-        && app.settings.collapseEmbeds === true
+        && (app.settings.collapseEmbeds === true
+            || root.accountCollapsesMedia)
+    // The account's own media-preview choice (MSC4278, app.accountPrefs):
+    // Always / Private rooms / Never. "Private" is an encrypted room or a
+    // direct message. Read as properties so a change re-evaluates the rows.
+    readonly property bool accountCollapsesMedia: {
+        if (typeof app === "undefined" || !app || !app.accountPrefs)
+            return false
+        const mode = app.accountPrefs.mediaPreviews
+        if (mode === "on") return false
+        if (mode === "private")
+            return !(root.roomEncrypted || root.isDirectRoom)
+        return true
+    }
     // Transient, not persisted: an expansion is "show me this one", not a
     // preference. Reset when the row identity changes (onActionKeyChanged).
     property bool embedExpanded: false

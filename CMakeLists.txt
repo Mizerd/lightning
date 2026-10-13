@@ -784,6 +784,12 @@ set(APP_SOURCES
     src/crypto/CryptoHealthModel.cpp
     src/crypto/BackupController.h
     src/crypto/BackupController.cpp
+    src/crypto/SignOutKeyRisk.h
+    src/crypto/SignOutKeyRisk.cpp
+    src/privacy/AccountPrefs.h
+    src/privacy/AccountPrefs.cpp
+    src/privacy/AccountPrefsController.h
+    src/privacy/AccountPrefsController.cpp
     src/models/ScheduledSendController.h
     src/models/ScheduledSendController.cpp
     src/models/ActivityModel.h
@@ -1070,6 +1076,7 @@ set(APP_QML_FILES
     qml/ChatBackgroundEditor.qml
     qml/ChatBackgroundSettings.qml
     qml/SettingsBackupSection.qml
+    qml/MediaPreviewSettings.qml
     qml/ChatBackgroundDialog.qml
     qml/ThemedSurface.qml
     qml/GradientEditor.qml
@@ -3656,6 +3663,37 @@ if(BUILD_TESTING)
     target_link_libraries(backup-controller-test PRIVATE Qt6::Test)
     add_test(NAME backup-controller COMMAND backup-controller-test)
     set_tests_properties(backup-controller PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # MSC4278 media-preview config and Element's m.recent_emoji.
+    qt_add_executable(account-prefs-test
+        tests/AccountPrefsTest.cpp
+        src/privacy/AccountPrefs.h
+        src/privacy/AccountPrefs.cpp
+        src/privacy/AccountPrefsController.h
+        src/privacy/AccountPrefsController.cpp
+        src/models/EmojiCatalog.h
+        src/models/EmojiCatalog.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+        src/matrix/MockMatrixClient.h
+        src/matrix/MockMatrixClient.cpp
+        src/matrix/MediaHelpers.h
+        src/matrix/MediaHelpers.cpp
+        src/app/SettingsManager.h
+        src/app/SettingsManager.cpp
+        src/storage/SecretStore.h
+        src/storage/AppDataPaths.cpp
+        src/storage/PortableMode.cpp
+    )
+    qt_add_resources(account-prefs-test "emoji-test-data"
+        PREFIX "/qt/qml/MatrixClient"
+        FILES data/emoji-catalog.tsv)
+    target_include_directories(account-prefs-test PRIVATE src)
+    target_link_libraries(account-prefs-test PRIVATE
+        Qt6::Core Qt6::Gui Qt6::Qml Qt6::Test)
+    add_test(NAME account-prefs COMMAND account-prefs-test)
+    set_tests_properties(account-prefs PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # m.location (MSC3488) and live beacons (MSC3672).

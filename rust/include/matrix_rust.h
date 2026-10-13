@@ -905,6 +905,18 @@ char *mx_rust_set_room_background(void *client,
                                   const char *content_json,
                                   unsigned long long op_id);
 /*
+ * Standard account-data preferences (rust/src/accountprefs.rs). Only
+ * "m.media_preview_config" and "m.recent_emoji" are accepted; anything else
+ * returns an error string. Read answers from the state store as
+ *   {"type":"account_pref","pref_type","present":bool,"content":{...}}
+ * and a write (a bounded JSON object) answers
+ *   {"type":"account_pref_written","pref_type","ok","category"}.
+ * A change from sync arrives as {"type":"account_pref_changed","pref_type"}.
+ */
+char *mx_rust_account_pref_read(void *client, const char *pref_type);
+char *mx_rust_account_pref_write(void *client, const char *pref_type,
+                                 const char *content_json);
+/*
  * Personal chat backgrounds kept on the homeserver (rust/src/bgsync.rs):
  * global account data org.lightning_matrix.backgrounds (scope "", the
  * every-room default) and room account data

@@ -3484,6 +3484,13 @@ void SettingsManager::recordRecentEmoji(const QString &emoji)
     m_store->setValue(kRecentEmoji, recent);
 }
 
+void SettingsManager::setRecentEmoji(const QStringList &mru)
+{
+    QStringList recent = mru;
+    while (recent.size() > kRecentEmojiLimit) recent.removeLast();
+    m_store->setValue(kRecentEmoji, recent);
+}
+
 void SettingsManager::clearRecentEmoji() { m_store->remove(kRecentEmoji); }
 
 QString SettingsManager::preferredEmojiTone() const

@@ -172,7 +172,11 @@ Item {
         Avatar {
             size: 32
             name: model.name || ""
-            mxc: model.avatarUrl || ""
+            // A stranger's invite picture loads only when the account allows
+            // it (MSC4278 invite_avatars); the letter tile stands in.
+            mxc: (model.membership === "invited" && app.accountPrefs
+                  && !app.accountPrefs.inviteAvatars)
+                 ? "" : (model.avatarUrl || "")
             // One fallback-colour policy: an unambiguous DM is coloured as the
             // person.
             colorKey: model.identityColorKey || model.roomId || ""

@@ -597,6 +597,30 @@ Popup {
         focus: true
         closePolicy: Popup.CloseOnEscape
 
+        // Would signing out lose room keys? SDK facts only (backup state and
+        // upload progress, recovery state, other verified sessions). It warns
+        // and never blocks. The arguments exist so the binding re-evaluates
+        // when any of those facts changes: a function call is not bound to
+        // what it reads.
+        function assessKeys(answered, bs, us, done, total, recovery, devices) {
+            if (!app.backup || !app.cryptoHealth || !app.cryptoHealth.cryptoSupported)
+                return { level: "ok", warns: false, pendingKeys: 0,
+                         totalKeys: 0, otherVerifiedDevices: 0 }
+            return app.backup.signOutKeyRisk(recovery, devices)
+        }
+        readonly property var keyRisk: assessKeys(
+            app.backup ? app.backup.progressAnswered : false,
+            app.backup ? app.backup.backupState : "",
+            app.backup ? app.backup.uploadState : "",
+            app.backup ? app.backup.backedUp : 0,
+            app.backup ? app.backup.total : 0,
+            app.cryptoHealth ? app.cryptoHealth.recoveryState : "",
+            app.sessionDevices)
+        onAboutToShow: {
+            if (app.backup) app.backup.requestProgress()
+            app.refreshSessionDevices()
+        }
+
         background: Rectangle {
             color: AppTheme.stormPanel
             border.color: AppTheme.stormBorderStrong
@@ -665,6 +689,51 @@ Popup {
                 wrapMode: Text.WordWrap
                 color: AppTheme.stormDanger
             }
+            // Room keys that exist only in this session. Says what will be
+            // lost; the dialog offers recovery setup and never forbids
+            // signing out.
+            Label {
+                objectName: "signOutKeyWarning"
+                readonly property string level: signOutConfirm.keyRisk.level
+                Layout.fillWidth: true
+                visible: level !== "ok"
+                textFormat: Text.PlainText
+                text: {
+                    const r = signOutConfirm.keyRisk
+                    let t = ""
+                    if (r.level === "checking")
+                        return qsTr("Checking your key backup…")
+                    if (r.level === "no_backup")
+                        t = qsTr("Your room keys are not backed up. Encrypted "
+                                 + "messages that only this session can read "
+                                 + "cannot be read again once you sign out.")
+                    else if (r.level === "no_recovery")
+                        t = qsTr("You have no recovery key. Your keys are "
+                                 + "backed up, but without a recovery key you "
+                                 + "cannot unlock that backup after signing "
+                                 + "in again.")
+                    else if (r.level === "uploading")
+                        t = qsTr("%n room key is not backed up yet. Signing "
+                                 + "out now loses it for good.", "",
+                                 r.pendingKeys)
+                    else
+                        t = qsTr("Lightning could not confirm that your room "
+                                 + "keys are backed up.")
+                    if (r.otherVerifiedDevices > 0)
+                        t += " " + qsTr("%n other verified session keeps its "
+                                        + "own keys, though not necessarily "
+                                        + "every one this session holds.", "",
+                                        r.otherVerifiedDevices)
+                    else if (r.level === "no_backup" || r.level === "no_recovery")
+                        t += " " + qsTr("You have no other verified session.")
+                    return t
+                }
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                wrapMode: Text.WordWrap
+                color: level === "checking" ? AppTheme.stormTextMuted
+                                            : AppTheme.stormDanger
+            }
             RowLayout {
                 Layout.fillWidth: true
                 Item { Layout.fillWidth: true }
@@ -675,9 +744,22 @@ Popup {
                     onClicked: signOutConfirm.close()
                 }
                 AppButton {
+                    objectName: "signOutSetUpRecovery"
+                    storm: true
+                    visible: signOutConfirm.keyRisk.level === "no_backup"
+                             || signOutConfirm.keyRisk.level === "no_recovery"
+                    text: qsTr("Set up recovery")
+                    onClicked: {
+                        signOutConfirm.close()
+                        app.showSettingsSection("sessions")
+                    }
+                }
+                AppButton {
+                    objectName: "signOutConfirmButton"
                     storm: true
                     kind: "danger"
-                    text: qsTr("Sign out")
+                    text: signOutConfirm.keyRisk.warns && signOutConfirm.keyRisk.level !== "checking"
+                          ? qsTr("Sign out anyway") : qsTr("Sign out")
                     Accessible.name: qsTr("Confirm sign out")
                     onClicked: {
                         signOutConfirm.close()

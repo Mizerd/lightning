@@ -56,6 +56,10 @@ public:
     Q_INVOKABLE QVariantList variantsFor(const QString &baseEmoji) const;
     Q_INVOKABLE void recordUse(const QString &emoji);
     Q_INVOKABLE void clearRecent();
+    // Replace the recents with an already-merged most-recent-first list (the
+    // account's m.recent_emoji merged with ours). Entries that are not in the
+    // catalogue are dropped. Does not emit recentEmojiUsed.
+    void adoptRecents(const QStringList &mru);
     Q_INVOKABLE bool contains(const QString &emoji) const;
     Q_INVOKABLE int catalogueCount() const { return m_entries.size(); }
 
@@ -92,6 +96,8 @@ Q_SIGNALS:
     void countChanged();
     void preferredToneChanged();
     void recentEmojiChanged();
+    // One emoji was just used (not emitted for adoptRecents/clearRecent).
+    void recentEmojiUsed(const QString &emoji);
 
 private:
     struct Entry {

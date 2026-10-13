@@ -11,6 +11,7 @@
 #include <QSettings>
 #include <QCoreApplication>
 #include "crypto/BackupController.h"
+#include "privacy/AccountPrefsController.h"
 #include "crypto/E2eeDiagnostics.h"
 #include "models/ScheduledSendController.h"
 #include "models/ActivityModel.h"
@@ -317,6 +318,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_crypto       = std::make_unique<CryptoManager>(this);
     m_cryptoHealth = std::make_unique<CryptoHealthModel>(this);
     m_backup       = std::make_unique<BackupController>(this);
+    m_accountPrefs = std::make_unique<AccountPrefsController>(this);
     m_scheduledSends = std::make_unique<ScheduledSendController>(this);
     m_widgets = std::make_unique<WidgetController>(this);
     m_activity = std::make_unique<ActivityModel>(this);
@@ -1421,6 +1423,8 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_pinned->setClient(m_client.get());
     m_roomUpgrade->setClient(m_client.get());
     m_backup->setClient(m_client.get());
+    m_accountPrefs->setEmojiCatalog(m_emojiCatalog.get());
+    m_accountPrefs->setClient(m_client.get());
     // A backup action invalidates the crypto-health snapshot that gates two
     // destructive buttons; see BackupController::cryptoHealthStale.
     connect(m_backup.get(), &BackupController::cryptoHealthStale, this,
@@ -3173,6 +3177,7 @@ QAbstractItemModel *AppController::timelineView() const
 MessageComposer *AppController::composer() const { return m_composer.get(); }
 QObject *AppController::richComposer() const { return m_richComposer.get(); }
 QObject *AppController::backup() const { return m_backup.get(); }
+QObject *AppController::accountPrefs() const { return m_accountPrefs.get(); }
 QObject *AppController::scheduledSends() const { return m_scheduledSends.get(); }
 QObject *AppController::activity() const { return m_activity.get(); }
 

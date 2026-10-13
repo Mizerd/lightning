@@ -877,6 +877,8 @@ public:
 
     QStringList recentEmoji() const;
     void recordRecentEmoji(const QString &emoji);
+    // Replace the list (most recent first), trimmed to the same limit.
+    void setRecentEmoji(const QStringList &mru);
     void clearRecentEmoji();
     QString preferredEmojiTone() const;
     void setPreferredEmojiTone(const QString &tone);

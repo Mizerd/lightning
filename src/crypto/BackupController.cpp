@@ -1,6 +1,7 @@
 #include "crypto/BackupController.h"
 
 #include "matrix/MatrixClient.h"
+#include "crypto/SignOutKeyRisk.h"
 
 #include <QHostAddress>
 #include <QUrl>
@@ -143,6 +144,7 @@ void BackupController::setClient(MatrixClient *client)
         m_uploadState = uploadState;
         m_backedUp = backedUp;
         m_total = total;
+        m_progressAnswered = true;
         Q_EMIT progressChanged();
     });
     connect(m_client, &MatrixClient::loggedOut, this, [this] {
@@ -158,6 +160,7 @@ void BackupController::setClient(MatrixClient *client)
         m_uploadState.clear();
         m_backedUp = 0;
         m_total = 0;
+        m_progressAnswered = false;
         Q_EMIT stateChanged();
         Q_EMIT progressChanged();
     });
@@ -335,8 +338,29 @@ void BackupController::runCrossSigning(const QString &action,
 
 void BackupController::requestProgress()
 {
-    if (m_client)
+    if (m_client) {
+        // An answer from before this request describes an older moment.
+        if (m_progressAnswered) {
+            m_progressAnswered = false;
+            Q_EMIT progressChanged();
+        }
         m_client->requestBackupProgress();
+    }
+}
+
+QVariantMap BackupController::signOutKeyRisk(const QString &recoveryState,
+                                             const QVariantList &devices) const
+{
+    const auto a = SignOutKeyRisk::assess(m_backupState, m_uploadState,
+                                          m_backedUp, m_total, recoveryState,
+                                          m_progressAnswered, devices);
+    return {
+        { QStringLiteral("level"), a.name },
+        { QStringLiteral("warns"), a.warns() },
+        { QStringLiteral("pendingKeys"), a.pendingKeys },
+        { QStringLiteral("totalKeys"), a.totalKeys },
+        { QStringLiteral("otherVerifiedDevices"), a.otherVerifiedDevices },
+    };
 }
 
 void BackupController::dismissRecoveryKey()
