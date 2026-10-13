@@ -436,7 +436,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5720"/>
+        <location filename="../src/app/AppController.cpp" line="+5749"/>
         <source>Room invitation</source>
         <translation>房间邀请</translation>
     </message>
@@ -451,7 +451,7 @@
         <translation>你被邀请加入 %1</translation>
     </message>
     <message>
-        <location line="-4540"/>
+        <location line="-4565"/>
         <source>Incoming voice call</source>
         <translation>语音来电</translation>
     </message>
@@ -524,13 +524,13 @@
     <message>
         <location line="+1"/>
         <location line="+49"/>
-        <location line="+3227"/>
+        <location line="+3252"/>
         <location line="+715"/>
         <source>Not connected</source>
         <translation>未连接</translation>
     </message>
     <message>
-        <location line="-3988"/>
+        <location line="-4013"/>
         <source>Connecting…</source>
         <translation>正在连接…</translation>
     </message>
@@ -603,12 +603,12 @@
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2926"/>
+        <location line="+2951"/>
         <source>Not signed in.</source>
         <translation>尚未登录。</translation>
     </message>
     <message>
-        <location line="-2924"/>
+        <location line="-2949"/>
         <source>Room-key import failed.</source>
         <translation>房间密钥导入失败。</translation>
     </message>
@@ -823,7 +823,7 @@
         <translation>清除此设备的本地数据无法解决该问题，反而会销毁你仍然需要的加密密钥。</translation>
     </message>
     <message>
-        <location line="+419"/>
+        <location line="+444"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -875,8 +875,8 @@
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+377"/>
-        <location filename="../src/app/AppController.cpp" line="-1106"/>
-        <location line="+835"/>
+        <location filename="../src/app/AppController.cpp" line="-1131"/>
+        <location line="+860"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2309,7 +2309,7 @@
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+96"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+100"/>
         <source>%1, invitation</source>
         <translation>%1，邀请</translation>
     </message>
@@ -2317,6 +2317,18 @@
         <location line="+2"/>
         <source>%1, muted</source>
         <translation>%1，已静音</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>%1, mention in a thread</source>
+        <comment>channel row</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>%1, unread in a thread</source>
+        <comment>channel row</comment>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
@@ -4380,7 +4392,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+781"/>
+        <location line="+816"/>
         <location line="+118"/>
         <location line="+28"/>
         <location line="+114"/>
@@ -5547,9 +5559,27 @@ Signing out and signing in again is the only fix.</source>
     </message>
 </context>
 <context>
+    <name>GradientBar</name>
+    <message>
+        <location filename="../qml/GradientBar.qml" line="+114"/>
+        <source>Gradient colour stops</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 colour at %2 percent. Left and Right move it, Up and Down pick another colour, Delete removes it, Insert adds one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>No colour picked. Up or Down picks one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>GradientEditor</name>
     <message>
-        <location filename="../qml/GradientEditor.qml" line="+272"/>
+        <location filename="../qml/GradientEditor.qml" line="+364"/>
         <source>Linear</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5559,7 +5589,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-184"/>
+        <location line="-262"/>
         <source>Soft fade</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5584,7 +5614,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+134"/>
         <source>Centre</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5659,7 +5689,22 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
+        <source>Colour stops</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+30"/>
+        <source>Drag a handle to move a colour. Click the bar to add one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Drag a handle to move a colour. Three is the most a gradient holds.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Gradient colours</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5674,12 +5719,12 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+54"/>
         <source>Gradient colour %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+19"/>
         <source>Remove</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5694,7 +5739,17 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+10"/>
+        <source>Solid colour underneath</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Edit the solid colour underneath the gradient</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>Reverse</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7061,7 +7116,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+470"/>
+        <location line="+489"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -7555,7 +7610,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MemberProfilePopover</name>
     <message>
-        <location filename="../qml/MemberProfilePopover.qml" line="+459"/>
+        <location filename="../qml/MemberProfilePopover.qml" line="+507"/>
         <source>Profile for %1</source>
         <translation>%1 的个人资料</translation>
     </message>
@@ -7567,7 +7622,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>无法获取在线状态</translation>
     </message>
     <message>
-        <location line="-757"/>
+        <location line="-754"/>
         <source>Invited</source>
         <translation>已邀请</translation>
     </message>
@@ -7587,7 +7642,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>个人资料链接已复制</translation>
     </message>
     <message>
-        <location line="+615"/>
+        <location line="+612"/>
         <source>Bio</source>
         <translation>简介</translation>
     </message>
@@ -7808,7 +7863,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-1315"/>
+        <location line="-1312"/>
         <source>Matrix ID copied</source>
         <translation>已复制 Matrix ID</translation>
     </message>
@@ -7874,7 +7929,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposerBar</name>
     <message>
-        <location filename="../qml/MessageComposerBar.qml" line="+599"/>
+        <location filename="../qml/MessageComposerBar.qml" line="+604"/>
         <location line="+33"/>
         <source>Add link</source>
         <translation type="unfinished"></translation>
@@ -8193,7 +8248,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>录制语音消息</translation>
     </message>
     <message>
-        <location line="-2976"/>
+        <location line="-2981"/>
         <source>A recording is already in progress.</source>
         <translation>已有录音正在进行。</translation>
     </message>
@@ -8203,7 +8258,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>语音录制不可用。</translation>
     </message>
     <message>
-        <location line="+2712"/>
+        <location line="+2717"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">更多</translation>
@@ -8315,7 +8370,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1018"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1029"/>
         <source>Today</source>
         <translation>今天</translation>
     </message>
@@ -8335,7 +8390,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>新消息</translation>
     </message>
     <message>
-        <location line="+197"/>
+        <location line="+224"/>
         <source>Avatar for %1</source>
         <translation>%1 的头像</translation>
     </message>
@@ -8363,12 +8418,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+101"/>
         <location line="+939"/>
-        <location line="+935"/>
+        <location line="+1088"/>
         <source>Reply</source>
         <translation>回复</translation>
     </message>
     <message>
-        <location line="-1859"/>
+        <location line="-2012"/>
         <source>(original message not loaded)</source>
         <translation>（原消息未加载）</translation>
     </message>
@@ -8421,12 +8476,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>安全设置</translation>
     </message>
     <message>
-        <location line="-1852"/>
+        <location line="-1890"/>
         <source>Link</source>
         <translation type="unfinished">链接</translation>
     </message>
     <message>
-        <location line="+1941"/>
+        <location line="+1979"/>
         <source>Show the link preview again</source>
         <translation>再次显示链接预览</translation>
     </message>
@@ -8462,29 +8517,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2144"/>
+        <location line="+2297"/>
         <source>Retry</source>
         <translation>重试</translation>
     </message>
     <message>
-        <location line="-2114"/>
-        <location line="+990"/>
+        <location line="-2267"/>
+        <location line="+1143"/>
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-985"/>
+        <location line="-1138"/>
         <source>Cancel sending this message</source>
         <translation>取消发送这条消息</translation>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1160"/>
+        <location line="+1313"/>
         <source>Hide image</source>
         <translation>隐藏图像</translation>
     </message>
     <message>
-        <location line="-1156"/>
+        <location line="-1309"/>
         <source>Hide</source>
         <translation>隐藏</translation>
     </message>
@@ -8565,7 +8620,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>添加回应</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+58"/>
         <source>Sent</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8595,14 +8650,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1、%2 和另外 %3 人已读</translation>
     </message>
     <message>
-        <location line="+257"/>
+        <location line="+407"/>
         <source>Message · %1 · %2</source>
         <translation>消息 · %1 · %2</translation>
     </message>
     <message>
-        <location line="-788"/>
+        <location line="-941"/>
         <location line="+4"/>
-        <location line="+914"/>
+        <location line="+1067"/>
         <source>Reply in thread</source>
         <translation>在消息列中回复</translation>
     </message>
@@ -8714,13 +8769,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3446"/>
-        <location line="+1138"/>
+        <location line="-3599"/>
+        <location line="+1291"/>
         <source>Edit</source>
         <translation>编辑</translation>
     </message>
     <message>
-        <location line="-3584"/>
+        <location line="-3775"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8736,42 +8791,42 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+554"/>
+        <location line="+562"/>
         <source>Sticker</source>
         <translation type="unfinished">贴纸</translation>
     </message>
     <message>
-        <location line="-551"/>
+        <location line="-559"/>
         <source>Voice message</source>
         <translation type="unfinished">语音消息</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+548"/>
+        <location line="+556"/>
         <source>Audio</source>
         <translation type="unfinished">音频</translation>
     </message>
     <message>
-        <location line="-546"/>
-        <location line="+544"/>
+        <location line="-554"/>
+        <location line="+552"/>
         <source>GIF</source>
         <translation type="unfinished">GIF</translation>
     </message>
     <message>
-        <location line="-544"/>
+        <location line="-552"/>
         <location line="+66"/>
-        <location line="+477"/>
-        <location line="+3961"/>
+        <location line="+485"/>
+        <location line="+4144"/>
         <source>Image</source>
         <translation type="unfinished">图片</translation>
     </message>
     <message>
-        <location line="-4502"/>
+        <location line="-4693"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location line="+524"/>
+        <location line="+532"/>
         <source>%n image(s)</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -8785,7 +8840,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+1058"/>
+        <location line="+1088"/>
         <source>Message deleted</source>
         <translation type="unfinished">消息已删除</translation>
     </message>
@@ -8795,7 +8850,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1489"/>
+        <location line="+1642"/>
         <location line="+12"/>
         <source>Remove edits</source>
         <translation>删除编辑记录</translation>
@@ -8905,12 +8960,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>回复对象</translation>
     </message>
     <message>
-        <location line="-1760"/>
+        <location line="-1913"/>
         <source>Show preview</source>
         <translation>显示预览</translation>
     </message>
     <message>
-        <location line="+1576"/>
+        <location line="+1729"/>
         <source>Remove edits?</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9026,10 +9081,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>贴纸加载失败 — 点击重试</translation>
     </message>
     <message>
-        <location line="-5326"/>
+        <location line="-5517"/>
         <location line="+70"/>
-        <location line="+480"/>
-        <location line="+3959"/>
+        <location line="+488"/>
+        <location line="+4142"/>
         <location line="+1022"/>
         <location line="+66"/>
         <source>Video</source>
@@ -9041,9 +9096,9 @@ Signing out and signing in again is the only fix.</source>
         <translation>视频</translation>
     </message>
     <message>
-        <location line="-5609"/>
-        <location line="+546"/>
-        <location line="+4069"/>
+        <location line="-5800"/>
+        <location line="+554"/>
+        <location line="+4252"/>
         <location line="+1136"/>
         <location line="+31"/>
         <source>File</source>
@@ -11387,7 +11442,19 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 的邀请</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
+        <source>%1, mention in a thread</source>
+        <comment>room row</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>%1, unread in a thread</source>
+        <comment>room row</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>%1, %2 mentions</source>
         <translation>%1，%2 条提及</translation>
     </message>
@@ -11397,12 +11464,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1，已静音</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+88"/>
         <source>Yesterday</source>
         <translation>昨天</translation>
     </message>
     <message>
-        <location line="+275"/>
+        <location line="+280"/>
         <source>Space invitation from %1</source>
         <translation>来自 %1 的空间邀请</translation>
     </message>
@@ -11631,7 +11698,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+241"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+243"/>
         <source>Choose room avatar</source>
         <translation>选择房间头像</translation>
     </message>
@@ -11661,7 +11728,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>关闭房间信息</translation>
     </message>
     <message>
-        <location line="-297"/>
+        <location line="-299"/>
         <source>Overview</source>
         <translation>概览</translation>
     </message>
@@ -11681,7 +11748,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>媒体</translation>
     </message>
     <message>
-        <location line="+388"/>
+        <location line="+390"/>
         <source>Notifications</source>
         <translation>通知</translation>
     </message>
@@ -11749,12 +11816,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 位成员（已邀请 %2 位）</translation>
     </message>
     <message>
-        <location line="-573"/>
+        <location line="-575"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2100"/>
+        <location line="+2102"/>
         <source>Open</source>
         <translation type="unfinished">打开</translation>
     </message>
@@ -18280,7 +18347,7 @@ Note: importing keys does not verify this session.</source>
         <translation>跳转到最新消息</translation>
     </message>
     <message>
-        <location line="+181"/>
+        <location line="+196"/>
         <location line="+56"/>
         <source>Unknown action.</source>
         <translation>未知的行动。</translation>
@@ -18484,7 +18551,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+728"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+734"/>
         <source>Create Room</source>
         <translation>创建房间</translation>
     </message>
@@ -20061,7 +20128,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThemeEditorDialog</name>
     <message>
-        <location filename="../qml/ThemeEditorDialog.qml" line="+255"/>
+        <location filename="../qml/ThemeEditorDialog.qml" line="+286"/>
         <source>Theme imported.</source>
         <translation>主题已导入。</translation>
     </message>
@@ -20462,13 +20529,13 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+1"/>
         <location line="+14"/>
-        <location line="+212"/>
-        <location line="+240"/>
+        <location line="+225"/>
+        <location line="+243"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-466"/>
+        <location line="-482"/>
         <source>Storm looks good now</source>
         <translation>Storm 现在看起来不错</translation>
     </message>
@@ -20491,12 +20558,12 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+500"/>
+        <location line="+516"/>
         <source>Sam</source>
         <translation>Sam</translation>
     </message>
     <message>
-        <location line="-500"/>
+        <location line="-516"/>
         <source>Robin</source>
         <translation>Robin</translation>
     </message>
@@ -20506,18 +20573,18 @@ Note: importing keys does not verify this session.</source>
         <translation>Kim</translation>
     </message>
     <message>
-        <location line="+230"/>
+        <location line="+243"/>
         <source>Search</source>
         <translation>搜索</translation>
     </message>
     <message>
-        <location line="-238"/>
-        <location line="+248"/>
+        <location line="-251"/>
+        <location line="+262"/>
         <source>Rooms</source>
         <translation>房间</translation>
     </message>
     <message>
-        <location line="-257"/>
+        <location line="-271"/>
         <source>New release is out</source>
         <translation type="unfinished"></translation>
     </message>
@@ -20547,7 +20614,7 @@ Note: importing keys does not verify this session.</source>
         <translation>创意工作室</translation>
     </message>
     <message>
-        <location line="+515"/>
+        <location line="+531"/>
         <source>12:41</source>
         <translation type="unfinished"></translation>
     </message>
@@ -20572,7 +20639,7 @@ Note: importing keys does not verify this session.</source>
         <translation>说明</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+22"/>
         <source>@you</source>
         <translation>@你</translation>
     </message>
@@ -20587,7 +20654,7 @@ Note: importing keys does not verify this session.</source>
         <translation>版本说明</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+26"/>
         <source>+2</source>
         <translation>+2</translation>
     </message>
@@ -20597,22 +20664,22 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+36"/>
         <source>Typing </source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>this</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+36"/>
         <source>Send</source>
         <translation>发送</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+57"/>
         <source>Reply</source>
         <translation type="unfinished">回复</translation>
     </message>
@@ -20637,7 +20704,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">管理员</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>Verified</source>
         <translation type="unfinished">已验证</translation>
     </message>
@@ -20677,27 +20744,27 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="+50"/>
         <source>Settings</source>
         <translation type="unfinished">设置</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+40"/>
         <source>Rest</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+15"/>
         <source>Hover</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+15"/>
         <source>Held</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+20"/>
         <source>Invite</source>
         <translation>邀请</translation>
     </message>
@@ -20705,7 +20772,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+628"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+636"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>此后端不支持附件。</translation>
     </message>
@@ -20924,24 +20991,24 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location line="+35"/>
-        <location line="+648"/>
+        <location line="+652"/>
         <source>Attach files</source>
         <translation>添加附件</translation>
     </message>
     <message>
-        <location line="-647"/>
+        <location line="-651"/>
         <source>Attach</source>
         <translation>添加</translation>
     </message>
     <message>
         <location line="+21"/>
-        <location line="+126"/>
+        <location line="+128"/>
         <source>Press Enter again to send it as a message.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-87"/>
-        <location line="+100"/>
+        <location line="-89"/>
+        <location line="+102"/>
         <source>Reply in thread</source>
         <translation>在话题中回复</translation>
     </message>
@@ -20976,7 +21043,7 @@ Note: importing keys does not verify this session.</source>
         <translation>选择全部</translation>
     </message>
     <message>
-        <location line="+108"/>
+        <location line="+110"/>
         <source>Insert emoji</source>
         <translation>插入表情符号</translation>
     </message>
@@ -21159,6 +21226,19 @@ Note: importing keys does not verify this session.</source>
     </message>
 </context>
 <context>
+    <name>ThreadUnreadBadge</name>
+    <message>
+        <location filename="../qml/ThreadUnreadBadge.qml" line="+25"/>
+        <source>Mention in a thread</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Unread in a thread</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>TimelineModel</name>
     <message>
         <location filename="../src/models/TimelineModel.cpp" line="+1059"/>
@@ -21239,7 +21319,7 @@ Note: importing keys does not verify this session.</source>
         <translation>%1 人已读</translation>
     </message>
     <message numerus="yes">
-        <location line="+80"/>
+        <location line="+119"/>
         <source>…and %n more (names not loaded)</source>
         <translation>
             <numerusform>…还有 %n 人（名称未加载）</numerusform>
@@ -21247,13 +21327,13 @@ Note: importing keys does not verify this session.</source>
     </message>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-498"/>
-        <location filename="../qml/TimelinePane.qml" line="+373"/>
-        <location line="+5033"/>
+        <location filename="../qml/TimelinePane.qml" line="+372"/>
+        <location line="+5057"/>
         <source>Space</source>
         <translation>空间</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5032"/>
+        <location filename="../qml/TimelinePane.qml" line="-5056"/>
         <source>Home</source>
         <translation>主页</translation>
     </message>
@@ -21276,17 +21356,37 @@ Note: importing keys does not verify this session.</source>
         <translation>置顶消息</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+20"/>
+        <source>Threads, mention in a thread</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Threads, unread in a thread</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Threads</source>
         <translation>话题</translation>
     </message>
     <message>
+        <location line="+3"/>
+        <source>Mention in a thread</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+2"/>
+        <source>Unread in a thread</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Threads in this room</source>
         <translation>此房间中的话题</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+28"/>
         <source>Search messages</source>
         <translation>搜索消息</translation>
     </message>
@@ -21940,13 +22040,13 @@ Note: importing keys does not verify this session.</source>
         <translation>取消</translation>
     </message>
     <message>
-        <location line="-5588"/>
+        <location line="-5612"/>
         <location line="+91"/>
         <source>View profile</source>
         <translation type="unfinished">查看个人资料</translation>
     </message>
     <message>
-        <location line="+4819"/>
+        <location line="+4843"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -22020,7 +22120,7 @@ Note: importing keys does not verify this session.</source>
 <context>
     <name>TrayIcon</name>
     <message>
-        <location filename="../src/app/TrayIcon.cpp" line="+237"/>
+        <location filename="../src/app/TrayIcon.cpp" line="+254"/>
         <source>Show Lightning</source>
         <translation type="unfinished"></translation>
     </message>
@@ -22030,7 +22130,7 @@ Note: importing keys does not verify this session.</source>
         <translation type="unfinished">退出Lightning</translation>
     </message>
     <message numerus="yes">
-        <location line="+85"/>
+        <location line="+104"/>
         <source>%n unread message(s)</source>
         <comment>system tray tooltip</comment>
         <translation>
