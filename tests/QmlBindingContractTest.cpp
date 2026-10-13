@@ -1311,10 +1311,11 @@ private Q_SLOTS:
     {
         const QString shell = read(QStringLiteral("MainScreen.qml"));
         QVERIFY(!shell.isEmpty());
-        // Four arguments at both push sites (timeline and thread model).
+        // Five arguments at both push sites (timeline and thread model); the
+        // fifth, underlineLinks (Accessibility), is defaulted in C++ too.
         const QRegularExpression call(QStringLiteral(
             "setMentionStyle\\(\\s*accent\\s*,\\s*soft\\s*,\\s*code\\s*,"
-            "\\s*linkInk\\s*\\)"));
+            "\\s*linkInk\\s*,\\s*AppTheme\\.underlineLinks\\s*\\)"));
         QCOMPARE(shell.count(call), 2);
         QVERIFY2(shell.contains(QStringLiteral("AppTheme.link")),
                  "the link ink must come from the theme, not a literal");
@@ -1322,6 +1323,9 @@ private Q_SLOTS:
         // accent independently).
         QVERIFY2(shell.contains(QStringLiteral("function onLinkChanged()")),
                  "a theme change that moves only the link ink must re-push");
+        QVERIFY2(shell.contains(QStringLiteral(
+                     "function onUnderlineLinksChanged()")),
+                 "toggling underline-links must re-push the mention style");
     }
 
     void continuationRowsStayCompactAndActionsFloat()
