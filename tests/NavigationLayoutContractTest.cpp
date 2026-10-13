@@ -797,7 +797,13 @@ private slots:
         QVERIFY(rail.contains(QStringLiteral("FolderTile {")));
         // Muting silences the count, never a mention.
         const QString badge = read(QStringLiteral("UnreadBadge.qml"));
-        QVERIFY(badge.contains(QStringLiteral("root.mention ? AppTheme.dangerText")));
+        // (The ink is the per-element mention-badge roles now, not the old
+        // group danger token; the invariant is that `mention` is tested
+        // BEFORE `muted` for both the ink and the fill.)
+        QVERIFY(badge.contains(QStringLiteral(
+            "root.mention ? AppTheme.mentionBadgeText : root.muted")));
+        QVERIFY(badge.contains(QStringLiteral(
+            "root.mention ? AppTheme.roomMentionBadge : root.muted")));
     }
 
     void aCollapsedCategoryStillReportsWhatItHides()
