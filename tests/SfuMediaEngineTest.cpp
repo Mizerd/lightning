@@ -5471,10 +5471,16 @@ private slots:
         QVERIFY(gainOff.contains(QStringLiteral("gain-control=false")));
         QVERIFY(gainOff.contains(QStringLiteral("echo-cancel=false")));
         QVERIFY(gainOff.contains(QStringLiteral("noise-suppression=true")));
-        // No webrtcdsp, no fragment, whatever was asked.
-        QVERIFY(calls::noise::voiceProcessingDescription(
-                    Mode::Off, false, false, true, false)
-                    .isEmpty());
+        // No webrtcdsp, no dsp stage and none of its properties, whatever was
+        // asked. What remains is the bare `! audioconvert ` element that keeps
+        // gst_parse from reading caps straight after caps.
+        const QString noDsp = calls::noise::voiceProcessingDescription(
+            Mode::Off, false, false, true, false);
+        QVERIFY(!noDsp.contains(QStringLiteral("webrtcdsp")));
+        QVERIFY(!noDsp.contains(QStringLiteral("echo-cancel")));
+        QVERIFY(!noDsp.contains(QStringLiteral("gain-control")));
+        QCOMPARE(noDsp, calls::noise::voiceProcessingDescription(
+                            Mode::Off, false, false, false, true));
 
         // The playback reference exists only when asked for and available.
         QVERIFY(SfuMediaEngine::echoProbeStage(false, true).isEmpty());
