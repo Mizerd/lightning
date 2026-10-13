@@ -273,6 +273,13 @@ private Q_SLOTS:
         QQuickItem *facepile = nullptr;
         QTRY_VERIFY2((facepile = visibleReceiptRow()) != nullptr,
                      "no row drew a read-receipt facepile");
+        // The appended row is laid out a frame after it exists, and until then
+        // it sits on top of the previous row (measured: both at the same y).
+        // A click in that window also reaches the previous row's bubble
+        // TapHandler and pins ITS toolbar, whose own Escape then comes before
+        // leaving the room. A user cannot click a row that has not been
+        // placed, so let the column settle first.
+        QTest::qWait(500);
         QQuickItem *pill = nullptr;
         for (QQuickItem *c : facepile->childItems())
             if (c->objectName() == QLatin1String("readReceiptOverflow"))
