@@ -116,6 +116,15 @@ public:
     /// window) and to apply the format on the key press that follows.
     Q_INVOKABLE QString editorActionForKey(int key, int modifiers) const;
 
+    /// What a composer should CLAIM on ShortcutOverride. Same as
+    /// editorActionForKey(), except that with nothing selected a key that a
+    /// Global action also holds (Ctrl+B panel toggle, Ctrl+U people panel) is
+    /// left to the global action. Formatting an empty selection does nothing
+    /// visible, and since a click on a room focuses the composer the app-level
+    /// toggle was otherwise unreachable from the keyboard.
+    Q_INVOKABLE QString editorOverrideFor(int key, int modifiers,
+                                          bool hasSelection) const;
+
     /// PortableText round-trip. Empty when Qt cannot parse the input, which
     /// the caller must treat as a refusal.
     Q_INVOKABLE static QString normalize(const QString &sequence);

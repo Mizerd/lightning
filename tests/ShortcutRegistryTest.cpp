@@ -321,6 +321,24 @@ private Q_SLOTS:
                  QStringLiteral("composer.underline"));
     }
 
+    // Ctrl+B is Bold only with a selection; with none the composer must not
+    // claim ShortcutOverride, so the app-level panel toggle fires.
+    void ctrlBReachesThePanelToggleFromAnEmptyComposerSelection()
+    {
+        SettingsManager settings;
+        ShortcutRegistry registry(&settings);
+        const int ctrl = int(Qt::ControlModifier);
+
+        QVERIFY(registry.editorOverrideFor(Qt::Key_B, ctrl, false).isEmpty());
+        QCOMPARE(registry.editorOverrideFor(Qt::Key_B, ctrl, true),
+                 QStringLiteral("composer.bold"));
+        // Keys with no Global twin are claimed regardless of selection.
+        QCOMPARE(registry.editorOverrideFor(Qt::Key_E, ctrl, false),
+                 QStringLiteral("composer.code"));
+        // Unrelated keys are never claimed.
+        QVERIFY(registry.editorOverrideFor(Qt::Key_K, ctrl, true).isEmpty());
+    }
+
     // Exactly two sequences appear on more than one row (Ctrl+B and Ctrl+U,
     // both designed cross-context pairs). conflictCount() cannot see a third,
     // accidental one, since cross-context pairs are legal.

@@ -116,8 +116,13 @@ Item {
     // Only claim combinations we handle, or this box would swallow every global
     // shortcut. The registry's EditorContext flag decides (see
     // ShortcutRegistry).
+    // With nothing selected a key a Global action also holds (Ctrl+B room
+    // list toggle) is left to that action: a click on a room focuses this box,
+    // and Bold on an empty selection would make the toggle unreachable.
     function _composerFormatFor(key, modifiers) {
-        return app.shortcuts.editorActionForKey(key, modifiers)
+        var ed = root.activeInput()
+        return app.shortcuts.editorOverrideFor(
+            key, modifiers, ed.selectionStart !== ed.selectionEnd)
     }
     // Composer modes: "markdown" is the source editor (`input`); "rich" is the
     // WYSIWYG editor (`richInput`), whose document is the message and whose

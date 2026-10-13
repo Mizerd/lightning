@@ -1382,8 +1382,10 @@ Rectangle {
                                     threadRichSpellTimer.restart()
                                 }
                                 Keys.onShortcutOverride: (event) => {
-                                    if (app.shortcuts.editorActionForKey(
-                                            event.key, event.modifiers) !== "")
+                                    if (app.shortcuts.editorOverrideFor(
+                                            event.key, event.modifiers,
+                                            panel.activeThreadEditor().selectionStart
+                                            !== panel.activeThreadEditor().selectionEnd) !== "")
                                         event.accepted = true
                                 }
                                 Keys.onPressed: (event) => {
@@ -1611,8 +1613,10 @@ Rectangle {
                             // handles, so the key arrives here as a plain
                             // press; Ctrl+K and Ctrl+Q still reach the window.
                             Keys.onShortcutOverride: (event) => {
-                                if (app.shortcuts.editorActionForKey(
-                                        event.key, event.modifiers) !== "")
+                                if (app.shortcuts.editorOverrideFor(
+                                        event.key, event.modifiers,
+                                        panel.activeThreadEditor().selectionStart
+                                        !== panel.activeThreadEditor().selectionEnd) !== "")
                                     event.accepted = true
                             }
                             Keys.onPressed: (event) => {

@@ -1531,7 +1531,7 @@ private Q_SLOTS:
             QVERIFY2(src.contains(QStringLiteral("Keys.onShortcutOverride")),
                      "a composer that never accepts the override can only "
                      "watch its format keys reach the window");
-            QVERIFY2(src.contains(QStringLiteral("editorActionForKey")),
+            QVERIFY2(src.contains(QStringLiteral("editorOverrideFor")),
                      "the id must come from the registry, which is what "
                      "carries the EditorContext flag");
         }

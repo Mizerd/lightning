@@ -392,6 +392,21 @@ QString ShortcutRegistry::editorActionForKey(int key, int modifiers) const
     return {};
 }
 
+QString ShortcutRegistry::editorOverrideFor(int key, int modifiers,
+                                            bool hasSelection) const
+{
+    const QString action = editorActionForKey(key, modifiers);
+    if (action.isEmpty() || hasSelection)
+        return action;
+    const QString seq = sequenceFromKeyEvent(key, modifiers);
+    for (int i = 0; i < m_actions.size(); ++i) {
+        if (m_actions.at(i).context == GlobalContext
+            && m_resolved.at(i) == seq)
+            return {};
+    }
+    return action;
+}
+
 QString ShortcutRegistry::defaultSequenceFor(const QString &actionId) const
 {
     const Action *a = find(actionId);
