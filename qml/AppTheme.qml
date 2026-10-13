@@ -1268,8 +1268,18 @@ QtObject {
         if (g.type !== "radial" && (g.angle < 90 || g.angle > 270))
             pos = 1 - pos
         var span = stops.length - 1
-        var i = Math.min(span - 1, Math.floor(pos * span))
-        var f = pos * span - i
+        // Stop positions: the spec's own when it has them, else even.
+        var at = function (k) {
+            return g.positions && g.positions.length === stops.length
+                   ? g.positions[k] : k / span
+        }
+        var i = 0
+        while (i < span - 1 && pos > at(i + 1))
+            ++i
+        var lo = at(i)
+        var hi = at(i + 1)
+        var f = hi > lo ? Math.max(0, Math.min(1, (pos - lo) / (hi - lo)))
+                        : (pos >= hi ? 1 : 0)
         var a = Qt.color(stops[i])
         var b = Qt.color(stops[i + 1])
         return Qt.rgba(a.r + (b.r - a.r) * f, a.g + (b.g - a.g) * f,

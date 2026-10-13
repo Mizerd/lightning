@@ -6,7 +6,9 @@
 
 #include <QtTest/QtTest>
 
+#include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include <QColor>
 #include <QFile>
@@ -3138,6 +3140,470 @@ private slots:
                                            "recoloured the solid background "
                                            "(%1)").arg(flatAfterPick)));
         QCOMPARE(stopAfterDeselect, -1);
+    }
+
+    // ---- theme editor: gradients, the gradient bar, the preview --------------
+
+    // Opens the theme editor on the custom theme and returns the dialog. The
+    // caller restores the store and closes it with closeThemeEditor().
+    QObject *openThemeEditor()
+    {
+        m_controller->showSettingsSection(QStringLiteral("appearance"));
+        QCoreApplication::processEvents();
+        if (!QTest::qWaitFor([this] { return item("themeEditorLoader") != nullptr; },
+                             10000))
+            return nullptr;
+        auto *loader = item("themeEditorLoader");
+        loader->setProperty("active", true);
+        QTest::qWait(50);
+        QObject *dialog = popup("themeEditorDialog");
+        if (!dialog)
+            return nullptr;
+        if (!QTest::qWaitFor([dialog] { return dialog->property("opened").toBool(); },
+                             5000))
+            return nullptr;
+        return dialog;
+    }
+
+    void closeThemeEditor()
+    {
+        if (auto *loader = item("themeEditorLoader"))
+            loader->setProperty("active", false);
+        QCoreApplication::processEvents();
+    }
+
+    void resetThemeFixture(int base)
+    {
+        auto *store = m_controller->customTheme();
+        store->resetAll();
+        for (const char *role : { "background", "sidebar", "rail", "surface",
+                                  "settingsPage", "settingsNav" })
+            store->resetGradient(QLatin1String(role));
+        store->setBaseTheme(base);
+        QCoreApplication::processEvents();
+    }
+
+    QVariantMap storedGradient(const char *role) const
+    {
+        return m_controller->customTheme()->gradients()
+            .value(QLatin1String(role)).toMap();
+    }
+
+    static QVariantMap linearSpec(const QStringList &stops)
+    {
+        return { { QStringLiteral("type"), QStringLiteral("linear") },
+                 { QStringLiteral("angle"), 180 },
+                 { QStringLiteral("stops"), stops } };
+    }
+
+    static void collectRegions(QQuickItem *parent, QList<QQuickItem *> &out)
+    {
+        if (!parent)
+            return;
+        if (parent->property("isThemeRegion").toBool())
+            out.append(parent);
+        for (QQuickItem *child : parent->childItems())
+            collectRegions(child, out);
+    }
+
+    QList<QQuickItem *> previewRegions() const
+    {
+        QList<QQuickItem *> out;
+        collectRegions(item("themePreviewDemo"), out);
+        return out;
+    }
+
+    // The first Region painting `role` that can be reached.
+    QQuickItem *previewRegionFor(const QString &role) const
+    {
+        for (QQuickItem *r : previewRegions()) {
+            if (r->property("role").toString() == role && r->isVisible()
+                    && r->width() > 0 && r->height() > 0)
+                return r;
+        }
+        return nullptr;
+    }
+
+    // Reported live as "when a gradient is set, editing the colours does not
+    // work": the picker opened on the role's flat colour, which a gradient
+    // paints over, so every edit was stored and none was seen. A role with a
+    // gradient now opens the picker on a gradient colour, and so does a role
+    // that has just been given one.
+    //
+    // Fails on the old tree: editingStop was -1 after beginEdit, the pick
+    // landed in colours() and the gradient's stops did not move.
+    void editingARoleThatHasAGradientRecoloursTheGradient()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QVERIFY(store->setGradient(
+            QStringLiteral("background"),
+            linearSpec({ QStringLiteral("#102030"), QStringLiteral("#203040") })));
+
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(
+            dialog, "beginEdit", Q_ARG(QVariant, QStringLiteral("background")),
+            Q_ARG(QVariant, QStringLiteral("Conversation background"))));
+        QCoreApplication::processEvents();
+        const int stopOnOpen = dialog->property("editingStop").toInt();
+
+        auto *picker = item("themeColorPicker");
+        QVERIFY(picker);
+        QMetaObject::invokeMethod(
+            picker, "applyColor",
+            Q_ARG(QVariant, QVariant::fromValue(QColor(QStringLiteral("#FF0000")))));
+        QCoreApplication::processEvents();
+        const QStringList stops =
+            storedGradient("background").value(QStringLiteral("stops")).toStringList();
+        const bool flatWritten = store->colors().contains(QStringLiteral("background"));
+        // What the preview is handed to paint.
+        const QVariantMap painted = dialog->property("previewGradients").toMap()
+            .value(QStringLiteral("background")).toMap();
+        const QString paintedFirst =
+            painted.value(QStringLiteral("stops")).toStringList().value(0);
+
+        // A role given its first gradient while the picker is open on it.
+        QVERIFY(QMetaObject::invokeMethod(
+            dialog, "beginEdit", Q_ARG(QVariant, QStringLiteral("sidebar")),
+            Q_ARG(QVariant, QStringLiteral("Room list"))));
+        QCoreApplication::processEvents();
+        const int stopOnPlainRole = dialog->property("editingStop").toInt();
+        if (auto *linear = item("gradientLinearButton"))
+            clickItem(linear);
+        const int stopAfterMakingOne = dialog->property("editingStop").toInt();
+        QMetaObject::invokeMethod(
+            picker, "applyColor",
+            Q_ARG(QVariant, QVariant::fromValue(QColor(QStringLiteral("#00FF00")))));
+        QCoreApplication::processEvents();
+        const QString sidebarFirst = storedGradient("sidebar")
+            .value(QStringLiteral("stops")).toStringList().value(0);
+        const bool sidebarFlatWritten =
+            store->colors().contains(QStringLiteral("sidebar"));
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QCOMPARE(stopOnOpen, 0);
+        QCOMPARE(stops.value(0), QStringLiteral("#FF0000"));
+        QCOMPARE(stops.value(1), QStringLiteral("#203040"));
+        QVERIFY2(!flatWritten,
+                 "the pick recoloured the solid colour hidden under the gradient");
+        QCOMPARE(paintedFirst, QStringLiteral("#FF0000"));
+        QCOMPARE(stopOnPlainRole, -1);
+        QCOMPARE(stopAfterMakingOne, 0);
+        QCOMPARE(sidebarFirst, QStringLiteral("#00FF00"));
+        QVERIFY(!sidebarFlatWritten);
+    }
+
+    // The hex field of a gradient colour followed the stop until one bad entry
+    // was typed: the handler assigned `text`, which destroys a binding, and
+    // afterwards the field showed the typed text for ever (picker edits, a
+    // preset, the bar).
+    void aGradientColourFieldKeepsFollowingTheStopAfterABadEntry()
+    {
+        auto *store = m_controller->customTheme();
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QVERIFY(store->setGradient(
+            QStringLiteral("background"),
+            linearSpec({ QStringLiteral("#102030"), QStringLiteral("#203040") })));
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        QMetaObject::invokeMethod(
+            dialog, "beginEdit", Q_ARG(QVariant, QStringLiteral("background")),
+            Q_ARG(QVariant, QStringLiteral("Conversation background")));
+        QCoreApplication::processEvents();
+
+        const auto fields = items("gradientStopField");
+        QString before, afterBad, afterPick;
+        if (fields.size() >= 2) {
+            QQuickItem *field = fields.at(0);
+            before = field->property("text").toString();
+            field->setProperty("text", QStringLiteral("zzzz"));
+            QMetaObject::invokeMethod(field, "editingFinished");
+            QCoreApplication::processEvents();
+            afterBad = field->property("text").toString();
+            QMetaObject::invokeMethod(
+                item("themeColorPicker"), "applyColor",
+                Q_ARG(QVariant, QVariant::fromValue(QColor(QStringLiteral("#00FF00")))));
+            QCoreApplication::processEvents();
+            afterPick = field->property("text").toString();
+        }
+        const int fieldCount = fields.size();
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QCOMPARE(fieldCount, 2);
+        QCOMPARE(before, QStringLiteral("#102030"));
+        QCOMPARE(afterBad, QStringLiteral("#102030"));
+        QCOMPARE(afterPick, QStringLiteral("#00FF00"));
+    }
+
+    // The gradient bar: click to add, drag to move, arrow keys to nudge,
+    // Delete to remove, never fewer than two or more than three stops.
+    void theGradientBarAddsMovesAndRemovesStops()
+    {
+        auto *store = m_controller->customTheme();
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QVERIFY(store->setGradient(
+            QStringLiteral("background"),
+            linearSpec({ QStringLiteral("#102030"), QStringLiteral("#304050") })));
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        QMetaObject::invokeMethod(
+            dialog, "beginEdit", Q_ARG(QVariant, QStringLiteral("background")),
+            Q_ARG(QVariant, QStringLiteral("Conversation background")));
+        QCoreApplication::processEvents();
+
+        QQuickItem *bar = item("gradientBar");
+        QQuickItem *track = item("gradientBarTrack");
+        QVERIFY2(bar && track, "the gradient has no bar");
+        ensureVisible(bar);
+        const qreal handleW = bar->property("handleWidth").toReal();
+        const qreal inner = bar->property("inner").toReal();
+        auto sceneX = [&](qreal position) {
+            return track->mapToScene(QPointF(handleW / 2 + position * inner,
+                                             track->height() / 2));
+        };
+
+        // 1. Click the bar at 30%: a third stop, in the colour already there.
+        const QPointF at30 = sceneX(0.3);
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, at30.toPoint());
+        QCoreApplication::processEvents();
+        QVariantMap g = storedGradient("background");
+        const QStringList stopsAfterAdd = g.value(QStringLiteral("stops")).toStringList();
+        const QVariantList posAfterAdd = g.value(QStringLiteral("positions")).toList();
+        const int selectedAfterAdd = dialog->property("editingStop").toInt();
+
+        // 2. Drag that handle right by 35% of the bar (30% -> 65%).
+        QQuickItem *handle = item("gradientBarHandle_1");
+        QVERIFY(handle);
+        const QPointF start = handle->mapToScene(
+            QPointF(handle->width() / 2, handle->height() / 2));
+        QTest::mousePress(m_window, Qt::LeftButton, Qt::NoModifier, start.toPoint());
+        const qreal dx = 0.35 * inner;
+        for (int step = 1; step <= 5; ++step)
+            QTest::mouseMove(m_window, (start + QPointF(dx * step / 5, 0)).toPoint());
+        QTest::mouseRelease(m_window, Qt::LeftButton, Qt::NoModifier,
+                            (start + QPointF(dx, 0)).toPoint());
+        QCoreApplication::processEvents();
+        g = storedGradient("background");
+        const double afterDrag = g.value(QStringLiteral("positions")).toList()
+                                     .value(1).toDouble();
+
+        // 3. Keyboard: Right nudges 2%, Shift+Right 10%, End stops at the
+        // neighbour and cannot pass it.
+        bar->forceActiveFocus();
+        QTest::keyClick(m_window, Qt::Key_Right);
+        const double afterRight = storedGradient("background")
+            .value(QStringLiteral("positions")).toList().value(1).toDouble();
+        QTest::keyClick(m_window, Qt::Key_Right, Qt::ShiftModifier);
+        const double afterShift = storedGradient("background")
+            .value(QStringLiteral("positions")).toList().value(1).toDouble();
+        QTest::keyClick(m_window, Qt::Key_End);
+        const double afterEnd = storedGradient("background")
+            .value(QStringLiteral("positions")).toList().value(1).toDouble();
+        QTest::keyClick(m_window, Qt::Key_Home);
+        const double afterHome = storedGradient("background")
+            .value(QStringLiteral("positions")).toList().value(1).toDouble();
+        const QVariantMap beforeLast = storedGradient("background");
+
+        // 4. A third stop is the most there is: clicking a full bar selects
+        // the nearest handle and adds nothing.
+        QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier,
+                          sceneX(0.9).toPoint());
+        QCoreApplication::processEvents();
+        const int stopCountFull =
+            storedGradient("background").value(QStringLiteral("stops")).toList().size();
+
+        // 5. Delete removes the selected stop; at two it does nothing.
+        bar->forceActiveFocus();
+        QTest::keyClick(m_window, Qt::Key_Up); // from the last stop to the middle one
+        QTest::keyClick(m_window, Qt::Key_Delete);
+        const QVariantMap afterDelete = storedGradient("background");
+        QTest::keyClick(m_window, Qt::Key_Delete);
+        const QVariantMap afterSecondDelete = storedGradient("background");
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QCOMPARE(stopsAfterAdd.size(), 3);
+        QCOMPARE(posAfterAdd.size(), 3);
+        QVERIFY(qAbs(posAfterAdd.at(1).toDouble() - 0.3) < 0.02);
+        QCOMPARE(selectedAfterAdd, 1);
+        // Adding changed nothing visible: the new stop is the blend there.
+        QVERIFY2(m_controller->customTheme()->lightness(stopsAfterAdd.at(1)) > 0,
+                 "the new stop has no colour");
+        QVERIFY2(qAbs(afterDrag - 0.65) < 0.04,
+                 qPrintable(QStringLiteral("dragging 35%% moved the stop to %1")
+                                .arg(afterDrag)));
+        QVERIFY(qAbs(afterRight - (afterDrag + 0.02)) < 0.006);
+        QVERIFY(qAbs(afterShift - (afterRight + 0.10)) < 0.006);
+        QCOMPARE(afterEnd, 1.0);
+        QCOMPARE(afterHome, 0.0);
+        QCOMPARE(stopCountFull, 3);
+        QCOMPARE(afterDelete.value(QStringLiteral("stops")).toList().size(), 2);
+        QVERIFY2(!afterDelete.contains(QStringLiteral("positions")),
+                 "two evenly spaced stops must be stored as the old format");
+        QCOMPARE(afterSecondDelete, afterDelete);
+    }
+
+    // Every themed element of the sample window is a click target of its own:
+    // clicking the centre of each Region reports exactly that Region's role
+    // (so none is covered by a sibling that names another), and hovering it
+    // outlines it. Every editable role has a Region, and every ink that
+    // shares a box with a fill (a badge's count, the label on a button, a
+    // chip's text, a border) has one of its own.
+    void everyElementOfThePreviewIsItsOwnClickTarget()
+    {
+        auto *store = m_controller->customTheme();
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        // Channels draws rows the default layout does not; the test covers
+        // the layout the user has.
+        QQuickItem *preview = item("themePreviewDemo");
+        QVERIFY(preview);
+
+        const QList<QQuickItem *> regions = previewRegions();
+        QSet<QString> roles;
+        for (QQuickItem *r : regions)
+            roles.insert(r->property("role").toString());
+        QStringList missing;
+        for (const QVariant &r : store->roles()) {
+            const QString key = r.toMap().value(QStringLiteral("key")).toString();
+            // Room rows are Channels-only or room-list-only, and the preview
+            // follows the user's layout; both are covered by one pass each.
+            if (!roles.contains(key))
+                missing.append(key);
+        }
+
+        // Which Region a click at `scene` reaches: the topmost one, children
+        // before their parent and later siblings before earlier ones (the
+        // order Qt delivers a press in), z honoured.
+        std::function<QQuickItem *(QQuickItem *, const QPointF &)> topmost =
+            [&](QQuickItem *parent, const QPointF &scene) -> QQuickItem * {
+            QList<QQuickItem *> kids = parent->childItems();
+            std::stable_sort(kids.begin(), kids.end(),
+                             [](QQuickItem *a, QQuickItem *b) { return a->z() < b->z(); });
+            for (int i = kids.size() - 1; i >= 0; --i) {
+                QQuickItem *k = kids.at(i);
+                if (!k->isVisible() || !k->isEnabled() || k->opacity() <= 0.0)
+                    continue;
+                if (QQuickItem *hit = topmost(k, scene))
+                    return hit;
+            }
+            if (parent->property("isThemeRegion").toBool()
+                    && parent->contains(parent->mapFromScene(scene)))
+                return parent;
+            return nullptr;
+        };
+
+        // 1. Every Region can be reached: some point of it is not covered by
+        // another Region (a text sitting on a fill covers the middle of the
+        // fill and nothing else; a Region wholly under another is dead).
+        // 2. Hovering and clicking that point reports and outlines exactly
+        // this Region's role.
+        QSignalSpy spy(preview, SIGNAL(regionActivated(QString, QVariant)));
+        QStringList unreachable;
+        QStringList wrong;
+        QStringList notLit;
+        int clicked = 0;
+        const QRectF stage(0, 0, preview->width(), preview->height());
+        for (QQuickItem *r : regions) {
+            if (!r->isVisible() || r->width() <= 0 || r->height() <= 0)
+                continue;
+            const QString role = r->property("role").toString();
+            // The reachable sample nearest the middle: that is where a user
+            // points, and a point on the very rim of a padded target is not
+            // delivered to it by Qt (outside its parent's bounds).
+            QPointF found;
+            bool reachable = false;
+            qreal best = 1e18;
+            for (int iy = 0; iy < 9; ++iy) {
+                for (int ix = 0; ix < 9; ++ix) {
+                    const QPointF local((ix + 0.5) * r->width() / 9,
+                                        (iy + 0.5) * r->height() / 9);
+                    // Whole pixels: that is all a pointer event carries.
+                    const QPointF scene(r->mapToScene(local).toPoint());
+                    if (!stage.contains(preview->mapFromScene(scene)))
+                        continue;
+                    if (topmost(m_window->contentItem(), scene) != r)
+                        continue;
+                    const QPointF d = local - QPointF(r->width() / 2, r->height() / 2);
+                    const qreal dist = d.x() * d.x() + d.y() * d.y();
+                    if (dist < best) {
+                        best = dist;
+                        reachable = true;
+                        found = scene;
+                    }
+                }
+            }
+            if (!reachable) {
+                unreachable.append(role);
+                continue;
+            }
+            QTest::mouseMove(m_window, found.toPoint() + QPoint(2, 1));
+            QTest::mouseMove(m_window, found.toPoint());
+            QCoreApplication::processEvents();
+            const qreal lit = r->property("emphasis").toReal();
+            spy.clear();
+            QTest::mouseClick(m_window, Qt::LeftButton, Qt::NoModifier, found.toPoint());
+            QCoreApplication::processEvents();
+            ++clicked;
+            if (spy.isEmpty()) {
+                wrong.append(role + QStringLiteral(" (no signal)"));
+                continue;
+            }
+            const QString got = spy.last().at(0).toString();
+            if (got != role)
+                wrong.append(role + QStringLiteral(" -> ") + got);
+            else if (lit < 0.5)
+                notLit.append(role);
+            if (dialog->property("editingRole").toString() != got)
+                wrong.append(role + QStringLiteral(" did not open its editor"));
+        }
+
+        // The inks and lines that used to share their fill's target: how many
+        // separate targets each role has (before the split a badge count, a
+        // button label and a hairline were part of the box they sat on).
+        QHash<QString, int> perRole;
+        for (QQuickItem *r : regions)
+            ++perRole[r->property("role").toString()];
+        QStringList notOwn;
+        const QPair<const char *, int> wanted[] = {
+            { "accentText", 5 }, { "border", 6 }, { "borderStrong", 2 },
+            { "textPrimary", 16 }, { "textMuted", 5 }, { "selected", 2 } };
+        for (const auto &w : wanted) {
+            if (perRole.value(QLatin1String(w.first)) < w.second)
+                notOwn.append(QStringLiteral("%1 has %2 targets, wants %3")
+                                  .arg(QLatin1String(w.first))
+                                  .arg(perRole.value(QLatin1String(w.first)))
+                                  .arg(w.second));
+        }
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QVERIFY2(missing.isEmpty(),
+                 qPrintable(QStringLiteral("editable roles with no place in the "
+                                           "preview: %1").arg(missing.join(", "))));
+        QVERIFY2(clicked >= 60,
+                 qPrintable(QStringLiteral("only %1 regions could be clicked").arg(clicked)));
+        QVERIFY2(unreachable.isEmpty(),
+                 qPrintable(QStringLiteral("covered by another target: %1")
+                                .arg(unreachable.join(", "))));
+        QVERIFY2(wrong.isEmpty(), qPrintable(wrong.join(QStringLiteral("\n  "))));
+        QVERIFY2(notLit.isEmpty(),
+                 qPrintable(QStringLiteral("hover did not outline: %1")
+                                .arg(notLit.join(", "))));
+        QVERIFY2(notOwn.isEmpty(), qPrintable(notOwn.join(", ")));
     }
 
     // With no custom theme yet, ONE click on "Create a theme" opens the

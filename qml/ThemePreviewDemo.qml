@@ -239,6 +239,19 @@ Item {
         }
     }
 
+    // A 1px line of its own, so a border is a click target separate from the
+    // box it frames (a Region over the box would hand the line and the fill to
+    // one role). Lies along the bottom edge of its parent.
+    component EdgeRegion: Item {
+        id: edge
+        required property string role
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 1
+        Region { role: edge.role; pad: 3 }
+    }
+
     RowLayout {
         anchors.fill: parent
         spacing: 0
@@ -351,6 +364,7 @@ Item {
                         font.pixelSize: AppTheme.textMeta
                         Region { role: "placeholderInk" }
                     }
+                    EdgeRegion { role: "border" }
                 }
 
                 Text {
@@ -397,6 +411,7 @@ Item {
                                 implicitHeight: fakeChannelRow.isFolder ? 8 : 16
                                 radius: fakeChannelRow.isFolder ? 1 : AppTheme.radiusSm
                                 color: fakeChannelRow.isFolder ? root.c("textMuted", "textSecondary") : root.c("cardElevated", "surface")
+                                Region { role: fakeChannelRow.isFolder ? "textMuted" : "cardElevated" }
                             }
                             Text {
                                 text: fakeChannelRow.modelData.name
@@ -508,6 +523,7 @@ Item {
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMicro
                                     font.weight: AppTheme.weightStrong
+                                    Region { role: "accentText"; pad: 1 }
                                 }
                             }
 
@@ -708,6 +724,8 @@ Item {
                                     radius: AppTheme.radiusSm
                                     color: root.tone("mentionHighlight",
                                                      "accent", 0.16)
+                                    // Beneath the text, so the text names its own ink.
+                                    Region { role: "accent" }
                                     Text {
                                         id: youText
                                         anchors.centerIn: parent
@@ -716,8 +734,8 @@ Item {
                                         font.family: AppTheme.uiFont
                                         font.pixelSize: AppTheme.textMeta
                                         font.weight: AppTheme.weightStrong
+                                        Region { role: "textPrimary" }
                                     }
-                                    Region { role: "accent" }
                                 }
                             }
 
@@ -760,6 +778,7 @@ Item {
                                     elide: Text.ElideRight
                                     Region { role: "textSecondary" }
                                 }
+                                EdgeRegion { role: "border" }
                             }
 
                             // Reactions: someone else's, then your own.
@@ -791,7 +810,7 @@ Item {
                                     implicitHeight: 22
                                     radius: AppTheme.radiusPill
                                     color: root.c("accentBorder", "borderStrong")
-                                    Region { role: "accentBorder" }
+                                    Region { role: "accentBorder"; pad: 2 }
                                     Rectangle {
                                         anchors.fill: parent
                                         anchors.margins: 1
@@ -805,6 +824,7 @@ Item {
                                             color: root.c("textPrimary", "textPrimary")
                                             font.family: AppTheme.uiFont
                                             font.pixelSize: AppTheme.textMeta
+                                            Region { role: "textPrimary" }
                                         }
                                     }
                                 }
@@ -846,6 +866,7 @@ Item {
                                 width: selectedWord.implicitWidth
                                 height: selectedWord.implicitHeight + 2
                                 color: root.c("textSelection", "selectedHover")
+                                Region { role: "textSelection"; pad: 2 }
                                 Text {
                                     id: selectedWord
                                     anchors.centerIn: parent
@@ -853,10 +874,11 @@ Item {
                                     color: root.c("textPrimary", "textPrimary")
                                     font.family: AppTheme.uiFont
                                     font.pixelSize: AppTheme.textMeta
+                                    Region { role: "textPrimary" }
                                 }
-                                Region { role: "textSelection" }
                             }
                         }
+                        EdgeRegion { role: "border" }
                     }
 
                     Rectangle {
@@ -922,6 +944,7 @@ Item {
                 border.width: 1
                 border.color: root.c("borderStrong", "border")
                 Region { role: "popoverSurface" }
+                EdgeRegion { role: "borderStrong" }
 
                 Column {
                     id: menuColumn
@@ -1062,7 +1085,7 @@ Item {
                     implicitHeight: 22
                     radius: AppTheme.radiusPill
                     color: root.c("accentBorder", "borderStrong")
-                    Region { role: "accentBorder" }
+                    Region { role: "accentBorder"; pad: 2 }
                     Rectangle {
                         anchors.fill: parent
                         anchors.margins: 1
@@ -1075,6 +1098,7 @@ Item {
                             color: root.c("textPrimary", "textPrimary")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMicro
+                            Region { role: "textPrimary" }
                         }
                     }
                 }
@@ -1159,6 +1183,7 @@ Item {
                         // Inside the 1px border.
                         GradientLayer { role: "settingsNav"; anchors.margins: 1 }
                         Region { role: "settingsNav" }
+                        EdgeRegion { role: "border" }
                         Column {
                             x: 6
                             y: 7
@@ -1173,6 +1198,7 @@ Item {
                                     color: index === 0
                                            ? root.c("selected", "hover")
                                            : root.tone("textMuted", "textSecondary", 0.45)
+                                    Region { role: index === 0 ? "selected" : "textMuted"; pad: 2 }
                                 }
                             }
                         }
@@ -1185,6 +1211,7 @@ Item {
                         border.color: root.c("border", "border")
                         GradientLayer { role: "settingsPage"; anchors.margins: 1 }
                         Region { role: "settingsPage" }
+                        EdgeRegion { role: "border" }
                         Text {
                             x: 6
                             y: 4
@@ -1193,6 +1220,7 @@ Item {
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMicro
                             font.weight: AppTheme.weightStrong
+                            Region { role: "textPrimary" }
                         }
                         Column {
                             x: 6
@@ -1206,6 +1234,7 @@ Item {
                                     height: 4
                                     radius: 2
                                     color: root.tone("textMuted", "textSecondary", 0.45)
+                                    Region { role: "textMuted"; pad: 2 }
                                 }
                             }
                         }
@@ -1230,6 +1259,7 @@ Item {
                             color: root.c("accentText", "textPrimary")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMicro
+                            Region { role: "accentText"; pad: 1 }
                         }
                     }
                     Rectangle {
@@ -1244,6 +1274,7 @@ Item {
                             color: root.c("accentText", "textPrimary")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMicro
+                            Region { role: "accentText"; pad: 1 }
                         }
                     }
                     Rectangle {
@@ -1258,6 +1289,7 @@ Item {
                             color: root.c("accentText", "textPrimary")
                             font.family: AppTheme.uiFont
                             font.pixelSize: AppTheme.textMicro
+                            Region { role: "accentText"; pad: 1 }
                         }
                     }
                 }
@@ -1270,7 +1302,7 @@ Item {
                     color: "transparent"
                     border.width: 1
                     border.color: root.c("borderStrong", "border")
-                    Region { role: "borderStrong" }
+                    EdgeRegion { role: "borderStrong" }
                     Text {
                         anchors.centerIn: parent
                         text: qsTr("Invite")

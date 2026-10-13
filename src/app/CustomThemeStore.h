@@ -197,6 +197,9 @@ public:
     // bottom), 2 or 3 stops each an opaque #RRGGBB (upper-cased). Anything
     // else is dropped, never repaired into a guess.
     static QVariantMap sanitizeGradient(const QVariant &raw);
+    // The optional `positions` of a gradient spec (one 0..1, non-decreasing
+    // value per stop), or empty when absent, malformed or an even spread.
+    static QVariantList sanitizeGradientPositions(const QVariant &raw, int stopCount);
     // role -> spec for every gradient role with a usable spec.
     static QVariantMap sanitizeGradients(const QVariantMap &raw);
     static constexpr int kMinGradientStops = 2;

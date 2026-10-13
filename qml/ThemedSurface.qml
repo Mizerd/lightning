@@ -41,6 +41,18 @@ Item {
         return spec.stops[Math.max(0, Math.min(_stopCount - 1, i))]
     }
 
+    // Where stop `i` sits along the gradient, 0..1. A spec without
+    // `positions` (every theme saved before the gradient bar, and Depth's)
+    // spreads its stops evenly.
+    function _pos(i) {
+        if (!hasGradient || _stopCount < 2)
+            return 0
+        var p = spec.positions
+        if (p && p.length === _stopCount)
+            return Math.max(0, Math.min(1, p[Math.max(0, Math.min(_stopCount - 1, i))]))
+        return Math.max(0, Math.min(_stopCount - 1, i)) / (_stopCount - 1)
+    }
+
     // CSS convention: 0 points up, 90 right, 180 down. The gradient line
     // passes through the centre and is long enough to reach both corners.
     readonly property real _angleRad: hasGradient && !_radial
@@ -79,12 +91,12 @@ Item {
         y1: root.height / 2 - root._dy * root._halfLength
         x2: root.width / 2 + root._dx * root._halfLength
         y2: root.height / 2 + root._dy * root._halfLength
-        GradientStop { position: 0.0; color: root._stop(0) }
+        GradientStop { position: root._pos(0); color: root._stop(0) }
         GradientStop {
-            position: root._stopCount > 2 ? 0.5 : 1.0
+            position: root._stopCount > 2 ? root._pos(1) : root._pos(root._stopCount - 1)
             color: root._stop(1)
         }
-        GradientStop { position: 1.0; color: root._stop(root._stopCount - 1) }
+        GradientStop { position: root._pos(root._stopCount - 1); color: root._stop(root._stopCount - 1) }
     }
 
     // Subtle by construction: centred, reaching the far corners.
@@ -96,12 +108,12 @@ Item {
         focalY: centerY
         centerRadius: Math.sqrt(root.width * root.width + root.height * root.height) / 2
         focalRadius: 0
-        GradientStop { position: 0.0; color: root._stop(0) }
+        GradientStop { position: root._pos(0); color: root._stop(0) }
         GradientStop {
-            position: root._stopCount > 2 ? 0.5 : 1.0
+            position: root._stopCount > 2 ? root._pos(1) : root._pos(root._stopCount - 1)
             color: root._stop(1)
         }
-        GradientStop { position: 1.0; color: root._stop(root._stopCount - 1) }
+        GradientStop { position: root._pos(root._stopCount - 1); color: root._stop(root._stopCount - 1) }
     }
 
     // The inner shade: Depth's "this neighbour sits above me". Never under

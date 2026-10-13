@@ -43,6 +43,9 @@ ColumnLayout {
     // by the host in answer to stopSelected().
     property int selectedStop: -1
     signal stopSelected(int index)
+    // The store's own limits (CustomThemeStore::kMin/kMaxGradientStops).
+    readonly property int minStops: 2
+    readonly property int maxStops: 3
 
     spacing: AppTheme.spacing8
 
@@ -60,11 +63,22 @@ ColumnLayout {
     readonly property bool radial: editor.hasGradient && editor.stored.type === "radial"
     readonly property int stopCount: editor.hasGradient ? editor.stored.stops.length : 0
 
-    onRoleChanged: if (editor.selectedStop >= 0) editor.stopSelected(-1)
+    // The host decides which stop a newly opened role starts on (it knows
+    // whether the role was just opened or just changed under it). Here only
+    // the two transitions that happen inside the editor: a gradient that goes
+    // away takes the picker back to the solid colour, and one that appears
+    // hands the picker its first colour. Left on the solid colour the picker
+    // would keep recolouring a fill the gradient paints over, and nothing on
+    // screen would move.
     onHasGradientChanged: {
         if (!editor.hasGradient && editor.selectedStop >= 0)
             editor.stopSelected(-1)
+        else if (editor.hasGradient && editor.selectedStop < 0 && editor.available
+                 && editor.autoSelect)
+            editor.stopSelected(0)
     }
+    // Off for a host that wants the solid colour after a gradient appears.
+    property bool autoSelect: true
 
     function stopAt(i) {
         if (!editor.hasGradient)
@@ -120,6 +134,35 @@ ColumnLayout {
                           editor.mixed(editor.baseHex, editor.accentHex, 0.3)] } },
     ]
 
+    // Where each stop sits along the gradient (0..1). A stored gradient with
+    // no `positions` spreads its stops evenly.
+    function positionsOf() {
+        var n = editor.stopCount
+        var p = editor.hasGradient ? editor.stored.positions : undefined
+        var out = []
+        for (var i = 0; i < n; ++i)
+            out.push(p && p.length === n ? p[i] : (n > 1 ? i / (n - 1) : 0))
+        return out
+    }
+    // The colour the gradient shows at `position`, so a stop added there
+    // changes nothing until it is edited.
+    function colourAtPosition(position) {
+        var stops = editor.hasGradient ? editor.stored.stops : []
+        var pos = editor.positionsOf()
+        if (stops.length === 0)
+            return editor.baseHex
+        if (position <= pos[0])
+            return editor.hexOf(stops[0])
+        for (var i = 0; i < stops.length - 1; ++i) {
+            if (position <= pos[i + 1]) {
+                var span = pos[i + 1] - pos[i]
+                return editor.mixed(stops[i], stops[i + 1],
+                                    span > 0 ? (position - pos[i]) / span : 1)
+            }
+        }
+        return editor.hexOf(stops[stops.length - 1])
+    }
+
     function specWith(changes) {
         var spec = {
             type: editor.hasGradient ? editor.stored.type : "linear",
@@ -128,9 +171,54 @@ ColumnLayout {
                                       : [editor.baseHex,
                                          editor.stepped(editor.baseColor, 0.10)]
         }
+        // Positions travel with the stops they belong to: a caller that
+        // changes the stop list passes the matching positions (or none).
+        if (editor.hasGradient && !("stops" in changes))
+            spec.positions = editor.positionsOf()
         for (var k in changes)
             spec[k] = changes[k]
+        if (spec.positions === undefined)
+            delete spec.positions
         return spec
+    }
+    // Drag or keyboard: stop `i` goes to `position`, between its neighbours.
+    function moveStop(i, position) {
+        if (!editor.hasGradient || i < 0 || i >= editor.stopCount)
+            return false
+        var pos = editor.positionsOf()
+        var lo = i > 0 ? pos[i - 1] : 0
+        var hi = i < pos.length - 1 ? pos[i + 1] : 1
+        pos[i] = Math.round(Math.max(lo, Math.min(hi, position)) * 100) / 100
+        return editor.write(editor.specWith({ positions: pos }))
+    }
+    // Click on the bar: a new stop at `position` in the colour already
+    // showing there. Returns the new stop's index, or -1 when the gradient is
+    // full or the write failed.
+    function addStopAt(position) {
+        if (!editor.hasGradient || editor.stopCount >= editor.maxStops)
+            return -1
+        var p = Math.round(Math.max(0, Math.min(1, position)) * 100) / 100
+        var pos = editor.positionsOf()
+        var stops = editor.stored.stops.slice(0)
+        var at = 0
+        while (at < pos.length && pos[at] <= p)
+            ++at
+        var colour = editor.colourAtPosition(p)
+        stops.splice(at, 0, colour)
+        pos.splice(at, 0, p)
+        if (!editor.write(editor.specWith({ stops: stops, positions: pos })))
+            return -1
+        return at
+    }
+    function removeStopAt(i) {
+        if (!editor.hasGradient || editor.stopCount <= editor.minStops
+                || i < 0 || i >= editor.stopCount)
+            return false
+        var stops = editor.stored.stops.slice(0)
+        var pos = editor.positionsOf()
+        stops.splice(i, 1)
+        pos.splice(i, 1)
+        return editor.write(editor.specWith({ stops: stops, positions: pos }))
     }
     function write(spec) {
         for (var i = 0; i < spec.stops.length; ++i) {
@@ -160,8 +248,12 @@ ColumnLayout {
     }
     function reverseStops() {
         var stops = editor.specWith({}).stops
+        var pos = editor.positionsOf()
         stops.reverse()
-        if (!editor.write(editor.specWith({ stops: stops })))
+        pos.reverse()
+        for (var i = 0; i < pos.length; ++i)
+            pos[i] = Math.round((1 - pos[i]) * 100) / 100
+        if (!editor.write(editor.specWith({ stops: stops, positions: pos })))
             return
         // Keep the picker on the colour it was editing, now at the far end.
         if (editor.selectedStop >= 0)
@@ -449,6 +541,42 @@ ColumnLayout {
         }
 
         SectionLabel {
+            objectName: "gradientBarHeading"
+            text: qsTr("Colour stops")
+        }
+
+        // The gradient with a handle per colour: drag to move, click the bar to
+        // add, arrow keys to nudge (see GradientBar for the full list).
+        GradientBar {
+            id: stopBar
+            Layout.fillWidth: true
+            spec: editor.stored
+            selectedStop: editor.selectedStop
+            maxStops: editor.maxStops
+            minStops: editor.minStops
+            stopNamer: editor.stopName
+            onStopSelected: (index) => editor.stopSelected(index)
+            onStopMoved: (index, position) => editor.moveStop(index, position)
+            onStopAddRequested: (position) => {
+                var at = editor.addStopAt(position)
+                if (at >= 0)
+                    editor.stopSelected(at)
+            }
+            onStopRemoveRequested: (index) => {
+                if (editor.removeStopAt(index))
+                    editor.stopSelected(Math.max(0, Math.min(
+                        index, editor.stopCount - 1)))
+            }
+        }
+
+        Hint {
+            objectName: "gradientBarHint"
+            text: editor.stopCount < editor.maxStops
+                  ? qsTr("Drag a handle to move a colour. Click the bar to add one.")
+                  : qsTr("Drag a handle to move a colour. Three is the most a gradient holds.")
+        }
+
+        SectionLabel {
             text: qsTr("Gradient colours")
         }
 
@@ -538,7 +666,6 @@ ColumnLayout {
                             anchors.rightMargin: AppTheme.spacing8
                             verticalAlignment: TextInput.AlignVCenter
                             clip: true
-                            text: String(editor.stopAt(stopRow.index)).toUpperCase()
                             color: AppTheme.editorText
                             selectionColor: AppTheme.editorSelection
                             selectedTextColor: AppTheme.editorText
@@ -547,6 +674,16 @@ ColumnLayout {
                             maximumLength: 7
                             selectByMouse: true
                             Accessible.name: qsTr("Gradient colour %1").arg(stopRow.index + 1)
+                            // A Binding, not `text:` plus an assignment on a bad
+                            // entry: that assignment destroyed the binding, and
+                            // afterwards the field showed whatever was typed and
+                            // never the stop again (picker edits, undo, presets).
+                            Binding {
+                                target: stopField
+                                property: "text"
+                                value: String(editor.stopAt(stopRow.index)).toUpperCase()
+                                when: !stopField.activeFocus
+                            }
                             onEditingFinished: {
                                 if (!editor.setStop(stopRow.index, text))
                                     text = String(editor.stopAt(stopRow.index)).toUpperCase()
@@ -559,13 +696,13 @@ ColumnLayout {
                         Accessible.name: qsTr("Remove the %1 colour")
                                          .arg(editor.stopName(stopRow.index))
                         // Two stops is the minimum the store accepts.
-                        visible: editor.stopCount > 2
+                        visible: editor.stopCount > editor.minStops
                         onClicked: {
-                            var stops = editor.specWith({}).stops
-                            stops.splice(stopRow.index, 1)
-                            if (editor.selectedStop >= 0)
-                                editor.stopSelected(-1)
-                            editor.write(editor.specWith({ stops: stops }))
+                            // Read before the write: the row is rebuilt by it.
+                            var removed = stopRow.index
+                            if (editor.removeStopAt(removed))
+                                editor.stopSelected(Math.max(0, Math.min(
+                                    removed, editor.stopCount - 1)))
                         }
                     }
                 }
@@ -578,16 +715,19 @@ ColumnLayout {
             ChromeButton {
                 objectName: "gradientAddMiddleButton"
                 text: qsTr("Add a middle colour")
-                visible: editor.stopCount < 3
+                visible: editor.stopCount < editor.maxStops
                 onClicked: {
-                    var stops = editor.specWith({}).stops
-                    // Halfway between its neighbours, so adding it changes
-                    // nothing until it is edited.
-                    stops.splice(1, 0, editor.mixed(stops[0], stops[1], 0.5))
-                    if (editor.selectedStop >= 1)
-                        editor.stopSelected(editor.selectedStop + 1)
-                    editor.write(editor.specWith({ stops: stops }))
+                    var at = editor.addStopAt(stopBar.widestGapMiddle())
+                    if (at >= 0)
+                        editor.stopSelected(at)
                 }
+            }
+            ChromeButton {
+                objectName: "gradientBaseColourButton"
+                text: qsTr("Solid colour underneath")
+                Accessible.name: qsTr("Edit the solid colour underneath the gradient")
+                selected: editor.selectedStop < 0
+                onClicked: editor.stopSelected(-1)
             }
             ChromeButton {
                 objectName: "gradientReverseButton"

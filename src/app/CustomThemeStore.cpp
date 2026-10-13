@@ -634,7 +634,42 @@ QVariantMap CustomThemeStore::sanitizeGradient(const QVariant &raw)
                                            : QStringLiteral("linear"));
     out.insert(QStringLiteral("angle"), angle);
     out.insert(QStringLiteral("stops"), stops);
+    // Optional, additive: where each stop sits along the gradient (0..1).
+    // Kept only when it differs from an even spread, so every theme saved or
+    // shared before the gradient bar existed round-trips byte for byte, and a
+    // client that does not know the key paints the stops evenly.
+    const QVariantList positions = sanitizeGradientPositions(
+        spec.value(QStringLiteral("positions")), int(stops.size()));
+    if (!positions.isEmpty())
+        out.insert(QStringLiteral("positions"), positions);
     return out;
+}
+
+QVariantList CustomThemeStore::sanitizeGradientPositions(const QVariant &raw,
+                                                         int stopCount)
+{
+    const QVariantList list = raw.toList();
+    if (stopCount < kMinGradientStops || list.size() != stopCount)
+        return {};
+    QVariantList out;
+    double previous = 0.0;
+    bool even = true;
+    for (int i = 0; i < stopCount; ++i) {
+        // A string is not a number here, as for the angle.
+        if (list.at(i).typeId() == QMetaType::QString)
+            return {};
+        bool ok = false;
+        const double p = list.at(i).toDouble(&ok);
+        if (!ok || !std::isfinite(p) || p < 0.0 || p > 1.0 || p < previous)
+            return {};
+        previous = p;
+        // Two decimals are all a bar can show, and keep the file small.
+        const double rounded = std::round(p * 100.0) / 100.0;
+        out.append(rounded);
+        if (std::abs(rounded - double(i) / double(stopCount - 1)) > 0.005)
+            even = false;
+    }
+    return even ? QVariantList() : out;
 }
 
 QVariantMap CustomThemeStore::sanitizeGradients(const QVariantMap &raw)

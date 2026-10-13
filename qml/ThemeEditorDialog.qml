@@ -100,11 +100,37 @@ Popup {
     }
     function afterHistoryMove() {
         root.confirmingReset = false
-        // Undo moves colours, not gradients: the picker goes back to the
-        // role's own colour.
-        root.editingStop = -1
-        if (root.editingRole.length > 0)
-            picker.show(root.effectiveColor(root.editingRole))
+        // Undo moves colours, not gradients: a role with a gradient stays on
+        // the gradient colour it was editing (the one that is painted), any
+        // other goes back to its own colour.
+        if (root.editingRole.length > 0) {
+            root.editingStop = root.startingStop(root.editingRole, root.editingStop)
+            picker.show(root.pickerColourFor(root.editingRole, root.editingStop))
+        } else {
+            root.editingStop = -1
+        }
+    }
+
+    // The gradient stops of a role, or null.
+    function gradientStopsOf(key) {
+        var all = root.storeGradients
+        var g = all && root.store.isGradientRole(key) ? all[key] : undefined
+        return g && g.stops && g.stops.length >= 2 ? g.stops : null
+    }
+    // The stop the picker should be on for `key`: a role with a gradient is
+    // painted by its stops, and the flat colour underneath is invisible, so
+    // opening the picker on that colour made an edit do nothing on screen.
+    // `wanted` is kept when it is a real stop of the role's gradient.
+    function startingStop(key, wanted) {
+        var stops = root.gradientStopsOf(key)
+        if (!stops)
+            return -1
+        return wanted >= 0 && wanted < stops.length ? wanted : 0
+    }
+    function pickerColourFor(key, stop) {
+        var stops = root.gradientStopsOf(key)
+        return stop >= 0 && stops && stop < stops.length
+               ? stops[stop] : root.effectiveColor(key)
     }
 
     // Geometry. Side columns are ranges rather than fixed widths, so the
@@ -206,7 +232,12 @@ Popup {
     // The collection's actions (New, Duplicate, Share, Import, Delete).
     property bool manageThemes: false
     onManageThemesChanged: if (!manageThemes) confirmingDelete = false
-    onEditingRoleChanged: if (editingRole.length === 0) spotRoles = []
+    onEditingRoleChanged: {
+        if (editingRole.length === 0) {
+            spotRoles = []
+            editingStop = -1
+        }
+    }
     // The base-theme grid, collapsed by default (see below).
     property bool basesExpanded: false
     // Filter for the role list.
@@ -438,12 +469,12 @@ Popup {
         if (root.spotRoles.indexOf(key) < 0)
             root.spotRoles = []
         root.ownColoursAtOpen = root.overrideColors
-        root.editingStop = -1
+        root.editingStop = root.startingStop(key, -1)
         root.editingRole = key
         root.editingLabel = label
         // The panel holds one thing at a time; opening a colour takes it.
         root.reportOpen = false
-        picker.load(root.effectiveColor(key))
+        picker.load(root.pickerColourFor(key, root.editingStop))
     }
 
     // A click in the preview: open the role, and keep every role painted

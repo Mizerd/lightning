@@ -1058,6 +1058,7 @@ set(APP_QML_FILES
     qml/ChatBackgroundDialog.qml
     qml/ThemedSurface.qml
     qml/GradientEditor.qml
+    qml/GradientBar.qml
     qml/AnimationFileHold.qml
     qml/Skeleton.qml
     qml/AppMenu.qml

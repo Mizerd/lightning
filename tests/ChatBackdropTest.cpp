@@ -1021,6 +1021,60 @@ private Q_SLOTS:
         QVERIFY(!reloaded.gradients().contains(QStringLiteral("sidebar")));
     }
 
+    // Stop positions (the gradient bar) are an optional, additive key: an even
+    // spread is never stored, so every theme saved or shared before the bar
+    // round-trips byte for byte; anything malformed is dropped, not repaired;
+    // and a share carrying them survives export and import.
+    void gradientStopPositionsAreOptionalAndRoundTrip()
+    {
+        const QVariantList three{ QStringLiteral("#101010"), QStringLiteral("#202020"),
+                                  QStringLiteral("#303030") };
+        const QVariantList two{ QStringLiteral("#101010"), QStringLiteral("#202020") };
+        const auto positionsOf = [&](const QVariant &positions, const QVariantList &stops) {
+            return CustomThemeStore::sanitizeGradient(
+                QVariantMap{ { QStringLiteral("stops"), stops },
+                             { QStringLiteral("positions"), positions } })
+                .value(QStringLiteral("positions")).toList();
+        };
+        // Uneven positions are kept (two decimals), in order.
+        const QVariantList kept = positionsOf(QVariantList{ 0.0, 0.3141, 1.0 }, three);
+        QCOMPARE(kept.size(), 3);
+        QCOMPARE(kept.at(1).toDouble(), 0.31);
+        // Even, absent, short, out of order, out of range and non-numeric
+        // positions all leave the old format.
+        QVERIFY(positionsOf(QVariantList{ 0.0, 0.5, 1.0 }, three).isEmpty());
+        QVERIFY(positionsOf(QVariant(), three).isEmpty());
+        QVERIFY(positionsOf(QVariantList{ 0.0, 1.0 }, three).isEmpty());
+        QVERIFY(positionsOf(QVariantList{ 0.0, 0.8, 0.4 }, three).isEmpty());
+        QVERIFY(positionsOf(QVariantList{ -0.1, 0.5, 1.2 }, three).isEmpty());
+        QVERIFY(positionsOf(QVariantList{ QStringLiteral("0"), 0.2, 1.0 }, three).isEmpty());
+        QVERIFY(positionsOf(QVariantList{ 0.0, 1.0 }, two).isEmpty());
+        // Two stops may be pulled in from the ends.
+        QCOMPARE(positionsOf(QVariantList{ 0.2, 0.9 }, two).size(), 2);
+        // Stops alone still sanitise to exactly the old shape.
+        const QVariantMap plain = CustomThemeStore::sanitizeGradient(
+            QVariantMap{ { QStringLiteral("stops"), three } });
+        QCOMPARE(plain.keys(), (QStringList{ QStringLiteral("angle"),
+                                             QStringLiteral("stops"),
+                                             QStringLiteral("type") }));
+
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        QVERIFY(store.setGradient(
+            QStringLiteral("sidebar"),
+            QVariantMap{ { QStringLiteral("stops"), three },
+                         { QStringLiteral("positions"), QVariantList{ 0.1, 0.35, 0.9 } } }));
+        CustomThemeStore reloaded(&settings);
+        QCOMPARE(reloaded.gradients().value(QStringLiteral("sidebar")).toMap()
+                     .value(QStringLiteral("positions")).toList().at(1).toDouble(), 0.35);
+        const QString exported = reloaded.exportTheme(reloaded.activeThemeId());
+        QVERIFY(exported.contains(QStringLiteral("positions")));
+        reloaded.resetGradient(QStringLiteral("sidebar"));
+        QCOMPARE(reloaded.importTheme(exported), QString());
+        QCOMPARE(reloaded.gradients().value(QStringLiteral("sidebar")).toMap()
+                     .value(QStringLiteral("positions")).toList().size(), 3);
+    }
+
     // A gradient is graded at its worst stop: the flat palette passes, the
     // same background with one dark stop under dark ink fails, and the row
     // names that stop.
