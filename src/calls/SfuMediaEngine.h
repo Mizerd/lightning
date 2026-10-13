@@ -833,7 +833,7 @@ public:
     // and after the depayloader), as LiveKit and Element Call do it.
     // encryptionActive() is what the controller reports as `mediaEncrypted`.
 
-    /// Install our own sending key (32 raw bytes, never logged) at `index`.
+    /// Install our own sending key (16 raw bytes, never logged) at `index`.
     /// With `adopt == false` the key goes into the ring without becoming
     /// current, so a key that reached nobody is not used to encrypt our
     /// frames (which would otherwise look perfectly healthy from our side).

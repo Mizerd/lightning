@@ -2772,8 +2772,20 @@ pub(crate) fn send_call_reaction(
 
 /// The to-device type Element uses for call media keys.
 pub(crate) const EV_CALL_KEYS: &str = "io.element.call.encryption_keys";
-/// Media keys are 32 raw bytes; LiveKit's HKDF turns them into AES-128-GCM.
-const MEDIA_KEY_BYTES: usize = 32;
+/// Media keys we send are 16 raw bytes, the length matrix-js-sdk,
+/// element-call and sable-core mint; LiveKit's HKDF turns them into
+/// AES-128-GCM. HKDF takes any length, but sable-core drops a key that is not
+/// 16 bytes, so one of 32 left Sable unable to hear us.
+const MEDIA_KEY_BYTES: usize = 16;
+
+/// Is this base64 media key one we may put on the wire: exactly
+/// [`MEDIA_KEY_BYTES`] once decoded? Pure for tests.
+pub(crate) fn outbound_media_key_ok(key_base64: &str) -> bool {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(key_base64)
+        .is_ok_and(|raw| raw.len() == MEDIA_KEY_BYTES)
+}
 /// Highest key index our sender stamps (SfuCallController allocates
 /// `(index + 1) % 16`).
 ///
@@ -2848,6 +2860,10 @@ pub(crate) fn send_media_key(
     let room = joined_room(&client, &room_id)?;
     if key_index > MAX_SEND_KEY_INDEX {
         return Err("key index out of range".to_owned());
+    }
+    // A key of another length would reach a receiver that drops it.
+    if !outbound_media_key_ok(&key_base64) {
+        return Err("media key must be 16 bytes".to_owned());
     }
     // Parsed first so a malformed list fails synchronously.
     let targets: Vec<(String, String)> =
@@ -3383,6 +3399,20 @@ pub(crate) fn register_rtc_handlers(
 mod tests {
     use super::*;
     use matrix_sdk::ruma::events::StaticEventContent;
+
+    // We send only 16-byte media keys: sable-core drops any other length
+    // ("ignoring a call media key that is not 16 bytes"), so a 32-byte key
+    // left a Sable participant deaf to us (live, 2026-10-13).
+    #[test]
+    fn only_a_sixteen_byte_media_key_goes_on_the_wire() {
+        use base64::Engine as _;
+        let b64 = |n: usize| base64::engine::general_purpose::STANDARD.encode(vec![7u8; n]);
+        assert!(outbound_media_key_ok(&b64(16)));
+        assert!(!outbound_media_key_ok(&b64(32)), "a 32-byte key reaches Sable and is dropped");
+        assert!(!outbound_media_key_ok(&b64(15)));
+        assert!(!outbound_media_key_ok(""));
+        assert!(!outbound_media_key_ok("not base64!"));
+    }
 
     // A received key's index is the whole byte, bounded by type: 200 and 255
     // parse, 256 and -1 do not deserialize. (C++ enforces the same bound.)

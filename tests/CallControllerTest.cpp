@@ -1093,6 +1093,46 @@ private Q_SLOTS:
         QCOMPARE(c.client.keySends.size(), 2);
     }
 
+    // Sable (sable-core) drops a media key that is not 16 raw bytes, so a
+    // Sable participant heard everyone but us while Element, which accepts
+    // any length, heard us fine (live, 2026-10-13). Every key we mint, the
+    // first, a joiner's rotation and a leaver's, is the reference 16 bytes.
+    void everyMintedMediaKeyIsSixteenBytes()
+    {
+        KeyLaneCall c({ QStringLiteral("ADEV"), QStringLiteral("BDEV") });
+        // No join grace: a joiner always gets a rotation.
+        c.call.setKeyTimingForTest(100, 0, 60000);
+        c.sfuJoin(QStringLiteral("ADEV"), QStringLiteral("PA_A1"));
+        c.call.startKeyLaneForTest();
+        const int first = c.newest();
+        c.sfuJoin(QStringLiteral("BDEV"), QStringLiteral("PA_B1"));
+        const int second = c.newest();
+        QVERIFY(second != first);
+        c.client.answerKeySend(c.lastSend(), true);
+        QTRY_COMPARE_WITH_TIMEOUT(c.adopted(), second, 3000);
+        c.sfuLeave(QStringLiteral("BDEV"));
+        QVERIFY(c.newest() != second);
+        QVERIFY2(c.client.keySends.size() >= 3,
+                 qPrintable(QStringLiteral("expected a first key and two "
+                                           "rotations, got %1 sends")
+                                .arg(c.client.keySends.size())));
+        QSet<QString> distinct;
+        for (const KeyRecordingClient::KeySend &send : c.client.keySends) {
+            const auto decoded = QByteArray::fromBase64Encoding(
+                send.key.toLatin1(), QByteArray::AbortOnBase64DecodingErrors);
+            QVERIFY(decoded.decodingStatus
+                    == QByteArray::Base64DecodingStatus::Ok);
+            QVERIFY2(decoded.decoded.size() == 16,
+                     qPrintable(QStringLiteral("a minted media key is %1 "
+                                               "bytes; Sable drops anything "
+                                               "but 16")
+                                    .arg(decoded.decoded.size())));
+            distinct.insert(send.key);
+        }
+        // Three keys were minted (first, joiner past the grace, leaver).
+        QVERIFY(distinct.size() >= 3);
+    }
+
     // DEFECT 9: a leaver still rotates (it must not decrypt what follows),
     // but our frames stay on the old key until the peers can hold the new
     // one; receivers keep both (CallFrameCryptorTest's

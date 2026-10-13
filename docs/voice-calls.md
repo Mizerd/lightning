@@ -364,8 +364,13 @@ was already told.
 
 ### Key lifecycle
 
-Keys are 32 bytes from `QRandomGenerator::system()` (getrandom(2)) — never
-the generic generator, which is a PRNG. Distribution is Olm-encrypted
+Keys are 16 bytes from `QRandomGenerator::system()` (getrandom(2)) — never
+the generic generator, which is a PRNG. Sixteen is the length matrix-js-sdk,
+element-call and sable-core mint, and sable-core (app.sable.moe from 2026-10)
+DROPS any other length with "ignoring a call media key that is not 16 bytes":
+through 0.10.1 we minted 32, and in a call with Sable every other client heard
+us while Sable heard nothing. We still ACCEPT 16 or 32, since HKDF derives the
+same AES-128 key from either. Distribution is Olm-encrypted
 to-device, addressed **per device**: our own device is excluded, but our own
 account on a second device is not, because that is a separate Olm session
 that would otherwise be deafened.

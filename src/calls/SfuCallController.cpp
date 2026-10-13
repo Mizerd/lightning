@@ -180,6 +180,13 @@ constexpr int kJoinKeyGraceMs = 10000;
 /// (livekit-client KEY_PROVIDER_DEFAULTS) and index frames by the raw byte;
 /// the bridge refuses anything above 15.
 constexpr int kSendKeyIndices = 16;
+/// Length of the media keys we mint: 16 raw bytes, what matrix-js-sdk
+/// (RTCEncryptionManager.generateRandomKey), element-call and sable-core
+/// mint. HKDF derives the same AES-128 key from any length, but receivers
+/// may insist on 16: sable-core drops any other length ("not 16 bytes"),
+/// which left Sable unable to hear us while Element could. We still accept
+/// 16 or 32 (CallFrameCryptor::isSupportedRawKeyLength()).
+constexpr int kMintedKeyBytes = 16;
 /// Presentation bound on the participant list.
 constexpr int kMaxParticipants = 64;
 /// Annotations (raises, reactions) waiting for the membership they address.
@@ -3660,8 +3667,10 @@ void SfuCallController::rotateMediaKey(const QList<KeyTarget> &targets,
     const bool first = (m_adoptedKeySerial == 0);
     const bool switchNow = first || !someonePresentHoldsAdoptedKey(targets);
 
-    // 32 bytes from the system CSPRNG; never the generic PRNG for keys.
-    QByteArray key(32, Qt::Uninitialized);
+    // kMintedKeyBytes from the system CSPRNG; never the generic PRNG for keys.
+    // A multiple of 4, as generate() fills whole quint32s.
+    static_assert(kMintedKeyBytes % 4 == 0);
+    QByteArray key(kMintedKeyBytes, Qt::Uninitialized);
     QRandomGenerator::system()->generate(
         reinterpret_cast<quint32 *>(key.data()),
         reinterpret_cast<quint32 *>(key.data() + key.size()));
