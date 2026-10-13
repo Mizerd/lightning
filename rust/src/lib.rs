@@ -108,6 +108,7 @@ mod search;
 mod sso;
 mod stickers;
 mod uia;
+mod warm_rooms;
 // Account password change and its capability probe (FFI in the module).
 mod password;
 mod policy;
@@ -211,11 +212,12 @@ struct RustClient {
     // `client.rooms()` snapshot has a different order and would make the
     // rejection self-sustaining (see `enqueue_rooms_stamped`).
     room_list_entries: Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
-    // The room the user has open: the single subscription the sliding sync
-    // carries. Kept apart from the service so a room opened before sync starts
-    // is subscribed once it appears; cleared in `stop_sync_and_wait` so it can
-    // never leak into a later account's sync.
-    active_room_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
+    // The room the user has open plus the recently opened "warm" rooms: the
+    // subscriptions the sliding sync carries (warm_rooms.rs). Kept apart from
+    // the service so a room opened before sync starts is subscribed once it
+    // appears; cleared in `stop_sync_and_wait` so it can never leak into a
+    // later account's sync.
+    active_room_subscription: Arc<Mutex<warm_rooms::SubscriptionSet>>,
     // At most one privileged operation parked between a UIA challenge and the
     // user's answer (uia.rs). Cleared on teardown.
     uia_pending: Arc<Mutex<Option<uia::UiaPending>>>,
@@ -335,7 +337,7 @@ impl RustClient {
                 std::sync::atomic::AtomicBool::new(false)),
             room_list_service: Arc::new(Mutex::new(None)),
             room_list_entries: Arc::new(Mutex::new(None)),
-            active_room_subscription: Arc::new(Mutex::new(None)),
+            active_room_subscription: Arc::new(Mutex::new(Default::default())),
             uia_pending: Arc::new(Mutex::new(None)),
             import_task: Mutex::new(None),
             room_action_tasks: Mutex::new(Vec::new()),
@@ -390,7 +392,7 @@ impl RustClient {
         // The active-room subscription is scoped to this session; clear it so a
         // later account's sync cannot subscribe another account's room.
         if let Ok(mut guard) = self.active_room_subscription.lock() {
-            guard.take();
+            guard.clear();
         }
         // The UIA slot is NOT cleared here: this also runs when a finished
         // sync thread is reaped and on a plain sync stop, while the session
@@ -5463,7 +5465,7 @@ pub unsafe extern "C" fn mx_rust_timeline_open(
         // not awaited.
         if let Ok(parsed) = OwnedRoomId::try_from(room_id.as_str()) {
             if let Ok(mut guard) = bridge.active_room_subscription.lock() {
-                *guard = Some(parsed);
+                guard.open(parsed);
             }
             apply_room_subscription(bridge);
         }
@@ -5503,9 +5505,9 @@ pub unsafe extern "C" fn mx_rust_timeline_close(ptr: *mut c_void) -> *mut c_char
     ffi_string(|| {
         let bridge = unsafe { bridge(ptr)? };
         bridge.timelines.close();
-        // No open room, no room subscription.
+        // The room stays warm: only the active marker goes.
         if let Ok(mut guard) = bridge.active_room_subscription.lock() {
-            guard.take();
+            guard.close_active();
         }
         apply_room_subscription(bridge);
         Ok(String::new())
@@ -5528,14 +5530,15 @@ fn apply_room_subscription(bridge: &RustClient) {
         .active_room_subscription
         .lock()
         .ok()
-        .and_then(|guard| guard.clone());
+        .and_then(|mut guard| guard.pending(false));
+    // Unchanged membership: the SDK already holds exactly this set.
+    let Some(desired) = desired else { return };
     // Managed: the future holds the RoomListService and through it a strong
     // Client, which must not keep the store open past sign-out.
     bridge.spawn_room_action(async move {
-        match desired {
-            Some(room_id) => service.subscribe_to_rooms(&[&room_id]).await,
-            None => service.subscribe_to_rooms(&[]).await,
-        }
+        let refs: Vec<&matrix_sdk::ruma::RoomId> =
+            desired.iter().map(|r| r.as_ref()).collect();
+        service.subscribe_to_rooms(&refs).await;
     });
 }
 
@@ -11131,7 +11134,7 @@ async fn run_authoritative_sync(
     sync_mode: Arc<Mutex<SyncMode>>,
     room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
     entries_slot: Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
-    active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
+    active_subscription: Arc<Mutex<warm_rooms::SubscriptionSet>>,
     timelines: Arc<timeline::TimelineRegistry>,
     call_media_capable: Arc<std::sync::atomic::AtomicBool>,
     verification_live: VerificationLive,
@@ -11326,7 +11329,7 @@ async fn run_modern_sync(
     sync_mode: Arc<Mutex<SyncMode>>,
     room_list_slot: Arc<Mutex<Option<Arc<RoomListService>>>>,
     entries_slot: Arc<Mutex<Option<Arc<RoomListDynamicEntriesController>>>>,
-    active_subscription: Arc<Mutex<Option<OwnedRoomId>>>,
+    active_subscription: Arc<Mutex<warm_rooms::SubscriptionSet>>,
     mut cancel: tokio::sync::oneshot::Receiver<()>,
 ) -> Option<tokio::sync::oneshot::Receiver<()>> {
     // Withdraws the published RoomListService on every exit path; a handle
@@ -11462,13 +11465,22 @@ async fn run_modern_sync(
         // restored session it opens before this point, and its subscription-only
         // state (m.room.pinned_events) would otherwise wait for the next switch.
         publication.set(Some(Arc::clone(&room_list_service)));
-        if let Some(room_id) = active_subscription
-            .lock()
-            .ok()
-            .and_then(|guard| guard.clone())
-        {
-            room_list_service.subscribe_to_rooms(&[&room_id]).await;
-        }
+        let resubscribe = |service: Arc<RoomListService>| {
+            // Forced: a new or expired session holds no subscription at all.
+            let desired = active_subscription
+                .lock()
+                .ok()
+                .and_then(|mut guard| guard.pending(true))
+                .unwrap_or_default();
+            async move {
+                if !desired.is_empty() {
+                    let refs: Vec<&matrix_sdk::ruma::RoomId> =
+                        desired.iter().map(|r| r.as_ref()).collect();
+                    service.subscribe_to_rooms(&refs).await;
+                }
+            }
+        };
+        resubscribe(Arc::clone(&room_list_service)).await;
 
         set_sync_mode(&sync_mode, &events, SyncMode::SlidingSync, None);
         enqueue(&events, json!({ "type": "room_list_sync_state", "state": "starting" }));
@@ -11528,7 +11540,20 @@ async fn run_modern_sync(
                     }
                 }
                 state = list_state.next() => {
+                    // Any state but Running (Recovering, Error, Terminated) ends a
+                    // running spell: the SDK clears every room subscription when a
+                    // session expires (M_UNKNOWN_POS), so the next Running must
+                    // send the warm set again. The very first Running does not:
+                    // the set went out before the service started.
+                    if state.is_some() && !matches!(
+                        state, Some(matrix_sdk_ui::room_list_service::State::Running))
+                    {
+                        list_running = false;
+                    }
                     if let Some(matrix_sdk_ui::room_list_service::State::Running) = state {
+                        if !first_sync && warm_rooms::must_resubscribe(list_running, true) {
+                            resubscribe(Arc::clone(&room_list_service)).await;
+                        }
                         enqueue(&events, json!({
                             "type": "room_list_sync_state", "state": "running"
                         }));
@@ -17235,7 +17260,7 @@ mod modern_sync_auth_tests {
     };
 
     /// Reads one request; returns its request line and its body.
-    fn read_request(stream: &mut TcpStream) -> (String, String) {
+    pub(super) fn read_request(stream: &mut TcpStream) -> (String, String) {
         let mut buf = Vec::new();
         let mut chunk = [0u8; 4096];
         let head_end = loop {
@@ -17268,7 +17293,7 @@ mod modern_sync_auth_tests {
         (head.lines().next().unwrap_or("").to_owned(), body)
     }
 
-    fn respond(stream: &mut TcpStream, status: &str, payload: &str) {
+    pub(super) fn respond(stream: &mut TcpStream, status: &str, payload: &str) {
         let response = format!(
             "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
              Connection: close\r\nContent-Length: {}\r\n\r\n{}",
@@ -17459,7 +17484,7 @@ mod modern_sync_auth_tests {
                     Arc::clone(&sync_mode),
                     Arc::new(Mutex::new(None)),
                     Arc::new(Mutex::new(None)),
-                    Arc::new(Mutex::new(None)),
+                    Arc::new(Mutex::new(Default::default())),
                     cancel_rx,
                 ),
                 watcher
@@ -17565,5 +17590,175 @@ mod modern_sync_auth_tests {
             assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Retry);
         }
         assert_eq!(budget.on_auth_error(), ModernAuthVerdict::Fatal);
+    }
+}
+
+/// The warm rooms against a homeserver whose sliding-sync session expires.
+/// `SlidingSync::expire_session` clears every room subscription, so before the
+/// warm set was re-sent the open room silently lost its subscription too.
+#[cfg(test)]
+mod warm_room_expiry_tests {
+    use super::modern_sync_auth_tests::{read_request, respond};
+    use super::{run_modern_sync, warm_rooms, SyncMode};
+    use std::collections::VecDeque;
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+
+    use matrix_sdk::{
+        authentication::matrix::MatrixSession,
+        ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
+        store::RoomLoadSettings,
+        SessionMeta, SessionTokens,
+    };
+
+    /// What the room-list connection asked for, request by request: the
+    /// subscribed room ids, and the index at which the server answered
+    /// M_UNKNOWN_POS.
+    #[derive(Default)]
+    struct Requests {
+        subscribed: Mutex<Vec<Vec<String>>>,
+        expired_at: AtomicUsize,
+    }
+
+    /// Answers the 4th room-list request with `M_UNKNOWN_POS` (once) and every
+    /// other one with an empty, valid response.
+    fn serve(requests: Arc<Requests>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().expect("addr");
+        let (ready_tx, ready_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let _ = ready_tx.send(());
+            let pos = Arc::new(AtomicUsize::new(0));
+            let room_list_requests = Arc::new(AtomicUsize::new(0));
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let requests = Arc::clone(&requests);
+                let pos = Arc::clone(&pos);
+                let room_list_requests = Arc::clone(&room_list_requests);
+                thread::spawn(move || {
+                    let (line, body) = read_request(&mut stream);
+                    let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+                    if path.starts_with("/_matrix/client/versions") {
+                        respond(&mut stream, "200 OK",
+                                r#"{"versions":["v1.1","v1.11"],"unstable_features":{"org.matrix.simplified_msc3575":true}}"#);
+                    } else if path.contains("simplified_msc3575/sync") {
+                        if body.contains("room-list") {
+                            let n = room_list_requests.fetch_add(1, Ordering::SeqCst) + 1;
+                            let ids: Vec<String> = serde_json::from_str::<serde_json::Value>(&body)
+                                .ok()
+                                .and_then(|v| v["room_subscriptions"].as_object().cloned())
+                                .map(|m| m.keys().cloned().collect())
+                                .unwrap_or_default();
+                            requests.subscribed.lock().unwrap().push(ids);
+                            if n == 4 {
+                                requests.expired_at.store(
+                                    requests.subscribed.lock().unwrap().len(), Ordering::SeqCst);
+                                respond(&mut stream, "400 Bad Request",
+                                        r#"{"errcode":"M_UNKNOWN_POS","error":"Unknown pos"}"#);
+                                return;
+                            }
+                        }
+                        thread::sleep(Duration::from_millis(100));
+                        let n = pos.fetch_add(1, Ordering::SeqCst) + 1;
+                        respond(&mut stream, "200 OK", &format!(r#"{{"pos":"{n}"}}"#));
+                    } else if path.contains("/keys/upload") {
+                        respond(&mut stream, "200 OK",
+                                r#"{"one_time_key_counts":{"signed_curve25519":50}}"#);
+                    } else if path.contains("/keys/query") {
+                        respond(&mut stream, "200 OK", r#"{"device_keys":{},"failures":{}}"#);
+                    } else {
+                        respond(&mut stream, "200 OK", "{}");
+                    }
+                });
+            }
+        });
+        ready_rx.recv().expect("listener thread started");
+        format!("{}:{}", addr.ip(), addr.port())
+    }
+
+    #[test]
+    fn the_warm_rooms_are_sent_again_after_the_session_expires() {
+        let requests = Arc::new(Requests::default());
+        let addr = serve(Arc::clone(&requests));
+        let events: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let sync_mode = Arc::new(Mutex::new(SyncMode::Probing));
+        let rooms: Vec<String> = vec!["!one:example.org".into(), "!two:example.org".into()];
+        let set = Arc::new(Mutex::new(warm_rooms::SubscriptionSet::default()));
+        for r in &rooms {
+            set.lock().unwrap().open(OwnedRoomId::try_from(r.as_str()).unwrap());
+        }
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let client = matrix_sdk::Client::builder()
+                .homeserver_url(format!("http://{addr}"))
+                .build()
+                .await
+                .expect("client");
+            client
+                .matrix_auth()
+                .restore_session(
+                    MatrixSession {
+                        meta: SessionMeta {
+                            user_id: OwnedUserId::try_from("@me:example.org").unwrap(),
+                            device_id: OwnedDeviceId::from("TESTDEVICE"),
+                        },
+                        tokens: SessionTokens {
+                            access_token: "access-0".to_owned(),
+                            refresh_token: None,
+                        },
+                    },
+                    RoomLoadSettings::default(),
+                )
+                .await
+                .expect("restore");
+
+            let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+            let watched = Arc::clone(&requests);
+            let want = rooms.clone();
+            let watcher = async move {
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(40);
+                while tokio::time::Instant::now() < deadline {
+                    let expired = watched.expired_at.load(Ordering::SeqCst);
+                    let seen = watched.subscribed.lock().unwrap().clone();
+                    if expired > 0
+                        && seen.iter().skip(expired).any(|ids| want.iter().all(|r| ids.contains(r)))
+                    {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                let _ = cancel_tx.send(());
+            };
+            let (fallback, ()) = tokio::join!(
+                run_modern_sync(
+                    client,
+                    Arc::clone(&events),
+                    Arc::clone(&sync_mode),
+                    Arc::new(Mutex::new(None)),
+                    Arc::new(Mutex::new(None)),
+                    Arc::clone(&set),
+                    cancel_rx,
+                ),
+                watcher
+            );
+            assert!(fallback.is_none());
+        });
+        let expired = requests.expired_at.load(Ordering::SeqCst);
+        let seen = requests.subscribed.lock().unwrap().clone();
+        assert!(expired > 0, "the server never expired the session: {seen:?}");
+        assert!(
+            seen[..expired - 1].iter().any(|ids| rooms.iter().all(|r| ids.contains(r))),
+            "both warm rooms must be subscribed before the expiry: {seen:?}"
+        );
+        assert!(
+            seen[expired..].iter().any(|ids| rooms.iter().all(|r| ids.contains(r))),
+            "both warm rooms must be subscribed again after the expiry: {seen:?}"
+        );
     }
 }
