@@ -9,6 +9,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QSettings>
 
 #include <algorithm>
 #include <array>
@@ -503,6 +504,76 @@ void setRollingLogSink(lightning::logging::AsyncLogSink *sink)
 QString rollingLogDirectory()
 {
     return g_rollingDir;
+}
+
+namespace {
+constexpr char kKeepLogKey[] = "diagnostics/keepLog";
+} // namespace
+
+bool keepLogEnabled()
+{
+    return QSettings().value(QLatin1String(kKeepLogKey), false).toBool();
+}
+
+void setKeepLogEnabled(bool on)
+{
+    QSettings s;
+    s.setValue(QLatin1String(kKeepLogKey), on);
+    s.sync();
+}
+
+bool rollingLogForbiddenByEnvironment()
+{
+    return qEnvironmentVariableIsSet("LIGHTNING_NO_ROLLING_LOG");
+}
+
+bool startRollingLog(const QString &directory)
+{
+    if (rollingLogSink())
+        return true;
+    if (rollingLogForbiddenByEnvironment() || directory.isEmpty())
+        return false;
+    auto device = std::make_unique<RollingLogDevice>(directory, RollingLimits{});
+    if (!device->open(QIODevice::WriteOnly))
+        return false;
+    lightning::logging::AsyncLogSink::Limits limits;
+    limits.coalesceMs = 1000;
+    // Never freed: a message handler on another thread may still hold the
+    // pointer it loaded a moment ago, and must find a closed sink, not a
+    // freed one.
+    auto *sink = new lightning::logging::AsyncLogSink(std::move(device), limits);
+    setRollingLogDirectory(directory);
+    setRollingLogSink(sink);
+    return true;
+}
+
+void stopRollingLog()
+{
+    lightning::logging::AsyncLogSink *sink = g_rollingSink.exchange(nullptr);
+    if (sink)
+        sink->shutdown(lightning::logging::AsyncLogSink::kShutdownMs);
+}
+
+bool rollingLogRunning()
+{
+    return rollingLogSink() != nullptr;
+}
+
+int deleteSavedLogs()
+{
+    const QString dir = g_rollingDir;
+    if (dir.isEmpty())
+        return 0;
+    const bool wasRunning = rollingLogRunning();
+    stopRollingLog();
+    int removed = 0;
+    for (const QString &f : RollingLogDevice::logFiles(dir)) {
+        if (QFile::remove(f))
+            ++removed;
+    }
+    if (wasRunning)
+        startRollingLog(dir);
+    return removed;
 }
 
 void setRollingLogDirectory(const QString &directory)

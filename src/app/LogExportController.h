@@ -20,6 +20,10 @@ class LogExportController : public QObject
     Q_PROPERTY(QVariantMap preview READ preview NOTIFY previewChanged)
     // What the exported file contains, in the words shown beside the button.
     Q_PROPERTY(QString promise READ promise CONSTANT)
+    // "Keep a diagnostic log": device-local, off by default.
+    Q_PROPERTY(bool keepLog READ keepLog WRITE setKeepLog NOTIFY keepLogChanged)
+    // LIGHTNING_NO_ROLLING_LOG is set: the switch cannot turn it on.
+    Q_PROPERTY(bool keepLogForcedOff READ keepLogForcedOff CONSTANT)
 public:
     explicit LogExportController(QObject *parent = nullptr);
 
@@ -32,6 +36,12 @@ public:
 
     QVariantMap preview() const { return m_preview; }
     QString promise() const;
+
+    bool keepLog() const;
+    void setKeepLog(bool on);
+    bool keepLogForcedOff() const;
+    // Removes the saved log files (the log stays on if it was on).
+    Q_INVOKABLE int deleteSavedLogs();
 
     // Builds the sanitized export in the background; emits previewChanged.
     Q_INVOKABLE void prepare();
@@ -47,6 +57,7 @@ public:
 
 Q_SIGNALS:
     void previewChanged();
+    void keepLogChanged();
     void exportFinished(bool ok, const QString &message);
     void copied(int lines);
 

@@ -21,6 +21,8 @@ ColumnLayout {
     readonly property bool ready: root.preview.ready === true
     readonly property bool preparing: root.preview.preparing === true
     property string statusText: ""
+    readonly property bool keepLog: root.exporter ? root.exporter.keepLog : false
+    readonly property bool forcedOff: root.exporter ? root.exporter.keepLogForcedOff : false
 
     // SettingsScreen's SettingsCard and SettingsGroupLabel are inline
     // components there and are not visible from this file; same plane and
@@ -84,6 +86,40 @@ ColumnLayout {
                            + "this build and computer, as a .zip you can attach "
                            + "to a bug report. Nothing is uploaded.")
             }
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: AppTheme.spacing12
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+                    Label {
+                        text: qsTr("Keep a diagnostic log")
+                        color: AppTheme.stormText
+                        font.weight: AppTheme.weightStrong
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        lineHeight: AppTheme.lineHeightBody
+                        lineHeightMode: Text.ProportionalHeight
+                        color: AppTheme.stormTextMuted
+                        font.pixelSize: AppTheme.textMeta
+                        text: root.forcedOff
+                              ? qsTr("Disabled by the LIGHTNING_NO_ROLLING_LOG environment variable.")
+                              : qsTr("Keeps up to about 8 MB of recent log on this "
+                                     + "computer, so there is something to export "
+                                     + "after a problem. Nothing is uploaded. "
+                                     + "Not synced to your other devices.")
+                    }
+                }
+                AppSwitch {
+                    objectName: "logExportKeepLog"
+                    checked: root.keepLog
+                    enabled: !!root.exporter && !root.forcedOff
+                    Accessible.name: qsTr("Keep a diagnostic log")
+                    onToggled: root.exporter.keepLog = !root.keepLog
+                }
+            }
             Label {
                 objectName: "logExportPromise"
                 Layout.fillWidth: true
@@ -107,7 +143,11 @@ ColumnLayout {
                     if (!root.ready)
                         return qsTr("Preparing…")
                     if (root.preview.available !== true)
-                        return qsTr("Nothing has been logged yet.")
+                        return root.keepLog
+                            ? qsTr("Nothing has been logged yet.")
+                            : qsTr("No log has been kept. Turn on \u201cKeep a "
+                                   + "diagnostic log\u201d, reproduce the problem, "
+                                   + "then export.")
                     return qsTr("About %1, %2, from %3.")
                         .arg(root.sizeText(root.preview.zipBytes))
                         .arg(qsTr("%n line(s)", "", root.preview.lines))
@@ -135,6 +175,16 @@ ColumnLayout {
                     text: qsTr("Copy last 200 lines")
                     enabled: root.ready && root.preview.available === true
                     onClicked: root.exporter.copyRecentLines(200)
+                }
+            }
+            AppButton {
+                objectName: "logExportDelete"
+                storm: true
+                visible: root.preview.available === true
+                text: qsTr("Delete saved logs")
+                onClicked: {
+                    var n = root.exporter.deleteSavedLogs()
+                    root.statusText = qsTr("Deleted %n log file(s).", "", n)
                 }
             }
             Label {

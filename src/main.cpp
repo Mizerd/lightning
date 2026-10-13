@@ -313,31 +313,29 @@ void installLogFile(const QString &path)
     ensureLogHandlerInstalled();
 }
 
-// The rolling log: the last few MB of the application's own log, always
-// written, so "Export logs" has something to export after the problem
-// already happened. Cache directory (expendable; follows a portable folder),
+// The rolling log: the last few MB of the application's own log, written only
+// when the user turned on "Keep a diagnostic log" (Settings -> About), so
+// "Export logs" has something to export after the problem already happened. Cache directory (expendable; follows a portable folder),
 // append-only, bounded (RollingLimits), coalesced to about one write per
-// second. LIGHTNING_NO_ROLLING_LOG=1 turns it off.
+// second. LIGHTNING_NO_ROLLING_LOG=1 is a hard off.
 void installRollingLog()
 {
-    if (qEnvironmentVariableIsSet("LIGHTNING_NO_ROLLING_LOG"))
-        return;
+    // The handler is installed either way: it costs two atomic loads per
+    // message, and "Keep a diagnostic log" can be switched on at runtime.
+    static std::once_flag hooks;
+    std::call_once(hooks, [] { std::atexit(flushLogFileAtExit); });
+    ensureLogHandlerInstalled();
+
     const QString cache = matrix::app_data::cacheRoot();
     if (cache.isEmpty())
         return;
     const QString dir = cache + QStringLiteral("/logs");
-    auto device = std::make_unique<lightning::logexport::RollingLogDevice>(
-        dir, lightning::logexport::RollingLimits{});
-    if (!device->open(QIODevice::WriteOnly))
-        return;
-    AsyncLogSink::Limits limits;
-    limits.coalesceMs = 1000;
-    auto *sink = new AsyncLogSink(std::move(device), limits);
+    // Known even while the log is off, so what an earlier session saved can
+    // still be exported.
     lightning::logexport::setRollingLogDirectory(dir);
-    lightning::logexport::setRollingLogSink(sink);
-    static std::once_flag exitHook;
-    std::call_once(exitHook, [] { std::atexit(flushLogFileAtExit); });
-    ensureLogHandlerInstalled();
+    if (!lightning::logexport::keepLogEnabled())
+        return;
+    lightning::logexport::startRollingLog(dir);
 }
 
 #ifndef LIGHTNING_BUILD_TYPE

@@ -13,6 +13,7 @@
 #include <QProcess>
 #include <QTimeZone>
 #include <QRandomGenerator>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 
@@ -87,7 +88,117 @@ class LogExportTest : public QObject
 {
     Q_OBJECT
 
+private:
+    QTemporaryDir m_settingsDir;
+
 private Q_SLOTS:
+    void initTestCase()
+    {
+        // Never the developer's real settings.
+        QCoreApplication::setOrganizationName(QStringLiteral("LogExportTest"));
+        QCoreApplication::setApplicationName(QStringLiteral("log-export-test"));
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
+                           m_settingsDir.path());
+        QSettings().clear();
+    }
+    void init()
+    {
+        lx::stopRollingLog();
+        qunsetenv("LIGHTNING_NO_ROLLING_LOG");
+        QSettings().remove(QStringLiteral("diagnostics"));
+    }
+    void cleanup() { lx::stopRollingLog(); }
+
+    // ---- opt-in ------------------------------------------------------------
+
+    void theLogIsOffByDefaultAndCreatesNothing()
+    {
+        QTemporaryDir tmp;
+        const QString dir = tmp.path() + QStringLiteral("/logs");
+        lx::setRollingLogDirectory(dir);
+        LogExportController controller;
+        QVERIFY(!lx::keepLogEnabled());
+        QVERIFY(!controller.keepLog());
+        QVERIFY(!lx::rollingLogRunning());
+        QVERIFY(lx::rollingLogSink() == nullptr);
+        // What main() does at start with the setting at its default:
+        if (lx::keepLogEnabled())
+            lx::startRollingLog(dir);
+        QVERIFY(!QFileInfo::exists(dir));
+        QVERIFY(lx::RollingLogDevice::logFiles(dir).isEmpty());
+    }
+
+    void turningItOnWritesAndTurningItOffStops()
+    {
+        QTemporaryDir tmp;
+        const QString dir = tmp.path() + QStringLiteral("/logs");
+        lx::setRollingLogDirectory(dir);
+        LogExportController controller;
+        controller.setDirectory(dir);
+
+        controller.setKeepLog(true);
+        QVERIFY(controller.keepLog());
+        QVERIFY(lx::keepLogEnabled());      // persisted for the next start
+        QVERIFY(lx::rollingLogRunning());
+        auto *sink = lx::rollingLogSink();
+        QVERIFY(sink);
+        sink->log(QtInfoMsg, "t", QStringLiteral("while on"));
+        QVERIFY(sink->flush(2000));
+        QVERIFY(!lx::RollingLogDevice::logFiles(dir).isEmpty());
+        QVERIFY(lx::readRecentLog(dir, 1 << 20).contains("while on"));
+
+        controller.setKeepLog(false);
+        QVERIFY(!controller.keepLog());
+        QVERIFY(!lx::keepLogEnabled());
+        QVERIFY(!lx::rollingLogRunning());
+        QVERIFY(lx::rollingLogSink() == nullptr);
+        // The detached sink refuses further lines, and the file keeps what
+        // it had.
+        QVERIFY(!sink->log(QtInfoMsg, "t", QStringLiteral("after off")));
+        const QByteArray kept = lx::readRecentLog(dir, 1 << 20);
+        QVERIFY(kept.contains("while on"));
+        QVERIFY(!kept.contains("after off"));
+    }
+
+    void theEnvironmentIsAHardOff()
+    {
+        QTemporaryDir tmp;
+        const QString dir = tmp.path() + QStringLiteral("/logs");
+        qputenv("LIGHTNING_NO_ROLLING_LOG", "1");
+        LogExportController controller;
+        controller.setDirectory(dir);
+        controller.setKeepLog(true);
+        QVERIFY(controller.keepLogForcedOff());
+        QVERIFY(!controller.keepLog());
+        QVERIFY(!lx::keepLogEnabled());
+        QVERIFY(!lx::startRollingLog(dir));
+        QVERIFY(!QFileInfo::exists(dir));
+    }
+
+    void deletingSavedLogsRemovesFilesAndKeepsTheLogRunning()
+    {
+        QTemporaryDir tmp;
+        const QString dir = tmp.path() + QStringLiteral("/logs");
+        lx::setRollingLogDirectory(dir);
+        QVERIFY(lx::startRollingLog(dir));
+        lx::rollingLogSink()->log(QtInfoMsg, "t", QStringLiteral("old"));
+        QVERIFY(lx::rollingLogSink()->flush(2000));
+        QVERIFY(lx::deleteSavedLogs() >= 1);
+        QVERIFY(lx::rollingLogRunning());
+        QVERIFY(!lx::readRecentLog(dir, 1 << 20).contains("old"));
+        lx::stopRollingLog();
+        // Off: deleting what an earlier session left behind.
+        {
+            lx::RollingLogDevice dev(dir, lx::RollingLimits{});
+            QVERIFY(dev.open(QIODevice::WriteOnly));
+            dev.write("left over\n");
+        }
+        QVERIFY(lx::deleteSavedLogs() >= 1);
+        QVERIFY(!lx::rollingLogRunning());
+        QVERIFY(lx::RollingLogDevice::logFiles(dir).isEmpty());
+    }
+
     // ---- sanitizer ---------------------------------------------------------
 
     void matrixIdsBecomeCodes()

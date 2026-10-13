@@ -126,6 +126,23 @@ void setRollingLogSink(lightning::logging::AsyncLogSink *sink);
 QString rollingLogDirectory();
 void setRollingLogDirectory(const QString &directory);
 
+// The rolling log is OFF unless the user turned it on ("Keep a diagnostic
+// log", Settings -> About). The choice is device-local: one raw QSettings key
+// that is in no settings-sync or export schema, so it is neither synced nor
+// exported. LIGHTNING_NO_ROLLING_LOG is a hard off above the setting.
+bool keepLogEnabled();
+void setKeepLogEnabled(bool on);
+bool rollingLogForbiddenByEnvironment();
+// Opens the rolling files in `directory` and installs the sink; true when
+// running afterwards (already running counts). Takes effect at once.
+bool startRollingLog(const QString &directory);
+// Detaches the sink first, then drains and closes it. Existing files stay.
+void stopRollingLog();
+bool rollingLogRunning();
+// Removes every rolling file; the live one is closed and reopened if the log
+// was running. Returns the number of files removed.
+int deleteSavedLogs();
+
 // ---- zip ------------------------------------------------------------------
 
 struct ZipEntry {

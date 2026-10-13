@@ -51,6 +51,40 @@ void LogExportController::setDirectory(const QString &directory)
     m_directory = directory;
 }
 
+bool LogExportController::keepLog() const
+{
+    return lx::keepLogEnabled() && !lx::rollingLogForbiddenByEnvironment();
+}
+
+bool LogExportController::keepLogForcedOff() const
+{
+    return lx::rollingLogForbiddenByEnvironment();
+}
+
+void LogExportController::setKeepLog(bool on)
+{
+    if (on && lx::rollingLogForbiddenByEnvironment())
+        return;
+    if (on == lx::keepLogEnabled() && on == lx::rollingLogRunning())
+        return;
+    lx::setKeepLogEnabled(on);
+    // Immediate: the device opens or closes now, existing files stay.
+    if (on)
+        lx::startRollingLog(m_directory.isEmpty() ? lx::rollingLogDirectory()
+                                                  : m_directory);
+    else
+        lx::stopRollingLog();
+    Q_EMIT keepLogChanged();
+    prepare();
+}
+
+int LogExportController::deleteSavedLogs()
+{
+    const int n = lx::deleteSavedLogs();
+    prepare();
+    return n;
+}
+
 QString LogExportController::promise() const
 {
     return lx::exportPromise();
