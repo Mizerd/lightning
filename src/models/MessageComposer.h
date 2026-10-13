@@ -2,6 +2,7 @@
 
 #include <functional>
 
+#include "media/ImageSendPrep.h"
 #include "models/AttachmentQueueModel.h"
 #include "models/MentionTokenizer.h"
 #include "models/SlashCommands.h"
@@ -375,17 +376,8 @@ private:
     AttachmentQueueModel *m_attachments = nullptr;
     bool m_sendTextAsCaption = false;
     QString m_imageMetadataMode = QStringLiteral("location");
-    /// Stripped copies of picked images wait here until the SDK has read them
-    /// (one subdirectory per op so the original file name survives). The user's
-    /// own file is never modified.
-    std::unique_ptr<QTemporaryDir> m_strippedDir;
-    QHash<quint64, QString> m_strippedOps;
-    quint64 m_nextStripped = 1;
-    /// False = the image must not be sent (metadata removal was requested and
-    /// could not be completed). Otherwise `path` / `data` hold what to send.
-    bool prepareImageForSend(const AttachmentQueueModel::Entry &entry,
-                             QString &path, QByteArray &data,
-                             QString *tempFile);
+    /// Applies the photo-metadata policy; owns the stripped copies.
+    ImageSendPrep m_imagePrep;
     QString m_text;
     QString m_roomId;
     QString m_replyingToEventId;

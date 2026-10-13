@@ -64,9 +64,12 @@ ColumnLayout {
                 return qsTr("Photos are sent exactly as they are, including "
                             + "where and when they were taken.")
             return qsTr("Removes where a JPEG, PNG, WebP or HEIC photo was "
-                        + "taken before it is sent. Camera and time details "
-                        + "stay. The picture itself is not re-encoded. Your "
-                        + "own file is never changed.")
+                        + "taken before it is sent: GPS position and any "
+                        + "named place (city, country, location) in its "
+                        + "details. Camera and time details stay. The "
+                        + "picture itself is not re-encoded. TIFF, raw and "
+                        + "JPEG XL files cannot be cleaned and are not "
+                        + "sent. Your own file is never changed.")
         }
     }
 }

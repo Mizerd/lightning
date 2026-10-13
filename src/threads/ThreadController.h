@@ -9,6 +9,7 @@
 #include <QUrl>
 #include <QtQmlIntegration/qqmlintegration.h>
 
+#include "media/ImageSendPrep.h"
 #include "models/AttachmentQueueModel.h"
 #include "models/MentionTokenizer.h"
 #include "models/PaginationController.h"
@@ -40,6 +41,11 @@ class ThreadController : public QObject
     Q_PROPERTY(int roomThreadUnread READ roomThreadUnread
                    NOTIFY roomThreadUnreadChanged)
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
+    /// Photo metadata policy ("location" | "all" | "keep"), pushed in from
+    /// qml/Main.qml beside the room composer's. Thread attachments are images
+    /// leaving the client like any other.
+    Q_PROPERTY(QString imageMetadataMode READ imageMetadataMode
+                   WRITE setImageMetadataMode NOTIFY imageMetadataModeChanged)
     Q_PROPERTY(bool active READ active NOTIFY stateChanged)
     Q_PROPERTY(QString roomId READ roomId NOTIFY stateChanged)
     Q_PROPERTY(QString rootEventId READ rootEventId NOTIFY stateChanged)
@@ -104,6 +110,8 @@ public:
     explicit ThreadController(QObject *parent = nullptr);
 
     void setClient(MatrixClient *client);
+    QString imageMetadataMode() const { return m_imageMetadataMode; }
+    void setImageMetadataMode(const QString &mode);
     // Per-thread drafts, keyed on the internal composite id (never leaves the
     // process). Optional.
     void setDraftStore(class DraftStore *store) { m_drafts = store; }
@@ -228,6 +236,7 @@ public:
     int roomThreadUnread() const { return m_roomThreadUnread; }
 
 Q_SIGNALS:
+    void imageMetadataModeChanged();
     /// The thread's own read receipt was sent: everything in it up to
     /// `timestampMs` is read. The Activity bell mirrors it.
     void threadReadSent(const QString &roomId, const QString &rootEventId,
@@ -281,6 +290,8 @@ private:
         QString rootEventId;
     };
     QHash<quint64, VoiceOp> m_voiceOps;
+    QString m_imageMetadataMode = QStringLiteral("location");
+    ImageSendPrep m_imagePrep;
 
     MatrixClient *m_client = nullptr;
     TimelineModel m_model;

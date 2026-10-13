@@ -190,6 +190,9 @@ public:
     QString lastAttachmentReplyToForTest() const { return m_lastAttachmentReplyTo; }
     QString lastAttachmentCaptionForTest() const { return m_lastAttachmentCaption; }
     int threadAttachmentCallsForTest() const { return m_threadAttachmentCalls; }
+    /// The bytes the last thread attachment send carried (read from the path
+    /// at call time for a file send), so a test can see what really left.
+    QByteArray lastThreadAttachmentBytesForTest() const { return m_lastThreadAttachmentBytes; }
     // Make the next thread attachment send fail (queue rejection).
     void failNextThreadAttachmentForTest() { m_failNextThreadAttachment = true; }
     // Deterministic thread list + follow state; the subscription map stands in
@@ -412,6 +415,7 @@ private:
     // Thread attachment sending.
     quint64 m_opCounter = 0;
     int m_threadAttachmentCalls = 0;
+    QByteArray m_lastThreadAttachmentBytes;
     bool m_failNextThreadAttachment = false;
     QString m_lastAttachmentReplyTo;
     QString m_lastAttachmentCaption;

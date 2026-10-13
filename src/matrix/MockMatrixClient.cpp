@@ -638,6 +638,11 @@ quint64 MockMatrixClient::sendThreadAttachment(const QString &roomId,
     Q_UNUSED(width); Q_UNUSED(height); Q_UNUSED(animated);
     Q_UNUSED(durationMs);
     m_lastAttachmentCaption = caption;
+    {
+        QFile sent(localPath);
+        m_lastThreadAttachmentBytes =
+            sent.open(QIODevice::ReadOnly) ? sent.readAll() : QByteArray();
+    }
     return appendThreadAttachment(roomId, rootEventId,
                                   QFileInfo(localPath).fileName(), mime,
                                   replyToEventId);
@@ -651,7 +656,8 @@ quint64 MockMatrixClient::sendThreadAttachmentBytes(const QString &roomId,
                                                     int width, int height,
                                                     const QString &replyToEventId)
 {
-    Q_UNUSED(bytes); Q_UNUSED(width); Q_UNUSED(height);
+    Q_UNUSED(width); Q_UNUSED(height);
+    m_lastThreadAttachmentBytes = bytes;
     m_lastAttachmentCaption.clear();
     return appendThreadAttachment(roomId, rootEventId, filename, mime,
                                   replyToEventId);

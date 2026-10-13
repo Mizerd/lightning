@@ -636,6 +636,8 @@ set(APP_SOURCES
     src/models/TimelineScrollController.cpp
     src/models/MessageComposer.h
     src/models/MessageComposer.cpp
+    src/media/ImageSendPrep.h
+    src/media/ImageSendPrep.cpp
     src/media/ImageMetadata.h
     src/media/ImageMetadata.cpp
     src/models/MentionTokenizer.h
@@ -834,6 +836,10 @@ set(APP_SOURCES
     src/threads/ThreadManager.cpp
     src/threads/ThreadController.h
     src/threads/ThreadController.cpp
+    src/media/ImageMetadata.h
+    src/media/ImageMetadata.cpp
+    src/media/ImageSendPrep.h
+    src/media/ImageSendPrep.cpp
     src/models/ContextController.h
     src/models/ContextController.cpp
     src/presence/PresenceManager.h
@@ -2846,6 +2852,8 @@ if(BUILD_TESTING)
         tests/AttachmentQueueTest.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/media/ImageSendPrep.h
+        src/media/ImageSendPrep.cpp
         src/media/ImageMetadata.h
         src/media/ImageMetadata.cpp
         # The composer's draft hooks pull in the store.
@@ -3372,6 +3380,8 @@ if(BUILD_TESTING)
         src/app/DraftStore.cpp
         src/models/MessageComposer.h
         src/models/MessageComposer.cpp
+        src/media/ImageSendPrep.h
+        src/media/ImageSendPrep.cpp
         src/media/ImageMetadata.h
         src/media/ImageMetadata.cpp
         src/models/MentionTokenizer.h
@@ -3388,6 +3398,10 @@ if(BUILD_TESTING)
         src/media/VideoPosterExtractor.cpp
         src/threads/ThreadController.h
         src/threads/ThreadController.cpp
+        src/media/ImageMetadata.h
+        src/media/ImageMetadata.cpp
+        src/media/ImageSendPrep.h
+        src/media/ImageSendPrep.cpp
         src/models/TimelineModel.h
         src/models/TimelineModel.cpp
         src/profile/UserProfileResolver.h
@@ -4017,6 +4031,10 @@ if(BUILD_TESTING)
         tests/ThreadControllerTest.cpp
         src/threads/ThreadController.h
         src/threads/ThreadController.cpp
+        src/media/ImageMetadata.h
+        src/media/ImageMetadata.cpp
+        src/media/ImageSendPrep.h
+        src/media/ImageSendPrep.cpp
         src/models/SlashCommands.h
         src/models/SlashCommands.cpp
         src/threads/ThreadManager.h

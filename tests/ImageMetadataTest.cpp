@@ -181,7 +181,8 @@ QByteArray box(const char *type, const QByteArray &body)
     return b + body;
 }
 
-QByteArray heicWith(const QByteArray &tiff)
+QByteArray heicWith(const QByteArray &tiff, bool ilocFirst = false,
+                    bool wrapBase = false)
 {
     QByteArray ftyp = box("ftyp", QByteArray("heic\0\0\0\0mif1heic", 16));
     auto build = [&](quint32 exifOffset) {
@@ -199,18 +200,29 @@ QByteArray heicWith(const QByteArray &tiff)
         QByteArray iloc;
         be32(iloc, 0);       // version 0
         iloc.append(char(0x44));  // offset_size 4, length_size 4
-        iloc.append(char(0x00));  // base_offset_size 0
+        iloc.append(char(wrapBase ? 0x80 : 0x00));  // base_offset_size
         be16(iloc, 2);       // item count
+        auto base = [&](quint64 v) {
+            if (wrapBase) { be32(iloc, quint32(v >> 32)); be32(iloc, quint32(v)); }
+        };
         // item 1: the image, a stand-in extent
-        be16(iloc, 1); be16(iloc, 0); be16(iloc, 1);
+        be16(iloc, 1); be16(iloc, 0); base(0); be16(iloc, 1);
         be32(iloc, exifOffset - 4); be32(iloc, 4);
-        // item 2: Exif, 4 byte header offset then the TIFF
-        be16(iloc, 2); be16(iloc, 0); be16(iloc, 1);
+        // item 2: Exif, 4 byte header offset then the TIFF. In the wrapping
+        // variant base + offset overflows 64 bits to a small, valid position.
+        be16(iloc, 2); be16(iloc, 0);
+        base(wrapBase ? 0xFFFFFFFFFFFFFFF0ull : 0);
+        be16(iloc, 1);
         be32(iloc, exifOffset); be32(iloc, quint32(4 + tiff.size()));
         QByteArray metaBody;
         be32(metaBody, 0);
-        metaBody.append(box("iinf", iinf));
-        metaBody.append(box("iloc", iloc));
+        if (ilocFirst) {
+            metaBody.append(box("iloc", iloc));
+            metaBody.append(box("iinf", iinf));
+        } else {
+            metaBody.append(box("iinf", iinf));
+            metaBody.append(box("iloc", iloc));
+        }
         return box("meta", metaBody);
     };
     const int metaSize = build(0).size();
@@ -561,6 +573,74 @@ private Q_SLOTS:
         QByteArray in = heicWith(makeTiff(true, 1, true));
         in.chop(30);  // the Exif extent now runs off the end
         QCOMPARE(strip(in, Mode::RemoveLocation).status, Status::Failed);
+    }
+
+
+    // -- Review fixes --------------------------------------------------------
+
+    void pngRawProfileAndXmpTextChunksAreDroppedInLocationMode()
+    {
+        // ImageMagick / ExifTool keep a hex Exif (GPS included) in a tEXt.
+        const QByteArray in = pngWith(
+            {pngChunk("tEXt", raw("Raw profile type exif\0\nexif\n  1234abcd")),
+             pngChunk("tEXt", raw("Raw profile type APP1\0hex")),
+             pngChunk("tEXt", raw("XML:com.adobe.xmp\0<x>exif:GPSLatitude</x>")),
+             pngChunk("tEXt", raw("XML:com.adobe.xmp\0<x>dc:title=Cat</x>")),
+             pngChunk("zTXt", raw("Comment\0\0compressedbytes")),
+             pngChunk("tEXt", raw("Comment\0hello"))});
+        QVERIFY(containsLocation(in));
+        const Result r = strip(in, Mode::RemoveLocation);
+        QCOMPARE(r.status, Status::Stripped);
+        QVERIFY(!r.bytes.contains("Raw profile type"));
+        QVERIFY(!r.bytes.contains("GPSLatitude"));
+        QVERIFY(!r.bytes.contains("zTXt"));
+        QVERIFY(r.bytes.contains("dc:title=Cat"));  // not location: kept
+        QVERIFY(r.bytes.contains("hello"));
+    }
+
+    void namedPlacesInXmpCountAsLocation()
+    {
+        const QByteArray in = jpegWith({xmpSegment(
+            "<rdf photoshop:City=\"Vilnius\" photoshop:Country=\"LT\"/>")});
+        QVERIFY(containsLocation(in));
+        const Result r = strip(in, Mode::RemoveLocation);
+        QCOMPARE(r.status, Status::Stripped);
+        QVERIFY(!r.bytes.contains("Vilnius"));
+        const QByteArray loc = jpegWith({xmpSegment(
+            "<Iptc4xmpExt:LocationShown>x</Iptc4xmpExt:LocationShown>")});
+        QVERIFY(!strip(loc, Mode::RemoveLocation).bytes.contains("LocationShown"));
+    }
+
+    void formatsThatCarryExifButAreNotEditedFailClosed()
+    {
+        const QByteArray tiff = makeTiff(true, 1, true);   // a bare TIFF file
+        QCOMPARE(strip(tiff, Mode::RemoveLocation).status, Status::Failed);
+        QCOMPARE(strip(tiff, Mode::RemoveAll).status, Status::Failed);
+        QCOMPARE(strip(tiff, Mode::Keep).status, Status::Unchanged);
+        const QByteArray jxlCodestream("\xFF\x0A\x00\x00\x00", 5);
+        QCOMPARE(strip(jxlCodestream, Mode::RemoveLocation).status, Status::Failed);
+        const QByteArray jxlBox("\0\0\0\x0CJXL \r\n\x87\n", 12);
+        QCOMPARE(strip(jxlBox, Mode::RemoveLocation).status, Status::Failed);
+    }
+
+    void heicWithIlocBeforeIinfIsStillRead()
+    {
+        // libheif writes iloc first.
+        const QByteArray in = heicWith(makeTiff(true, 6, false), true);
+        QVERIFY(containsLocation(in));
+        const Result r = strip(in, Mode::RemoveLocation);
+        QCOMPARE(r.status, Status::Stripped);
+        QVERIFY(!r.bytes.contains(kLatMarker));
+        QCOMPARE(exifOrientation(r.bytes), 6);
+    }
+
+    void aWrappingHeicExtentFailsClosed()
+    {
+        const QByteArray in = heicWith(makeTiff(true, 1, true), false, true);
+        QCOMPARE(strip(in, Mode::RemoveLocation).status, Status::Failed);
+        // The same layout without the wrap reads fine.
+        const QByteArray ok = heicWith(makeTiff(true, 1, true), false, false);
+        QCOMPARE(strip(ok, Mode::RemoveLocation).status, Status::Stripped);
     }
 
     // -- Not ours -------------------------------------------------------------

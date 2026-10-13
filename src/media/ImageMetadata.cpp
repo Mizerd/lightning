@@ -1,6 +1,9 @@
 #include "media/ImageMetadata.h"
 
+#include <QHash>
 #include <QList>
+
+#include <limits>
 
 #include <cstring>
 
@@ -278,8 +281,12 @@ bool editTiffForLocation(QByteArray &block, Ctx &ctx)
 
 bool xmpHasGps(const QByteArray &xmp)
 {
-    // Exif GPS properties live in the exif: namespace as exif:GPS*.
-    return contains(xmp, "GPS");
+    // Exif GPS properties live in the exif: namespace as exif:GPS*. Named
+    // places (IPTC / Photoshop City, State, Country, Location, Sublocation)
+    // are location too, so they count: "remove location" means both.
+    return contains(xmp, "GPS") || contains(xmp, "Location")
+           || contains(xmp, "photoshop:City") || contains(xmp, "photoshop:State")
+           || contains(xmp, "photoshop:Country") || contains(xmp, "CountryCode");
 }
 
 // -- CRC32 for PNG -----------------------------------------------------------
@@ -522,6 +529,13 @@ Result processPng(const QByteArray &in, Ctx &ctx)
         } else if (type == "iTXt") {
             if (mode == Mode::RemoveAll) {
                 keep = false;
+            } else if (data.startsWith("Raw profile type")) {
+                // ImageMagick / ExifTool carry a hex copy of Exif, IPTC or XMP
+                // in a text chunk. Opaque, so it goes in either mode.
+                if (data.startsWith("Raw profile type exif")
+                    || data.startsWith("Raw profile type APP1"))
+                    ctx.foundLocation = true;
+                keep = false;
             } else if (data.startsWith("XML:com.adobe.xmp")) {
                 // keyword NUL, compression flag, method, then text. A
                 // compressed block cannot be inspected, so it goes.
@@ -534,9 +548,24 @@ Result processPng(const QByteArray &in, Ctx &ctx)
                     keep = false;
                 }
             }
-        } else if (type == "tEXt" || type == "zTXt" || type == "tIME") {
-            if (mode == Mode::RemoveAll)
+        } else if (type == "zTXt") {
+            // Compressed, so it cannot be inspected: dropped in both modes.
+            keep = false;
+        } else if (type == "tEXt" || type == "tIME") {
+            if (mode == Mode::RemoveAll) {
                 keep = false;
+            } else if (type == "tEXt") {
+                if (data.startsWith("Raw profile type")) {
+                    if (data.startsWith("Raw profile type exif")
+                        || data.startsWith("Raw profile type APP1"))
+                        ctx.foundLocation = true;
+                    keep = false;
+                } else if (data.startsWith("XML:com.adobe.xmp")
+                           && xmpHasGps(data)) {
+                    ctx.foundLocation = true;
+                    keep = false;
+                }
+            }
         } else if (type == "IEND") {
             sawIend = true;
         }
@@ -760,6 +789,13 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
     }
 
     QList<Item> items;
+    struct Loc {
+        QList<Extent> extents;
+        int constructionMethod = 0;
+    };
+    // iloc may come before iinf (libheif writes it that way), so locations are
+    // collected on their own and joined to items by id once both are read.
+    QHash<quint32, Loc> locs;
     bool haveIinf = false, haveIloc = false;
     // 'meta' is a full box: 4 bytes of version and flags before its children.
     for (qsizetype pos = meta.body + 4; pos < meta.end;) {
@@ -815,6 +851,8 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
             const int lengthSize = s[p] & 0xF;
             const int baseSize = s[p + 1] >> 4;
             const int indexSize = (version == 1 || version == 2) ? (s[p + 1] & 0xF) : 0;
+            if (offsetSize > 8 || lengthSize > 8 || baseSize > 8 || indexSize > 8)
+                return fail;
             p += 2;
             quint32 itemCount;
             if (version < 2) {
@@ -852,25 +890,30 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
                         return fail;
                     p += indexSize;
                     Extent ex;
-                    ex.offset = base + readN(s + p, offsetSize);
+                    const quint64 rel = readN(s + p, offsetSize);
+                    // base + offset must not wrap into a small, valid-looking
+                    // position.
+                    if (rel > std::numeric_limits<quint64>::max() - base)
+                        return fail;
+                    ex.offset = base + rel;
                     p += offsetSize;
                     ex.length = readN(s + p, lengthSize);
                     p += lengthSize;
                     extents.append(ex);
                 }
-                for (Item &it : items)
-                    if (it.id == id) {
-                        it.extents = extents;
-                        it.constructionMethod = cm;
-                        it.located = true;
-                    }
+                locs.insert(id, {extents, cm});
             }
         }
         pos = b.end;
     }
 
     bool touched = false;
-    for (const Item &it : items) {
+    for (Item &it : items) {
+        if (const auto loc = locs.constFind(it.id); loc != locs.constEnd()) {
+            it.extents = loc->extents;
+            it.constructionMethod = loc->constructionMethod;
+            it.located = true;
+        }
         const bool isExif = std::memcmp(it.type, "Exif", 4) == 0;
         const bool isXmp = std::memcmp(it.type, "mime", 4) == 0
                            && (it.contentType.contains("xmp")
@@ -926,6 +969,20 @@ Result processBmff(const QByteArray &in, Ctx &ctx)
     return r;
 }
 
+bool carriesUnhandledMetadata(const uchar *s, qsizetype n)
+{
+    if (n >= 4 && ((s[0] == 'I' && s[1] == 'I' && s[2] == 0x2A && s[3] == 0)
+                   || (s[0] == 'M' && s[1] == 'M' && s[2] == 0 && s[3] == 0x2A)))
+        return true;  // TIFF, DNG, many raws
+    if (n >= 2 && s[0] == 0xFF && s[1] == 0x0A)
+        return true;  // JPEG XL codestream
+    if (n >= 12 && s[0] == 0 && s[1] == 0 && s[2] == 0 && s[3] == 0x0C
+        && (std::memcmp(s + 4, "JXL ", 4) == 0
+            || std::memcmp(s + 4, "jP  ", 4) == 0))
+        return true;  // JPEG XL container, JPEG 2000
+    return false;
+}
+
 Result run(const QByteArray &in, Ctx &ctx)
 {
     const auto *s = reinterpret_cast<const uchar *>(in.constData());
@@ -944,7 +1001,15 @@ Result run(const QByteArray &in, Ctx &ctx)
         r = processWebp(in, ctx);
     else if (isBmffBrand(s, n))
         r = processBmff(in, ctx);
-    else
+    else if (carriesUnhandledMetadata(s, n)) {
+        // TIFF (and DNG and most raw formats), JPEG XL, JPEG 2000: they hold
+        // Exif and GPS and this does not edit them. Refuse rather than send a
+        // file that still has the location while the setting says otherwise.
+        Result refused;
+        refused.status = Status::Failed;
+        refused.bytes = in;
+        return refused;
+    } else
         return unsupported;
 
     if (r.status == Status::Failed || r.status == Status::Unchanged)

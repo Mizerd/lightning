@@ -3865,8 +3865,13 @@ void RustSdkMatrixClient::addStickerToUserPack(
     const QString &mimetype, quint64 width, quint64 height, quint64 size,
     const QString &usage, quint64 opId)
 {
-    if (!m_loggedIn || !m_rustHandle || url.isEmpty())
+    if (!m_loggedIn || !m_rustHandle || url.isEmpty()) {
+        // Answer anyway: a batch waits on this op, and silence would hold it
+        // until its watchdog.
+        Q_EMIT stickerPackAddFinished(opId, false, QStringLiteral("rejected"),
+                                      QString());
         return;
+    }
     const QByteArray code = shortcode.toUtf8();
     const QByteArray mxc = url.toUtf8();
     const QByteArray alt = body.toUtf8();

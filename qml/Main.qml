@@ -399,6 +399,12 @@ ApplicationWindow {
         property: "imageMetadataMode"
         value: app.settings ? app.settings.imageMetadataMode : "location"
     }
+    // The thread panel's attachments follow the same policy.
+    Binding {
+        target: app.thread
+        property: "imageMetadataMode"
+        value: app.settings ? app.settings.imageMetadataMode : "location"
+    }
     // Slash commands only ask for these; the mode is a setting and display-name
     // changes carry AppController's op-id bookkeeping. Wired here, where both
     // sides are owned.

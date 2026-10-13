@@ -3,6 +3,7 @@
 #include "models/SlashCommands.h"
 
 #include "app/DraftStore.h"
+#include "media/ImageMetadata.h"
 #include "matrix/MatrixClient.h"
 #include "models/UserLookup.h"
 
@@ -170,6 +171,18 @@ void ThreadController::restoreDraft()
     Q_EMIT mentionRangesChanged();
 }
 
+void ThreadController::setImageMetadataMode(const QString &mode)
+{
+    // Through the parser, so an unreadable value lands on the default and not
+    // on "keep".
+    const QString normalized =
+        imagemeta::modeToString(imagemeta::modeFromString(mode));
+    if (m_imageMetadataMode == normalized)
+        return;
+    m_imageMetadataMode = normalized;
+    Q_EMIT imageMetadataModeChanged();
+}
+
 void ThreadController::setClient(MatrixClient *client)
 {
     if (m_client == client)
@@ -177,6 +190,7 @@ void ThreadController::setClient(MatrixClient *client)
     if (m_client)
         m_client->disconnect(this);
     close();
+    m_imagePrep.releaseAll();
     m_pendingThreadReads.clear();
     m_client = client;
     refreshRoomThreadUnread();
@@ -198,6 +212,7 @@ void ThreadController::setClient(MatrixClient *client)
             for (const VoiceOp &op : std::as_const(m_voiceOps))
                 QFile::remove(op.localPath);
             m_voiceOps.clear();
+            m_imagePrep.releaseAll();
         });
         connect(m_client, &MatrixClient::timelineReset, this,
                 [this](const QString &timelineId) {
@@ -724,9 +739,24 @@ void ThreadController::dispatchAttachment(int row)
         || entry.posterPending)
         return;
     quint64 opId = 0;
+    // The same metadata policy as the room composer, at this send path's own
+    // choke point (a thread image used to leave with its GPS block intact).
+    QString sendPath = entry.localPath;
+    QByteArray sendData = entry.data;
+    QString strippedSub;
+    if (!entry.isVideo && !entry.isSvg
+        && !m_imagePrep.prepare(m_imageMetadataMode, entry.mime, sendPath,
+                                sendData, &strippedSub)) {
+        entry.state = QStringLiteral("failed");
+        entry.error = tr("Photo details could not be removed from this image, "
+                         "so it was not sent. You can change this under "
+                         "Settings, Privacy.");
+        m_attachments->updateEntry(row);
+        return;
+    }
     if (entry.localPath.isEmpty()) {
         opId = m_client->sendThreadAttachmentBytes(
-            m_roomId, m_rootEventId, entry.data, entry.fileName, entry.mime,
+            m_roomId, m_rootEventId, sendData, entry.fileName, entry.mime,
             entry.width, entry.height, entry.replyToEventId);
     } else if (entry.isVideo) {
         opId = m_client->sendThreadVideo(
@@ -739,16 +769,18 @@ void ThreadController::dispatchAttachment(int row)
         opId = 0;
     } else {
         opId = m_client->sendThreadAttachment(
-            m_roomId, m_rootEventId, entry.localPath, entry.mime, QString(),
+            m_roomId, m_rootEventId, sendPath, entry.mime, QString(),
             entry.width, entry.height, entry.animated, entry.durationMs,
             entry.replyToEventId);
     }
     if (opId == 0) {
+        ImageSendPrep::discard(strippedSub);
         entry.state = QStringLiteral("failed");
         entry.error = tr("The attachment could not be queued.");
     } else {
         entry.state = QStringLiteral("dispatching");
         entry.opId = opId;
+        m_imagePrep.track(opId, strippedSub);
     }
     m_attachments->updateEntry(row);
 }
@@ -807,6 +839,8 @@ void ThreadController::onAttachmentQueueFinished(quint64 opId,
     Q_UNUSED(category);
     if (opId == 0)
         return;
+    // The stripped copy (if any) has been read by the SDK or the op failed.
+    m_imagePrep.finished(opId);
     if (const auto voiceIt = m_voiceOps.constFind(opId);
         voiceIt != m_voiceOps.constEnd()) {
         // Cleanup is unconditional; a failure is reported only while the same

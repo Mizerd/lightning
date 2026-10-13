@@ -134,6 +134,7 @@ void MessageComposer::setClient(MatrixClient *client)
 {
     if (m_client)
         m_client->disconnect(this);
+    m_imagePrep.releaseAll();
     m_client = client;
     m_attachments->setClient(client);
     if (m_client) {
@@ -150,6 +151,7 @@ void MessageComposer::setClient(MatrixClient *client)
                                         truncated);
                 });
         connect(m_client, &MatrixClient::loggedOut, this, [this] {
+            m_imagePrep.releaseAll();
             m_attachments->clearAll();
             // Unresolved voice recordings must not outlive the session on disk.
             for (const VoiceOp &op : std::as_const(m_voiceOps))
@@ -268,65 +270,6 @@ void MessageComposer::setImageMetadataMode(const QString &mode)
     Q_EMIT imageMetadataModeChanged();
 }
 
-// The one place an image's metadata is removed. Every route into the tray
-// (picker, paste, drag and drop, retry) ends in dispatchAttachment(), so the
-// policy cannot be skipped by a path that forgot it. The user's file is never
-// touched: a changed copy is written under a private temp directory, under the
-// original file name, and deleted when the send op resolves.
-// Fail-closed: when removal was requested and could not be done for a
-// recognised image, nothing is sent.
-bool MessageComposer::prepareImageForSend(
-    const AttachmentQueueModel::Entry &entry, QString &path, QByteArray &data,
-    QString *tempFile)
-{
-    const imagemeta::Mode mode = imagemeta::modeFromString(m_imageMetadataMode);
-    if (mode == imagemeta::Mode::Keep || !entry.mime.startsWith(
-            QLatin1String("image/")))
-        return true;
-
-    QByteArray bytes = data;
-    if (path.isEmpty() == false) {
-        QFile file(path);
-        if (!file.open(QIODevice::ReadOnly))
-            return false;
-        bytes = file.readAll();
-    }
-    const imagemeta::Result r = imagemeta::strip(bytes, mode);
-    switch (r.status) {
-    case imagemeta::Status::Unchanged:
-    case imagemeta::Status::Unsupported:
-        return true;
-    case imagemeta::Status::Failed:
-        return false;
-    case imagemeta::Status::Stripped:
-        break;
-    }
-    if (path.isEmpty()) {
-        data = r.bytes;
-        return true;
-    }
-    if (!m_strippedDir)
-        m_strippedDir = std::make_unique<QTemporaryDir>();
-    if (!m_strippedDir->isValid())
-        return false;
-    const QString sub = m_strippedDir->filePath(
-        QString::number(m_nextStripped++));
-    if (!QDir().mkpath(sub))
-        return false;
-    const QString target = sub + QLatin1Char('/') + QFileInfo(path).fileName();
-    QFile out(target);
-    if (!out.open(QIODevice::WriteOnly)
-        || out.write(r.bytes) != r.bytes.size()) {
-        QDir(sub).removeRecursively();
-        return false;
-    }
-    out.close();
-    path = target;
-    if (tempFile)
-        *tempFile = sub;
-    return true;
-}
-
 bool MessageComposer::takeTextAsCaption(const QString &body,
                                         const QStringList &mentionIds)
 {
@@ -386,7 +329,9 @@ void MessageComposer::dispatchAttachment(int row)
     QByteArray sendData = entry.data;
     QString strippedSub;
     if (!entry.isVideo && !entry.isSvg
-        && !prepareImageForSend(entry, sendPath, sendData, &strippedSub)) {
+        && entry.mime.startsWith(QLatin1String("image/"))
+        && !m_imagePrep.prepare(m_imageMetadataMode, entry.mime, sendPath,
+                                sendData, &strippedSub)) {
         entry.state = QStringLiteral("failed");
         entry.error = tr("Photo details could not be removed from this image, "
                          "so it was not sent. You can change this under "
@@ -421,15 +366,13 @@ void MessageComposer::dispatchAttachment(int row)
                                         entry.replyToEventId);
     }
     if (opId == 0) {
-        if (!strippedSub.isEmpty())
-            QDir(strippedSub).removeRecursively();
+        ImageSendPrep::discard(strippedSub);
         entry.state = QStringLiteral("failed");
         entry.error = tr("The attachment could not be queued.");
     } else {
         entry.state = QStringLiteral("dispatching");
         entry.opId = opId;
-        if (!strippedSub.isEmpty())
-            m_strippedOps.insert(opId, strippedSub);
+        m_imagePrep.track(opId, strippedSub);
     }
     m_attachments->updateEntry(row);
 }
@@ -499,11 +442,7 @@ void MessageComposer::onAttachmentQueueFinished(quint64 opId,
 {
     Q_UNUSED(category);
     // The stripped copy (if any) has been read by the SDK or the op failed.
-    if (const auto strippedIt = m_strippedOps.find(opId);
-        strippedIt != m_strippedOps.end()) {
-        QDir(strippedIt.value()).removeRecursively();
-        m_strippedOps.erase(strippedIt);
-    }
+    m_imagePrep.finished(opId);
     if (const auto voiceIt = m_voiceOps.constFind(opId);
         voiceIt != m_voiceOps.constEnd()) {
         // The op owns its recording file; once queued or failed the path is no

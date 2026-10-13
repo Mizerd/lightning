@@ -11,6 +11,7 @@
 #include "threads/ThreadController.h"
 #include "threads/ThreadManager.h"
 
+#include <QBuffer>
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
@@ -1068,6 +1069,71 @@ private Q_SLOTS:
         QTRY_COMPARE_WITH_TIMEOUT(controller.attachments()->rowCount(), 0,
                                   kSignalTimeoutMs);
         QVERIFY(!controller.hasAttachments());
+    }
+
+    // The thread panel's attachments follow the photo-metadata policy too: a
+    // JPEG whose Exif carries a GPS block leaves the thread without it, and
+    // "keep" is the explicit way to send it whole.
+    void aThreadPhotoLeavesWithoutItsLocation()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        ThreadController controller;
+        controller.setClient(&client);
+        const QString rootId = firstThreadRootId(client, kGeneral);
+        controller.openThread(kGeneral, rootId);
+        QTRY_COMPARE_WITH_TIMEOUT(controller.state(), ThreadController::Ready,
+                                  kSignalTimeoutMs);
+
+        QImage image(8, 8, QImage::Format_RGB32);
+        image.fill(Qt::blue);
+        QByteArray jpeg;
+        {
+            QBuffer buffer(&jpeg);
+            buffer.open(QIODevice::WriteOnly);
+            image.save(&buffer, "JPG", 80);
+        }
+        const QByteArray marker(24, '\xAB');
+        // Exif: IFD0 = {GPS pointer}, GPS IFD = {Lat -> 24 marker bytes}.
+        QByteArray t("MM\0*\0\0\0\x08", 8);
+        t.append("\0\1", 2);
+        t.append(QByteArray("\x88\x25\0\4\0\0\0\1\0\0\0\x1A", 12));
+        t.append("\0\0\0\0", 4);
+        t.append("\0\1", 2);
+        t.append(QByteArray("\0\2\0\5\0\0\0\3\0\0\0\x2C", 12));
+        t.append("\0\0\0\0", 4);
+        t.append(marker);
+        const QByteArray payload = QByteArray("Exif\0\0", 6) + t;
+        QByteArray segment("\xFF\xE1", 2);
+        segment.append(char((payload.size() + 2) >> 8));
+        segment.append(char((payload.size() + 2) & 0xFF));
+        segment.append(payload);
+        jpeg.insert(2, segment);
+        QVERIFY(jpeg.contains(marker));
+
+        QTemporaryFile file(QDir::tempPath()
+                            + QStringLiteral("/lightning-XXXXXX.jpg"));
+        QVERIFY(file.open());
+        file.write(jpeg);
+        file.flush();
+        controller.addAttachment(QUrl::fromLocalFile(file.fileName()));
+        QCOMPARE(controller.attachments()->rowCount(), 1);
+        controller.sendText(QString{});
+        QCOMPARE(client.threadAttachmentCallsForTest(), 1);
+        const QByteArray sent = client.lastThreadAttachmentBytesForTest();
+        QVERIFY(!sent.isEmpty());
+        QVERIFY(!sent.contains(marker));
+        QImage decoded;
+        QVERIFY(decoded.loadFromData(sent));
+
+        // Keep: the file goes out whole.
+        QTRY_COMPARE_WITH_TIMEOUT(controller.attachments()->rowCount(), 0,
+                                  kSignalTimeoutMs);
+        controller.setImageMetadataMode(QStringLiteral("keep"));
+        controller.addAttachment(QUrl::fromLocalFile(file.fileName()));
+        controller.sendText(QString{});
+        QCOMPARE(client.threadAttachmentCallsForTest(), 2);
+        QVERIFY(client.lastThreadAttachmentBytesForTest().contains(marker));
     }
 
     // The attachment twin of sendWithReplyTargetCreatesRichThreadReply: an
