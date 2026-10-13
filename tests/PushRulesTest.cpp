@@ -21,9 +21,17 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
+#include <QQmlEngine>
+#include <QStringList>
+#include <QUrl>
+#include <QVariantList>
+#include <QVariantMap>
 #include <QSignalSpy>
 #include <QtTest/QtTest>
+
+#include <memory>
 
 namespace {
 

@@ -639,8 +639,28 @@ mod tests {
     use super::*;
     use matrix_sdk::ruma::push::{ConditionalPushRuleInit, PatternedPushRuleInit};
 
+    /// ruma's `server_default` omits the deprecated rules (display name,
+    /// username, legacy `@room`), but real homeservers such as Synapse still
+    /// ship them, and the page keys on them. Add them as a server would.
     fn rules() -> Ruleset {
-        Ruleset::server_default(matrix_sdk::ruma::user_id!("@me:example.org"))
+        let mut rules = Ruleset::server_default(matrix_sdk::ruma::user_id!("@me:example.org"));
+        for id in [".m.rule.contains_display_name", ".m.rule.roomnotif"] {
+            rules.override_.insert(ConditionalPushRule::from(ConditionalPushRuleInit {
+                actions: actions_for(Level::Loud),
+                default: true,
+                enabled: true,
+                rule_id: id.into(),
+                conditions: vec![],
+            }));
+        }
+        rules.content.insert(PatternedPushRule::from(PatternedPushRuleInit {
+            actions: actions_for(Level::Loud),
+            default: true,
+            enabled: true,
+            rule_id: ".m.rule.contains_user_name".into(),
+            pattern: "me".into(),
+        }));
+        rules
     }
 
     fn loud() -> Vec<Action> {
