@@ -458,8 +458,16 @@ private Q_SLOTS:
         // The writer owns the file; a return from main() or an exit() drains
         // it; and the sink exists before the handler that reads it.
         const int sinkAt = install.indexOf(QStringLiteral("setProcessLogSink("));
+        // The handler is installed by ensureLogHandlerInstalled(), shared with
+        // the rolling log (whichever destination starts first installs it).
+        // installLogFile must therefore call it AFTER publishing its sink.
+        const QString ensure =
+            bodyOf(QStringLiteral("void ensureLogHandlerInstalled("));
+        QVERIFY2(ensure.contains(
+                     QStringLiteral("qInstallMessageHandler(logFileHandler)")),
+                 "ensureLogHandlerInstalled no longer installs logFileHandler");
         const int handlerAt =
-            install.indexOf(QStringLiteral("qInstallMessageHandler("));
+            install.indexOf(QStringLiteral("ensureLogHandlerInstalled("));
         QVERIFY2(install.contains(QStringLiteral("new AsyncLogSink(")),
                  "installLogFile does not hand the file to an AsyncLogSink");
         QVERIFY2(install.contains(QStringLiteral("std::atexit(")),
