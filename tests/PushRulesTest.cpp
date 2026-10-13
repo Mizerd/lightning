@@ -61,7 +61,7 @@ QVariantMap serverRules()
     m.insert(QStringLiteral("mentionRoom"), 1);
     m.insert(QStringLiteral("eventReactions"), 0);
     m.insert(QStringLiteral("eventInvites"), 1);
-    m.insert(QStringLiteral("eventNotices"), 0);
+    m.insert(QStringLiteral("eventNotices"), -1); // the server lacks it too
     return m;
 }
 
