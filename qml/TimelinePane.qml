@@ -538,13 +538,52 @@ Rectangle {
                     required property var modelData
                     width: ListView.view.width
                     height: readerRow.implicitHeight + AppTheme.spacing8
+                    objectName: "receiptReaderRow"
+                    // A row is a button: click, Enter or Space opens that
+                    // reader's profile beside the row.
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: readerDelegate.modelData.displayName
+                                     || readerDelegate.modelData.userId
+                    Accessible.onPressAction: readerDelegate.openProfile()
+                    function openProfile() {
+                        var uid = readerDelegate.modelData.userId || ""
+                        if (uid.length === 0)
+                            return
+                        var tl = readerDelegate.mapToItem(Overlay.overlay, 0, 0)
+                        var anchor = { x: tl.x, y: tl.y,
+                                       width: readerDelegate.width,
+                                       height: readerDelegate.height }
+                        receiptListPopover.close()
+                        timeline.openSenderProfile({
+                            userId: uid,
+                            displayName: readerDelegate.modelData.displayName
+                                         || "",
+                            avatarUrl: readerDelegate.modelData.avatarMxc
+                                       || ""
+                        }, anchor)
+                    }
+                    Keys.onReturnPressed: openProfile()
+                    Keys.onEnterPressed: openProfile()
+                    Keys.onSpacePressed: openProfile()
+                    TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        gesturePolicy: TapHandler.WithinBounds
+                        onTapped: readerDelegate.openProfile()
+                    }
                     Rectangle {
                         anchors.fill: parent
                         radius: AppTheme.radiusMd
                         color: AppTheme.stormSelection
                         visible: readerHover.hovered
+                                 || readerDelegate.activeFocus
+                        border.width: readerDelegate.activeFocus ? 2 : 0
+                        border.color: AppTheme.focusRing
                     }
-                    HoverHandler { id: readerHover }
+                    HoverHandler {
+                        id: readerHover
+                        cursorShape: Qt.PointingHandCursor
+                    }
                     RowLayout {
                         id: readerRow
                         anchors.verticalCenter: parent.verticalCenter

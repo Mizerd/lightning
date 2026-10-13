@@ -963,7 +963,7 @@ Item {
         (!root.bubbleMode && readReceiptStrip.visible)
         ? Math.max(0, (bubble.x + bubble.width)
                       - Math.max(root.avatarGutterWidth,
-                                 readReceiptStrip.width - receiptRow.width)
+                                 readReceiptStrip.width - receiptRow.restWidth)
                       + AppTheme.spacingXS)
         : 0
 
@@ -971,8 +971,8 @@ Item {
     // inset it (and narrow a wide incoming one) by the pile's width when there
     // is a pile. receiptRow.width depends only on the chip count, so no loop.
     readonly property real bubbleReceiptInset:
-        (root.bubbleMode && readReceiptStrip.visible && receiptRow.width > 0)
-        ? receiptRow.width + AppTheme.spacingXS
+        (root.bubbleMode && readReceiptStrip.visible && receiptRow.restWidth > 0)
+        ? receiptRow.restWidth + AppTheme.spacingXS
         : 0
 
     // The width a child inside the content column may use. bubbleContent insets
@@ -997,10 +997,13 @@ Item {
     // 3px overhang), +4 so they do not touch. Feeds only a Loader's
     // rightMargin, so it cannot loop through the bubble's width and applies in
     // Bubbles too.
+    // True while the receipt band and the action bar's band meet.
+    readonly property bool receiptBandMeetsBar:
+        (layout.height - bubbleRow.y - receiptRow.height) < 33
     readonly property real actionBarReceiptReserve:
-        (readReceiptStrip.visible && receiptRow.width > 0
-         && (layout.height - bubbleRow.y - receiptRow.height) < 33)
-        ? receiptRow.width + AppTheme.spacingXS
+        (readReceiptStrip.visible && receiptRow.restWidth > 0
+         && root.receiptBandMeetsBar)
+        ? receiptRow.restWidth + AppTheme.spacingXS
         : 0
 
     // Today / Yesterday / weekday within a week / date, without the year while
@@ -2812,7 +2815,7 @@ Item {
             // The facepile rides the row's right edge in every layout, so its
             // reservation is a floor on the right margin.
             readonly property real pileReserve: readReceiptStrip.visible
-                ? receiptRow.width + AppTheme.spacingXS : 0
+                ? receiptRow.restWidth + AppTheme.spacingXS : 0
             Layout.rightMargin: reactionsFlow.followsOwnBubble
                 ? Math.max(reactionsFlow.pileReserve,
                            bubbleRow.width - (bubble.x + bubble.width))
@@ -3175,13 +3178,15 @@ Item {
         id: readReceiptStrip
         objectName: "readReceiptStrip"
         readonly property var receipts: model.readReceipts || []
+        // Collapsed pile shows 4; the hover fan shows up to 6.
         readonly property int maxAvatars: 4
+        readonly property int fanAvatars: 6
         // Uncapped count; degrades to the list length when the role is absent.
         readonly property int totalOthers:
             model.readReceiptsTotal >= 0 ? model.readReceiptsTotal
                                          : receipts.length
         readonly property int overflowCount:
-            Math.max(0, totalOthers - shown.length)
+            Math.max(0, totalOthers - Math.min(shown.length, maxAvatars))
         // Element's "sent" check: this is the newest message of ours the
         // server has, and nobody has read it yet. It rides the same rail as the
         // facepile (and gives way to it once someone reads), so the right-rail
@@ -3196,12 +3201,13 @@ Item {
         property var shown: []
         function refreshShown() {
             var next = []
-            var n = Math.min(receipts.length, maxAvatars)
+            var n = Math.min(receipts.length, fanAvatars)
             for (var i = 0; i < n; ++i) {
                 var r = receipts[i]
                 next.push({ userId: r.userId || "",
                             displayName: r.displayName || "",
-                            avatarMxc: r.avatarMxc || "" })
+                            avatarMxc: r.avatarMxc || "",
+                            tsMs: r.tsMs || 0 })
             }
             if (JSON.stringify(next) !== JSON.stringify(shown))
                 shown = next
@@ -3257,8 +3263,121 @@ Item {
             x: Math.max(root.avatarGutterWidth,
                         readReceiptStrip.width - width)
             y: -height
-            // Facepile overlap; each avatar sits on an 18px surface ring.
-            spacing: -4
+            // Facepile overlap; each avatar sits on an 18px surface ring. The
+            // hover fan opens it to +2 (grows leftwards: the row is anchored
+            // to the strip's right edge).
+            spacing: -4 + 6 * receiptRow.fan
+
+            // ---- Hover fan (Proposal A) ---------------------------------
+            // 0 = collapsed pile, 1 = fanned. Driven by fanOpen through a
+            // Behavior; AppTheme.reducedMotion makes both legs instant.
+            property bool fanOpen: false
+            property real fan: fanOpen ? 1 : 0
+            Behavior on fan {
+                NumberAnimation {
+                    duration: AppTheme.reducedMotion ? 0
+                              : (receiptRow.fanOpen ? 140 : 110)
+                    easing.type: Easing.OutCubic
+                }
+            }
+            // The fan yields to the hover action bar where their bands meet
+            // (a short row): the bar keeps the rail.
+            readonly property bool fanBlocked:
+                root.actionsVisible && root.receiptBandMeetsBar
+            readonly property bool fanWanted:
+                receiptHover.hovered && !receiptRow.fanBlocked
+                && !readReceiptStrip.sentOnly
+                && readReceiptStrip.receipts.length > 0
+            onFanWantedChanged: {
+                if (fanWanted) {
+                    fanInTimer.stop()
+                    fanOutTimer.restart()
+                } else {
+                    fanOutTimer.stop()
+                    if (fanBlocked) {
+                        fanInTimer.stop()
+                        fanOpen = false
+                    } else if (fanOpen) {
+                        fanInTimer.restart()
+                    }
+                }
+            }
+            Timer {
+                id: fanOutTimer
+                interval: 150
+                onTriggered: receiptRow.fanOpen = true
+            }
+            Timer {
+                id: fanInTimer
+                interval: 120
+                onTriggered: receiptRow.fanOpen = false
+            }
+            // The COLLAPSED width: what every right-rail reservation uses, so
+            // the body text never reflows when the pile fans out. Mirrors the
+            // collapsed row exactly (items x 18, -4 between, the pill sized
+            // from its collapsed label).
+            readonly property int restChips:
+                Math.min(readReceiptStrip.shown.length,
+                         readReceiptStrip.maxAvatars)
+            readonly property int restOverflow:
+                Math.max(0, readReceiptStrip.totalOthers - restChips)
+            readonly property real restPillWidth:
+                restOverflow > 0 ? Math.max(18, restPillMetrics.implicitWidth + 8) : 0
+            readonly property int restItems:
+                restChips + (readReceiptStrip.sentOnly ? 1 : 0)
+                + (restOverflow > 0 ? 1 : 0)
+            readonly property real restWidth:
+                restItems <= 0 ? 0
+                : (restChips + (readReceiptStrip.sentOnly ? 1 : 0)) * 18
+                  + restPillWidth + (restItems - 1) * -4
+            // Measures the pill's collapsed label with the pill's own font.
+            Label {
+                id: restPillMetrics
+                visible: false
+                text: "+" + receiptRow.restOverflow
+                font.pixelSize: AppTheme.fontMicro
+                font.weight: AppTheme.weightBold
+            }
+            // The fan's per-avatar read time (the list popover's rule).
+            function readTimeText(tsMs) {
+                if (!tsMs || tsMs <= 0)
+                    return ""
+                var d = new Date(tsMs)
+                var now = new Date()
+                var startOfToday = new Date(now.getFullYear(), now.getMonth(),
+                                            now.getDate())
+                if (d >= startOfToday)
+                    return Qt.formatTime(d, app.settings.clockTimeFormat)
+                if (startOfToday - d < 6 * 86400000)
+                    return Qt.formatDateTime(d, "ddd hh:mm")
+                return Qt.formatDateTime(d, "MMM d, hh:mm")
+            }
+            function openList() {
+                if (!root.timelineView || !root.timelineView.openReceiptList)
+                    return
+                var p = receiptRow.mapToItem(Overlay.overlay,
+                                             receiptRow.width / 2,
+                                             receiptRow.height / 2)
+                root.timelineView.openReceiptList(
+                    model.readReceipts || [],
+                    readReceiptStrip.totalOthers, Qt.point(p.x, p.y))
+            }
+            // Keyboard: one focus stop for the pile; Enter / Space open the list.
+            activeFocusOnTab: root.rowActionsEnabled
+                              && !readReceiptStrip.sentOnly && visible
+            Keys.onReturnPressed: receiptRow.openList()
+            Keys.onEnterPressed: receiptRow.openList()
+            Keys.onSpacePressed: receiptRow.openList()
+            Rectangle {
+                z: 100
+                anchors.fill: parent
+                anchors.margins: -2
+                radius: height / 2
+                color: "transparent"
+                border.width: 2
+                border.color: AppTheme.focusRing
+                visible: receiptRow.activeFocus
+            }
             // The ring must match what the row shows, including the fading
             // hover tint.
             readonly property color hoverTint:
@@ -3272,12 +3391,19 @@ Item {
                 model: readReceiptStrip.shown
                 Rectangle {
                     id: chip
-                    objectName: "readReceiptChip"
+                    // The two fan-only avatars are named apart, so "the
+                    // collapsed pile shows four" stays assertable.
+                    objectName: index < readReceiptStrip.maxAvatars
+                                ? "readReceiptChip" : "readReceiptFanChip"
                     width: 18
                     height: 18
                     radius: 9
                     color: AppTheme.background
                     z: index
+                    readonly property bool fanOnly:
+                        index >= readReceiptStrip.maxAvatars
+                    visible: !fanOnly || receiptRow.fan > 0
+                    opacity: fanOnly ? receiptRow.fan : 1
                     // Composites the row's highlight tint over the ring,
                     // reading only the visual parent chain.
                     Rectangle {
@@ -3295,6 +3421,25 @@ Item {
                         mxc: modelData.avatarMxc
                         name: modelData.displayName
                         colorKey: modelData.userId
+                    }
+                    HoverHandler { id: chipHover }
+                    // While fanned, the reader's name and read time. Plain
+                    // text: a display name is remote input.
+                    ToolTip {
+                        visible: chipHover.hovered && receiptRow.fan > 0.95
+                        delay: 250
+                        timeout: 0
+                        contentItem: Label {
+                            textFormat: Text.PlainText
+                            text: {
+                                var t = receiptRow.readTimeText(modelData.tsMs)
+                                var n = modelData.displayName
+                                        || modelData.userId
+                                return t.length > 0 ? n + "\n" + t : n
+                            }
+                            color: AppTheme.textPrimary
+                            font.pixelSize: AppTheme.fontCaption
+                        }
                     }
                 }
             }
@@ -3322,18 +3467,25 @@ Item {
             }
             Rectangle {
                 objectName: "readReceiptOverflow"
-                visible: readReceiptStrip.overflowCount > 0
+                // Fanned, the pile shows more avatars, so the pill counts the
+                // rest; the collapsed text is what restWidth was measured on.
+                readonly property int pillCount: receiptRow.fan > 0
+                    ? Math.max(0, readReceiptStrip.totalOthers
+                               - Math.min(readReceiptStrip.shown.length,
+                                          readReceiptStrip.fanAvatars))
+                    : readReceiptStrip.overflowCount
+                visible: pillCount > 0
                 width: Math.max(18, overflowLabel.implicitWidth + 8)
                 height: 18
                 radius: AppTheme.radiusPill
                 color: AppTheme.reactionBackground
                 border.color: AppTheme.border
                 border.width: 1
-                z: readReceiptStrip.maxAvatars
+                z: readReceiptStrip.fanAvatars
                 Label {
                     id: overflowLabel
                     anchors.centerIn: parent
-                    text: "+" + readReceiptStrip.overflowCount
+                    text: "+" + parent.pillCount
                     color: AppTheme.textSecondary
                     // Chrome on a fixed rail: not scaled, but uses the token.
                     font.pixelSize: AppTheme.fontMicro
@@ -3349,6 +3501,7 @@ Item {
                     if (!root.timelineView
                         || !root.timelineView.openReceiptList)
                         return
+                    receiptRow.forceActiveFocus(Qt.MouseFocusReason)
                     // eventPoint.position is local to the handler's parent,
                     // receiptRow, so map from there.
                     var p = receiptRow.mapToItem(
@@ -3362,12 +3515,15 @@ Item {
             }
             HoverHandler { id: receiptHover }
             ToolTip.text: readReceiptStrip.summary
-            ToolTip.visible: receiptHover.hovered
+            // Fanned, each avatar carries its own name tooltip instead.
+            ToolTip.visible: receiptHover.hovered && receiptRow.fan === 0
+                             && !receiptRow.fanOpen
                              && readReceiptStrip.summary.length > 0
             ToolTip.delay: 500
             // One accessible summary; individual chips are not focus stops.
-            Accessible.role: Accessible.StaticText
+            Accessible.role: Accessible.Button
             Accessible.name: readReceiptStrip.summary
+            Accessible.onPressAction: receiptRow.openList()
         }
     }
 

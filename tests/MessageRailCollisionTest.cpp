@@ -20,6 +20,7 @@
 #include <QtTest/QtTest>
 
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QQmlExpression>
