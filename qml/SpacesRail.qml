@@ -1273,7 +1273,9 @@ Rectangle {
                 // without a drag. Dropping a Space onto another is the primary
                 // way to make a folder.
                 TapHandler {
+                    // Touch has no buttons, so a tap would fire this too.
                     acceptedButtons: Qt.RightButton
+                    acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                     enabled: !root.dragging
                     onTapped: (eventPoint) => {
                         railMenu.entryId = spaceItem.entryId

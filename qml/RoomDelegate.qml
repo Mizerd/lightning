@@ -473,9 +473,18 @@ Item {
     // The context menu is for joined rooms only; invitations offer
     // Accept/Reject.
     TapHandler {
+        // Touch has no buttons, so a tap would fire this too.
         acceptedButtons: Qt.RightButton
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         enabled: model.membership === "joined"
         onTapped: roomMenu.popup()
+    }
+    // Touch has no right button, so a long press is its way to the menu. A
+    // held press never also emits the open-room handler's tapped.
+    TapHandler {
+        acceptedDevices: PointerDevice.TouchScreen
+        enabled: model.membership === "joined"
+        onLongPressed: roomMenu.popup()
     }
     // Keyboard open path, joined rooms only like right-click.
     Keys.onPressed: (event) => {

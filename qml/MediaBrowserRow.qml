@@ -111,7 +111,9 @@ ItemDelegate {
     }
 
     TapHandler {
+        // Touch has no buttons, so a tap would fire this too.
         acceptedButtons: Qt.RightButton
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onTapped: rowMenu.popup()
     }
 

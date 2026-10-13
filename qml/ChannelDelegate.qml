@@ -348,9 +348,23 @@ ItemDelegate {
             menuLoader.item.popup();
     }
     TapHandler {
+        // Touch has no buttons, so a tap would fire this too.
         acceptedButtons: Qt.RightButton
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         enabled: root.roomId.length > 0
         onTapped: root.openContextMenu()
+    }
+    // Touch has no right button, so a long press is its way to the menu.
+    // Unlike a bare TapHandler, ItemDelegate still emits clicked when a held
+    // press is released, so `heldForMenu` tells the host to skip that one.
+    property bool heldForMenu: false
+    TapHandler {
+        acceptedDevices: PointerDevice.TouchScreen
+        enabled: root.roomId.length > 0
+        onLongPressed: {
+            root.heldForMenu = true;
+            root.openContextMenu();
+        }
     }
     // Whether the activation in progress came from a pointer. `clicked` also
     // fires for Space and for a screen reader's press action, and only a
@@ -361,7 +375,10 @@ ItemDelegate {
     property bool pointerActivation: false
     TapHandler {
         acceptedButtons: Qt.LeftButton
-        onPressedChanged: if (pressed) root.pointerActivation = true
+        onPressedChanged: if (pressed) {
+            root.pointerActivation = true;
+            root.heldForMenu = false;
+        }
     }
     Keys.onPressed: event => {
         root.pointerActivation = false;

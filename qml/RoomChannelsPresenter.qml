@@ -198,6 +198,11 @@ Item {
                     onClicked: {
                         const byPointer = pointerActivation
                         pointerActivation = false
+                        // A touch long press opened the menu instead.
+                        if (heldForMenu) {
+                            heldForMenu = false
+                            return
+                        }
                         root.roomActivated(rowLoader.model.roomId)
                         if (byPointer)
                             root.roomOpenedByPointer(rowLoader.model.roomId)
@@ -250,7 +255,9 @@ Item {
                     // Opening the Space is the secondary action, on its own
                     // gesture.
                     TapHandler {
+                        // Touch has no buttons, so a tap would fire this too.
                         acceptedButtons: Qt.RightButton
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                         onTapped: app.openSpaceHome(rowLoader.model.roomId)
                     }
                 }

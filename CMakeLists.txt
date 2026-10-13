@@ -4260,6 +4260,20 @@ if(BUILD_TESTING)
     set_tests_properties(composer-focus-on-open-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+    # A finger is not a right button: a touch tap on a room row opens the
+    # room without its menu, a long press opens the menu without the room,
+    # and no right-button-only TapHandler lets touch in.
+    qt_add_executable(touch-is-not-right-click-qml-test
+        tests/TouchIsNotRightClickQmlTest.cpp
+    )
+    lightning_configure_qml_test(touch-is-not-right-click-qml-test)
+    target_include_directories(touch-is-not-right-click-qml-test PRIVATE src)
+    target_compile_definitions(touch-is-not-right-click-qml-test PRIVATE
+        QML_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
+    add_test(NAME touch-is-not-right-click-qml COMMAND touch-is-not-right-click-qml-test)
+    set_tests_properties(touch-is-not-right-click-qml PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # A restore that cannot reach the homeserver must read as offline, even
     # though startSync() and the sync lane report Syncing on the way. Drives
     # the real event dispatcher; no FFI handle, store or network.

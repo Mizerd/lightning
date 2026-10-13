@@ -1382,7 +1382,9 @@ Item {
             TapHandler {
                 // Not gated on rowActionsEnabled: the context menu is also how
                 // selection mode is left.
+                // Touch has no buttons, so a tap would fire this too.
                 acceptedButtons: Qt.RightButton
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                 onTapped: (eventPoint, button) => {
                     var p = bubbleRow.mapToItem(root, eventPoint.position.x,
                                                eventPoint.position.y)

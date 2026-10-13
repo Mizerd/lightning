@@ -457,7 +457,9 @@ Popup {
                     // Right-click on the picture opens the context menu. Left
                     // is imageTap's, so the two never both fire.
                     TapHandler {
+                        // Touch has no buttons, so a tap would fire this too.
                         acceptedButtons: Qt.RightButton
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                         gesturePolicy: TapHandler.WithinBounds
                         onTapped: (eventPoint) => {
                             var p = imageHolder.mapToItem(

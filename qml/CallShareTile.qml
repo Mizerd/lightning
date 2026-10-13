@@ -334,7 +334,9 @@ Item {
     // has sound, so it never swallows a press the stage wanted.
     TapHandler {
         enabled: root.shareAudioOffered
+        // Touch has no buttons, so a tap would fire this too.
         acceptedButtons: Qt.RightButton
+        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
         onTapped: root.openShareVolume()
     }
 
