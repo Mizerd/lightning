@@ -10,6 +10,20 @@
 
 namespace settingsport {
 
+namespace {
+// A JSON number as milliseconds, or -1 when it is not a sane one. A bare
+// static_cast of a double beyond the int64 range is undefined behaviour.
+qint64 safeMs(const QJsonValue &v)
+{
+    if (!v.isDouble())
+        return -1;
+    const double d = v.toDouble();
+    if (!std::isfinite(d) || d < 0 || d > 9.0e15)
+        return -1;
+    return static_cast<qint64>(d);
+}
+} // namespace
+
 // Why each setting is where it is (the rule, so the next field has a place):
 //
 //  Export + Sync   a preference about how the app looks or behaves that means
@@ -361,18 +375,25 @@ ParsedBlob parseBlob(const QJsonObject &content, bool present)
             p.keep.insert(it.key(), it.value());
             continue;
         }
+        // Known but not usable HERE (not a synced setting in this build, or a
+        // value this build cannot hold): reported, ignored, and carried
+        // through every write verbatim, so an older build never undoes what
+        // a newer one stored.
         if (!(f->flags & Sync) || !it.value().isObject()) {
             p.rejected.append(it.key());
+            p.keep.insert(it.key(), it.value());
             continue;
         }
         const QJsonObject entry = it.value().toObject();
         const QJsonValue t = entry.value(QStringLiteral("t"));
         const Checked c = check(*f, entry.value(QStringLiteral("v")).toVariant());
-        if (!c.ok || !t.isDouble() || t.toDouble() < 0) {
+        const qint64 tms = safeMs(t);
+        if (!c.ok || tms < 0) {
             p.rejected.append(it.key());
+            p.keep.insert(it.key(), it.value());
             continue;
         }
-        p.entries.insert(f->name, { c.value, static_cast<qint64>(t.toDouble()) });
+        p.entries.insert(f->name, { c.value, tms });
     }
     return p;
 }
@@ -401,7 +422,15 @@ QJsonObject stateToJson(const State &s)
         ts.insert(it.key(), static_cast<double>(it.value()));
     for (auto it = s.pending.constBegin(); it != s.pending.constEnd(); ++it)
         pending.insert(it.key(), static_cast<double>(it.value()));
+    QJsonObject future;
+    for (auto it = s.futureT.constBegin(); it != s.futureT.constEnd(); ++it) {
+        QJsonObject e;
+        e.insert(QStringLiteral("t"), static_cast<double>(it.value()));
+        e.insert(QStringLiteral("seen"), static_cast<double>(s.futureSeen.value(it.key())));
+        future.insert(it.key(), e);
+    }
     QJsonObject o;
+    o.insert(QStringLiteral("future"), future);
     o.insert(QStringLiteral("synced"), synced);
     o.insert(QStringLiteral("ts"), ts);
     o.insert(QStringLiteral("pending"), pending);
@@ -423,13 +452,23 @@ State stateFromJson(const QJsonObject &o)
     const QJsonObject ts = o.value(QStringLiteral("ts")).toObject();
     for (auto it = ts.constBegin(); it != ts.constEnd(); ++it) {
         if (s.lastSynced.contains(it.key()))
-            s.lastTs.insert(it.key(), static_cast<qint64>(it.value().toDouble()));
+            s.lastTs.insert(it.key(), qMax<qint64>(0, safeMs(it.value())));
     }
     const QJsonObject pending = o.value(QStringLiteral("pending")).toObject();
     for (auto it = pending.constBegin(); it != pending.constEnd(); ++it) {
         const Field *f = find(it.key());
         if (f && (f->flags & Sync))
-            s.pending.insert(it.key(), static_cast<qint64>(it.value().toDouble()));
+            s.pending.insert(it.key(), qMax<qint64>(0, safeMs(it.value())));
+    }
+    const QJsonObject future = o.value(QStringLiteral("future")).toObject();
+    for (auto it = future.constBegin(); it != future.constEnd(); ++it) {
+        const QJsonObject e = it.value().toObject();
+        const qint64 t = safeMs(e.value(QStringLiteral("t")));
+        const qint64 seen = safeMs(e.value(QStringLiteral("seen")));
+        if (find(it.key()) && t >= 0 && seen >= 0) {
+            s.futureT.insert(it.key(), t);
+            s.futureSeen.insert(it.key(), seen);
+        }
     }
     return s;
 }
@@ -461,11 +500,39 @@ State detectLocalChanges(const QVariantMap &local, State state, qint64 now)
     return state;
 }
 
+State absorbLocal(State state, const QVariantMap &local)
+{
+    for (const Field &f : fields()) {
+        if (!(f.flags & Sync) || state.pending.contains(f.name))
+            continue;
+        const auto value = local.constFind(f.name);
+        if (value == local.constEnd())
+            continue;
+        if (!state.lastSynced.contains(f.name) || state.lastSynced.value(f.name) != value.value()) {
+            state.lastSynced.insert(f.name, value.value());
+            state.lastTs.insert(f.name, 0);
+        }
+    }
+    return state;
+}
+
 namespace {
 
-qint64 clampTs(qint64 t, qint64 now)
+// A server timestamp more than kMaxSkewMs ahead is taken as the moment it was
+// first seen (remembered in `st`), not as `now`: `now` moves forward with every
+// merge and would let a fast clock outrank every later edit for ever.
+qint64 clampTs(const QString &name, qint64 t, qint64 now, State &st)
 {
-    return t > now + kMaxSkewMs ? now : t;
+    if (t <= now + kMaxSkewMs) {
+        st.futureT.remove(name);
+        st.futureSeen.remove(name);
+        return t;
+    }
+    if (st.futureT.value(name, -1) == t)
+        return qMin(st.futureSeen.value(name, now), now);
+    st.futureT.insert(name, t);
+    st.futureSeen.insert(name, now);
+    return now;
 }
 
 } // namespace
@@ -506,7 +573,9 @@ MergeResult merge(const ParsedBlob &server, const QVariantMap &local, const Stat
             continue;
         }
 
-        const qint64 st_t = clampTs(sv->t, now);
+        const qint64 st_t = clampTs(n, sv->t, now, st);
+        if (st_t != sv->t)
+            out[n].t = st_t; // the hostile time is not written back
         const QVariant serverValue = sv->v;
 
         if (pending && localValue.isValid()) {
@@ -562,6 +631,8 @@ MergeResult merge(const ParsedBlob &server, const QVariantMap &local, const Stat
         }
     }
 
+    applied.futureT = written.futureT = st.futureT;
+    applied.futureSeen = written.futureSeen = st.futureSeen;
     r.toWrite = out;
     r.needsWrite = write && !r.readOnly;
     r.afterApply = applied;

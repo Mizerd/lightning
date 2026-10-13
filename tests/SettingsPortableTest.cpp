@@ -128,7 +128,9 @@ private Q_SLOTS:
         for (const char *n : { "strictDeviceTrust", "loadPreviewsInEncryptedRooms", "notificationPreview",
                                "notificationPreviewEncrypted", "keepMediaOnDevice", "interfaceZoom",
                                "roomListWidth", "microphoneGain", "callSoundVolume", "shareMaxHeight",
-                               "closeToTray", "startInTray", "smoothScrolling" }) {
+                               "closeToTray", "startInTray", "smoothScrolling",
+                               // what the homeserver must not be able to switch on a client
+                               "autoLoadLinkPreviews", "storeRecentGifs", "gifPreferredProvider" }) {
             const Field *f = find(QString::fromLatin1(n));
             QVERIFY2(f, n);
             QVERIFY2(!(f->flags & Sync), n);
@@ -365,6 +367,95 @@ private Q_SLOTS:
         QVERIFY(p.rejected.contains("loadPreviewsInEncryptedRooms"));
         QVERIFY(p.rejected.contains("notificationPreview"));
         QVERIFY(p.rejected.contains("textScale"));
+    }
+
+    // An older build must not undo what a newer one stored: entries it cannot
+    // use are carried through its writes verbatim.
+    void entriesThisBuildCannotUseSurviveARewrite()
+    {
+        const QJsonObject server = QJsonDocument::fromJson(j("{'version':1,'settings':{"
+            "'strictDeviceTrust':{'v':true,'t':1},"          // known key, not synced here
+            "'textScale':{'v':9999,'t':5},"                   // known key, value this build cannot hold
+            "'gifPreferredProvider':{'v':'newprovider','t':2},"
+            "'futureKey':{'v':1,'t':3},"
+            "'theme':{'v':3,'t':4}}}")).object();
+        const ParsedBlob p = parseBlob(server);
+        QCOMPARE(p.entries.keys(), QStringList{ "theme" });
+        QVERIFY(p.keep.contains("strictDeviceTrust"));
+        QVERIFY(p.keep.contains("textScale"));
+        QVERIFY(p.keep.contains("futureKey"));
+        QVERIFY(!p.keep.contains("theme"));
+
+        QVariantMap local = allDefaults();
+        local.insert("theme", 3);
+        local.insert("reducedMotion", true); // a local edit forces a write
+        State st;
+        st.lastSynced.insert("theme", 3);
+        st.lastTs.insert("theme", 4);
+        const MergeResult r = merge(p, local, st, 10000);
+        QVERIFY(r.needsWrite);
+        const QJsonObject written = composeBlob(r.toWrite, r.keep).value("settings").toObject();
+        QCOMPARE(written.value("textScale").toObject().value("v").toInt(), 9999);
+        QCOMPARE(written.value("strictDeviceTrust").toObject().value("v").toBool(), true);
+        QVERIFY(written.contains("futureKey"));
+        QVERIFY(written.contains("reducedMotion"));
+    }
+
+    // A time that cannot be an int64 is rejected before any cast.
+    void aHugeTimestampIsRejectedNotCast()
+    {
+        const ParsedBlob p = parseBlob(QJsonDocument::fromJson(j("{'version':1,'settings':{"
+            "'theme':{'v':3,'t':1e300},'textScale':{'v':110,'t':-5},'reducedMotion':{'v':true,'t':1e19}}}")).object());
+        QVERIFY(p.entries.isEmpty());
+        QCOMPARE(p.rejected.size(), 3);
+        QJsonObject state;
+        state.insert("synced", QJsonObject{ { "theme", 3 } });
+        state.insert("ts", QJsonObject{ { "theme", 1e300 } });
+        state.insert("pending", QJsonObject{ { "theme", 1e300 } });
+        const State s = stateFromJson(state);
+        QCOMPARE(s.lastTs.value("theme"), 0LL);
+    }
+
+    // A fast or hostile clock counts from when it was first SEEN. Clamping to
+    // "now" at every merge would slide it forward and beat every later edit.
+    void aFutureTimestampCountsFromWhenItWasFirstSeen()
+    {
+        QVariantMap local = allDefaults();
+        const ParsedBlob server = blobOf({ { "textScale", E(135, 4102444800000LL) } });
+        State st;
+        MergeResult first = merge(server, local, st, 5000);
+        QCOMPARE(first.afterApply.lastTs.value("textScale"), 5000LL);
+        QCOMPARE(first.toWrite.value("textScale").t, 5000LL); // not written back
+        State persisted = stateFromJson(stateToJson(first.afterApply));
+        QCOMPARE(persisted.futureT.value("textScale"), 4102444800000LL);
+        // A day later the same entry is still "seen at 5000", so a local edit
+        // made after that wins.
+        local = first.applyLocal.isEmpty() ? local : local;
+        local.insert("textScale", 110);
+        persisted.pending.insert("textScale", 90000000);
+        const MergeResult later = merge(server, local, persisted, 91000000);
+        QVERIFY(later.needsWrite);
+        QCOMPARE(later.toWrite.value("textScale").v.toInt(), 110);
+    }
+
+    void unnoticedDifferencesAreAbsorbedNotUploaded()
+    {
+        QVariantMap local = allDefaults();
+        local.insert("textScale", 120);      // value left by another account on this device
+        local.insert("reducedMotion", true); // an edit seen live for this account
+        State st;
+        st.lastSynced.insert("textScale", 100);
+        st.lastTs.insert("textScale", 50);
+        st.pending.insert("reducedMotion", 77);
+        const State out = absorbLocal(st, local);
+        QCOMPARE(out.lastSynced.value("textScale").toInt(), 120);
+        QCOMPARE(out.lastTs.value("textScale"), 0LL);
+        QVERIFY(out.pending.contains("reducedMotion"));
+        QVERIFY(!out.lastSynced.contains("reducedMotion"));
+        const MergeResult r = merge(blobOf({ { "textScale", E(100, 50) } }), local, out, 1000);
+        QCOMPARE(r.applyLocal.value("textScale").toInt(), 100); // the account's value, not the leftover
+        QCOMPARE(r.toWrite.value("reducedMotion").v.toBool(), true);
+        QVERIFY(r.toWrite.value("textScale").v.toInt() == 100);
     }
 
     void clearedMissingAndUnreadableBlobsAreDistinct()

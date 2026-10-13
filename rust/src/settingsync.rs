@@ -187,7 +187,17 @@ pub(crate) fn write(bridge: &RustClient, op_id: u64, kind: u32, content_json: St
                     if !read_switch(&client).await? {
                         return Err("sync_disabled".to_owned());
                     }
-                    put(&client, BLOB_TYPE, &content).await
+                    put(&client, BLOB_TYPE, &content).await?;
+                    // Account data has no compare-and-set, so a switch turned off
+                    // (and the blob cleared) between the look above and this PUT
+                    // would otherwise be followed by a stale blob. Look again; if
+                    // it went off, empty what was just written. A narrower window
+                    // remains (docs/feature-contracts.md).
+                    if !read_switch(&client).await.unwrap_or(true) {
+                        let _ = put(&client, BLOB_TYPE, &json!({})).await;
+                        return Err("sync_disabled".to_owned());
+                    }
+                    Ok(())
                 }
                 1 => put(&client, SWITCH_TYPE, &compose_switch(content["enabled"].as_bool().unwrap_or(false))).await,
                 _ => put(&client, BLOB_TYPE, &json!({})).await,

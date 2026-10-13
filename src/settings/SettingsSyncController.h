@@ -165,6 +165,9 @@ private:
     QTimer m_retryTimer;
     bool m_applying = false;
     bool m_started = false;
+    // The first merge after loading a persisted baseline absorbs differences
+    // nobody edited for this account (see settingsport::absorbLocal).
+    bool m_absorbLocal = false;
     qint64 m_fixedNow = 0;
 
     // The parsed import awaiting the user's decision.

@@ -2263,6 +2263,24 @@ homeserver URL, window geometry or dismissal flag, and the tests assert it.
   link previews in encrypted rooms, notification previews, keeping media on
   device): the homeserver can write account data, so it must not be able to
   loosen them. Custom themes and shortcuts are export only (size, layout).
+- **Known residual races.** Account data has no compare-and-set. A blob PUT
+  that passed its switch check can still land after another device's "Turn off
+  and remove"; the writer re-reads the switch after its PUT and empties the blob
+  again when it went off, which narrows the window to the gap between that
+  re-read and its PUT's effect, it does not close it. Likewise two devices
+  writing the blob at once can lose one edit; the loser re-asserts it on its
+  next read (a key the server holds older than this device last synced is
+  pushed back).
+- **Account scoping.** Local values are device-global while the sync state is
+  per account. After a restart or an account switch, differences between the
+  local values and that account's baseline that were not noticed live are
+  absorbed as the baseline (`absorbLocal`), never uploaded: only edits seen
+  while running count as the account's.
+- **Unusable entries are preserved.** An entry for a known key that this build
+  cannot use (invalid value, or a key it does not sync) is reported and carried
+  through every write verbatim, so an older build never undoes a newer one's.
+  A server timestamp ahead by more than 5 minutes counts as the time it was
+  first seen (remembered), not as "now".
 - Not live-validated between two real sessions unless stated in the task note.
 
 ### Chat backgrounds and surface depth

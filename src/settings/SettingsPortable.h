@@ -141,9 +141,15 @@ struct State
     QVariantMap lastSynced;            // name -> value both sides held
     QMap<QString, qint64> lastTs;      // name -> t of lastSynced
     QMap<QString, qint64> pending;     // name -> time of an unsynced local change
+    // A server timestamp from the future (a fast or hostile clock) counts as
+    // the moment it was FIRST SEEN, remembered here, so it cannot slide
+    // forward with `now` and win every later conflict.
+    QMap<QString, qint64> futureT;     // name -> the raw server t that was ahead
+    QMap<QString, qint64> futureSeen;  // name -> when that t was first seen
     bool operator==(const State &o) const
     {
-        return lastSynced == o.lastSynced && lastTs == o.lastTs && pending == o.pending;
+        return lastSynced == o.lastSynced && lastTs == o.lastTs && pending == o.pending
+            && futureT == o.futureT && futureSeen == o.futureSeen;
     }
 };
 QJsonObject stateToJson(const State &s);
@@ -153,6 +159,14 @@ State stateFromJson(const QJsonObject &o);
 // change at `now`. A change already pending keeps its (earlier) time. A field
 // whose value returned to lastSynced stops being pending. Pure.
 State detectLocalChanges(const QVariantMap &local, State state, qint64 now);
+
+// The local values are DEVICE-global (a setter writes the active account's key
+// and the shared fallback) while this state belongs to one account, so after an
+// account switch or a restart the local view can differ from the baseline
+// without the user having edited anything for THIS account. Accepting every
+// such difference as the baseline (value only, time 0, so it is never re-pushed)
+// leaves only edits noticed live (pending) as local changes.
+State absorbLocal(State state, const QVariantMap &local);
 
 struct MergeResult
 {

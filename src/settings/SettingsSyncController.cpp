@@ -249,6 +249,7 @@ void SettingsSyncController::startSync()
     if (m_started)
         return;
     m_started = true;
+    m_absorbLocal = true;
     requestRead();
 }
 
@@ -399,8 +400,11 @@ void SettingsSyncController::onRead(quint64 opId, bool ok, const QString &catego
         m_choiceNeeded = false;
         m_choiceDiffering = 0;
     } else {
+        if (m_absorbLocal)
+            m_state = absorbLocal(m_state, local);
         r = merge(server, local, m_state, now);
     }
+    m_absorbLocal = false;
     applyMerge(r, server);
 }
 
