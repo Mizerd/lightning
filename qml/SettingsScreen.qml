@@ -2703,6 +2703,14 @@ Item {
                                 initialRole: root.themeEditorStartRole
                             }
                             onLoaded: item.open()
+                            // The role it was asked to open on is spent with
+                            // the editor; a later open that names none (Create
+                            // a theme, or any other route to the loader) must
+                            // not inherit it.
+                            onActiveChanged: {
+                                if (!active)
+                                    root.themeEditorStartRole = ""
+                            }
                             Connections {
                                 target: themeEditorLoader.item
                                 function onClosed() {
