@@ -349,7 +349,9 @@ private Q_SLOTS:
         const QString block = section.mid(idx, 900);
         QVERIFY(block.contains(QStringLiteral("root.everChecked")));
         QVERIFY(!section.contains(QStringLiteral("lastCheckTime.length")));
-        QVERIFY(block.contains(QStringLiteral("Qt.formatDateTime(")));
+        // Formatted as a date in the UI locale (Qt.formatDateTime would
+        // ignore it and print English month names).
+        QVERIFY(block.contains(QStringLiteral("Qt.locale().toString(")));
     }
 
     // ---- Idle does not claim a check has never run ----
