@@ -3907,11 +3907,15 @@ if(BUILD_TESTING)
     target_link_libraries(push-rules-test PRIVATE Qt6::Test)
     add_test(NAME push-rules COMMAND push-rules-test)
     set_tests_properties(push-rules PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
     # Export room keys section: Password echo on both fields, the button
     # gated on the pair, and the fields empty with no undo history after an
     # export starts, on hide and when the account changes.
     qt_add_executable(room-key-export-qml-test
         tests/RoomKeyExportSectionQmlTest.cpp
+        ${APP_LIB_SOURCES}
+    )
     lightning_configure_qml_test(room-key-export-qml-test)
     target_link_libraries(room-key-export-qml-test PRIVATE Qt6::Test)
     add_test(NAME room-key-export-qml COMMAND room-key-export-qml-test)
