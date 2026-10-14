@@ -72,27 +72,27 @@
       English values.
     -->
     <screenshot type="default">
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/01-conversation.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.2/docs/screenshots/flathub/01-conversation.png</image>
       <caption>A room conversation with a shared picture, replies, reactions and a thread</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/02-call.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.2/docs/screenshots/flathub/02-call.png</image>
       <caption>A group call in a room with a screen share on the stage</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/03-threads.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.2/docs/screenshots/flathub/03-threads.png</image>
       <caption>A thread and its replies, opened from the conversation it started in</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/04-themes.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.2/docs/screenshots/flathub/04-themes.png</image>
       <caption>Building a custom theme with a gradient conversation background</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/05-settings.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.2/docs/screenshots/flathub/05-settings.png</image>
       <caption>Appearance settings with themes that follow the system light or dark style</caption>
     </screenshot>
     <screenshot>
-      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.1/docs/screenshots/flathub/06-verification.png</image>
+      <image type="source">https://raw.githubusercontent.com/Mizerd/lightning/v0.10.2/docs/screenshots/flathub/06-verification.png</image>
       <caption>Verifying a new session by comparing emoji</caption>
     </screenshot>
   </screenshots>
@@ -159,6 +159,19 @@
   </content_rating>
 
   <releases>
+    <release version="0.10.2" date="2026-10-14" type="stable">
+      <url type="details">https://github.com/Mizerd/lightning/releases/tag/v0.10.2</url>
+      <description>
+        <p>
+          A release about getting your conversations and settings out of the app
+          and back in: export a room as a web page with its photos, export your
+          room keys, take your settings to another device, and find an
+          attachment by its name. It also brings a rebuilt theme editor, read
+          receipts as faces, a notification troubleshooter, and updates that now
+          come from GitHub first.
+        </p>
+      </description>
+    </release>
     <release version="0.10.1" date="2026-10-07" type="stable">
       <url type="details">https://github.com/Mizerd/lightning/releases/tag/v0.10.1</url>
       <description>
