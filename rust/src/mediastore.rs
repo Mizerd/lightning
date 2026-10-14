@@ -733,8 +733,19 @@ mod tests {
     fn bytes_of_every_file(dir: &Path) -> Vec<u8> {
         let mut all = Vec::new();
         for entry in fs::read_dir(dir).unwrap().flatten() {
-            if entry.file_type().unwrap().is_file() {
-                all.extend(fs::read(entry.path()).unwrap());
+            // SQLite deletes its `-wal` and `-shm` sidecars when the last
+            // connection to a database closes, and the SDK closes
+            // asynchronously, so a file listed a moment ago may be gone before
+            // it is read. A file that no longer exists holds no bytes; any
+            // other read error is still a failure.
+            let Ok(kind) = entry.file_type() else { continue };
+            if !kind.is_file() {
+                continue;
+            }
+            match fs::read(entry.path()) {
+                Ok(bytes) => all.extend(bytes),
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+                Err(err) => panic!("cannot read {}: {err}", entry.path().display()),
             }
         }
         all

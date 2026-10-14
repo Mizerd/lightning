@@ -3559,7 +3559,7 @@ Item {
                         // nothing.
                         SettingsGroupLabel {
                             visible: app.trayAvailable
-                            text: qsTr("System tray")
+                            text: Qt.platform.os === "osx" ? qsTr("Menu bar") : qsTr("System tray")
                         }
                         SettingsCard {
                             visible: app.trayAvailable
@@ -3569,14 +3569,16 @@ Item {
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "closeToTrayCheck"
-                                    text: qsTr("Keep running in the tray when the window is closed")
+                                    text: Qt.platform.os === "osx" ? qsTr("Show Lightning in the menu bar")
+                                                       : qsTr("Keep running in the tray when the window is closed")
                                     checked: app.settings.closeToTray
                                     onToggled: app.settings.closeToTray = checked
                                 }
                                 CheckBox {
                                     palette.windowText: AppTheme.stormText
                                     objectName: "startInTrayCheck"
-                                    text: qsTr("Start in the tray")
+                                    text: Qt.platform.os === "osx" ? qsTr("Start hidden in the menu bar")
+                                                       : qsTr("Start in the tray")
                                     enabled: app.settings.closeToTray
                                     checked: app.settings.startInTray
                                     onToggled: app.settings.startInTray = checked
@@ -3590,8 +3592,12 @@ Item {
                                     lineHeightMode: Text.ProportionalHeight
                                     color: AppTheme.stormTextMuted
                                     font.pixelSize: AppTheme.textMeta
-                                    text: qsTr("Click the tray icon to bring the window "
-                                               + "back. Ctrl+Q quits.")
+                                    text: Qt.platform.os === "osx"
+                                          ? qsTr("Closing the window always hides it, and Lightning keeps "
+                                                 + "running. This only controls the menu bar icon; "
+                                                 + "click it to bring the window back. Cmd+Q quits.")
+                                          : qsTr("Click the tray icon to bring the window "
+                                                 + "back. Ctrl+Q quits.")
                                 }
                             }
                         }
