@@ -587,8 +587,23 @@ Item {
         // removal.
         {
             QCOMPARE(ctl.keywords().size(), 1);
-            auto *removeButton = find("pushKeywordRemoveButton");
-            QVERIFY(removeButton != nullptr);
+            // A Repeater delegate is not a QObject child of the section, so
+            // find() cannot see it: reach the row through the Repeater.
+            QObject *removeButton = nullptr;
+            for (auto *r : section->findChildren<QObject *>()) {
+                if (!QString(r->metaObject()->className()).contains("Repeater")
+                    || r->property("count").toInt() != 1)
+                    continue;
+                QQuickItem *row = nullptr;
+                QMetaObject::invokeMethod(r, "itemAt",
+                                          Q_RETURN_ARG(QQuickItem *, row),
+                                          Q_ARG(int, 0));
+                if (row)
+                    removeButton = row->findChild<QObject *>(
+                        QStringLiteral("pushKeywordRemoveButton"));
+            }
+            QVERIFY2(removeButton != nullptr,
+                     "the keyword row has no Remove button");
             auto *confirm = find("pushKeywordRemoveConfirm");
             QVERIFY(confirm != nullptr);
             const int writesBefore = static_cast<int>(client.writes.size());
