@@ -2874,6 +2874,84 @@ private Q_SLOTS:
         QCOMPARE(client.fetches.size(), 1);
     }
 
+    // A staged picture (the user's own chosen chat background) plays from a
+    // scratch file; a still, an unknown token, a foreign URL and a missing
+    // store give "". Nothing is fetched.
+    void aStagedAnimationPlaysFromTheStoreAndNothingElseDoes()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const QString prefix = QStringLiteral("image://lightning-staged/");
+        QHash<QString, QByteArray> store;
+        const auto add = [&store](const QByteArray &bytes) {
+            const QString token = QString::number(store.size() + 1);
+            store.insert(token, bytes);
+            return token;
+        };
+        const QString gif = add(makeGif(64, 64, 2));
+        const QString still = add(makeGif(64, 64, 1));
+        QVERIFY(!gif.isEmpty());
+        // No store set yet.
+        QCOMPARE(bridge.stagedAnimationSource(prefix + gif), QString());
+        bridge.setStagedBytesProvider([&store](const QString &token) {
+            return store.value(token);
+        });
+        const QString url = bridge.stagedAnimationSource(prefix + gif);
+        QVERIFY(url.startsWith(QStringLiteral("file://")));
+        QVERIFY(QFileInfo::exists(QUrl(url).toLocalFile()));
+        // The same bytes again share the file.
+        QCOMPARE(bridge.stagedAnimationSource(prefix + gif), url);
+        QCOMPARE(bridge.stagedAnimationSource(prefix + still), QString());
+        QCOMPARE(bridge.stagedAnimationSource(prefix + QStringLiteral("nope")),
+                 QString());
+        QCOMPARE(bridge.stagedAnimationSource(QStringLiteral("file:///tmp/a.gif")),
+                 QString());
+        QCOMPARE(bridge.stagedAnimationSource(QStringLiteral("mxc://example.org/a")),
+                 QString());
+        QCOMPARE(client.fetches.size(), 0);
+        // Over the banner canvas bound: no animation.
+        const QString huge = add(makeGif(4096, 2048, 2)); // 8 MP
+        QCOMPARE(bridge.stagedAnimationSource(prefix + huge), QString());
+    }
+
+    // A chat background from another member is refused animation when it
+    // flashes (2-4 cs frames) or is endless, while the banner path and a
+    // 0/1 cs GIF (which plays at 100 ms) are unchanged.
+    void aBackdropAnimationRefusesFlashingAndEndlessFiles()
+    {
+        FakeClient client;
+        MediaBridge bridge;
+        bridge.setClient(&client);
+        const auto cacheAs = [&](const QString &mxc, const QByteArray &bytes) {
+            bridge.wideImageSource(mxc);
+            client.succeed(client.fetches.last().opId, bytes,
+                           QStringLiteral("image/gif"));
+        };
+        const auto withDelay = [](QByteArray gif, char cs) {
+            gif.replace(QByteArray("\x21\xf9\x04\x00\x0a\x00", 6),
+                        QByteArray("\x21\xf9\x04\x00", 4) + QByteArray(1, cs)
+                            + QByteArray(1, '\0'));
+            return gif;
+        };
+        const QString flashing = QStringLiteral("mxc://example.org/flash");
+        cacheAs(flashing, withDelay(makeGif(64, 64, 4), 3));
+        QCOMPARE(bridge.backdropAnimationSource(flashing), QString());
+        // The banner path is not changed by the background's rule.
+        QVERIFY(bridge.wideAnimationSource(flashing).startsWith(QStringLiteral("file://")));
+
+        const QString endless = QStringLiteral("mxc://example.org/endless");
+        cacheAs(endless, makeGif(64, 64, 320));
+        QCOMPARE(bridge.backdropAnimationSource(endless), QString());
+
+        const QString slow = QStringLiteral("mxc://example.org/slow");
+        cacheAs(slow, withDelay(makeGif(64, 64, 4), 1)); // 1 cs plays at 100 ms
+        QVERIFY(bridge.backdropAnimationSource(slow).startsWith(QStringLiteral("file://")));
+        const QString calm = QStringLiteral("mxc://example.org/calm");
+        cacheAs(calm, makeGif(64, 64, 4));
+        QVERIFY(bridge.backdropAnimationSource(calm).startsWith(QStringLiteral("file://")));
+    }
+
     // The canvas bound is per role: an animation too large to play as an
     // avatar is refused there and still plays as a banner, from the banner's
     // own cached bytes. SVG never becomes a motion file.

@@ -4803,7 +4803,8 @@ if(BUILD_TESTING)
     )
     target_include_directories(chat-backdrop-test PRIVATE src)
     target_compile_definitions(chat-backdrop-test PRIVATE
-        APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml")
+        APPTHEME_QML_PATH="${CMAKE_CURRENT_SOURCE_DIR}/qml/AppTheme.qml"
+        LIGHTNING_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # The controller, CustomThemeStore, MockMatrixClient and SettingsManager
     # come from the one prebuilt copy of the application.
     target_link_libraries(chat-backdrop-test

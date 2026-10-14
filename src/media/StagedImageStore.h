@@ -10,7 +10,12 @@
 // image has no file (AttachmentQueueModel keeps it in memory to avoid temp
 // files), and QML cannot point an Image at a QByteArray, so this is a token ->
 // bytes table read by StagedImageProvider (`image://lightning-staged/<token>`).
-// No filesystem or network access; an entry lives as long as its attachment.
+// No filesystem or network access of its own; an entry lives as long as its
+// attachment. The ONE exception is a chat-background picture the backdrop
+// controller staged: MediaBridge::stagedAnimationSource may write an animated
+// one to its 0600 scratch dir to play it, and only after
+// ChatBackdropController::ownsStagedToken says the token is its own. Composer,
+// thread and cropper tokens are never written out.
 //
 // These are the user's own outgoing images: memory only, released when the
 // attachment is removed or sent, wiped on sign-out. Not the received-media

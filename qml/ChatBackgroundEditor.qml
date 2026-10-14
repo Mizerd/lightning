@@ -150,6 +150,7 @@ ColumnLayout {
         if (editor.hasPrepared) {
             base = { kind: "staged", imageUrl: editor.prepared.imageUrl,
                      statsKey: editor.prepared.statsKey,
+                     animated: editor.prepared.animated === true,
                      color: editor.prepared.color }
         } else if (editor.hasCurrent) {
             if (editor.effectiveAudience === "shared")
@@ -159,6 +160,7 @@ ColumnLayout {
             else
                 base = { kind: "staged", imageUrl: editor.current.imageUrl,
                          statsKey: editor.current.statsKey,
+                         animated: editor.current.animated === true,
                          color: editor.current.color || "" }
         }
         if (!base)
@@ -385,6 +387,21 @@ ColumnLayout {
                 width: parent.width
                 text: qsTr("Lightning dims the picture as much as this theme "
                            + "needs.")
+                color: AppTheme.textMuted
+                font.pixelSize: AppTheme.textMeta
+                elide: Label.ElideRight
+            }
+            Label {
+                objectName: "chatBackgroundAnimationNote"
+                // Only for an animated picture, and only to say why it is
+                // still: the GIF autoplay setting is the one switch.
+                visible: !!(editor.previewSpec && editor.previewSpec.animated)
+                width: parent.width
+                text: app.settings.gifAutoplay === 0 && !AppTheme.reducedMotion
+                      ? qsTr("Animated. It plays unless motion is reduced or "
+                             + "the picture is blurred.")
+                      : qsTr("Animated. It plays when GIF autoplay is set to "
+                             + "Always and motion is not reduced.")
                 color: AppTheme.textMuted
                 font.pixelSize: AppTheme.textMeta
                 elide: Label.ElideRight

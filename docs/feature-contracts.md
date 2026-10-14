@@ -2525,9 +2525,19 @@ backgrounds others set for this room" remove the two shared levels only.
     the account directory, sign-in restoring both, and off + remove clearing
     the other device. See the bgsync task note for the later rounds' runs.
 - **Pictures.** Shared ones only through `MediaBridge::wideImageSource`; picked
-  files are sniffed by magic bytes (SVG refused), first frame only, scaled to
-  2560 px and re-encoded with nothing of the original file kept (text chunks,
-  EXIF, comments). Never animated.
+  files are sniffed by magic bytes (SVG refused), scaled to
+  2560 px and re-encoded as a first-frame still with nothing of the original file kept (text chunks,
+  EXIF, comments). **Animated GIF/WebP (2026-10-14):** an animation within
+  8 MiB, 4 MP and 2560 px a side is KEPT (not flattened), its metadata removed
+  by `animsniff::stripAnimationMetadata` (the avatar/banner trust model); a
+  larger, unparsable, very fast (most frames paced under 50 ms; GIF 0 and 1 cs play at 100 ms like Qt and browsers, so are fine; WebP 0 ms counts as fast; read from the GIF/WebP blocks themselves, using the last graphic-control extension before each image and only the RIFF container), over-300-frame or too-long-to-measure (more frames than the 48-frame decode bound) one stays a first-frame still. This catches very fast pacing, not flashing content: the real protections against photosensitive content are reduced motion and the GIF autoplay setting. A shared picture from another member plays via `MediaBridge::backdropAnimationSource`, which applies the same frame-count and pacing refusal (falling back to the still), and one whose sample was cut short is planned at the worst-case scrim. Stored as `.gif`/`.webp`.
+  It plays only when GIF autoplay is "Always", reduced motion is off and the
+  backdrop is not blurred (hover has no target on a whole pane); otherwise the
+  still shows. Personal pictures play from a scratch file written from the
+  staged bytes (`MediaBridge::stagedAnimationSource`), shared ones from the
+  bytes the still already fetched (`wideAnimationSource`). The scrim is planned
+  over up to 8 frames stepped with read() (GIF/WebP handlers cannot jumpToImage), decoding at most 48 frames / 96 MP / 150 ms (`backdrop::measureFrames`), so the 4.5:1 floor
+  holds for the worst of them, not only the first.
 - **Readability.** The scrim is the theme ground moved away from the ink
   (+8 L* light, -6 L* dark) at an opacity never below the floor at which
   textPrimary, textSecondary and textMuted all keep 4.5:1 over the picture's

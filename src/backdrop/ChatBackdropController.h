@@ -209,9 +209,12 @@ public:
 
     // Reads a user-picked file (file:// URL or path), refuses anything but
     // the five raster formats by magic bytes (SVG included), decodes the
-    // FIRST frame only, scales to <= kMaxEdge and re-encodes it (JPEG, or PNG
-    // when it has transparency), measures it and stages a preview. Returns
-    // { ok, error, imageUrl, width, height, color, statsKey }.
+    // FIRST frame, scales to <= kMaxEdge and re-encodes it (JPEG, or PNG
+    // when it has transparency) -- except an animated GIF/WebP within
+    // kMaxAnimatedBytes, the canvas bounds, kMaxSaneFrames and a sane frame
+    // delay, which is KEPT as an animation (metadata stripped) -- measures it
+    // (up to 8 frames of an animation) and stages a preview. Returns
+    // { ok, error, imageUrl, width, height, color, statsKey, animated }.
     //
     // An SVG is converted to a PNG first, in a helper process ("rasterize on
     // send", media/SvgRasterJob.h): the call then returns { ok: false,
@@ -264,6 +267,9 @@ public:
     static constexpr int kMaxEdge = 2560;
     static constexpr qint64 kMaxSourceBytes = 64LL * 1024 * 1024;
     static constexpr int kMaxDecodeEdge = 4096;
+    // An animated picture is kept (not flattened) only up to this many bytes;
+    // a larger one stays a first-frame still.
+    static constexpr qint64 kMaxAnimatedBytes = 8LL * 1024 * 1024;
     static constexpr int kMaxCachedScopes = 256;
     static constexpr int kMaxPersonalRooms = 64;
     static constexpr int kMaxStaged = 4;
@@ -291,6 +297,19 @@ public:
     void setStorageDirForTesting(const QString &dir) { m_storageOverride = dir; }
     // Encodes `image` as prepareImage would, without a file.
     QVariantMap prepareImageForTesting(const QImage &image);
+    // The same for already-encoded bytes (a GIF, a WebP), without a file.
+    // True when `token` (a StagedImageStore token) is a picture this controller
+    // staged itself: the prepared one or a stored personal one. MediaBridge may
+    // write only these to a scratch file; composer, thread and cropper tokens
+    // share the store and stay memory-only.
+    bool ownsStagedToken(const QString &token) const;
+    // The stats a shared picture's bytes are planned from (cut-short
+    // animations include pure white and black).
+    backdrop::ImageStats measureBytesForTesting(const QByteArray &bytes) const;
+    QVariantMap prepareBytesForTesting(const QByteArray &bytes)
+    {
+        return prepareFromBytes(bytes);
+    }
     // Runs the space chain for a room against the client's rooms().
     QStringList spaceChainFor(const QString &roomId) const;
 
@@ -322,6 +341,7 @@ private:
         QString hash;             // sha256 hex of `bytes`
         backdrop::ImageStats stats;
         QString imageUrl;         // staged preview
+        bool animated = false;    // bytes are a kept GIF/WebP animation
     };
 
     void handleReceived(quint64 opId, const QString &roomId,
@@ -340,8 +360,8 @@ private:
     void setLastError(const QString &error);
 
     QVariantMap prepareFromBytes(const QByteArray &bytes);
-    // Sniff, decode the first frame, scale and re-encode `bytes` (what every
-    // picture goes through); `error` is the category on failure.
+    // Sniff, then re-encode `bytes` as a still, or keep a bounded animation
+    // (what every picture goes through); `error` is the category on failure.
     bool encodePicture(const QByteArray &bytes, Prepared &out,
                        QString &error) const;
     // Writes an encoded picture into the backgrounds directory (once per

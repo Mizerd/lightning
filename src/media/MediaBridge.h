@@ -148,6 +148,24 @@ public:
     // The same for a banner, from the full payload wideImageSource() already
     // holds. Never dispatches: "" until those bytes are cached.
     Q_INVOKABLE QString wideAnimationSource(const QString &mxcUri);
+    // wideAnimationSource for a chat BACKGROUND, which spans the whole pane
+    // and may come from any room member: "" (the still shows) when the
+    // animation has more than animsniff::kMaxSaneFrames frames or is
+    // paced under 50 ms for most of them. Banners and avatars are unchanged.
+    Q_INVOKABLE QString backdropAnimationSource(const QString &mxcUri);
+    // The animation inside a staged picture ("image://lightning-staged/<token>",
+    // the user's own chosen chat background), as a scratch file URL, or "" when
+    // the URL is not a staged one, the bytes are not an animation within the
+    // banner bounds, or no store is set. The store holds the user's own
+    // outgoing bytes (see setStagedBytesProvider); nothing is fetched.
+    Q_INVOKABLE QString stagedAnimationSource(const QString &stagedUrl);
+    // Where a staged token's bytes come from (AppController points it at
+    // its StagedImageStore). A callable rather than the store itself, so
+    // the bridge keeps no link dependency on it.
+    void setStagedBytesProvider(std::function<QByteArray(const QString &)> provider)
+    {
+        m_stagedBytes = std::move(provider);
+    }
     // Bounds how many avatar animations play at once, so a list of animated
     // avatars cannot hold unbounded decode buffers. An avatar that gets no slot
     // stays still and retries on motionSlotFreed. Slots are keyed by owner and
@@ -572,6 +590,8 @@ private:
     // without timing. Written under m_cacheMutex.
     mutable qint64 m_statContentHashComputed = 0;
 
+    std::function<QByteArray(const QString &)> m_stagedBytes;
+    QHash<QString, QString> m_stagedKeys;   // token -> motion cache key
     std::unique_ptr<QTemporaryDir> m_animatedDir;
     QHash<QString, QString> m_animatedFiles;
     QHash<QString, qint64> m_animatedSizes;

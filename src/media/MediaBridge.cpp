@@ -732,6 +732,55 @@ QString MediaBridge::wideAnimationSource(const QString &mxcUri)
                              : QUrl::fromLocalFile(written).toString();
 }
 
+QString MediaBridge::stagedAnimationSource(const QString &stagedUrl)
+{
+    static const QString prefix = QStringLiteral("image://lightning-staged/");
+    if (!m_stagedBytes || !stagedUrl.startsWith(prefix))
+        return {};
+    const QString token = stagedUrl.mid(prefix.size());
+    constexpr qint64 maxPixels = lightning::animsniff::kBannerMaxPixels;
+    // Tokens are never reused, so a token's content hash is memoised: asking
+    // again for a playing picture neither re-reads nor re-hashes its bytes.
+    QString cacheKey = m_stagedKeys.value(token);
+    if (!cacheKey.isEmpty()) {
+        const QString known = motionFileUrl(cacheKey, maxPixels);
+        if (!known.isEmpty())
+            return known;
+    }
+    const QByteArray bytes = m_stagedBytes(token);
+    if (bytes.isEmpty() || bytes.size() > kMotionMaxBytes)
+        return {};
+    if (cacheKey.isEmpty()) {
+        // Keyed by content, so the same picture staged twice shares one file
+        // and a different one never reuses another's verdict.
+        cacheKey = QStringLiteral("motion:staged:") + QString::fromLatin1(
+            QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+        if (m_stagedKeys.size() >= 64)
+            m_stagedKeys.clear();
+        m_stagedKeys.insert(token, cacheKey);
+    }
+    const QString url = motionFileUrl(cacheKey, maxPixels);
+    if (!url.isEmpty())
+        return url;
+    const QString written = writeMotionFile(cacheKey, bytes, maxPixels);
+    return written.isEmpty() ? QString{}
+                             : QUrl::fromLocalFile(written).toString();
+}
+
+QString MediaBridge::backdropAnimationSource(const QString &mxcUri)
+{
+    if (!mxcUri.startsWith(QLatin1String("mxc://")) || !supported())
+        return {};
+    const QByteArray bytes = cachedBytes(mxcCacheKey(mxcUri, 0));
+    if (bytes.isEmpty())
+        return {};
+    if (bytes.size() <= kMotionMaxBytes
+        && lightning::animsniff::timingTooBusy(
+               lightning::animsniff::animationTiming(bytes)))
+        return {};
+    return wideAnimationSource(mxcUri);
+}
+
 int MediaBridge::passiveMotionSlots() const
 {
     int passive = 0;
@@ -2397,6 +2446,7 @@ void MediaBridge::clear()
     m_animatedWanted.clear();
     m_animatedDemanded.clear();
     m_motionVerdict.clear();
+    m_stagedKeys.clear();
     m_playableFiles.clear();
     m_playableSizes.clear();
     m_playableLru.clear();

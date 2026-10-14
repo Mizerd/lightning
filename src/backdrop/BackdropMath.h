@@ -61,6 +61,12 @@ constexpr int kSampleEdge = 48;
 /// unmeasured result.
 ImageStats measure(const QImage &image);
 
+/// An animation's stats: the samples of EVERY frame given, so the scrim floor
+/// holds for the worst frame and not just the first. The dominant colour is
+/// the first frame's. A null/empty list gives an unmeasured result; frames
+/// that cannot be measured are skipped.
+ImageStats measureFrames(const QList<QImage> &frames);
+
 // ---- the scrim -------------------------------------------------------------
 
 /// Highest scrim opacity a background is allowed: above it the picture is

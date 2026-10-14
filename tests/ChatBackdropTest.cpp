@@ -16,11 +16,14 @@
 #include "backdrop/ChatBackdropController.h"
 #include "matrix/MockMatrixClient.h"
 #include "matrix/RoomInfo.h"
+#include "media/StagedImageStore.h"
+#include "media/AnimatedImageSniff.h"
 #include "media/SvgRasterJob.h"
 
 #include <QBuffer>
 #include <QFile>
 #include <QImage>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -283,6 +286,120 @@ QVariantMap shared(const QString &url, int dim = 20)
 const QString kRoom = QStringLiteral("!room:example.org");
 const QString kSpace = QStringLiteral("!space:example.org");
 const QString kParent = QStringLiteral("!parent:example.org");
+
+// A real GIF: a w x h canvas with `frames` 1x1 frames and an optional comment
+// extension of `padding` bytes (metadata the kept animation must lose).
+QByteArray makeGif(int w, int h, int frames, int padding = 0)
+{
+    QByteArray g("GIF89a");
+    const auto le16 = [&g](int v) {
+        g.append(char(v & 0xff));
+        g.append(char((v >> 8) & 0xff));
+    };
+    le16(w);
+    le16(h);
+    g.append(char(0x80));
+    g.append('\0');
+    g.append('\0');
+    g.append(QByteArray("\xff\x00\x00\x00\x00\xff", 6));
+    g.append(QByteArray("\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00", 19));
+    if (padding > 0) {
+        g.append(QByteArray("\x21\xfe", 2));
+        for (int left = padding; left > 0; left -= 255) {
+            const int n = qMin(left, 255);
+            g.append(char(n));
+            g.append(QByteArray(n, 'x'));
+        }
+        g.append('\0');
+    }
+    for (int i = 0; i < frames; ++i) {
+        g.append(QByteArray("\x21\xf9\x04\x00\x0a\x00\x00\x00", 8));
+        g.append(char(0x2c));
+        le16(0);
+        le16(0);
+        le16(1);
+        le16(1);
+        g.append('\0');
+        g.append(char(0x02));
+        g.append(QByteArray("\x02\x44\x01\x00", 4));
+    }
+    g.append(char(0x3b));
+    return g;
+}
+
+
+// A real n x n GIF whose frames are each ONE solid colour (index 0 = black,
+// 1 = white), full canvas, `delayCs` hundredths of a second apart. The pixel
+// data is LZW with a clear code after every two pixels, which keeps the code
+// width at three bits throughout and so needs no dictionary.
+QByteArray solidFramesGif(int n, const QList<int> &colours, int delayCs = 10)
+{
+    QByteArray g("GIF89a");
+    const auto le16 = [&g](int v) {
+        g.append(char(v & 0xff));
+        g.append(char((v >> 8) & 0xff));
+    };
+    le16(n);
+    le16(n);
+    g.append(char(0x80));
+    g.append('\0');
+    g.append('\0');
+    g.append(QByteArray("\x00\x00\x00\xff\xff\xff", 6));
+    g.append(QByteArray("\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00", 19));
+    for (const int colour : colours) {
+        g.append(QByteArray("\x21\xf9\x04\x00", 4));
+        g.append(char(delayCs & 0xff));
+        g.append(char((delayCs >> 8) & 0xff));
+        g.append(QByteArray("\x00\x00", 2));
+        g.append(char(0x2c));
+        le16(0);
+        le16(0);
+        le16(n);
+        le16(n);
+        g.append('\0');
+        g.append(char(0x02));
+        QList<int> codes;
+        for (int i = 0; i < n * n; ++i) {
+            if (i % 2 == 0)
+                codes.append(4);   // clear
+            codes.append(colour);
+        }
+        codes.append(5);           // end of information
+        QByteArray data;
+        quint32 acc = 0;
+        int bits = 0;
+        for (const int code : codes) {
+            acc |= quint32(code) << bits;
+            bits += 3;
+            while (bits >= 8) {
+                data.append(char(acc & 0xff));
+                acc >>= 8;
+                bits -= 8;
+            }
+        }
+        if (bits > 0)
+            data.append(char(acc & 0xff));
+        for (int off = 0; off < data.size(); off += 255) {
+            const QByteArray chunk = data.mid(off, 255);
+            g.append(char(chunk.size()));
+            g.append(chunk);
+        }
+        g.append('\0');
+    }
+    g.append(char(0x3b));
+    return g;
+}
+
+// True when this Qt can decode the fixture at all (a build without the GIF
+// plugin skips the animation cases rather than failing them).
+bool canDecode(const QByteArray &bytes)
+{
+    QByteArray copy = bytes;
+    QBuffer buffer(&copy);
+    buffer.open(QIODevice::ReadOnly);
+    QImageReader reader(&buffer);
+    return !reader.read().isNull();
+}
 
 } // namespace
 
@@ -790,6 +907,306 @@ private Q_SLOTS:
         QCOMPARE(r.value(QStringLiteral("width")).toInt(), ChatBackdropController::kMaxEdge);
         QCOMPARE(r.value(QStringLiteral("height")).toInt(),
                  qRound(1000.0 * ChatBackdropController::kMaxEdge / 3000.0));
+    }
+
+    // ---- animated pictures ------------------------------------------------------
+
+    // An animated GIF within the bounds is kept as an animation, not flattened
+    // to its first frame, and loses its comment on the way. Fails on the old
+    // code, which re-encoded every picture to a JPEG/PNG still.
+    void anAnimatedGifIsKeptWithItsMetadataStripped()
+    {
+        const QByteArray gif = makeGif(64, 32, 3, 600);
+        if (!canDecode(gif))
+            QSKIP("this Qt cannot decode the GIF fixture");
+        FakeBackdropClient client;
+        client.roomList = { room(kRoom) };
+        ChatBackdropController backdrops;
+        backdrops.setClient(&client);
+        const QVariantMap r = backdrops.prepareBytesForTesting(gif);
+        QVERIFY(r.value(QStringLiteral("ok")).toBool());
+        QVERIFY(r.value(QStringLiteral("animated")).toBool());
+        // The canvas, not the 1x1 first frame.
+        QCOMPARE(r.value(QStringLiteral("width")).toInt(), 64);
+        QCOMPARE(r.value(QStringLiteral("height")).toInt(), 32);
+
+        backdrops.requestRoom(kRoom);
+        Q_EMIT client.roomBackgroundReceived(client.opFor(kRoom), kRoom, QVariantMap(),
+                                             true, false);
+        backdrops.setShared(kRoom, {});
+        QVERIFY(!client.lastPath.isEmpty());
+        QVERIFY(client.lastPath.endsWith(QStringLiteral(".gif")));
+        QFile uploaded(client.lastPath);
+        QVERIFY(uploaded.open(QIODevice::ReadOnly));
+        const QByteArray bytes = uploaded.readAll();
+        QVERIFY(bytes.startsWith("GIF89a"));
+        QVERIFY2(!bytes.contains("xxxxxxxx"), "the GIF comment reached the upload");
+        QVERIFY(client.lastContent.contains(QStringLiteral("image/gif")));
+    }
+
+    // Too big a canvas, a still and a one-frame GIF all stay stills.
+    void onlyAnAnimationWithinTheBoundsIsKept()
+    {
+        ChatBackdropController backdrops;
+        // A still is re-encoded as before.
+        QVariantMap r = backdrops.prepareImageForTesting(solid(QColor(10, 20, 30), 40, 20));
+        QVERIFY(r.value(QStringLiteral("ok")).toBool());
+        QVERIFY(!r.value(QStringLiteral("animated")).toBool());
+
+        const QByteArray wide = makeGif(ChatBackdropController::kMaxEdge + 1, 40, 2);
+        if (canDecode(wide)) {
+            r = backdrops.prepareBytesForTesting(wide);
+            QVERIFY(r.value(QStringLiteral("ok")).toBool());
+            QVERIFY2(!r.value(QStringLiteral("animated")).toBool(),
+                     "a canvas past kMaxEdge must stay a first-frame still");
+            QVERIFY(r.value(QStringLiteral("width")).toInt()
+                    <= ChatBackdropController::kMaxEdge);
+        }
+        const QByteArray one = makeGif(32, 32, 1);
+        if (canDecode(one)) {
+            r = backdrops.prepareBytesForTesting(one);
+            QVERIFY(r.value(QStringLiteral("ok")).toBool());
+            QVERIFY(!r.value(QStringLiteral("animated")).toBool());
+        }
+        // Over the byte bound: padded past kMaxAnimatedBytes.
+        const QByteArray heavy = makeGif(32, 32, 2,
+            int(ChatBackdropController::kMaxAnimatedBytes) + 1024);
+        if (canDecode(heavy)) {
+            r = backdrops.prepareBytesForTesting(heavy);
+            QVERIFY(!r.value(QStringLiteral("animated")).toBool());
+        }
+    }
+
+    // The scrim is planned for the worst sampled frame: stats merged from a
+    // white frame and a black frame contain both, where the first frame alone
+    // would leave the other unplanned for.
+    void animationStatsCoverEveryFrame()
+    {
+        const QImage white = solid(QColor(255, 255, 255), 16, 16);
+        const QImage black = solid(QColor(0, 0, 0), 16, 16);
+        const backdrop::ImageStats first = backdrop::measure(white);
+        const backdrop::ImageStats both = backdrop::measureFrames({ white, black });
+        QVERIFY(first.measured);
+        QVERIFY(both.measured);
+        QCOMPARE(both.samples.size(), first.samples.size() * 2);
+        QVERIFY(both.samples.contains(QColor(Qt::white).rgb()));
+        QVERIFY(both.samples.contains(QColor(Qt::black).rgb()));
+        QVERIFY(!backdrop::measureFrames({}).measured);
+        QVERIFY(!backdrop::measureFrames({ QImage() }).measured);
+    }
+
+    // The scrim of a GIF whose frames are black THEN white covers the white
+    // frame: GIF and WebP handlers cannot jumpToImage(), so a sampler that
+    // jumps measures frame 0 only and plans for black. Fails on a first-frame
+    // measure (its alpha equals the black-only still's, below the white one's).
+    void aLaterWhiteFrameRaisesTheScrim()
+    {
+        const QByteArray gif = solidFramesGif(8, { 0, 1 });
+        if (!canDecode(gif))
+            QSKIP("this Qt cannot decode the GIF fixture");
+        const auto alphaOf = [](ChatBackdropController &b, const QVariantMap &r) {
+            return b.scrimFor(r.value(QStringLiteral("statsKey")).toString(),
+                              QColor(0x14, 0x16, 0x1a), QColor(0xf0, 0xf0, 0xf0),
+                              QColor(0xc0, 0xc0, 0xc0), QColor(0x9a, 0x9a, 0x9a),
+                              0.0, 0.0)
+                .value(QStringLiteral("alpha")).toDouble();
+        };
+        ChatBackdropController backdrops;
+        const QVariantMap animated = backdrops.prepareBytesForTesting(gif);
+        QVERIFY(animated.value(QStringLiteral("ok")).toBool());
+        QVERIFY(animated.value(QStringLiteral("animated")).toBool());
+        const double both = alphaOf(backdrops, animated);
+        const QVariantMap white =
+            backdrops.prepareImageForTesting(solid(QColor(255, 255, 255), 8, 8));
+        const double whiteOnly = alphaOf(backdrops, white);
+        const QVariantMap black =
+            backdrops.prepareImageForTesting(solid(QColor(0, 0, 0), 8, 8));
+        const double blackOnly = alphaOf(backdrops, black);
+        QVERIFY2(whiteOnly > blackOnly + 0.05, "fixture: white must need more scrim");
+        QVERIFY2(both >= whiteOnly - 1e-6,
+                 "the white frame was not measured: scrim planned for frame 0");
+    }
+
+    // A flashing animation (most frames paced 2-4 cs) and an endless one stay
+    // first-frame stills. 0 and 1 cs play at 100 ms in Qt and in browsers, so
+    // an ordinary GIF written that way MUST be kept.
+    void aFlashingOrEndlessAnimationStaysAStill()
+    {
+        ChatBackdropController backdrops;
+        const QByteArray flashing = solidFramesGif(8, { 0, 1, 0, 1 }, 3);
+        if (!canDecode(flashing))
+            QSKIP("this Qt cannot decode the GIF fixture");
+        QVERIFY(!backdrops.prepareBytesForTesting(flashing)
+                     .value(QStringLiteral("animated")).toBool());
+        QList<int> many;
+        for (int i = 0; i < 320; ++i)
+            many.append(i % 2);
+        QVERIFY(!backdrops.prepareBytesForTesting(solidFramesGif(4, many))
+                     .value(QStringLiteral("animated")).toBool());
+        for (const int cs : { 0, 1, 5, 10 }) {
+            QVERIFY2(backdrops.prepareBytesForTesting(solidFramesGif(8, { 0, 1, 0, 1 }, cs))
+                         .value(QStringLiteral("animated")).toBool(),
+                     qPrintable(QStringLiteral("a %1 cs GIF must be kept").arg(cs)));
+        }
+    }
+
+    // The pacing walker applies the LAST graphic-control extension before each
+    // image, like a decoder: slow dummy extensions in front of a real 3 cs one
+    // cannot dilute it, and extensions after the last frame count for nothing.
+    void theGifPacingIsTheLastExtensionBeforeEachImage()
+    {
+        namespace sniff = lightning::animsniff;
+        const QByteArray fast = solidFramesGif(8, { 0, 1, 0, 1 }, 3);
+        const QByteArray gce("\x21\xf9\x04\x00\x03\x00\x00\x00", 8);
+        const QByteArray slow("\x21\xf9\x04\x00\x64\x00\x00\x00", 8);
+        QVERIFY(fast.contains(gce));
+        QByteArray diluted = fast;
+        diluted.replace(gce, slow + slow + gce);
+        QVERIFY(sniff::timingTooBusy(sniff::animationTiming(fast)));
+        const sniff::AnimationTiming timing = sniff::animationTiming(diluted);
+        QCOMPARE(timing.frames, 4);
+        QCOMPARE(timing.counted, 4);
+        QVERIFY2(sniff::timingTooBusy(timing), "dummy extensions diluted the pacing");
+        // Slow extensions AFTER the last frame are not frames' pacing.
+        QByteArray trailing = fast;
+        trailing.chop(1);   // the trailer
+        for (int i = 0; i < 12; ++i)
+            trailing.append(slow);
+        trailing.append(char(0x3b));
+        QVERIFY2(sniff::timingTooBusy(sniff::animationTiming(trailing)),
+                 "extensions after the last frame diluted the pacing");
+        // A frame with no extension of its own inherits the previous delay.
+        QVERIFY(!sniff::timingTooBusy(sniff::animationTiming(
+            solidFramesGif(8, { 0, 1, 0, 1 }, 10))));
+    }
+
+    // WebP pacing is read inside the RIFF container only (chunks appended past
+    // its size are never played), and a 0 ms duration counts as fast.
+    void theWebpPacingStopsAtTheRiffEnd()
+    {
+        namespace sniff = lightning::animsniff;
+        const auto le32 = [](quint32 v) {
+            QByteArray b;
+            for (int i = 0; i < 4; ++i)
+                b.append(char((v >> (8 * i)) & 0xff));
+            return b;
+        };
+        const auto anmf = [&](int ms) {
+            QByteArray payload(12, '\0');
+            payload.append(char(ms & 0xff));
+            payload.append(char((ms >> 8) & 0xff));
+            payload.append(char((ms >> 16) & 0xff));
+            payload.append('\0');
+            return QByteArray("ANMF") + le32(16) + payload;
+        };
+        const auto webp = [&](const QList<int> &inside, const QList<int> &after) {
+            QByteArray body("WEBP");
+            body += QByteArray("VP8X") + le32(10) + QByteArray("\x02\0\0\0", 4)
+                    + QByteArray("\x07\0\0\x07\0\0", 6);
+            body += QByteArray("ANIM") + le32(6) + QByteArray(6, '\0');
+            for (const int ms : inside)
+                body += anmf(ms);
+            QByteArray out = QByteArray("RIFF") + le32(quint32(body.size())) + body;
+            for (const int ms : after)
+                out += anmf(ms);
+            return out;
+        };
+        QVERIFY(sniff::isAnimatedWebp(webp({ 100, 100 }, {})));
+        // Two slow frames, then ten fast ones past the container's end.
+        const sniff::AnimationTiming outside =
+            sniff::animationTiming(webp({ 100, 100 }, { 20, 20, 20, 20, 20, 20, 20, 20, 20, 20 }));
+        QCOMPARE(outside.frames, 2);
+        QVERIFY2(!sniff::timingTooBusy(outside),
+                 "chunks past the RIFF size were counted");
+        QVERIFY(sniff::timingTooBusy(sniff::animationTiming(webp({ 20, 20, 20 }, {}))));
+        QVERIFY2(sniff::timingTooBusy(sniff::animationTiming(webp({ 0, 0, 0 }, {}))),
+                 "a 0 ms WebP duration must count as fast");
+        QVERIFY(!sniff::timingTooBusy(sniff::animationTiming(webp({ 100, 80, 60 }, {}))));
+    }
+
+    // ~60 frames, black up to frame 48 and white after: the sample (which
+    // cannot decode past 48 frames) sees only black. On the encode path that
+    // animation stays a still; on the shared-background measure path the scrim
+    // is planned at the worst case, so it is at least the white-only one.
+    void anAnimationTheSamplerCannotFullySeeIsNotPlannedFromItsFirstPart()
+    {
+        QList<int> colours;
+        for (int i = 0; i < 60; ++i)
+            colours.append(i < 48 ? 0 : 1);
+        const QByteArray gif = solidFramesGif(8, colours);
+        if (!canDecode(gif))
+            QSKIP("this Qt cannot decode the GIF fixture");
+        ChatBackdropController backdrops;
+        QVERIFY2(!backdrops.prepareBytesForTesting(gif)
+                      .value(QStringLiteral("animated")).toBool(),
+                 "a cut-short sample must not keep the picture animated");
+        const auto alphaOf = [](const backdrop::ImageStats &stats) {
+            const backdrop::ScrimPlan plan = backdrop::planScrim(
+                QColor(0x14, 0x16, 0x1a),
+                { QColor(0xf0, 0xf0, 0xf0), QColor(0xc0, 0xc0, 0xc0),
+                  QColor(0x9a, 0x9a, 0x9a) },
+                stats, 0.0);
+            return backdrop::scrimAlpha(plan.floor, 0.0);
+        };
+        const double measured = alphaOf(backdrops.measureBytesForTesting(gif));
+        const double whiteOnly = alphaOf(backdrop::measure(solid(QColor(255, 255, 255), 8, 8)));
+        const double blackOnly = alphaOf(backdrop::measure(solid(QColor(0, 0, 0), 8, 8)));
+        QVERIFY2(whiteOnly > blackOnly + 0.05, "fixture: white must need more scrim");
+        QVERIFY2(measured >= whiteOnly - 1e-6,
+                 "the white frames after the cut were not planned for");
+    }
+
+    // Only a token this controller staged may be written to a scratch file;
+    // a composer/thread/cropper token in the same store is not its to give.
+    void onlyItsOwnStagedTokensAreOwned()
+    {
+        StagedImageStore store;
+        ChatBackdropController backdrops;
+        backdrops.setStagedImages(&store);
+        const QVariantMap r = backdrops.prepareImageForTesting(solid(QColor(9, 9, 9), 8, 8));
+        QVERIFY(r.value(QStringLiteral("ok")).toBool());
+        const QString url = r.value(QStringLiteral("imageUrl")).toString();
+        const QString prefix = QStringLiteral("image://lightning-staged/");
+        QVERIFY(url.startsWith(prefix));
+        const QString mine = url.mid(prefix.size());
+        QVERIFY(backdrops.ownsStagedToken(mine));
+        const QString foreign = store.add(QByteArray("GIF89a-an-outgoing-attachment"));
+        QVERIFY(!foreign.isEmpty());
+        QVERIFY(!backdrops.ownsStagedToken(foreign));
+        QVERIFY(!backdrops.ownsStagedToken(QString()));
+        QVERIFY(!backdrops.ownsStagedToken(QStringLiteral("nope")));
+        backdrops.discardPrepared();
+        QVERIFY(!backdrops.ownsStagedToken(mine));
+    }
+
+    // The QML half, as a contract: the animation is an AnimatedImage in a
+    // Loader that is torn down unless every gate holds, it holds its file, the
+    // still beneath is never removed, and a hover or blurred backdrop never
+    // animates. (The component loads in QmlComponentLoadTest.)
+    void theBackdropAnimatesOnlyUnderEveryGate()
+    {
+        QFile f(QStringLiteral(LIGHTNING_SOURCE_DIR "/qml/ChatBackdrop.qml"));
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QString qml = QString::fromUtf8(f.readAll());
+        QVERIFY(qml.contains(QStringLiteral("AnimatedImage {")));
+        QVERIFY(qml.contains(QStringLiteral("AnimationFileHold {}")));
+        // Every gate sits in the one binding that activates the Loader.
+        const int wants = qml.indexOf(QStringLiteral("readonly property bool _wantsMotion"));
+        QVERIFY(wants > 0);
+        const QString binding = qml.mid(wants, 420);
+        QVERIFY(binding.contains(QStringLiteral("_motionMode === 0")));
+        QVERIFY(binding.contains(QStringLiteral("!AppTheme.reducedMotion")));
+        QVERIFY(binding.contains(QStringLiteral("!root.blurOn")));
+        QVERIFY(binding.contains(QStringLiteral("_windowShown")));
+        QVERIFY(binding.contains(QStringLiteral("picture.status === Image.Ready")));
+        QVERIFY(qml.contains(QStringLiteral("active: root._wantsMotion")));
+        // The still Image is still there and only fades under a shown motion.
+        QVERIFY(qml.contains(QStringLiteral("id: picture")));
+        QVERIFY(qml.contains(QStringLiteral("opacity: root.motionShown ? 0 : 1")));
+        // Assigning to a bound property is a one-way door: the file source is
+        // always a binding.
+        QVERIFY(qml.contains(QStringLiteral("source: root._motionSrc")));
+        QVERIFY(!qml.contains(QStringLiteral("motionImage.source =")));
     }
 
     // ---- the scrim ------------------------------------------------------------

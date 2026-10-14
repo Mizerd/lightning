@@ -1,5 +1,7 @@
 #include "backdrop/BackdropMath.h"
 
+#include <QPainter>
+
 #include <QSet>
 
 #include <algorithm>
@@ -245,6 +247,35 @@ ImageStats measure(const QImage &image)
     }
     stats.measured = !stats.samples.isEmpty();
     return stats;
+}
+
+ImageStats measureFrames(const QList<QImage> &frames)
+{
+    ImageStats merged;
+    for (const QImage &raw : frames) {
+        QImage frame = raw;
+        // A translucent later frame shows the colour ChatBackdrop paints
+        // beneath the picture: the FIRST frame's dominant colour. Composite
+        // it over that here, so its samples are what is drawn.
+        if (merged.measured && merged.dominant.isValid() && !raw.isNull()
+            && raw.hasAlphaChannel()) {
+            QImage flat(raw.size(), QImage::Format_ARGB32);
+            flat.fill(merged.dominant);
+            QPainter painter(&flat);
+            painter.drawImage(0, 0, raw);
+            painter.end();
+            frame = flat;
+        }
+        const ImageStats one = measure(frame);
+        if (!one.measured)
+            continue;
+        if (!merged.measured) {
+            merged = one;
+            continue;
+        }
+        merged.samples += one.samples;
+    }
+    return merged;
 }
 
 // ---- the scrim -------------------------------------------------------------

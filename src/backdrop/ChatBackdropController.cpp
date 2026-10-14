@@ -4,6 +4,7 @@
 #include "crypto/E2eeDiagnostics.h"
 #include "matrix/MatrixClient.h"
 #include "matrix/RoomInfo.h"
+#include "media/AnimatedImageSniff.h"
 #include "media/ImageFormatSupport.h"
 #include "media/MediaBridge.h"
 #include "media/StagedImageStore.h"
@@ -25,6 +26,7 @@
 #include <QJsonObject>
 #include <QLoggingCategory>
 #include <QRegularExpression>
+#include <QSet>
 #include <QSaveFile>
 #include <QTemporaryDir>
 
@@ -93,7 +95,7 @@ constexpr qint64 kMaxStoredFileBytes = 32LL * 1024 * 1024;
 const QRegularExpression &storedNameRe()
 {
     static const QRegularExpression re(
-        QStringLiteral("^[0-9a-f]{64}\\.(jpg|png)$"));
+        QStringLiteral("^[0-9a-f]{64}\\.(jpg|png|gif|webp)$"));
     return re;
 }
 
@@ -196,6 +198,112 @@ QImage decodeSmall(const QByteArray &bytes, int edge)
     if (natural.width() > edge || natural.height() > edge)
         reader.setScaledSize(natural.scaled(edge, edge, Qt::KeepAspectRatio));
     return reader.read();
+}
+
+// Frames of a picture sampled for measuring, and what was seen on the way.
+// GIF and WebP handlers cannot jumpToImage(), so an animation is STEPPED with
+// read(); the loop runs on the GUI thread over bytes a room member chose, so it
+// is bounded three ways (frames decoded, pixels decoded, elapsed time) and is
+// attempted only for an animation within the byte and canvas bounds. Past any
+// bound the frames kept so far are used, and frame 0 alone if none were.
+constexpr int kMeasureFrames = 8;       // frames kept
+constexpr int kMaxDecodedFrames = 48;   // frames decoded, kept or not
+constexpr qint64 kMaxDecodedPixels = 96LL * 1000 * 1000;
+constexpr int kMaxMeasureMs = 150;
+
+struct FrameSample {
+    QList<QImage> frames;
+    bool stepped = false;
+    // A frame the even spacing asked for was never decoded (a bound was hit
+    // first, or the file ended early), so the sample covers only part of the
+    // animation. Deterministic for the frame and pixel bounds; the time bound
+    // can only add to it.
+    bool cutShort = false;
+};
+
+FrameSample sampleFrames(const QByteArray &bytes, int edge)
+{
+    FrameSample sample;
+    namespace sniff = lightning::animsniff;
+    const auto firstOnly = [&] {
+        const QImage one = decodeSmall(bytes, edge);
+        if (!one.isNull())
+            sample.frames.append(one);
+        // An animation seen through its first frame alone is a cut-short one.
+        sample.cutShort = sniff::isAnimation(bytes);
+        return sample;
+    };
+    if (bytes.size() > ChatBackdropController::kMaxAnimatedBytes
+        || !sniff::isAnimation(bytes)
+        || !sniff::canvasWithin(bytes, sniff::kBannerMaxPixels))
+        return firstOnly();
+    const lightning::imagefmt::RasterFormat *format =
+        lightning::imagefmt::sniffRaster(bytes);
+    if (!format)
+        return sample;
+    QByteArray copy = bytes;
+    QBuffer buffer(&copy);
+    if (!buffer.open(QIODevice::ReadOnly))
+        return sample;
+    QImageReader reader(&buffer, QByteArray(format->qtFormat));
+    reader.setAutoDetectImageFormat(false);
+    reader.setDecideFormatFromContent(false);
+    reader.setAutoTransform(true);
+    reader.setAllocationLimit(64);
+    const QSize natural = reader.size();
+    if (!natural.isValid() || natural.isEmpty())
+        return sample;
+    if (natural.width() > edge || natural.height() > edge)
+        reader.setScaledSize(natural.scaled(edge, edge, Qt::KeepAspectRatio));
+    const int count = reader.imageCount();
+    if (count > lightning::animsniff::kMaxSaneFrames)
+        return firstOnly();
+    // Which frame indices to keep: evenly spaced over the animation; with an
+    // unknown count, the first few.
+    QSet<int> keep;
+    const int wanted = count > 1 ? qMin(count, kMeasureFrames) : kMeasureFrames;
+    for (int k = 0; k < wanted; ++k)
+        keep.insert(count > 1 ? k * count / wanted : k);
+    const int last = *std::max_element(keep.cbegin(), keep.cend());
+    const qint64 framePixels = qint64(natural.width()) * natural.height();
+    qint64 decodedPixels = 0;
+    QElapsedTimer clock;
+    clock.start();
+    for (int i = 0; i <= last && i < kMaxDecodedFrames; ++i) {
+        if (clock.elapsed() > kMaxMeasureMs
+            || decodedPixels + framePixels > kMaxDecodedPixels)
+            break;
+        const QImage frame = reader.read();
+        if (frame.isNull())
+            break;
+        decodedPixels += framePixels;
+        sample.stepped = true;
+        if (keep.contains(i))
+            sample.frames.append(frame);
+    }
+    if (sample.frames.isEmpty())
+        return firstOnly();
+    sample.cutShort = sample.frames.size() < keep.size();
+    return sample;
+}
+
+// The stats of a picture's bytes: every sampled frame of an animation, the
+// one frame of a still. Unmeasured (the safe worst case) when nothing decodes.
+backdrop::ImageStats measureBytes(const QByteArray &bytes, int edge)
+{
+    FrameSample sample = sampleFrames(bytes, edge);
+    if (sample.cutShort && !sample.frames.isEmpty()) {
+        // Only part of the animation was seen, and a shared picture from
+        // another member cannot be refused: plan for the worst case instead,
+        // pure white and pure black both under the ink (the unmeasured floor).
+        QImage white(8, 8, QImage::Format_RGB32);
+        white.fill(Qt::white);
+        QImage black(8, 8, QImage::Format_RGB32);
+        black.fill(Qt::black);
+        sample.frames.append(white);
+        sample.frames.append(black);
+    }
+    return backdrop::measureFrames(sample.frames);
 }
 
 qint64 nowMs()
@@ -386,6 +494,12 @@ void ChatBackdropController::setSurfaceDepth(int depth)
     Q_EMIT settingsChanged();
 }
 
+backdrop::ImageStats ChatBackdropController::measureBytesForTesting(
+    const QByteArray &bytes) const
+{
+    return measureBytes(bytes, kMeasureDecodeEdge);
+}
+
 QVariantMap ChatBackdropController::prepared() const
 {
     if (!m_prepared)
@@ -400,6 +514,7 @@ QVariantMap ChatBackdropController::prepared() const
                    : QString());
     out.insert(QStringLiteral("statsKey"),
                QStringLiteral("prepared:") + m_prepared->hash);
+    out.insert(QStringLiteral("animated"), m_prepared->animated);
     return out;
 }
 
@@ -490,6 +605,11 @@ QVariantMap ChatBackdropController::describeRecord(const QVariantMap &record,
     out.insert(QStringLiteral("kind"), QStringLiteral("staged"));
     out.insert(QStringLiteral("imageUrl"), url);
     out.insert(QStringLiteral("statsKey"), QStringLiteral("file:") + file);
+    // Named by suffix: a file this class wrote as an animation. MediaBridge
+    // still checks the bytes before anything plays.
+    out.insert(QStringLiteral("animated"),
+               file.endsWith(QLatin1String(".gif"))
+                   || file.endsWith(QLatin1String(".webp")));
     return out;
 }
 
@@ -668,8 +788,8 @@ void ChatBackdropController::measureMxc(const QString &mxc)
         m_bridge->cachedBytes(MediaBridge::wideImageCacheKey(mxc));
     if (bytes.isEmpty())
         return;
-    const QImage thumb = decodeSmall(bytes, kMeasureDecodeEdge);
-    if (thumb.isNull())
+    const backdrop::ImageStats measured = measureBytes(bytes, kMeasureDecodeEdge);
+    if (!measured.measured)
         return;   // unmeasured stays worst case: safe
     const QString key = QStringLiteral("mxc:") + mxc;
     if (!m_stats.contains(key)) {
@@ -677,7 +797,7 @@ void ChatBackdropController::measureMxc(const QString &mxc)
         while (m_statsOrder.size() > kMaxStats)
             m_stats.remove(m_statsOrder.takeFirst());
     }
-    m_stats.insert(key, backdrop::measure(thumb));
+    m_stats.insert(key, measured);
     m_scrimCache.clear();
 }
 
@@ -692,15 +812,16 @@ void ChatBackdropController::ensureMeasuredFile(const QString &fileName) const
     QFile file(QDir(dir).filePath(fileName));
     if (!file.open(QIODevice::ReadOnly) || file.size() > kMaxStoredFileBytes)
         return;
-    const QImage thumb = decodeSmall(file.readAll(), kMeasureDecodeEdge);
-    if (thumb.isNull())
+    const backdrop::ImageStats measured =
+        measureBytes(file.readAll(), kMeasureDecodeEdge);
+    if (!measured.measured)
         return;
     if (!m_stats.contains(key)) {
         m_statsOrder.append(key);
         while (m_statsOrder.size() > kMaxStats)
             m_stats.remove(m_statsOrder.takeFirst());
     }
-    m_stats.insert(key, backdrop::measure(thumb));
+    m_stats.insert(key, measured);
 }
 
 QVariantMap ChatBackdropController::scrimFor(const QString &statsKey,
@@ -1363,9 +1484,47 @@ bool ChatBackdropController::encodePicture(const QByteArray &bytes,
     picture.suffix = alpha ? QStringLiteral("png") : QStringLiteral("jpg");
     picture.width = image.width();
     picture.height = image.height();
-    picture.hash = QString::fromLatin1(
-        QCryptographicHash::hash(encoded, QCryptographicHash::Sha256).toHex());
+    picture.animated = false;
     picture.stats = backdrop::measure(image);
+
+    // An animated GIF or WebP inside the bounds is kept as an animation, with
+    // the metadata the still path's re-encode drops removed by the bounded
+    // parser (comments, plain text, every application extension but the
+    // looping ones; for WebP every chunk but the animation's own). Anything it
+    // cannot walk, or that is too big to play, stays the still above. Its
+    // stats cover several frames, so the scrim holds for the worst of them.
+    namespace sniff = lightning::animsniff;
+    if (bytes.size() <= kMaxAnimatedBytes && sniff::isAnimation(bytes)
+        && sniff::canvasWithin(bytes, sniff::kBannerMaxPixels)) {
+        const QSize canvas = sniff::canvasSize(bytes);
+        if (canvas.width() <= kMaxEdge && canvas.height() <= kMaxEdge) {
+            const QByteArray stripped = sniff::stripAnimationMetadata(bytes);
+            if (!stripped.isEmpty() && stripped.size() <= kMaxAnimatedBytes
+                && sniff::isAnimation(stripped)) {
+                const FrameSample sampled = sampleFrames(stripped, kMeasureDecodeEdge);
+                const backdrop::ImageStats frames =
+                    backdrop::measureFrames(sampled.frames);
+                // A flashing or endless animation stays the still above, and so
+                // does one whose scrim could only be planned from part of it.
+                if (frames.measured && sampled.stepped && !sampled.cutShort
+                    && !sniff::timingTooBusy(sniff::animationTiming(stripped))) {
+                    const bool gif = lightning::imagefmt::sniffRasterMime(stripped)
+                                     == QLatin1String("image/gif");
+                    picture.bytes = stripped;
+                    picture.mime = gif ? QStringLiteral("image/gif")
+                                       : QStringLiteral("image/webp");
+                    picture.suffix = gif ? QStringLiteral("gif")
+                                         : QStringLiteral("webp");
+                    picture.width = canvas.width();
+                    picture.height = canvas.height();
+                    picture.stats = frames;
+                    picture.animated = true;
+                }
+            }
+        }
+    }
+    picture.hash = QString::fromLatin1(
+        QCryptographicHash::hash(picture.bytes, QCryptographicHash::Sha256).toHex());
     return true;
 }
 
@@ -1406,6 +1565,21 @@ QVariantMap ChatBackdropController::prepareFromBytes(const QByteArray &bytes)
     result.insert(QStringLiteral("ok"), true);
     result.insert(QStringLiteral("error"), QString());
     return result;
+}
+
+bool ChatBackdropController::ownsStagedToken(const QString &token) const
+{
+    if (token.isEmpty())
+        return false;
+    if (m_prepared
+        && m_prepared->imageUrl == QLatin1String(kStagedPrefix) + token)
+        return true;
+    for (auto it = m_stagedTokens.constBegin(); it != m_stagedTokens.constEnd();
+         ++it) {
+        if (it.value() == token)
+            return true;
+    }
+    return false;
 }
 
 void ChatBackdropController::discardPrepared()
@@ -2089,6 +2263,10 @@ void ChatBackdropController::processSyncQueue()
             info.insert(QStringLiteral("mimetype"),
                         file.endsWith(QLatin1String(".png"))
                             ? QStringLiteral("image/png")
+                        : file.endsWith(QLatin1String(".gif"))
+                            ? QStringLiteral("image/gif")
+                        : file.endsWith(QLatin1String(".webp"))
+                            ? QStringLiteral("image/webp")
                             : QStringLiteral("image/jpeg"));
             if (record.contains(QStringLiteral("w"))) {
                 info.insert(QStringLiteral("w"), record.value(QStringLiteral("w")).toInt());
@@ -2722,7 +2900,7 @@ void ChatBackdropController::handleSyncDownloaded(quint64 opId,
     const RemoteEntry remote = remoteFromMap(entry);
     Prepared picture;
     QString error = ok ? QString() : (category.isEmpty() ? QStringLiteral("failed") : category);
-    // The same sniff, first-frame decode and re-encode as a picked file:
+    // The same sniff, bounds, animation keep/strip and still re-encode as a picked file:
     // what another device uploaded is not trusted further than that.
     if (error.isEmpty() && remote.state != QLatin1String("present"))
         error = QStringLiteral("invalid");

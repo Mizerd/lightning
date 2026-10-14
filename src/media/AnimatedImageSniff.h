@@ -85,6 +85,117 @@ inline int gifFrameCount(const QByteArray &bytes, int stopAt = 2)
     return frames;
 }
 
+// How fast an animation is paced, read from its own block structure (the GIF
+// graphic-control extension, the WebP ANMF duration), never from a decoder:
+// Qt's GIF handler rewrites a 0 or 1 cs delay to 100 ms, the way browsers do,
+// so what it reports cannot tell very fast pacing from an ordinary file.
+//   * GIF: a delay of 0 or 1 cs (0..10 ms) plays at 100 ms everywhere, so it
+//     is NOT fast; 2 to 4 cs (20..40 ms) really is 25-50 fps.
+//   * WebP: no such rule is shown for its handler, so 0 to 49 ms all count.
+// This catches very fast pacing; it is not a photosensitivity test (content
+// can flash at a slow rate). The protections for that are reduced motion and
+// the autoplay setting, both of which stop the animation.
+struct AnimationTiming {
+    int frames = 0;    // image descriptors / ANMF chunks (capped at kTimingStop)
+    int counted = 0;   // frames whose pacing was read: equal to `frames`
+    int flashing = 0;  // of those, paced under 50 ms
+};
+constexpr int kTimingStop = 100000;  // walk bound: far past any sane count
+constexpr int kMaxSaneFrames = 300;  // a background is not a film
+constexpr int kFlashingBelowMs = 50;
+
+inline bool timingTooBusy(const AnimationTiming &t)
+{
+    return t.frames > kMaxSaneFrames
+        || (t.counted > 0 && t.flashing * 2 > t.counted);
+}
+
+inline AnimationTiming animationTiming(const QByteArray &bytes)
+{
+    AnimationTiming t;
+    const qsizetype n = bytes.size();
+    const auto u8 = [&bytes](qsizetype i) {
+        return static_cast<unsigned int>(static_cast<unsigned char>(bytes.at(i)));
+    };
+    if (isGif(bytes) && n >= 13) {
+        qsizetype p = 13;
+        if (u8(10) & 0x80u)
+            p += 3 * (qsizetype(1) << ((u8(10) & 0x07u) + 1));
+        const auto skipSubBlocks = [&](qsizetype &q) {
+            while (q < n) {
+                const int len = int(u8(q));
+                ++q;
+                if (len == 0)
+                    return true;
+                q += len;
+            }
+            return false;
+        };
+        // A decoder applies the LAST graphic-control extension before each
+        // image, so that delay is held until the image descriptor arrives. A
+        // frame with none of its own inherits the previous one's (100 ms
+        // before any), and an extension after the last frame is never used.
+        int delayMs = 100;
+        while (p < n && t.frames < kTimingStop) {
+            const unsigned int tag = u8(p++);
+            if (tag == 0x3B)
+                break;
+            if (tag == 0x21) {
+                if (p >= n)
+                    break;
+                const unsigned int label = u8(p++);
+                // Graphic control: a first sub-block of at least 4 bytes holds
+                // flags and the delay (LE, cs); a longer one is read the same
+                // way and its remainder skipped, like the decoder does.
+                if (label == 0xF9 && p + 4 <= n && u8(p) >= 4)
+                    delayMs = int(u8(p + 2) | (u8(p + 3) << 8)) * 10;
+                if (!skipSubBlocks(p))
+                    break;
+            } else if (tag == 0x2C) {
+                if (p + 9 > n)
+                    break;
+                const unsigned int flags = u8(p + 8);
+                p += 9;
+                if (flags & 0x80u)
+                    p += 3 * (qsizetype(1) << ((flags & 0x07u) + 1));
+                ++p;
+                if (p > n || !skipSubBlocks(p))
+                    break;
+                ++t.frames;
+                ++t.counted;
+                if (delayMs > 10 && delayMs < kFlashingBelowMs)
+                    ++t.flashing;
+            } else {
+                break;
+            }
+        }
+    } else if (isAnimatedWebp(bytes)) {
+        // Only the RIFF container: chunks appended past its size are never
+        // played (stripWebpMetadata drops them too).
+        const qsizetype riff = qsizetype(u8(4) | (u8(5) << 8) | (u8(6) << 16)
+                                         | (quint32(u8(7)) << 24));
+        const qsizetype end = qMin(n, qsizetype(8) + riff);
+        qsizetype p = 12;
+        while (p + 8 <= end && t.frames < kTimingStop) {
+            const quint32 size = u8(p + 4) | (u8(p + 5) << 8) | (u8(p + 6) << 16)
+                | (quint32(u8(p + 7)) << 24);
+            if (std::memcmp(bytes.constData() + p, "ANMF", 4) == 0) {
+                ++t.frames;
+                // X, Y, width, height (3 bytes each), then the duration.
+                if (size >= 16 && p + 8 + 15 <= end) {
+                    const int ms = int(u8(p + 8 + 12) | (u8(p + 8 + 13) << 8)
+                                       | (u8(p + 8 + 14) << 16));
+                    ++t.counted;
+                    if (ms < kFlashingBelowMs)
+                        ++t.flashing;
+                }
+            }
+            p += 8 + qsizetype(size) + (size & 1u);
+        }
+    }
+    return t;
+}
+
 // True for a GIF with at least two frames or an animated WebP. A single-frame
 // GIF is a still picture and takes the ordinary image path.
 inline bool isAnimation(const QByteArray &bytes)

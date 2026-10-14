@@ -1777,6 +1777,13 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_backdrops->setMediaBridge(m_mediaBridge.get());
     m_backdrops->setSpaces(m_spaces.get());
     m_backdrops->setStagedImages(&m_stagedImages);
+    // Only pictures the backdrop controller staged itself: the store is shared
+    // with composer/thread attachments and the cropper, whose bytes stay
+    // memory-only and must never reach a scratch file.
+    m_mediaBridge->setStagedBytesProvider([this](const QString &token) {
+        return m_backdrops && m_backdrops->ownsStagedToken(token)
+            ? m_stagedImages.bytes(token) : QByteArray();
+    });
     m_nameColors->setClient(m_client.get());
     m_bio->setClient(m_client.get());
     m_userProfiles->setClient(m_client.get());

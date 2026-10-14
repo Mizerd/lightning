@@ -6,7 +6,11 @@ import MatrixClient
 // drawn straight on it stays readable:
 //
 //   dominant-colour placeholder
-//   -> the picture, FIRST FRAME only (a still Image, never AnimatedImage)
+//   -> the picture: a still Image (its first frame) always loads first. An
+//      animated GIF/WebP plays over it ONLY when the GIF autoplay setting is
+//      "Always", reduced motion is off, the blur is off and the window is
+//      shown (see "Animation" below); "On hover" has no pointer target on a
+//      whole-pane picture, so it stays still, like "Never".
 //   -> optional blur (MultiEffect; off on a software renderer)
 //   -> the scrim: the theme ground moved away from the ink, at an opacity
 //      that never drops below backdrop::planScrim's floor (textPrimary,
@@ -88,6 +92,60 @@ Item {
         }
     }
 
+    // ── Animation ──
+    // The still above is the source of truth. An animation (a GIF or WebP with
+    // two or more frames, within the banner canvas and byte bounds) is layered
+    // over it once the still is ready; nothing extra is downloaded for a shared
+    // picture (the bridge reuses the bytes the still already fetched) and a
+    // personal one is the user's own staged bytes. The scrim already covers the
+    // worst of several sampled frames (ChatBackdropController measures them).
+    readonly property int _motionMode: (typeof app !== "undefined" && app
+                                        && app.settings)
+                                       ? app.settings.gifAutoplay : 2
+    readonly property bool _windowShown:
+        root.Window.visibility !== Window.Minimized
+        && root.Window.visibility !== Window.Hidden
+    // A staged picture says outright whether it is an animation; a shared one
+    // is asked of the bridge, which answers "" for a still.
+    readonly property bool _mayAnimate: root.active && root.resolved
+        && (root.kind === "mxc" || root.resolved.animated === true)
+    readonly property bool _wantsMotion: _mayAnimate && _motionMode === 0
+        && !AppTheme.reducedMotion && !root.blurOn && visible && _windowShown
+        && width > 0 && height > 0 && picture.status === Image.Ready
+    readonly property bool motionShown: motionLoader.item !== null
+        && motionLoader.item.status === AnimatedImage.Ready
+    property string _motionSrc: ""
+    property bool _motionFailed: false
+    property bool _motionRetried: false
+
+    // Asked on every activation, never cached: the bridge's file can be
+    // evicted meanwhile.
+    function _askMotion() {
+        if (!_wantsMotion || _motionFailed || typeof app === "undefined"
+                || !app || !app.mediaBridge)
+            return
+        _motionSrc = root.kind === "staged"
+            ? app.mediaBridge.stagedAnimationSource(root.resolved.imageUrl || "")
+            : app.mediaBridge.backdropAnimationSource(root.mxc)
+    }
+    function _motionError() {
+        if (!_motionRetried) {
+            _motionRetried = true
+            _motionSrc = ""
+            _askMotion()
+            return
+        }
+        _motionFailed = true
+    }
+    // Deferred: this runs inside _wantsMotion's own evaluation.
+    on_WantsMotionChanged: Qt.callLater(root._askMotion)
+    onImageSourceChanged: {
+        _motionSrc = ""
+        _motionFailed = false
+        _motionRetried = false
+        Qt.callLater(root._askMotion)
+    }
+
     readonly property var scrim: {
         if (!root.active || typeof app === "undefined" || !app || !app.backdrops)
             return null
@@ -134,6 +192,9 @@ Item {
             anchors.fill: parent
             source: root.imageSource
             visible: !root.blurOn
+            // Hidden under a playing animation, whose transparent pixels
+            // would otherwise show the still frame through.
+            opacity: root.motionShown ? 0 : 1
             asynchronous: true
             // Bounded decode: a backdrop is dimmed and often blurred, and a
             // 4K picture as a texture is memory nobody sees.
@@ -156,6 +217,44 @@ Item {
                 if (align === "bottom")
                     return Image.AlignBottom
                 return Image.AlignVCenter
+            }
+        }
+
+        // Torn down whenever it may not play, so a paused backdrop holds no
+        // decoder.
+        Loader {
+            id: motionLoader
+            objectName: "chatBackdropMotion"
+            anchors.fill: parent
+            active: root._wantsMotion && root._motionSrc !== ""
+                    && !root._motionFailed
+            sourceComponent: AnimatedImage {
+                id: motionImage
+                objectName: "chatBackdropAnimatedImage"
+                source: root._motionSrc
+                // Keeps the bridge from evicting the file mid-play.
+                AnimationFileHold {}
+                // A decoder that stopped on its own leaves `playing` false,
+                // and a new source would then load paused on its first frame.
+                onSourceChanged: motionImage.playing = true
+                onPlayingChanged: {
+                    if (!motionImage.playing
+                        && motionImage.status === AnimatedImage.Ready)
+                        Qt.callLater(root._askMotion)
+                }
+                fillMode: picture.fillMode
+                horizontalAlignment: picture.horizontalAlignment
+                verticalAlignment: picture.verticalAlignment
+                asynchronous: true
+                cache: false
+                playing: true
+                smooth: true
+                autoTransform: true
+                onStatusChanged: {
+                    // Deferred: handling it tears this very item down.
+                    if (status === AnimatedImage.Error)
+                        Qt.callLater(root._motionError)
+                }
             }
         }
 
