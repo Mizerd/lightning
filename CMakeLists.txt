@@ -3746,6 +3746,11 @@ if(BUILD_TESTING)
     target_include_directories(space-channels-test PRIVATE src)
     target_link_libraries(space-channels-test PRIVATE Qt6::Core Qt6::Gui Qt6::Test)
     add_test(NAME space-channels COMMAND space-channels-test)
+    # QTEST_MAIN builds a QGuiApplication; with no display the default xcb
+    # platform aborts the process before the first case ("Subprocess
+    # aborted"), so pin the headless platform like the QML suites do.
+    set_tests_properties(space-channels PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Host/presenter separation, as a source scan because it is about which
     # file contains what: presenters never reach the host by id, one presenter
