@@ -40,7 +40,7 @@ ItemDelegate {
             Layout.alignment: Qt.AlignTop
             Layout.topMargin: 2
             name: row.kind === "video" ? "movie"
-                : row.kind === "image" ? "image"
+                : row.kind === "image" || row.kind === "sticker" ? "image"
                 : row.kind === "voice" ? "mic"
                 : row.kind === "audio" ? "music_note"
                 : row.kind === "link" ? "link" : "attach_file"

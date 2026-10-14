@@ -11051,6 +11051,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                   row.value(QStringLiteral("url")).toString() },
                 { QStringLiteral("host"),
                   row.value(QStringLiteral("host")).toString() },
+                { QStringLiteral("gif"),
+                  row.value(QStringLiteral("gif")).toBool() },
             });
         }
         Q_EMIT mediaHistoryPage(

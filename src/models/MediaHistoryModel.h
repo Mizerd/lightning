@@ -25,8 +25,10 @@ class MediaHistoryModel : public QAbstractListModel
 
     /// The room being browsed. Setting it restarts the walk.
     Q_PROPERTY(QString roomId READ roomId WRITE setRoomId NOTIFY roomIdChanged)
-    /// "" (everything) or one of image/video/audio/voice/file/link.
-    /// "media" is the combined visual view: image + video.
+    /// "" (everything) or one of image/video/audio/voice/file/sticker/link/gif.
+    /// "media" is the combined visual view: image + video (GIFs included).
+    /// "gif" selects the GIF-flagged image and video rows, which also stay in
+    /// the image and video views.
     Q_PROPERTY(QString category READ category WRITE setCategory
                    NOTIFY filtersChanged)
     /// A Matrix user id, or "" for every sender.
@@ -34,7 +36,11 @@ class MediaHistoryModel : public QAbstractListModel
                    NOTIFY filtersChanged)
     /// Matches filename, caption/body, sender, link URL and host, and mimetype.
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY filtersChanged)
-    /// Inclusive day bounds, or invalid for "no bound".
+    /// Day bounds in the viewer's LOCAL time zone, or invalid for "no bound".
+    /// Only the calendar day of each value matters: a message is kept when its
+    /// local day is from <= day <= to, i.e. `fromDate` means the START of its
+    /// day and `toDate` the END of its day (23:59:59.999), so picking the same
+    /// day twice shows that whole day.
     Q_PROPERTY(QDateTime fromDate READ fromDate WRITE setFromDate
                    NOTIFY filtersChanged)
     Q_PROPERTY(QDateTime toDate READ toDate WRITE setToDate
@@ -105,6 +111,13 @@ public:
     void setFromDate(const QDateTime &from);
     QDateTime toDate() const { return m_to; }
     void setToDate(const QDateTime &to);
+    /// Both bounds from "YYYY-MM-DD" text ("" = no bound), in one rebuild.
+    /// False, changing nothing, when a non-empty value is not a real calendar
+    /// date or `from` is after `to`.
+    Q_INVOKABLE bool setDateRange(const QString &from, const QString &to);
+    /// The bounds as the matcher applies them (epoch ms; -1 = unbounded).
+    qint64 fromBoundMs() const;
+    qint64 toBoundMs() const;
 
     bool loading() const { return m_pendingOp != 0; }
     bool complete() const { return m_complete; }
@@ -179,6 +192,8 @@ private:
         bool encrypted = false;
         QString url;
         QString host;
+        /// An image/video that is a GIF as a GIF picker sends it.
+        bool gif = false;
     };
 
     void onPage(quint64 opId, const QString &roomId,

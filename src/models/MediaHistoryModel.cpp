@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include <QDate>
 #include <QLocale>
 #include <QSet>
 #include <QUrl>
@@ -188,6 +189,50 @@ void MediaHistoryModel::setToDate(const QDateTime &to)
     m_fillPages = 0;
     rebuild();
     Q_EMIT filtersChanged();
+}
+
+qint64 MediaHistoryModel::fromBoundMs() const
+{
+    if (!m_from.isValid())
+        return -1;
+    return m_from.toLocalTime().date().startOfDay().toMSecsSinceEpoch();
+}
+
+qint64 MediaHistoryModel::toBoundMs() const
+{
+    if (!m_to.isValid())
+        return -1;
+    return m_to.toLocalTime().date().endOfDay().toMSecsSinceEpoch();
+}
+
+bool MediaHistoryModel::setDateRange(const QString &from, const QString &to)
+{
+    const auto parse = [](const QString &text, QDateTime *out) {
+        const QString trimmed = text.trimmed();
+        if (trimmed.isEmpty()) {
+            *out = QDateTime();
+            return true;
+        }
+        const QDate date = QDate::fromString(trimmed, QStringLiteral("yyyy-MM-dd"));
+        if (!date.isValid())
+            return false;
+        *out = date.startOfDay();
+        return true;
+    };
+    QDateTime f;
+    QDateTime t;
+    if (!parse(from, &f) || !parse(to, &t))
+        return false;
+    if (f.isValid() && t.isValid() && f.date() > t.date())
+        return false;
+    if (m_from == f && m_to == t)
+        return true;
+    m_from = f;
+    m_to = t;
+    m_fillPages = 0;
+    rebuild();
+    Q_EMIT filtersChanged();
+    return true;
 }
 
 void MediaHistoryModel::loadMore()
@@ -377,6 +422,7 @@ void MediaHistoryModel::onPage(quint64 opId, const QString &roomId,
         e.mediaKey = row.value(QStringLiteral("mediaKey")).toString();
         e.encrypted = row.value(QStringLiteral("encrypted")).toBool();
         e.host = row.value(QStringLiteral("host")).toString();
+        e.gif = row.value(QStringLiteral("gif")).toBool();
         added.append(e);
     }
 
@@ -467,15 +513,18 @@ bool MediaHistoryModel::matches(const Entry &e) const
             if (e.kind != QLatin1String("audio")
                 && e.kind != QLatin1String("voice"))
                 return false;
+        } else if (m_category == QLatin1String("gif")) {
+            if (!e.gif)
+                return false;
         } else if (e.kind != m_category) {
             return false;
         }
     }
     if (!m_sender.isEmpty() && e.sender != m_sender)
         return false;
-    if (m_from.isValid() && e.timestampMs < m_from.toMSecsSinceEpoch())
+    if (m_from.isValid() && e.timestampMs < fromBoundMs())
         return false;
-    if (m_to.isValid() && e.timestampMs > m_to.toMSecsSinceEpoch())
+    if (m_to.isValid() && e.timestampMs > toBoundMs())
         return false;
     if (!m_query.isEmpty()) {
         const Qt::CaseSensitivity ci = Qt::CaseInsensitive;

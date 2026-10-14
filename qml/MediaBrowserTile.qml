@@ -27,6 +27,7 @@ Item {
 
     property int resolveTick: 0
     readonly property bool visual: kind === "image" || kind === "video"
+                                   || kind === "sticker"
     // Prefer the server's thumbnail; a thumbnail request for something without
     // one falls back to the full attachment.
     readonly property string source: {
@@ -40,7 +41,7 @@ Item {
         if (tile.mediaKey.length > 0)
             return app.mediaBridge.mediaSource(tile.mediaKey, "list_thumb")
         var uri = tile.thumbnailMxc.length > 0 ? tile.thumbnailMxc
-                                               : (kind === "image" ? tile.mxc : "")
+                                               : (kind === "image" || kind === "sticker" ? tile.mxc : "")
         return uri.length > 0 ? app.mediaBridge.mxcImageSource(uri, 256) : ""
     }
 
@@ -88,7 +89,7 @@ Item {
             Icon {
                 Layout.alignment: Qt.AlignHCenter
                 name: tile.kind === "video" ? "movie"
-                    : tile.kind === "image" ? "image"
+                    : tile.kind === "image" || tile.kind === "sticker" ? "image"
                     : tile.kind === "audio" || tile.kind === "voice" ? "mic"
                     : tile.kind === "link" ? "link" : "attach_file"
                 size: 20

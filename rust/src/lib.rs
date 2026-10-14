@@ -8005,6 +8005,8 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                     let mut entries: Vec<serde_json::Value> = Vec::new();
                     let mut scanned = 0u64;
                     let mut undecryptable = 0u64;
+                    // An edit is met before the event it replaces; it waits here.
+                    let mut pending_edits = cursor.pending_edits.clone();
                     // Backward pages are newest-first, the order the browser shows.
                     for event in messages.chunk.iter() {
                         scanned += 1;
@@ -8014,7 +8016,7 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                         else {
                             continue;
                         };
-                        let found = mediahistory::classify(&value);
+                        let found = mediahistory::classify_with_edits(&value, &mut pending_edits);
                         if found.undecryptable {
                             undecryptable += 1;
                         }
@@ -8045,6 +8047,7 @@ pub unsafe extern "C" fn mx_rust_media_history_page(
                         scanned_total: cursor.scanned_total + scanned,
                         undecryptable_total: cursor.undecryptable_total
                             + undecryptable,
+                        pending_edits,
                     };
                     if let Ok(mut map) = cursors.lock() {
                         map.insert(room_id.clone(), next.clone());

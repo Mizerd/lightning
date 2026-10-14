@@ -68,6 +68,56 @@ private:
     // implementation; any distinct non-zero id serves.
     quint64 m_fakeOp = 1000000;
 };
+
+// A local index that answers with exactly the rows it is given, which carry
+// what the real index carries: text, msgtype, sender, time. No hasLink, no
+// isSticker, no mentionUserIds.
+class FixedLocalSearchClient final : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    QVariantList rows;
+
+    quint64 localSearch(const QString &, const QString &, int, int) override
+    {
+        const quint64 op = ++m_fakeOp;
+        const QVariantList answer = rows;
+        QTimer::singleShot(0, this, [this, op, answer] {
+            Q_EMIT localSearchFinished(op, true, QString(), 3, answer);
+        });
+        return op;
+    }
+
+private:
+    quint64 m_fakeOp = 2000000;
+};
+
+// A server whose every page is a miss and which always has another page.
+class EndlessServerClient final : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    int pagesServed = 0;
+
+    quint64 searchMessages(const QString &, const QString &, const QString &,
+                           int, const QVariantMap &) override
+    {
+        const quint64 op = ++m_fakeOp;
+        ++pagesServed;
+        QTimer::singleShot(0, this, [this, op] {
+            Q_EMIT messageSearchFinished(
+                op, true,
+                QVariantList{ resultRow(QStringLiteral("!general:mock.local"),
+                                        QStringLiteral("$p%1").arg(op),
+                                        QStringLiteral("plain text")) },
+                QStringLiteral("more"), 100, QString());
+        });
+        return op;
+    }
+
+private:
+    quint64 m_fakeOp = 3000000;
+};
 } // namespace
 
 class MessageSearchControllerTest : public QObject
@@ -395,6 +445,98 @@ private Q_SLOTS:
         // Lower bound INCLUSIVE, upper bound EXCLUSIVE.
         QCOMPARE(kept, (QStringList{ QStringLiteral("$atLowerBound"),
                                      QStringLiteral("$inside") }));
+    }
+
+    // The local index returns text only. Link and Sticker used to remove EVERY
+    // local row (hasLink / isSticker were never set), mentions likewise.
+    void theLinkFilterWorksOnLocalRowsByTheirBody()
+    {
+        FixedLocalSearchClient client;
+        QVERIFY(login(client));
+        client.rows = {
+            resultRow(QStringLiteral("!general:mock.local"), QStringLiteral("$a"),
+                      QStringLiteral("see https://example.org/x for details")),
+            resultRow(QStringLiteral("!general:mock.local"), QStringLiteral("$b"),
+                      QStringLiteral("no address in here")),
+        };
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        QCOMPARE(model.source(), QStringLiteral("local"));
+        model.setFilters(QVariantMap{
+            { QStringLiteral("contentTypes"),
+              QVariantList{ QStringLiteral("link") } },
+        });
+        model.setQuery(QStringLiteral("x"));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.rowAt(0).value(QStringLiteral("eventId")).toString(),
+                 QStringLiteral("$a"));
+    }
+
+    // Stickers and mentions cannot be known for a local row: they are declared
+    // unsupported and IGNORED, never allowed to empty the list.
+    void filtersTheLocalIndexCannotEvaluateAreDeclaredAndIgnored()
+    {
+        FixedLocalSearchClient client;
+        QVERIFY(login(client));
+        client.rows = {
+            resultRow(QStringLiteral("!general:mock.local"), QStringLiteral("$a"),
+                      QStringLiteral("hello")),
+        };
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        QVERIFY(model.unsupportedFilters().contains(QStringLiteral("sticker")));
+        QVERIFY(model.unsupportedFilters().contains(QStringLiteral("mentions")));
+        model.setFilters(QVariantMap{
+            { QStringLiteral("contentTypes"),
+              QVariantList{ QStringLiteral("sticker") } },
+            { QStringLiteral("mentionUserIds"),
+              QVariantList{ QStringLiteral("@alice:mock.local") } },
+        });
+        QCOMPARE(model.ignoredFilters(),
+                 (QStringList{ QStringLiteral("sticker"),
+                               QStringLiteral("mentions") }));
+        model.setQuery(QStringLiteral("hello"));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+        QCOMPARE(model.rowCount(), 1);
+
+        // On the server both are real filters again.
+        model.setSource(QStringLiteral("server"));
+        QVERIFY(model.unsupportedFilters().isEmpty());
+        QVERIFY(model.ignoredFilters().isEmpty());
+    }
+
+    // 4 pages of misses with more history left: not "no results".
+    void aFilteredServerSearchThatRanOutOfBudgetSaysSo()
+    {
+        EndlessServerClient client;
+        QVERIFY(login(client));
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        model.setSource(QStringLiteral("server"));
+        model.setFilters(QVariantMap{
+            { QStringLiteral("contentTypes"),
+              QVariantList{ QStringLiteral("image") } },
+        });
+        model.setQuery(QStringLiteral("plain"));
+        QTRY_COMPARE(model.state(), QStringLiteral("no_results"));
+        QCOMPARE(client.pagesServed, 4);
+        QVERIFY(model.scanLimited());
+        QVERIFY(model.canLoadMore());
+
+        // Searching further scans another budget.
+        model.loadMore();
+        QTRY_COMPARE(client.pagesServed, 8);
+        QVERIFY(model.scanLimited());
+
+        // Without client-side filters it is never scan-limited.
+        model.setFilters(QVariantMap());
+        model.setQuery(QStringLiteral("plain2"));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+        QVERIFY(!model.scanLimited());
     }
 
     // A local page is full relative to what it asked for, not to kLocalPage.

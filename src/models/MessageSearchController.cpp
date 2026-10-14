@@ -4,6 +4,8 @@
 #include "matrix/MatrixClient.h"
 #include "profile/UserProfileResolver.h"
 
+#include <QRegularExpression>
+
 namespace {
 constexpr int kDebounceMs = 400;
 constexpr int kPageSize = 25;
@@ -19,6 +21,21 @@ QSet<QString> stringSet(const QVariant &value)
             out.insert(text);
     }
     return out;
+}
+
+// Mirrors rust/src/search.rs: only an explicit http(s) target counts as a link.
+// The local index keeps the body alone, so formatted_body hrefs are not
+// available here.
+bool bodyHasLink(const QString &body)
+{
+    const QStringList words = body.split(
+        QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    for (const QString &word : words) {
+        if (word.startsWith(QLatin1String("https://"))
+            || word.startsWith(QLatin1String("http://")))
+            return true;
+    }
+    return false;
 }
 } // namespace
 
@@ -405,9 +422,13 @@ void MessageSearchController::onLocalSearchFinished(
     rows.reserve(results.size());
     for (const QVariant &value : results) {
         QVariantMap row = value.toMap();
-        // Same client-side filters as the server path, so switching source does
-        // not change which rows a filter removes.
-        if (!matchesFilters(row))
+        // The index returns text only. Derive what the row's own body can
+        // answer, so the Link filter works on this source too; stickers and
+        // mentions cannot be derived (see matchesFilters).
+        if (!row.contains(QStringLiteral("hasLink")))
+            row.insert(QStringLiteral("hasLink"),
+                       bodyHasLink(row.value(QStringLiteral("body")).toString()));
+        if (!matchesFilters(row, /*local=*/true))
             continue;
         if (m_client) {
             const QString roomId = row.value(QStringLiteral("roomId")).toString();
@@ -631,7 +652,7 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
     rows.reserve(results.size());
     for (const QVariant &value : results) {
         QVariantMap row = value.toMap();
-        if (!matchesFilters(row))
+        if (!matchesFilters(row, /*local=*/false))
             continue;
         const QString roomId = row.value(QStringLiteral("roomId")).toString();
         QString roomName;
@@ -668,6 +689,10 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
     }
     setState(m_rows.isEmpty() ? QStringLiteral("no_results")
                               : QStringLiteral("results"));
+    // The budget ran out with history left and the filters still unsatisfied:
+    // the reader must not be told there are no matches.
+    m_scanLimited = hasClientFilters && m_rows.size() < m_scanTarget
+        && !m_nextBatch.isEmpty();
 }
 
 void MessageSearchController::setState(const QString &state)
@@ -688,6 +713,7 @@ void MessageSearchController::invalidatePending()
     m_lastLocalRawCount = 0;
     m_nextBatch.clear();
 }
+    m_scanLimited = false;
 
 void MessageSearchController::rebuildFilterSets()
 {
@@ -703,13 +729,39 @@ void MessageSearchController::rebuildFilterSets()
     m_pinnedMode = m_filters.value(QStringLiteral("pinnedMode")).toString();
 }
 
-bool MessageSearchController::matchesFilters(const QVariantMap &row) const
+QStringList MessageSearchController::unsupportedFilters() const
+{
+    // The local index stores message text only: no m.sticker events and no
+    // m.mentions. Changing what it stores is a separate decision (CLAUDE.md
+    // section 6), so these two are declared unavailable, not guessed.
+    if (effectiveSource() == QLatin1String("local"))
+        return { QStringLiteral("sticker"), QStringLiteral("mentions") };
+    return {};
+}
+
+QStringList MessageSearchController::ignoredFilters() const
+{
+    QStringList out;
+    const QStringList unsupported = unsupportedFilters();
+    if (unsupported.contains(QStringLiteral("sticker"))
+        && m_contentTypes.contains(QStringLiteral("sticker")))
+        out.append(QStringLiteral("sticker"));
+    if (unsupported.contains(QStringLiteral("mentions"))
+        && !m_mentionUsers.isEmpty())
+        out.append(QStringLiteral("mentions"));
+    return out;
+}
+
+bool MessageSearchController::matchesFilters(const QVariantMap &row,
+                                             bool local) const
 {
     if (!m_fromUsers.isEmpty()
         && !m_fromUsers.contains(row.value(QStringLiteral("sender")).toString()))
         return false;
 
-    if (!m_mentionUsers.isEmpty()) {
+    // Local rows carry no mentions: ignored there (ignoredFilters() tells the
+    // surface), never allowed to remove every row.
+    if (!local && !m_mentionUsers.isEmpty()) {
         bool mentioned = false;
         const QVariantList mentions =
             row.value(QStringLiteral("mentionUserIds")).toList();
@@ -730,26 +782,29 @@ bool MessageSearchController::matchesFilters(const QVariantMap &row) const
     if (m_beforeMs > 0 && timestamp >= m_beforeMs)
         return false;
 
-    if (!m_contentTypes.isEmpty()) {
+    QSet<QString> types = m_contentTypes;
+    if (local)
+        types.remove(QStringLiteral("sticker")); // not indexed: ignored
+    if (!types.isEmpty()) {
         const QString msgtype =
             row.value(QStringLiteral("msgtype")).toString();
         bool kindMatch = false;
-        if (m_contentTypes.contains(QStringLiteral("image"))
+        if (types.contains(QStringLiteral("image"))
             && msgtype == QLatin1String("m.image"))
             kindMatch = true;
-        if (m_contentTypes.contains(QStringLiteral("video"))
+        if (types.contains(QStringLiteral("video"))
             && msgtype == QLatin1String("m.video"))
             kindMatch = true;
-        if (m_contentTypes.contains(QStringLiteral("audio"))
+        if (types.contains(QStringLiteral("audio"))
             && msgtype == QLatin1String("m.audio"))
             kindMatch = true;
-        if (m_contentTypes.contains(QStringLiteral("file"))
+        if (types.contains(QStringLiteral("file"))
             && msgtype == QLatin1String("m.file"))
             kindMatch = true;
-        if (m_contentTypes.contains(QStringLiteral("sticker"))
+        if (types.contains(QStringLiteral("sticker"))
             && row.value(QStringLiteral("isSticker")).toBool())
             kindMatch = true;
-        if (m_contentTypes.contains(QStringLiteral("link"))
+        if (types.contains(QStringLiteral("link"))
             && row.value(QStringLiteral("hasLink")).toBool())
             kindMatch = true;
         if (!kindMatch)

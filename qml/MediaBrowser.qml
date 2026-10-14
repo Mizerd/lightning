@@ -35,18 +35,46 @@ Item {
         { key: "image",  label: qsTr("Images") },
         { key: "video",  label: qsTr("Videos") },
         { key: "audio",  label: qsTr("Audio") },
+        { key: "gif",    label: qsTr("GIFs") },
+        { key: "sticker", label: qsTr("Stickers") },
         { key: "file",   label: qsTr("Files") },
         { key: "link",   label: qsTr("Links") },
     ]
     property string category: "media"
     /// Grid for visual categories, list for the rest.
     property bool gridMode: category === "media" || category === "image"
-                            || category === "video"
+                            || category === "video" || category === "gif"
+                            || category === "sticker"
 
     // Push the initial value too: onCategoryChanged only fires on change.
     onCategoryChanged: root.applyCategory()
     onModelChanged: root.applyCategory()
     Component.onCompleted: root.applyCategory()
+
+    /// Why the date fields are not applied ("" when they are, or are empty).
+    property string dateError: ""
+
+    /// Pushes both fields to the model, which owns the day semantics and the
+    /// parsing. An invalid entry leaves the previous range in force and says
+    /// so, rather than silently showing everything.
+    function applyDates() {
+        if (!model)
+            return
+        var from = fromField.text.trim()
+        var to = toField.text.trim()
+        // Half-typed dates are not errors yet.
+        var partial = (from.length > 0 && from.length < 10)
+                      || (to.length > 0 && to.length < 10)
+        if (partial) {
+            dateError = ""
+            return
+        }
+        if (model.setDateRange(from, to)) {
+            dateError = ""
+        } else {
+            dateError = qsTr("Use real dates in YYYY-MM-DD format, with From not after To.")
+        }
+    }
 
     function applyCategory() {
         if (model)
@@ -116,6 +144,50 @@ Item {
                 Accessible.name: root.gridMode ? qsTr("Show as a list")
                                                : qsTr("Show as a grid")
             }
+        }
+
+        // Date range: a message is kept when its day, in this computer's time
+        // zone, is From <= day <= To (To includes the whole of its day).
+        RowLayout {
+            objectName: "mediaBrowserDateRow"
+            Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing12
+            Layout.rightMargin: AppTheme.spacing12
+            spacing: AppTheme.spacing8
+            Label {
+                text: qsTr("Dates")
+                color: AppTheme.textMuted
+                font.pixelSize: AppTheme.textMeta
+            }
+            AppTextField {
+                id: fromField
+                objectName: "mediaBrowserFromDate"
+                Layout.fillWidth: true
+                placeholderText: qsTr("From YYYY-MM-DD")
+                inputMethodHints: Qt.ImhDate
+                onTextChanged: root.applyDates()
+                Accessible.name: qsTr("Show media from this date")
+            }
+            AppTextField {
+                id: toField
+                objectName: "mediaBrowserToDate"
+                Layout.fillWidth: true
+                placeholderText: qsTr("To YYYY-MM-DD")
+                inputMethodHints: Qt.ImhDate
+                onTextChanged: root.applyDates()
+                Accessible.name: qsTr("Show media up to and including this date")
+            }
+        }
+        Label {
+            objectName: "mediaBrowserDateError"
+            visible: root.dateError.length > 0
+            Layout.fillWidth: true
+            Layout.leftMargin: AppTheme.spacing12
+            Layout.rightMargin: AppTheme.spacing12
+            text: root.dateError
+            color: AppTheme.danger
+            font.pixelSize: AppTheme.textMeta
+            wrapMode: Text.WordWrap
         }
 
         // Sender filter, offered once more than one person appears.
@@ -248,7 +320,9 @@ Item {
                     if (!root.model)
                         return ""
                     if (root.model.query.length > 0
-                        || root.model.senderFilter.length > 0)
+                        || root.model.senderFilter.length > 0
+                        || root.model.fromDate.toString().length > 0
+                        || root.model.toDate.toString().length > 0)
                         return qsTr("Nothing matches those filters in the "
                                     + "history read so far.")
                     return root.model.complete

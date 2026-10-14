@@ -8,7 +8,9 @@
 #include "matrix/MockMatrixClient.h"
 #include "models/MediaHistoryModel.h"
 
+#include <QDateTime>
 #include <QSignalSpy>
+#include <QTimeZone>
 #include <QtTest/QtTest>
 
 namespace {
@@ -502,6 +504,135 @@ private Q_SLOTS:
         model.setCategory(QStringLiteral("audio"));
         model.fillViewport();
         QCOMPARE(client.pagesRequested, MediaHistoryModel::kMaxFillPages + 1);
+    }
+
+    // ── Date range ───────────────────────────────────────────────────────
+    //
+    // Bounds are LOCAL calendar days: From = start of its day, To = END of its
+    // day. Before this the To bound compared against the raw QDateTime, so a
+    // message at 15:00 on the "To" day was excluded.
+    void theToDayIsIncludedUpToItsLastMillisecond()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:example.org"));
+
+        const auto at = [](int d, int h, int m, int s, int ms) {
+            return QDateTime(QDate(2026, 10, d), QTime(h, m, s, ms))
+                .toMSecsSinceEpoch();
+        };
+        const auto row = [&](const QString &id, qint64 ts) {
+            QVariantMap r = entry(id, QStringLiteral("file"));
+            r.insert(QStringLiteral("timestampMs"), ts);
+            return r;
+        };
+        const QVariantList page{
+            row(QStringLiteral("$beforeFrom"), at(4, 23, 59, 59, 999)),
+            row(QStringLiteral("$fromStart"), at(5, 0, 0, 0, 0)),
+            row(QStringLiteral("$afternoonOfTo"), at(7, 15, 0, 0, 0)),
+            row(QStringLiteral("$toLastMs"), at(7, 23, 59, 59, 999)),
+            row(QStringLiteral("$afterTo"), at(8, 0, 0, 0, 0)),
+        };
+        Q_EMIT client.mediaHistoryPage(0, QStringLiteral("!r:example.org"),
+                                       page, 5, 5, 0, true, false);
+        QCOMPARE(model.rowCount(), 5);
+
+        QVERIFY(model.setDateRange(QStringLiteral("2026-10-05"),
+                                   QStringLiteral("2026-10-07")));
+        QCOMPARE(model.rowCount(), 3);
+        QStringList kept;
+        for (int i = 0; i < model.rowCount(); ++i)
+            kept << model.entryAt(i).value(QStringLiteral("eventId")).toString();
+        kept.sort();
+        QCOMPARE(kept, (QStringList{ QStringLiteral("$afternoonOfTo"),
+                                     QStringLiteral("$fromStart"),
+                                     QStringLiteral("$toLastMs") }));
+
+        // The same day twice is that whole day.
+        QVERIFY(model.setDateRange(QStringLiteral("2026-10-07"),
+                                   QStringLiteral("2026-10-07")));
+        QCOMPARE(model.rowCount(), 2);
+
+        // Open-ended on either side.
+        QVERIFY(model.setDateRange(QStringLiteral("2026-10-08"), QString()));
+        QCOMPARE(model.rowCount(), 1);
+        QVERIFY(model.setDateRange(QString(), QStringLiteral("2026-10-04")));
+        QCOMPARE(model.rowCount(), 1);
+        QVERIFY(model.setDateRange(QString(), QString()));
+        QCOMPARE(model.rowCount(), 5);
+    }
+
+    // A bad range is refused and changes nothing, so the view never goes
+    // blank or unfiltered because of a typo.
+    void anInvalidDateRangeIsRefusedAndKeepsTheLastGoodOne()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        QVERIFY(model.setDateRange(QStringLiteral("2026-10-05"),
+                                   QStringLiteral("2026-10-07")));
+        const QDateTime from = model.fromDate();
+        const QDateTime to = model.toDate();
+        QVERIFY(!model.setDateRange(QStringLiteral("2026-02-30"), QString()));
+        QVERIFY(!model.setDateRange(QStringLiteral("5 Oct"), QString()));
+        QVERIFY(!model.setDateRange(QStringLiteral("2026-10-09"),
+                                    QStringLiteral("2026-10-01")));
+        QCOMPARE(model.fromDate(), from);
+        QCOMPARE(model.toDate(), to);
+    }
+
+    // The bound is the viewer's local day even when the value arrives in UTC.
+    void aUtcValueIsReadAsItsLocalDay()
+    {
+        MediaHistoryModel model;
+        model.setToDate(QDateTime(QDate(2026, 10, 7), QTime(12, 0), QTimeZone::UTC));
+        const QDate localDay =
+            QDateTime(QDate(2026, 10, 7), QTime(12, 0), QTimeZone::UTC)
+                .toLocalTime().date();
+        QCOMPARE(QDateTime::fromMSecsSinceEpoch(model.toBoundMs()).date(),
+                 localDay);
+        QCOMPARE(QDateTime::fromMSecsSinceEpoch(model.toBoundMs()).time(),
+                 QTime(23, 59, 59, 999));
+    }
+
+    // ── GIF and sticker views ────────────────────────────────────────────
+    void gifsAndStickersHaveTheirOwnViewsAndGifsStayInTheVisualOnes()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:example.org"));
+
+        QVariantMap gifImage = keyedEntry(QStringLiteral("$gifimg"), QStringLiteral("image"));
+        gifImage.insert(QStringLiteral("gif"), true);
+        QVariantMap gifVideo = keyedEntry(QStringLiteral("$gifvid"), QStringLiteral("video"));
+        gifVideo.insert(QStringLiteral("gif"), true);
+        const QVariantList page{
+            gifImage, gifVideo,
+            keyedEntry(QStringLiteral("$img"), QStringLiteral("image")),
+            keyedEntry(QStringLiteral("$stk"), QStringLiteral("sticker")),
+        };
+        Q_EMIT client.mediaHistoryPage(0, QStringLiteral("!r:example.org"),
+                                       page, 4, 4, 0, true, false);
+
+        model.setCategory(QStringLiteral("gif"));
+        QCOMPARE(model.rowCount(), 2);
+        model.setCategory(QStringLiteral("sticker"));
+        QCOMPARE(model.rowCount(), 1);
+        // Stickers are not "media"; GIFs are.
+        model.setCategory(QStringLiteral("media"));
+        QCOMPARE(model.rowCount(), 3);
+        model.setCategory(QStringLiteral("image"));
+        QCOMPARE(model.rowCount(), 2);
+        model.setCategory(QStringLiteral("video"));
+        QCOMPARE(model.rowCount(), 1);
+        // The viewer still gets the GIF image.
+        model.setCategory(QStringLiteral("image"));
+        QCOMPARE(model.imageEntries().size(), 2);
     }
 };
 

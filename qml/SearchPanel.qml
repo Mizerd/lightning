@@ -195,8 +195,21 @@ Rectangle {
             || (value.pinnedMode && value.pinnedMode !== "any"))
     }
 
+    // Filters the active source cannot evaluate (the local index stores no
+    // stickers and no mentions). Read through activeSource so a source switch
+    // re-evaluates every binding that calls this.
+    function filterUnsupported(name) {
+        var source = activeSource
+        return source === "local"
+               && app.messageSearch.unsupportedFilters.indexOf(name) >= 0
+    }
+
     function emptyText() {
         var st = app.messageSearch.state
+        // A filtered server search that ran out of its page budget has not
+        // looked at everything: never claim there is nothing.
+        if (st === "no_results" && app.messageSearch.scanLimited)
+            return qsTr("No matches in the searched range. Search further to look deeper.")
         if (st === "error")
             return qsTr("Search could not be completed.")
         if (st === "too_short")
@@ -342,6 +355,22 @@ Rectangle {
                 wrapMode: Text.Wrap
             }
 
+            Label {
+                objectName: "roomSearchIgnoredFiltersHint"
+                visible: root.historyAvailable
+                         && root.activeSource === "local"
+                         && app.messageSearch.ignoredFilters.length > 0
+                Layout.fillWidth: true
+                Layout.leftMargin: AppTheme.spacing12
+                Layout.rightMargin: AppTheme.spacing12
+                text: qsTr("The Sticker and mention filters are not applied to indexed search. Switch to Server to use them.")
+                color: AppTheme.warning
+                font.pixelSize: AppTheme.textMeta
+                lineHeight: AppTheme.lineHeightBody
+                lineHeightMode: Text.ProportionalHeight
+                wrapMode: Text.Wrap
+            }
+
             // Absorbs slack when the results list is hidden (the usual case in
             // encrypted rooms): a layout needs one item that can grow, or it
             // spreads the children evenly down the panel.
@@ -481,7 +510,8 @@ Rectangle {
                         AppButton {
                             visible: app.messageSearch.canLoadMore
                                      && app.messageSearch.state !== "loading_more"
-                            text: qsTr("Load more")
+                            text: app.messageSearch.scanLimited
+                                  ? qsTr("Search further") : qsTr("Load more")
                             onClicked: app.messageSearch.loadMore()
                         }
                     }
@@ -539,6 +569,8 @@ Rectangle {
                     onNeedleChangedByUser: (value) => root.memberNeedle = value
                     onUserToggled: (userId) => root.toggleValue("draftMentions", userId)
                 }
+                    enabled: !root.filterUnsupported("mentions")
+                    opacity: enabled ? 1 : 0.45
 
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -593,6 +625,15 @@ Rectangle {
                                 palette.windowText: AppTheme.textPrimary
                                 text: root.typeLabel(modelData)
                                 checked: root.contains(root.draftTypes, modelData)
+                    Label {
+                        objectName: "searchUnsupportedFiltersHint"
+                        visible: root.filterUnsupported("sticker")
+                        Layout.fillWidth: true
+                        text: qsTr("Sticker and Mentions need Server search; the local index does not store them.")
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.textMeta
+                        wrapMode: Text.Wrap
+                    }
                                 onClicked: root.toggleValue("draftTypes", modelData)
                             }
                         }
@@ -605,6 +646,7 @@ Rectangle {
                     Layout.rightMargin: AppTheme.spacing12
                     Layout.bottomMargin: AppTheme.spacing12
                     spacing: AppTheme.spacing6
+                                enabled: !root.filterUnsupported(modelData)
                     Label { text: qsTr("Pinned"); color: AppTheme.textPrimary; font.weight: AppTheme.weightBold }
                     Label { text: qsTr("Whether the message is pinned"); color: AppTheme.textMuted; font.pixelSize: AppTheme.textMeta }
                     AppComboBox {

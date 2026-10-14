@@ -51,6 +51,20 @@ class MessageSearchController : public QAbstractListModel
     /// Whether this backend has a local index, so the choice is offered only
     /// where it exists.
     Q_PROPERTY(bool localAvailable READ localAvailable NOTIFY sourceChanged)
+    /// Filters the CURRENT source cannot evaluate: "sticker" and "mentions" for
+    /// the local index (it stores neither; see matchesFilters). A surface
+    /// disables those controls with a hint instead of letting them empty the
+    /// list.
+    Q_PROPERTY(QStringList unsupportedFilters READ unsupportedFilters
+                   NOTIFY sourceChanged)
+    /// The subset of unsupportedFilters that is currently APPLIED. They are
+    /// ignored, not applied, and a surface says so.
+    Q_PROPERTY(QStringList ignoredFilters READ ignoredFilters
+                   NOTIFY filtersChanged)
+    /// True when a server search with client-side filters stopped at its page
+    /// budget with more history left: "nothing found" would be false, the
+    /// honest answer is "nothing in the part searched so far".
+    Q_PROPERTY(bool scanLimited READ scanLimited NOTIFY stateChanged)
     /// What the local index holds, so a surface can say what local search
     /// covers.
     Q_PROPERTY(qint64 indexedMessages READ indexedMessages
@@ -130,6 +144,9 @@ public:
     bool canLoadMore() const { return !m_nextBatch.isEmpty(); }
     quint64 totalCount() const { return m_totalCount; }
     QVariantMap filters() const { return m_filters; }
+    bool scanLimited() const { return m_scanLimited; }
+    QStringList unsupportedFilters() const;
+    QStringList ignoredFilters() const;
     void setFilters(const QVariantMap &filters);
 
     int rowCount(const QModelIndex &parent = {}) const override;
@@ -225,7 +242,7 @@ private:
     void setState(const QString &state);
     void invalidatePending();
     void requestPage(bool append);
-    bool matchesFilters(const QVariantMap &row) const;
+    bool matchesFilters(const QVariantMap &row, bool local) const;
     void rebuildFilterSets();
     void resetIndexAll();
     void setIndexAllOffered(bool offered);
@@ -257,6 +274,7 @@ private:
     int m_scanPages = 0;
     int m_scanTarget = 0;
     QString m_source = QStringLiteral("local");
+    bool m_scanLimited = false;
     qint64 m_indexedMessages = 0;
     qint64 m_indexedRooms = 0;
     quint64 m_deepOp = 0;
