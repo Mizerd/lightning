@@ -6,87 +6,87 @@
     <message>
         <location filename="../src/app/AboutController.cpp" line="+22"/>
         <source>The homeserver could not be reached.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível contactar o servidor doméstico.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The homeserver refused the request.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor doméstico recusou o pedido.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The answer was too large to show.</source>
-        <translation type="unfinished"></translation>
+        <translation>A resposta é demasiado grande para ser apresentada.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The homeserver did not give a usable answer.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor doméstico não devolveu uma resposta utilizável.</translation>
     </message>
     <message>
         <location line="+132"/>
         <source>Nothing was cleared: you are not signed in.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada foi limpo: não tem sessão iniciada.</translation>
     </message>
     <message>
         <location line="+12"/>
         <location line="+26"/>
         <location line="+36"/>
         <source>media cache</source>
-        <translation type="unfinished"></translation>
+        <translation>cache de multimédia</translation>
     </message>
     <message>
         <location line="-57"/>
         <location line="+56"/>
         <location line="+65"/>
         <source>event cache</source>
-        <translation type="unfinished"></translation>
+        <translation>cache de eventos</translation>
     </message>
     <message>
         <location line="-117"/>
         <location line="+2"/>
         <source>search index</source>
-        <translation type="unfinished"></translation>
+        <translation>índice de pesquisa</translation>
     </message>
     <message>
         <location line="+74"/>
         <source>Disk use of those caches went from %1 to %2.</source>
-        <translation type="unfinished"></translation>
+        <translation>A utilização de disco destas caches passou de %1 para %2.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Could not be compacted: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível compactar: %1.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Still being compacted: %1. The space is returned when that finishes.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda a ser compactado: %1. O espaço é libertado quando isso terminar.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Compaction did not report back: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>A compactação não devolveu resposta: %1.</translation>
     </message>
     <message>
         <location line="+52"/>
         <source>Clearing did not finish. Some of the cache may still be on disk; you can try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>A limpeza não terminou. Parte da cache pode ainda estar em disco; pode tentar novamente.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Cleared the event cache, the media cache and the search index. Your sign-in and encryption keys were not touched.</source>
-        <translation type="unfinished"></translation>
+        <translation>Limpou a cache de eventos, a cache de multimédia e o índice de pesquisa. A sua sessão e as chaves de encriptação não foram alteradas.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Nothing was cleared (%1). Your sign-in and encryption keys were not touched.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada foi limpo (%1). A sua sessão e as chaves de encriptação não foram alteradas.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Cleared: %1. Could not clear: %2. Your sign-in and encryption keys were not touched.</source>
-        <translation type="unfinished"></translation>
+        <translation>Limpo: %1. Não foi possível limpar: %2. A sua sessão e as chaves de encriptação não foram alteradas.</translation>
     </message>
 </context>
 <context>
@@ -94,132 +94,134 @@
     <message>
         <location filename="../qml/AboutToolsSection.qml" line="+61"/>
         <source>This build</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta compilação</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Copied</source>
-        <translation type="unfinished">Copiado</translation>
+        <translation>Copiado</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copy version</source>
-        <translation type="unfinished"></translation>
+        <translation>Copiar versão</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Copies the version, commit, platform and package kind</source>
-        <translation type="unfinished"></translation>
+        <translation>Copia a versão, o commit, a plataforma e o tipo de pacote</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Report an issue</source>
-        <translation type="unfinished"></translation>
+        <translation>Comunicar um problema</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Opens the issue tracker in your browser</source>
-        <translation type="unfinished"></translation>
+        <translation>Abre o gestor de problemas no seu navegador</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Paste the version into your report. Please leave out anything private.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cole a versão no seu relatório. Por favor, deixe de fora tudo o que seja privado.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Homeserver</source>
-        <translation type="unfinished">Servidor</translation>
+        <translation>Servidor doméstico</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Asking the homeserver...</source>
-        <translation type="unfinished"></translation>
+        <translation>A perguntar ao servidor doméstico…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This backend cannot ask a homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este backend não consegue perguntar a um servidor doméstico.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Address</source>
-        <translation type="unfinished"></translation>
+        <translation>Endereço</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Software</source>
-        <translation type="unfinished"></translation>
+        <translation>Software</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Not published by this server</source>
-        <translation type="unfinished"></translation>
+        <translation>Não publicado por este servidor</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Features</source>
-        <translation type="unfinished"></translation>
+        <translation>Funcionalidades</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Matrix %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Matrix %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>None listed</source>
-        <translation type="unfinished"></translation>
+        <translation>Nenhuma indicada</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source> and %n more (see Developer tools)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform> e mais %n (ver Ferramentas de programador)</numerusform>
+            <numerusform> e mais %n (ver Ferramentas de programador)</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Refresh</source>
-        <translation type="unfinished">Atualizar</translation>
+        <translation>Atualizar</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Local data</source>
-        <translation type="unfinished"></translation>
+        <translation>Dados locais</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>If rooms look stale or stuck, clearing the local cache makes Lightning fetch them from the server again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Se as salas parecerem desatualizadas ou presas, limpar a cache local faz o Lightning voltar a obtê-las do servidor.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Reset local cache</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor a cache local</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Reset the local cache?</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor a cache local?</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Reset cache</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor cache</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This clears three things on this device: the event cache (messages stored for quick opening), the media cache, and the search index. Rooms reload from the server and media downloads again, and searching your history stops working until Lightning has indexed it again.
 
 It does not touch your encryption keys, your sign-in or any message on the server, and it does not sign you out.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto limpa três coisas neste dispositivo: a cache de eventos (mensagens guardadas para abrir mais depressa), a cache de multimédia e o índice de pesquisa. As salas voltam a carregar do servidor e a multimédia volta a ser transferida, e a pesquisa no seu histórico deixa de funcionar até o Lightning o voltar a indexar.
+
+Não toca nas suas chaves de encriptação, na sua sessão nem em qualquer mensagem no servidor, e não termina a sua sessão.</translation>
     </message>
 </context>
 <context>
@@ -238,7 +240,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+135"/>
         <source>Encryption ready. Open Security and Recovery.</source>
-        <translation type="unfinished"></translation>
+        <translation>Encriptação pronta. Abra Segurança e recuperação.</translation>
     </message>
     <message>
         <location line="+97"/>
@@ -259,63 +261,63 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="-322"/>
         <source>Edit status…</source>
-        <translation type="unfinished"></translation>
+        <translation>Editar estado…</translation>
     </message>
     <message>
         <location line="-73"/>
         <source>Encrypted</source>
-        <translation type="unfinished">Encriptada</translation>
+        <translation>Encriptada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Verified</source>
-        <translation type="unfinished">Verificada</translation>
+        <translation>Verificada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Verify this device</source>
-        <translation type="unfinished"></translation>
+        <translation>Verificar este dispositivo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Finish security setup</source>
-        <translation type="unfinished"></translation>
+        <translation>Concluir a configuração de segurança</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1: %2 of %3 trust checks done. Open Security and Recovery.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1: %2 de %3 verificações de confiança concluídas. Abra Segurança e recuperação.</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+84"/>
         <source>Security and recovery</source>
-        <translation type="unfinished"></translation>
+        <translation>Segurança e recuperação</translation>
     </message>
     <message>
         <location line="-82"/>
         <source>This device isn&apos;t verified yet. Verify it so your other sessions trust it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este dispositivo ainda não está verificado. Verifique-o para que as suas outras sessões confiem nele.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Some security steps are not done yet. Open Security and recovery to finish them.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda não foram concluídos alguns passos de segurança. Abra Segurança e recuperação para os concluir.</translation>
     </message>
     <message>
         <location line="+59"/>
         <source>Set a status…</source>
-        <translation type="unfinished"></translation>
+        <translation>Defina um estado…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Theme, colours and background</source>
-        <translation type="unfinished"></translation>
+        <translation>Tema, cores e fundo</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Name and picture</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome e imagem</translation>
     </message>
     <message>
         <location line="+60"/>
@@ -356,69 +358,69 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+19"/>
         <source>%n of your chat backgrounds is not saved on your homeserver yet. Signing out now deletes it from this device.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n dos seus fundos de conversa ainda não está guardado no seu servidor doméstico. Se terminar a sessão agora, será eliminado deste dispositivo.</numerusform>
+            <numerusform>%n dos seus fundos de conversa ainda não estão guardados no seu servidor doméstico. Se terminar a sessão agora, serão eliminados deste dispositivo.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
         <source>%n chat background you removed is still on your homeserver and comes back when you sign in again.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n fundo de conversa que removeu ainda está no seu servidor doméstico e volta quando voltar a iniciar sessão.</numerusform>
+            <numerusform>%n fundos de conversa que removeu ainda estão no seu servidor doméstico e voltam quando voltar a iniciar sessão.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Checking your key backup…</source>
-        <translation type="unfinished"></translation>
+        <translation>A verificar a sua cópia de segurança de chaves…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your room keys are not backed up. Encrypted messages that only this session can read cannot be read again once you sign out.</source>
-        <translation type="unfinished"></translation>
+        <translation>As suas chaves de sala não têm cópia de segurança. As mensagens encriptadas que só esta sessão consegue ler deixam de poder ser lidas depois de terminar a sessão.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>You have no recovery key. Your keys are backed up, but without a recovery key you cannot unlock that backup after signing in again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem uma chave de recuperação. As suas chaves têm cópia de segurança, mas sem uma chave de recuperação não consegue desbloquear essa cópia depois de voltar a iniciar sessão.</translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n room key is not backed up yet. Signing out now loses it for good.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n chave de sala ainda não tem cópia de segurança. Se terminar a sessão agora, perde-a definitivamente.</numerusform>
+            <numerusform>%n chaves de sala ainda não têm cópia de segurança. Se terminar a sessão agora, perde-as definitivamente.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning could not confirm that your room keys are backed up.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu confirmar que as suas chaves de sala têm cópia de segurança.</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n other verified session keeps its own keys, though not necessarily every one this session holds.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n outra sessão verificada mantém as suas próprias chaves, embora não necessariamente todas as que esta sessão tem.</numerusform>
+            <numerusform>%n outras sessões verificadas mantêm as suas próprias chaves, embora não necessariamente todas as que esta sessão tem.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+5"/>
         <source>You have no other verified session.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem nenhuma outra sessão verificada.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Set up recovery</source>
-        <translation type="unfinished"></translation>
+        <translation>Configurar recuperação</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Sign out anyway</source>
-        <translation type="unfinished"></translation>
+        <translation>Terminar sessão mesmo assim</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -431,155 +433,155 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/ActivityCenterPanel.qml" line="+46"/>
         <source>Mentioned you</source>
-        <translation type="unfinished"></translation>
+        <translation>Mencionou-o</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mentioned everyone</source>
-        <translation type="unfinished"></translation>
+        <translation>Mencionou toda a gente</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Replied to you</source>
-        <translation type="unfinished"></translation>
+        <translation>Respondeu-lhe</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Replied in your thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Respondeu no seu tópico</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reacted %1 to your message</source>
-        <translation type="unfinished"></translation>
+        <translation>Reagiu %1 à sua mensagem</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Invited you</source>
-        <translation type="unfinished"></translation>
+        <translation>Convidou-o</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Keyword</source>
-        <translation type="unfinished"></translation>
+        <translation>Palavra-chave</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Mention or keyword</source>
-        <translation type="unfinished"></translation>
+        <translation>Menção ou palavra-chave</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Activity</source>
-        <translation type="unfinished"></translation>
+        <translation>Atividade</translation>
     </message>
     <message numerus="yes">
         <location line="+10"/>
         <source>%n new</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n nova</numerusform>
+            <numerusform>%n novas</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Mark all seen</source>
-        <translation type="unfinished"></translation>
+        <translation>Marcar tudo como visto</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Close</source>
-        <translation type="unfinished">Fechar</translation>
+        <translation>Fechar</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>All</source>
-        <translation type="unfinished">Todas</translation>
+        <translation>Todas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mentions</source>
-        <translation type="unfinished">Menções</translation>
+        <translation>Menções</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Replies</source>
-        <translation type="unfinished">Respostas</translation>
+        <translation>Respostas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Threads</source>
-        <translation type="unfinished">Tópicos</translation>
+        <translation>Tópicos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reactions</source>
-        <translation type="unfinished"></translation>
+        <translation>Reações</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Invites</source>
-        <translation type="unfinished">Convites</translation>
+        <translation>Convites</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Keywords</source>
-        <translation type="unfinished"></translation>
+        <translation>Palavras-chave</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Keywords, separated by commas</source>
-        <translation type="unfinished"></translation>
+        <translation>Palavras-chave, separadas por vírgulas</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Save</source>
-        <translation type="unfinished">Guardar</translation>
+        <translation>Guardar</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Add keywords above to be told when someone uses them.</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicione palavras-chave acima para ser avisado quando alguém as usar.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No message has used your keywords yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nenhuma mensagem usou as suas palavras-chave ainda.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No pending invites.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não há convites pendentes.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nobody has reacted to your messages yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ninguém reagiu às suas mensagens ainda.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing here yet. Mentions, replies and reactions to you will show up as they arrive.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda não há nada aqui. As menções, respostas e reações a si aparecerão à medida que chegarem.</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>%1 in %2, %3: %4</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 em %2, %3: %4</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>encrypted message</source>
-        <translation type="unfinished"></translation>
+        <translation>mensagem encriptada</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>Encrypted message</source>
-        <translation type="unfinished">Mensagem encriptada</translation>
+        <translation>Mensagem encriptada</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>From %1</source>
-        <translation type="unfinished"></translation>
+        <translation>De %1</translation>
     </message>
 </context>
 <context>
@@ -587,117 +589,117 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/AddWidgetDialog.qml" line="+22"/>
         <source>Web page</source>
-        <translation type="unfinished"></translation>
+        <translation>Página web</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Any https page — a dashboard, a document, a board.</source>
-        <translation type="unfinished"></translation>
+        <translation>Qualquer página https — um painel, um documento, um quadro.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Etherpad pad</source>
-        <translation type="unfinished"></translation>
+        <translation>Bloco Etherpad</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The pad&apos;s own address, e.g. https://pad.example/p/notes</source>
-        <translation type="unfinished"></translation>
+        <translation>O endereço do próprio bloco, p. ex. https://pad.example/p/notes</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Jitsi meeting</source>
-        <translation type="unfinished"></translation>
+        <translation>Reunião Jitsi</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The meeting address, e.g. https://meet.example/room-name. Lightning has its own calls; this is for a room that already uses Jitsi.</source>
-        <translation type="unfinished"></translation>
+        <translation>O endereço da reunião, p. ex. https://meet.example/room-name. O Lightning tem as suas próprias chamadas; isto serve para uma sala que já usa o Jitsi.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Video</source>
-        <translation type="unfinished">Vídeo</translation>
+        <translation>Vídeo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A video page address.</source>
-        <translation type="unfinished"></translation>
+        <translation>Um endereço de página de vídeo.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Image</source>
-        <translation type="unfinished">Imagem</translation>
+        <translation>Imagem</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>An image address (https).</source>
-        <translation type="unfinished"></translation>
+        <translation>Um endereço de imagem (https).</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Grafana dashboard</source>
-        <translation type="unfinished"></translation>
+        <translation>Painel Grafana</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A Grafana dashboard&apos;s share address.</source>
-        <translation type="unfinished"></translation>
+        <translation>O endereço de partilha de um painel Grafana.</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>You do not have permission to add widgets here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem permissão para adicionar widgets aqui.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The widget could not be added.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível adicionar o widget.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Add a widget</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionar um widget</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Kind</source>
-        <translation type="unfinished"></translation>
+        <translation>Tipo</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Address</source>
-        <translation type="unfinished"></translation>
+        <translation>Endereço</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>https://…</source>
-        <translation type="unfinished"></translation>
+        <translation>https://…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The address must start with https:// and carry no username or password.</source>
-        <translation type="unfinished"></translation>
+        <translation>O endereço tem de começar por https:// e não pode conter nome de utilizador nem palavra-passe.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Name (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome (opcional)</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Everyone in the room will see this widget. Lightning opens widgets in your browser, so the page never reaches your account, keys or messages.</source>
-        <translation type="unfinished"></translation>
+        <translation>Todos na sala verão este widget. O Lightning abre os widgets no seu navegador, por isso a página nunca chega à sua conta, às suas chaves nem às suas mensagens.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Add</source>
-        <translation type="unfinished">Adicionar</translation>
+        <translation>Adicionar</translation>
     </message>
 </context>
 <context>
@@ -749,7 +751,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+39"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
-        <translation type="unfinished"></translation>
+        <translation>O fim da sessão foi cancelado porque a conta mudou. Nada foi reposto.</translation>
     </message>
     <message>
         <location line="+63"/>
@@ -832,12 +834,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+139"/>
         <source>The server refused to rename this session.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou mudar o nome desta sessão.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The session could not be renamed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível mudar o nome da sessão.</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -891,17 +893,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="-2237"/>
         <location line="+2353"/>
         <source>Lightning</source>
-        <translation type="unfinished">Lightning</translation>
+        <translation>Lightning</translation>
     </message>
     <message>
         <location line="-2352"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta é uma notificação de teste. Se a conseguir ler, as notificações do ambiente de trabalho funcionam.</translation>
     </message>
     <message>
         <location line="+2353"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Essa notificação era para outra conta, por isso não foi enviada nada. Mude para essa conta e tente novamente.</translation>
     </message>
     <message>
         <location line="+543"/>
@@ -1013,22 +1015,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+305"/>
         <source>No room is open.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nenhuma sala está aberta.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Choose a file on this computer.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha um ficheiro neste computador.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Could not write that file.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível escrever esse ficheiro.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Could not finish writing that file.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível concluir a escrita desse ficheiro.</translation>
     </message>
     <message>
         <location line="+166"/>
@@ -1069,7 +1071,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+31"/>
         <source>Renaming sessions is not available here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mudar o nome de sessões não está disponível aqui.</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -1096,7 +1098,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+175"/>
         <source>The keyring still does not return this account&apos;s saved sign-in.</source>
-        <translation type="unfinished"></translation>
+        <translation>O porta-chaves ainda não devolve o início de sessão guardado desta conta.</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -1106,7 +1108,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+519"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue ler neste momento os inícios de sessão guardados neste dispositivo — o porta-chaves do sistema está bloqueado ou indisponível. As suas outras contas continuam neste dispositivo; desbloqueie o porta-chaves e reinicie o Lightning para continuar com elas.</translation>
     </message>
     <message>
         <location line="+113"/>
@@ -1147,19 +1149,19 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+9"/>
         <source>Your system keyring no longer returns that account&apos;s saved sign-in. Nothing was deleted: sign in to it again to continue on this device.</source>
-        <translation type="unfinished"></translation>
+        <translation>O porta-chaves do sistema já não devolve o início de sessão guardado dessa conta. Nada foi eliminado: volte a iniciar sessão nela para continuar neste dispositivo.</translation>
     </message>
     <message>
         <location line="+281"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta conta não pode ser removida enquanto o porta-chaves do sistema não puder ser lido: o seu início de sessão guardado está lá e ficaria para trás. Desbloqueie o porta-chaves, ou inicie-o, e tente novamente.</translation>
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+377"/>
         <location filename="../src/app/AppController.cpp" line="-1206"/>
         <location line="+935"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue ler neste momento os inícios de sessão guardados neste dispositivo — o porta-chaves do sistema está bloqueado ou indisponível. Desbloqueie-o e tente novamente.</translation>
     </message>
     <message>
         <location filename="../src/app/AppController.cpp" line="+32"/>
@@ -1291,7 +1293,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+163"/>
         <source>The converted picture couldn&apos;t be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível guardar a imagem convertida.</translation>
     </message>
     <message>
         <location line="+67"/>
@@ -1309,7 +1311,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/AudioLevelBar.qml" line="+27"/>
         <source>Microphone level</source>
-        <translation type="unfinished"></translation>
+        <translation>Nível do microfone</translation>
     </message>
 </context>
 <context>
@@ -1368,7 +1370,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+52"/>
         <source>Download %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Transferir %1</translation>
     </message>
     <message>
         <location line="+0"/>
@@ -1381,7 +1383,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../src/auth/AuthManager.cpp" line="+132"/>
         <source>Couldn&apos;t open your web browser. Cancel and try again, or sign in another way.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível abrir o seu navegador. Cancele e tente novamente, ou inicie sessão de outra forma.</translation>
     </message>
     <message>
         <location line="+300"/>
@@ -1391,7 +1393,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+26"/>
         <source>This server does not create accounts from Lightning.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este servidor não cria contas a partir do Lightning.</translation>
     </message>
     <message>
         <location line="+59"/>
@@ -1401,12 +1403,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+53"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue manter uma conta para este servidor neste dispositivo, por isso não abriu o seu navegador.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>That is not a server address. Enter one like matrix.org.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isso não é um endereço de servidor. Introduza um como matrix.org.</translation>
     </message>
 </context>
 <context>
@@ -1414,57 +1416,57 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/BackgroundSyncPrompt.qml" line="+78"/>
         <source>Chat backgrounds on your homeserver</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundos de conversa no seu servidor doméstico</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Two different backgrounds</source>
-        <translation type="unfinished"></translation>
+        <translation>Dois fundos diferentes</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Lightning will now keep your chat backgrounds on your homeserver, encrypted, so they follow you to your other devices. The key to each picture is kept in your account data, which your homeserver&apos;s administrator can read.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning vai passar a guardar os seus fundos de conversa no seu servidor doméstico, encriptados, para que o acompanhem nos seus outros dispositivos. A chave de cada imagem fica guardada nos dados da sua conta, que o administrador do seu servidor doméstico pode ler.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>A different background for every room came from your other device.</source>
-        <translation type="unfinished"></translation>
+        <translation>Veio do seu outro dispositivo um fundo diferente para cada sala.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A different background for %1 came from your other device.</source>
-        <translation type="unfinished"></translation>
+        <translation>Veio do seu outro dispositivo um fundo diferente para %1.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>a room</source>
-        <translation type="unfinished"></translation>
+        <translation>uma sala</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>They look the same.</source>
-        <translation type="unfinished"></translation>
+        <translation>São iguais.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>OK</source>
-        <translation type="unfinished"></translation>
+        <translation>OK</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Use this one</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar este</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Don&apos;t keep them on my homeserver</source>
-        <translation type="unfinished"></translation>
+        <translation>Não as guardar no meu servidor doméstico</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Use the synced one</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar a sincronizada</translation>
     </message>
 </context>
 <context>
@@ -1472,124 +1474,124 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../src/crypto/BackupController.cpp" line="+115"/>
         <source>The approval had already gone through before Cancel took effect, so the change was completed.</source>
-        <translation type="unfinished"></translation>
+        <translation>A aprovação já tinha sido concluída antes de Cancelar fazer efeito, por isso a alteração foi concluída.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The approval page the server sent is not a secure (https) address, so Lightning did not open it and stopped.</source>
-        <translation type="unfinished"></translation>
+        <translation>A página de aprovação enviada pelo servidor não é um endereço seguro (https), por isso o Lightning não a abriu e parou.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server asked for an authentication step Lightning cannot do here. Use your account&apos;s own management page for this change.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor pediu um passo de autenticação que o Lightning não consegue fazer aqui. Use a página de gestão da sua conta para esta alteração.</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>This account already has a cross-signing identity, but this session does not hold its keys and they could not be created again without replacing that identity. Lightning will not replace it automatically. Verify this session with another session, or enter your recovery key; resetting is the last resort.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta conta já tem uma identidade de certificação cruzada, mas esta sessão não tem as suas chaves, e estas não podem ser criadas de novo sem substituir essa identidade. O Lightning não a substitui automaticamente. Verifique esta sessão a partir de outra sessão ou introduza a sua chave de recuperação; repor é o último recurso.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>This account already has a recovery key. Enter it so the new keys are stored with it and it keeps working. If you no longer have it, Lightning can replace it with a new one instead. Nothing was changed yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta conta já tem uma chave de recuperação. Introduza-a para que as novas chaves sejam guardadas com ela e continue a funcionar. Se já não a tiver, o Lightning pode substituí-la por uma nova. Ainda não foi alterado nada.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>That recovery key does not unlock your secret storage. Nothing was changed; check it and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Essa chave de recuperação não desbloqueia o seu armazenamento seguro. Nada foi alterado; verifique-a e tente novamente.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Cancelled. The server did not receive any new keys, so nothing changed on your account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cancelado. O servidor não recebeu novas chaves, por isso nada mudou na sua conta.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Cancelled. The server never accepted the replacement keys, so your account keeps its existing cross-signing identity. The new keys this session had already prepared for the reset were discarded; verify this session with another session or with your recovery key.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cancelado. O servidor nunca aceitou as chaves de substituição, por isso a sua conta mantém a identidade de certificação cruzada existente. As novas chaves que esta sessão tinha preparado para a reposição foram descartadas; verifique esta sessão a partir de outra sessão ou com a sua chave de recuperação.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Cancelled. The server never accepted the replacement keys, so your account keeps its existing cross-signing identity. This session still holds the unused replacement keys until it next checks your identity with the server, which it could not do just now.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cancelado. O servidor nunca aceitou as chaves de substituição, por isso a sua conta mantém a identidade de certificação cruzada existente. Esta sessão ainda guarda as chaves de substituição não utilizadas até voltar a verificar a sua identidade com o servidor, o que não conseguiu fazer agora.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The reset did not go through: the server kept your existing cross-signing identity. The replacement keys this session had already prepared were discarded. Verify this session with another session or with your recovery key, or try the reset again.</source>
-        <translation type="unfinished"></translation>
+        <translation>A reposição não foi concluída: o servidor manteve a sua identidade de certificação cruzada existente. As chaves de substituição que esta sessão já tinha preparado foram descartadas. Verifique esta sessão a partir de outra sessão ou com a sua chave de recuperação, ou tente repor de novo.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The reset did not complete, and Lightning could not confirm with the server what it left behind. Check the state above again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>A reposição não foi concluída, e o Lightning não conseguiu confirmar com o servidor o que deixou para trás. Verifique o estado acima de novo dentro de momentos.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your cross-signing identity was replaced, but the reset did not finish. Use &quot;Finish setting up&quot; to complete it.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua identidade de certificação cruzada foi substituída, mas a reposição não terminou. Use «Concluir configuração» para a completar.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The server accepted your new cross-signing identity, but this session lost its keys while the reset was waiting for your approval, so nobody holds them and the new identity cannot verify anything. Nothing is fixed by waiting: run &quot;Reset&quot; again.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor aceitou a sua nova identidade de certificação cruzada, mas esta sessão perdeu as suas chaves enquanto a reposição aguardava a sua aprovação, por isso ninguém as tem e a nova identidade não consegue verificar nada. Esperar não resolve nada: execute «Repor» novamente.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Cross-signing is set up on your account, but this session could not be signed with it yet. Use &quot;Finish setting up&quot; in a moment to sign it.</source>
-        <translation type="unfinished"></translation>
+        <translation>A certificação cruzada está configurada na sua conta, mas esta sessão ainda não foi assinada com ela. Use «Concluir configuração» dentro de momentos para a assinar.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your account has a key backup but no secret storage, and Lightning cannot store the new keys alongside a backup it cannot open. Nothing was changed. If you have that backup&apos;s recovery key, restore it first. If you don&apos;t, the last resort is &quot;Delete backup&quot;: messages whose keys exist only in that backup then become unreadable on every new session, for good. Set up cross-signing again after that.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua conta tem uma cópia de segurança de chaves mas não tem armazenamento seguro, e o Lightning não consegue guardar as novas chaves junto de uma cópia de segurança que não consegue abrir. Nada foi alterado. Se tiver a chave de recuperação dessa cópia, restaure-a primeiro. Se não a tiver, o último recurso é «Eliminar cópia de segurança»: as mensagens cujas chaves existam apenas nessa cópia deixam de poder ser lidas, em todas as novas sessões, para sempre. Configure novamente a certificação cruzada depois disso.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Lightning could not confirm whether the reset was stopped before the server accepted it. Check the state above again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu confirmar se a reposição foi interrompida antes de o servidor a aceitar. Verifique o estado acima de novo dentro de momentos.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The approval was not given in time. The server did not receive the new keys; try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>A aprovação não foi dada a tempo. O servidor não recebeu as novas chaves; tente novamente.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning could not tell whether secret storage is set up yet. Wait a moment and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu determinar se o armazenamento seguro já está configurado. Aguarde um momento e tente novamente.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The server refused this backup change.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou esta alteração à cópia de segurança.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The backup change did not complete. Some of it may already have been applied — check the state above.</source>
-        <translation type="unfinished"></translation>
+        <translation>A alteração à cópia de segurança não foi concluída. Parte dela pode já ter sido aplicada — verifique o estado acima.</translation>
     </message>
     <message>
         <location line="+18"/>
         <location line="+27"/>
         <source>Unknown backup action.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ação de cópia de segurança desconhecida.</translation>
     </message>
     <message>
         <location line="-17"/>
         <location line="+35"/>
         <source>Backup management is not available on this backend.</source>
-        <translation type="unfinished"></translation>
+        <translation>A gestão de cópias de segurança não está disponível neste backend.</translation>
     </message>
     <message>
         <location line="-12"/>
         <source>Use either your current recovery key or a new one, not both.</source>
-        <translation type="unfinished"></translation>
+        <translation>Use a sua chave de recuperação atual ou uma nova, não ambas.</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>The password could not be sent. Try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível enviar a palavra-passe. Tente novamente.</translation>
     </message>
 </context>
 <context>
@@ -1635,83 +1637,83 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+12"/>
         <source>Your chosen camera isn&apos;t connected</source>
-        <translation type="unfinished"></translation>
+        <translation>A câmara escolhida não está ligada</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Input level</source>
-        <translation type="unfinished"></translation>
+        <translation>Nível de entrada</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Muted</source>
-        <translation type="unfinished">Silenciada</translation>
+        <translation>Silenciado</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Nothing heard</source>
-        <translation type="unfinished"></translation>
+        <translation>Não se ouve nada</translation>
     </message>
     <message>
         <location line="+59"/>
         <location line="+29"/>
         <source>Input volume</source>
-        <translation type="unfinished"></translation>
+        <translation>Volume de entrada</translation>
     </message>
     <message>
         <location line="+56"/>
         <source>Above 100% amplifies and can clip.</source>
-        <translation type="unfinished"></translation>
+        <translation>Acima de 100% amplifica e pode provocar distorção.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Reset input volume</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor volume de entrada</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Noise suppression</source>
-        <translation type="unfinished"></translation>
+        <translation>Supressão de ruído</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Off</source>
-        <translation type="unfinished">Desligado</translation>
+        <translation>Desligada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Standard (WebRTC)</source>
-        <translation type="unfinished"></translation>
+        <translation>Padrão (WebRTC)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Strong (RNNoise) · Recommended</source>
-        <translation type="unfinished"></translation>
+        <translation>Forte (RNNoise) · Recomendada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Advanced (DeepFilterNet)</source>
-        <translation type="unfinished"></translation>
+        <translation>Avançada (DeepFilterNet)</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>%1 couldn&apos;t start; using WebRTC instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível iniciar %1; a usar o WebRTC.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 couldn&apos;t start; your microphone is sent without it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível iniciar %1; o seu microfone é enviado sem ela.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>More about these in Settings → Labs…</source>
-        <translation type="unfinished"></translation>
+        <translation>Mais sobre estas em Definições → Laboratório…</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Sound settings…</source>
-        <translation type="unfinished"></translation>
+        <translation>Definições de som…</translation>
     </message>
 </context>
 <context>
@@ -1719,7 +1721,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallDeviceSettings.qml" line="+74"/>
         <source>Chosen camera not connected</source>
-        <translation type="unfinished"></translation>
+        <translation>Câmara escolhida não ligada</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -1765,77 +1767,77 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+30"/>
         <source>This build of Lightning has no call media engine, so it can&apos;t test audio devices.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta versão do Lightning não tem motor de multimédia de chamadas, por isso não consegue testar dispositivos de áudio.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Audio devices can&apos;t be tested: the call media engine didn&apos;t start on this computer.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não é possível testar dispositivos de áudio: o motor de multimédia de chamadas não iniciou neste computador.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Not available during a call. In a call, the menu next to the microphone button shows your level.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não disponível durante uma chamada. Numa chamada, o menu ao lado do botão do microfone mostra o seu nível.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The microphone couldn&apos;t be opened. Check that it&apos;s connected and that Lightning may use it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível abrir o microfone. Verifique se está ligado e se o Lightning pode usá-lo.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The output device couldn&apos;t be opened.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível abrir o dispositivo de saída.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This build can&apos;t measure the microphone level.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta versão não consegue medir o nível do microfone.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The audio test couldn&apos;t start.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível iniciar o teste de áudio.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not available during a call.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não disponível durante uma chamada.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Microphone test</source>
-        <translation type="unfinished"></translation>
+        <translation>Teste do microfone</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Say something: the bar shows what others would get, and you&apos;ll hear yourself through the output device below. Use headphones, or the microphone hears the playback and echoes.</source>
-        <translation type="unfinished"></translation>
+        <translation>Diga algo: a barra mostra o que os outros receberiam, e ouvir-se-á através do dispositivo de saída abaixo. Use auscultadores, ou o microfone capta a reprodução e cria eco.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Say something: the bar shows what others would get.</source>
-        <translation type="unfinished"></translation>
+        <translation>Diga algo: a barra mostra o que os outros receberiam.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Stop testing</source>
-        <translation type="unfinished"></translation>
+        <translation>Parar o teste</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Test microphone</source>
-        <translation type="unfinished"></translation>
+        <translation>Testar microfone</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Hear yourself</source>
-        <translation type="unfinished"></translation>
+        <translation>Ouvir-se</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Stops in %1 s</source>
-        <translation type="unfinished"></translation>
+        <translation>Para em %1 s</translation>
     </message>
     <message>
         <location line="+19"/>
@@ -1845,12 +1847,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+23"/>
         <source>Playing…</source>
-        <translation type="unfinished"></translation>
+        <translation>A reproduzir…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Play test sound</source>
-        <translation type="unfinished"></translation>
+        <translation>Reproduzir som de teste</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -1860,7 +1862,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+17"/>
         <source>Your desktop chooses the camera when you turn it on in a call.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu ambiente de trabalho escolhe a câmara quando a ativa numa chamada.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -1870,22 +1872,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+14"/>
         <source>Your chosen camera isn&apos;t connected, so calls turn on no camera until it&apos;s back or you choose another.</source>
-        <translation type="unfinished"></translation>
+        <translation>A câmara escolhida não está ligada, por isso as chamadas não ativam nenhuma câmara até ela voltar ou até escolher outra.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Float the call when Lightning is minimised</source>
-        <translation type="unfinished"></translation>
+        <translation>Flutuar a chamada quando o Lightning está minimizado</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>A small always-on-top window with the call&apos;s video and its controls. It appears only while Lightning is minimised or in the tray, and goes away when the window comes back. You can also pop it out at any time from the call controls.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma pequena janela sempre no topo com o vídeo da chamada e os seus controlos. Aparece apenas quando o Lightning está minimizado ou na bandeja, e desaparece quando a janela volta. Também pode destacá-la a qualquer momento a partir dos controlos da chamada.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Devices belong to this computer, not to your account. The microphone level belongs to your account. A change applies to your next call; during a call you can switch from the controls at the top of the conversation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os dispositivos pertencem a este computador, não à sua conta. O nível do microfone pertence à sua conta. Uma alteração aplica-se à sua próxima chamada; durante uma chamada pode mudar a partir dos controlos no topo da conversa.</translation>
     </message>
 </context>
 <context>
@@ -1893,47 +1895,47 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallEventDelegate.qml" line="+94"/>
         <source>This build can&apos;t join Matrix calls</source>
-        <translation type="unfinished">Esta compilação não pode ingressar em chamadas Matrix</translation>
+        <translation>Esta versão não consegue entrar em chamadas Matrix</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Checking whether calling is available…</source>
-        <translation type="unfinished">Verificando se a chamada está disponível…</translation>
+        <translation>A verificar se as chamadas estão disponíveis…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No MatrixRTC service on this homeserver</source>
-        <translation type="unfinished">Nenhum serviço MatrixRTC neste servidor doméstico</translation>
+        <translation>Nenhum serviço MatrixRTC neste servidor doméstico</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Couldn&apos;t check whether calling is available</source>
-        <translation type="unfinished">Não foi possível verificar se a chamada está disponível</translation>
+        <translation>Não foi possível verificar se as chamadas estão disponíveis</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This call has ended</source>
-        <translation type="unfinished">Esta chamada terminou</translation>
+        <translation>Esta chamada terminou</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Joining calls isn&apos;t supported yet in this build</source>
-        <translation type="unfinished">Participar de chamadas ainda não é compatível com esta versão</translation>
+        <translation>Entrar em chamadas ainda não é suportado nesta versão</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You can&apos;t join calls in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Não pode entrar em chamadas nesta sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala está encriptada, e as chamadas encriptadas não estão disponíveis nesta versão</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Joining isn&apos;t available</source>
-        <translation type="unfinished">A adesão não está disponível</translation>
+        <translation>Entrar não está disponível</translation>
     </message>
     <message>
         <location line="+158"/>
@@ -2038,32 +2040,32 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+22"/>
         <source>Send a reaction</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar uma reação</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Thumbs up</source>
-        <translation type="unfinished"></translation>
+        <translation>Polegar para cima</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Party</source>
-        <translation type="unfinished"></translation>
+        <translation>Festa</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Applause</source>
-        <translation type="unfinished"></translation>
+        <translation>Aplausos</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Dog</source>
-        <translation type="unfinished"></translation>
+        <translation>Cão</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Cat</source>
-        <translation type="unfinished"></translation>
+        <translation>Gato</translation>
     </message>
     <message>
         <location line="+66"/>
@@ -2078,7 +2080,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+20"/>
         <source>Pop the call out into a floating window</source>
-        <translation type="unfinished"></translation>
+        <translation>Destacar a chamada numa janela flutuante</translation>
     </message>
     <message>
         <location line="-359"/>
@@ -2146,7 +2148,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+2"/>
         <source>Reacted with %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Reagiu com %1</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -2180,60 +2182,60 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallPipWindow.qml" line="+117"/>
         <source>Lightning call</source>
-        <translation type="unfinished"></translation>
+        <translation>Chamada do Lightning</translation>
     </message>
     <message>
         <location line="+130"/>
         <source>Call in progress</source>
-        <translation type="unfinished"></translation>
+        <translation>Chamada em curso</translation>
     </message>
     <message numerus="yes">
         <location line="+10"/>
         <source>%n participant(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n participante</numerusform>
+            <numerusform>%n participantes</numerusform>
         </translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Unmute microphone</source>
-        <translation type="unfinished">Ativar microfone</translation>
+        <translation>Ativar microfone</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mute microphone</source>
-        <translation type="unfinished">Microfone mudo</translation>
+        <translation>Silenciar microfone</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Undeafen</source>
-        <translation type="unfinished">Não surdo</translation>
+        <translation>Ativar som</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Deafen</source>
-        <translation type="unfinished">Ensurdecer</translation>
+        <translation>Silenciar som</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Show everyone again</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar todos outra vez</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Fill this window with the share</source>
-        <translation type="unfinished"></translation>
+        <translation>Preencher esta janela com a partilha</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Back to Lightning</source>
-        <translation type="unfinished"></translation>
+        <translation>Voltar ao Lightning</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Leave the call</source>
-        <translation type="unfinished"></translation>
+        <translation>Sair da chamada</translation>
     </message>
 </context>
 <context>
@@ -2241,12 +2243,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallQualitySettings.qml" line="+72"/>
         <source>Quality</source>
-        <translation type="unfinished">Qualidade</translation>
+        <translation>Qualidade</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Camera resolution</source>
-        <translation type="unfinished"></translation>
+        <translation>Resolução da câmara</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -2254,129 +2256,129 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+12"/>
         <location line="+11"/>
         <source>Auto</source>
-        <translation type="unfinished"></translation>
+        <translation>Automática</translation>
     </message>
     <message>
         <location line="-34"/>
         <source>360p</source>
-        <translation type="unfinished"></translation>
+        <translation>360p</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>480p</source>
-        <translation type="unfinished"></translation>
+        <translation>480p</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+10"/>
         <source>720p</source>
-        <translation type="unfinished">720p</translation>
+        <translation>720p</translation>
     </message>
     <message>
         <location line="-9"/>
         <location line="+10"/>
         <source>1080p</source>
-        <translation type="unfinished">1080p</translation>
+        <translation>1080p</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Screen share resolution</source>
-        <translation type="unfinished">Resolução de compartilhamento de tela</translation>
+        <translation>Resolução da partilha de ecrã</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>1440p</source>
-        <translation type="unfinished">1440p</translation>
+        <translation>1440p</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>4K</source>
-        <translation type="unfinished">4K</translation>
+        <translation>4K</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Screen share frame rate</source>
-        <translation type="unfinished">Taxa de quadros de compartilhamento de tela</translation>
+        <translation>Taxa de fotogramas da partilha de ecrã</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>15 fps</source>
-        <translation type="unfinished">15fps</translation>
+        <translation>15 fps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>30 fps</source>
-        <translation type="unfinished">30fps</translation>
+        <translation>30 fps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>60 fps</source>
-        <translation type="unfinished">60fps</translation>
+        <translation>60 fps</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Screen share bitrate limit</source>
-        <translation type="unfinished"></translation>
+        <translation>Limite de débito da partilha de ecrã</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>0.5 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>0,5 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>1 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>1 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>2 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>2 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>3 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>3 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>4.5 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>4,5 Mbps</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This resolution and frame rate ask a lot of your computer and may stutter.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta resolução e taxa de fotogramas exigem muito do seu computador e podem falhar.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. Changes apply to the next camera or share you start.</source>
-        <translation type="unfinished"></translation>
+        <translation>Automática é 720p para a câmara e 1080p a 30 fps para a partilha de ecrã. Um limite de débito só reduz a qualidade da partilha, o que ajuda numa ligação lenta. As alterações aplicam-se à próxima câmara ou partilha que iniciar.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Microphone processing</source>
-        <translation type="unfinished"></translation>
+        <translation>Processamento do microfone</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Automatic gain control</source>
-        <translation type="unfinished"></translation>
+        <translation>Controlo automático de ganho</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Lifts a quiet microphone and evens out loud and soft speech. Turn it off if you set your level by hand.</source>
-        <translation type="unfinished"></translation>
+        <translation>Aumenta um microfone baixo e uniformiza a voz alta e baixa. Desligue se ajustar o nível manualmente.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Echo cancellation</source>
-        <translation type="unfinished"></translation>
+        <translation>Cancelamento de eco</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Removes your callers&apos; voices from your microphone when you use speakers. Headphones do not need it. It needs the WebRTC audio component and is new: with several people in a call it may cancel only some of them. Both apply to your next call.</source>
-        <translation type="unfinished"></translation>
+        <translation>Remove as vozes dos seus interlocutores do microfone quando usa altifalantes. Com auscultadores não é necessário. Requer o componente de áudio WebRTC e é novo: com várias pessoas numa chamada pode cancelar apenas algumas delas. Ambas se aplicam à sua próxima chamada.</translation>
     </message>
 </context>
 <context>
@@ -2384,22 +2386,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallShareOptionsMenu.qml" line="+50"/>
         <source>Screen share sound</source>
-        <translation type="unfinished"></translation>
+        <translation>Som da partilha de ecrã</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>No sound</source>
-        <translation type="unfinished"></translation>
+        <translation>Sem som</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Entire system</source>
-        <translation type="unfinished"></translation>
+        <translation>Sistema inteiro</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Choose apps…</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolher aplicações…</translation>
     </message>
     <message>
         <location line="+35"/>
@@ -2411,7 +2413,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+25"/>
         <location line="+29"/>
         <source>Auto</source>
-        <translation type="unfinished"></translation>
+        <translation>Automático</translation>
     </message>
     <message>
         <location line="-53"/>
@@ -2461,32 +2463,32 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+12"/>
         <source>Bitrate limit</source>
-        <translation type="unfinished"></translation>
+        <translation>Limite de débito</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>0.5 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>0,5 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>1 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>1 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>2 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>2 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>3 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>3 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>4.5 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>4,5 Mbps</translation>
     </message>
 </context>
 <context>
@@ -2576,17 +2578,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+22"/>
         <source>This call is encrypted, but media from someone here cannot be decrypted and is being dropped. You will not hear or see them.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta chamada está encriptada, mas a multimédia de alguém aqui não pode ser desencriptada e está a ser descartada. Não o ouvirá nem o verá.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This call is end-to-end encrypted.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta chamada está encriptada ponta a ponta.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Your microphone is not picking anything up, so nobody here can hear you. Check which microphone is selected in call settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu microfone não está a captar nada, por isso ninguém aqui o consegue ouvir. Verifique qual o microfone selecionado nas definições de chamada.</translation>
     </message>
     <message>
         <location line="+131"/>
@@ -2611,7 +2613,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+42"/>
         <source>Video can&apos;t be shown on this computer — there is no working graphics acceleration, so cameras and shared screens won&apos;t appear. Audio is unaffected.</source>
-        <translation type="unfinished"></translation>
+        <translation>O vídeo não pode ser mostrado neste computador — não há aceleração gráfica a funcionar, por isso as câmaras e os ecrãs partilhados não aparecem. O áudio não é afetado.</translation>
     </message>
     <message>
         <location line="+118"/>
@@ -2650,85 +2652,85 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location filename="../qml/ChangePasswordSection.qml" line="+99"/>
         <location line="+135"/>
         <source>Change password</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar palavra-passe</translation>
     </message>
     <message>
         <location line="-115"/>
         <location line="+1"/>
         <source>Current password</source>
-        <translation type="unfinished"></translation>
+        <translation>Palavra-passe atual</translation>
     </message>
     <message>
         <location line="+12"/>
         <location line="+2"/>
         <source>New password</source>
-        <translation type="unfinished"></translation>
+        <translation>Nova palavra-passe</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>Too short: use at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Demasiado curta: use pelo menos %1 caracteres.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Weak</source>
-        <translation type="unfinished"></translation>
+        <translation>Fraca</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Fair</source>
-        <translation type="unfinished"></translation>
+        <translation>Razoável</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Strong</source>
-        <translation type="unfinished"></translation>
+        <translation>Forte</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+2"/>
         <source>Confirm new password</source>
-        <translation type="unfinished"></translation>
+        <translation>Confirmar a nova palavra-passe</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Passwords don&apos;t match</source>
-        <translation type="unfinished"></translation>
+        <translation>As palavras-passe não coincidem</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Sign out of all other devices</source>
-        <translation type="unfinished"></translation>
+        <translation>Terminar sessão em todos os outros dispositivos</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Signed-out devices lose the encryption keys stored on them. Set up your recovery key first if you want to keep your encrypted history.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os dispositivos com sessão terminada perdem as chaves de encriptação guardadas neles. Configure primeiro a sua chave de recuperação se quiser manter o seu histórico encriptado.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Changing…</source>
-        <translation type="unfinished"></translation>
+        <translation>A alterar…</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Your server does not allow changing the password here.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor não permite alterar a palavra-passe aqui.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Your password is managed by your account provider.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua palavra-passe é gerida pelo seu fornecedor de conta.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your password is managed by your account provider. Change it on its account page.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua palavra-passe é gerida pelo seu fornecedor de conta. Altere-a na página da sua conta.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Manage account</source>
-        <translation type="unfinished"></translation>
+        <translation>Gerir conta</translation>
     </message>
 </context>
 <context>
@@ -2771,7 +2773,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+100"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+101"/>
         <source>%1, invitation</source>
         <translation>%1, convite</translation>
     </message>
@@ -2784,13 +2786,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+3"/>
         <source>%1, mention in a thread</source>
         <comment>channel row</comment>
-        <translation type="unfinished"></translation>
+        <translation>%1, menção num tópico</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1, unread in a thread</source>
         <comment>channel row</comment>
-        <translation type="unfinished"></translation>
+        <translation>%1, não lida num tópico</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -2805,12 +2807,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+163"/>
         <source>Remove from favourites</source>
-        <translation type="unfinished">Remover dos favoritos</translation>
+        <translation>Remover dos favoritos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Add to favourites</source>
-        <translation type="unfinished">Adicionar aos favoritos</translation>
+        <translation>Adicionar aos favoritos</translation>
     </message>
 </context>
 <context>
@@ -2836,37 +2838,37 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/ChatBackgroundDialog.qml" line="+47"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Chat background for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa para %1</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Chat backgrounds aren&apos;t available with this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os fundos de conversa não estão disponíveis com esta conta.</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Shown behind every conversation, only to you. A room can still have a background of its own.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrado por trás de todas as conversas, apenas para si. Uma sala pode ainda ter um fundo próprio.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Pick a picture, adjust it, then Apply. Colours and gradients for the whole window are themes.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha uma imagem, ajuste-a e depois clique em Aplicar. As cores e gradientes de toda a janela são temas.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>One picture for every room…</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma imagem para todas as salas…</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Themes, colours and gradients…</source>
-        <translation type="unfinished"></translation>
+        <translation>Temas, cores e gradientes…</translation>
     </message>
 </context>
 <context>
@@ -2874,328 +2876,328 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/ChatBackgroundEditor.qml" line="+185"/>
         <source>That file is not a picture Lightning can use (PNG, JPEG, WebP, GIF or BMP).</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse ficheiro não é uma imagem que o Lightning consiga usar (PNG, JPEG, WebP, GIF ou BMP).</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file is too large to use (over 64 MB).</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse ficheiro é demasiado grande para ser usado (mais de 64 MB).</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That picture is damaged or in a format this computer cannot open.</source>
-        <translation type="unfinished"></translation>
+        <translation>Essa imagem está danificada ou num formato que este computador não consegue abrir.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file could not be opened.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível abrir esse ficheiro.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning could not convert that picture. Try another one.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu converter essa imagem. Experimente outra.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Choose a picture first.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha primeiro uma imagem.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning could not stage the picture for upload: the temporary folder is not writable.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu preparar a imagem para envio: a pasta temporária não é gravável.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The converted picture is still too large to upload (over 16 MB). Try a smaller one.</source>
-        <translation type="unfinished"></translation>
+        <translation>A imagem convertida continua demasiado grande para enviar (mais de 16 MB). Experimente uma mais pequena.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning could not build a valid background from these settings. Please report this.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu criar um fundo válido com estas definições. Por favor, comunique isto.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You are no longer in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Já não está nesta sala.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your session has ended. Sign in again, then retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua sessão terminou. Inicie sessão novamente e tente de novo.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning could not start the upload. Please report this if it keeps happening.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu iniciar o envio. Por favor, comunique isto se continuar a acontecer.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>You are not allowed to change this background: your power level in this room is too low.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem permissão para alterar este fundo: o seu nível de permissão nesta sala é demasiado baixo.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server is limiting requests. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor está a limitar os pedidos. Tente novamente dentro de momentos.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server refused the picture because it is larger than it accepts.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou a imagem porque é maior do que aceita.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server refused the background&apos;s data. Please report this: it is a Lightning bug.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou os dados do fundo. Por favor, comunique isto: é um erro do Lightning.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server had a problem saving the background. Try again later.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor teve um problema ao guardar o fundo. Tente mais tarde.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server refused the background.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou o fundo.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server took too long to answer. Try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor demorou demasiado a responder. Tente novamente.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Could not reach the server. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível contactar o servidor. Verifique a sua ligação e tente novamente.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Sign in to keep your own backgrounds.</source>
-        <translation type="unfinished"></translation>
+        <translation>Inicie sessão para manter os seus próprios fundos.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Pictures from encrypted rooms cannot be used as a background.</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens de salas encriptadas não podem ser usadas como fundo.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>You have your own background in too many rooms. Remove one first.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tem um fundo próprio em demasiadas salas. Remova primeiro um.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The background could not be saved (%1).</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível guardar o fundo (%1).</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Background</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Everyone here</source>
-        <translation type="unfinished"></translation>
+        <translation>Todos aqui</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Only me</source>
-        <translation type="unfinished"></translation>
+        <translation>Só eu</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Background preview</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-visualização do fundo</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Messages stay readable on top of it.</source>
-        <translation type="unfinished"></translation>
+        <translation>As mensagens continuam legíveis por cima dele.</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>No background</source>
-        <translation type="unfinished"></translation>
+        <translation>Sem fundo</translation>
     </message>
     <message>
         <location line="-26"/>
         <source>Lightning dims the picture as much as this theme needs.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning escurece a imagem tanto quanto este tema precisar.</translation>
     </message>
     <message>
         <location line="+65"/>
         <source>Only people allowed to change this space&apos;s settings can set its background.</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas as pessoas autorizadas a alterar as definições deste espaço podem definir o seu fundo.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Only people allowed to change this room&apos;s settings can set a background everyone sees. You can still choose one just for yourself.</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas as pessoas autorizadas a alterar as definições desta sala podem definir um fundo que todos vejam. Ainda pode escolher um só para si.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>A newer version of Lightning set this background, so it is not shown here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma versão mais recente do Lightning definiu este fundo, por isso não é mostrado aqui.</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Everyone here sees the room&apos;s picture. You chose your own picture for this room under &quot;Only me&quot;, so on this account you see yours instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Todos aqui veem a imagem da sala. Escolheu a sua própria imagem para esta sala em «Só eu», por isso nesta conta vê a sua.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Use the room&apos;s picture instead</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar antes a imagem da sala</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Everyone in this space sees this picture behind its rooms, unless a room has its own. It is stored on the homeserver unencrypted.</source>
-        <translation type="unfinished"></translation>
+        <translation>Todos neste espaço veem esta imagem por trás das suas salas, a não ser que uma sala tenha a sua própria. É guardada no servidor doméstico sem encriptação.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Room backgrounds are not end-to-end encrypted: everyone here sees this picture, and so can the homeserver, even though this room&apos;s messages are encrypted.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os fundos das salas não são encriptados ponta a ponta: todos aqui veem esta imagem, e o servidor doméstico também pode vê-la, mesmo que as mensagens desta sala estejam encriptadas.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Everyone here sees this picture in Lightning. Other apps ignore it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Todos aqui veem esta imagem no Lightning. As outras aplicações ignoram-na.</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Change picture…</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar imagem…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Choose picture…</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolher imagem…</translation>
     </message>
     <message>
         <location line="-31"/>
         <source>Apply</source>
-        <translation type="unfinished"></translation>
+        <translation>Aplicar</translation>
     </message>
     <message>
         <location line="-129"/>
         <source>Click to choose a picture</source>
-        <translation type="unfinished"></translation>
+        <translation>Clique para escolher uma imagem</translation>
     </message>
     <message>
         <location line="+147"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Remove</source>
-        <translation type="unfinished">Remover</translation>
+        <translation>Remover</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Dim</source>
-        <translation type="unfinished"></translation>
+        <translation>Escurecer</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Dim the picture</source>
-        <translation type="unfinished"></translation>
+        <translation>Escurecer a imagem</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Blur</source>
-        <translation type="unfinished"></translation>
+        <translation>Desfocar</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Blur the picture</source>
-        <translation type="unfinished"></translation>
+        <translation>Desfocar a imagem</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Blur is off on this computer because it is drawing without graphics acceleration.</source>
-        <translation type="unfinished"></translation>
+        <translation>O desfoque está desligado neste computador porque desenha sem aceleração gráfica.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Tint</source>
-        <translation type="unfinished"></translation>
+        <translation>Tingir</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Tint the theme with the picture&apos;s colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Tingir o tema com a cor da imagem</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Size</source>
-        <translation type="unfinished"></translation>
+        <translation>Tamanho</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Fill</source>
-        <translation type="unfinished"></translation>
+        <translation>Preencher</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Fit</source>
-        <translation type="unfinished"></translation>
+        <translation>Ajustar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Tile</source>
-        <translation type="unfinished"></translation>
+        <translation>Mosaico</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Position</source>
-        <translation type="unfinished"></translation>
+        <translation>Posição</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Centre</source>
-        <translation type="unfinished"></translation>
+        <translation>Centro</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Top</source>
-        <translation type="unfinished"></translation>
+        <translation>Topo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Bottom</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Hide backgrounds others set for this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Ocultar os fundos que outros definiram para esta sala</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Converting the SVG to a picture…</source>
-        <translation type="unfinished"></translation>
+        <translation>A converter o SVG para imagem…</translation>
     </message>
     <message>
         <location line="-394"/>
         <location line="+414"/>
         <source>Choose a background picture</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha uma imagem de fundo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
 </context>
 <context>
@@ -3203,207 +3205,207 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/ChatBackgroundSettings.qml" line="+49"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A picture behind every conversation. Only you see it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma imagem por trás de todas as conversas. Só a vê você.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>For one room only, or a picture everyone in a room or space sees: choose Chat background… from the room&apos;s ⋮ menu or right-click the room in the list.</source>
-        <translation type="unfinished"></translation>
+        <translation>Para uma só sala, ou uma imagem que todos numa sala ou espaço veem: escolha Fundo da conversa… no menu ⋮ da sala ou clique com o botão direito na sala na lista.</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>the server is limiting requests</source>
-        <translation type="unfinished"></translation>
+        <translation>o servidor está a limitar os pedidos</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>the server could not be reached</source>
-        <translation type="unfinished"></translation>
+        <translation>não foi possível contactar o servidor</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>a picture is too large for the server</source>
-        <translation type="unfinished"></translation>
+        <translation>a imagem é demasiado grande para o servidor</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>the server refused it</source>
-        <translation type="unfinished"></translation>
+        <translation>o servidor recusou</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>a newer version of Lightning saved it</source>
-        <translation type="unfinished"></translation>
+        <translation>uma versão mais recente do Lightning guardou-o</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>it was turned off on another device</source>
-        <translation type="unfinished"></translation>
+        <translation>foi desligado noutro dispositivo</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>you have your own background in too many rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>tem um fundo próprio em demasiadas salas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>your homeserver could not be read</source>
-        <translation type="unfinished"></translation>
+        <translation>não foi possível ler o seu servidor doméstico</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>a saved picture could not be used</source>
-        <translation type="unfinished"></translation>
+        <translation>não foi possível usar uma imagem guardada</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>error: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>erro: %1</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Keep my backgrounds on my homeserver</source>
-        <translation type="unfinished"></translation>
+        <translation>Manter os meus fundos no meu servidor doméstico</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Your own backgrounds then follow you to your other devices and come back when you sign in again. The server stores each picture encrypted, but the key is kept in your account data, which your homeserver&apos;s administrator can read.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os seus próprios fundos passam então a acompanhá-lo nos seus outros dispositivos e voltam quando voltar a iniciar sessão. O servidor guarda cada imagem encriptada, mas a chave fica nos dados da sua conta, que o administrador do seu servidor doméstico pode ler.</translation>
     </message>
     <message numerus="yes">
         <location line="+27"/>
         <source>Saving %n background(s) on your homeserver…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>A guardar %n fundo no seu servidor doméstico…</numerusform>
+            <numerusform>A guardar %n fundos no seu servidor doméstico…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Fetching %n background(s) from your homeserver…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>A obter %n fundo do seu servidor doméstico…</numerusform>
+            <numerusform>A obter %n fundos do seu servidor doméstico…</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Checking your homeserver…</source>
-        <translation type="unfinished"></translation>
+        <translation>A verificar o seu servidor doméstico…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Removing your backgrounds from your homeserver…</source>
-        <translation type="unfinished"></translation>
+        <translation>A remover os seus fundos do seu servidor doméstico…</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n background(s) could not be saved on or fetched from your homeserver (%1).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n fundo não pôde ser guardado no seu servidor doméstico ou obtido dele (%1).</numerusform>
+            <numerusform>%n fundos não puderam ser guardados no seu servidor doméstico ou obtidos dele (%1).</numerusform>
         </translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Removed from your homeserver. Your other devices keep their own copies until you remove them there. The encrypted pictures already uploaded stay in its media storage, which offers no way to delete them; without the key they cannot be viewed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Removidos do seu servidor doméstico. Os seus outros dispositivos mantêm as próprias cópias até as remover lá. As imagens encriptadas já enviadas permanecem no armazenamento de multimédia do servidor, que não oferece forma de as eliminar; sem a chave não podem ser vistas.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>%1 removed from your homeserver, %2 could not be (a room you left, or saved by a newer Lightning). Your other devices keep their own copies.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 removidos do seu servidor doméstico, %2 não puderam ser (uma sala que deixou, ou guardada por uma versão mais recente do Lightning). Os seus outros dispositivos mantêm as próprias cópias.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Nothing could be removed from your homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada pôde ser removido do seu servidor doméstico.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Off on this device, but your homeserver could not be told yet (%1); Lightning keeps trying.</source>
-        <translation type="unfinished"></translation>
+        <translation>Desligado neste dispositivo, mas o servidor doméstico ainda não foi informado (%1); o Lightning continua a tentar.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your backgrounds stay on this device only, and are deleted when you sign out. This applies to all your devices. Turning it on again puts the pictures this device has back on your homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os seus fundos ficam apenas neste dispositivo e são eliminados quando terminar a sessão. Isto aplica-se a todos os seus dispositivos. Se o ligar de novo, as imagens deste dispositivo voltam ao seu servidor doméstico.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Retry</source>
-        <translation type="unfinished">Tentar novamente</translation>
+        <translation>Tentar novamente</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Retry removal</source>
-        <translation type="unfinished"></translation>
+        <translation>Tentar remover novamente</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Stop keeping backgrounds on your homeserver?</source>
-        <translation type="unfinished"></translation>
+        <translation>Deixar de manter os fundos no seu servidor doméstico?</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This turns it off on all your devices. Your backgrounds stay on this device until you sign out. You can also remove the copies on your homeserver; your other devices keep the pictures they already have until you remove them there. The encrypted pictures themselves cannot be deleted from the server&apos;s media storage, but without the key they cannot be viewed. Turning it on again later puts each device&apos;s pictures back on your homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto desliga-o em todos os seus dispositivos. Os seus fundos ficam neste dispositivo até terminar a sessão. Também pode remover as cópias no seu servidor doméstico; os seus outros dispositivos mantêm as imagens que já têm até as remover lá. As próprias imagens encriptadas não podem ser eliminadas do armazenamento de multimédia do servidor, mas sem a chave não podem ser vistas. Se o voltar a ligar mais tarde, as imagens de cada dispositivo voltam ao seu servidor doméstico.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Keep server copies</source>
-        <translation type="unfinished"></translation>
+        <translation>Manter as cópias do servidor</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Remove server copies</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover as cópias do servidor</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Show backgrounds set by others</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar os fundos definidos por outros</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Rooms and spaces can share a picture with everyone in them. Turn this off to see only your own.</source>
-        <translation type="unfinished"></translation>
+        <translation>Salas e espaços podem partilhar uma imagem com todos neles. Desligue para ver apenas a sua.</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+8"/>
         <source>Depth</source>
-        <translation type="unfinished"></translation>
+        <translation>Profundidade</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>Flat</source>
-        <translation type="unfinished"></translation>
+        <translation>Plano</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Depth gives the conversation, the room list and the spaces rail a soft light-from-above shading. Text never gets harder to read: the shading always moves away from it.</source>
-        <translation type="unfinished"></translation>
+        <translation>A profundidade dá à conversa, à lista de salas e à barra de espaços um sombreado suave de luz vinda de cima. O texto nunca fica mais difícil de ler: o sombreado afasta-se sempre dele.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Want your own colours? A custom theme can give each of these areas a gradient.</source>
-        <translation type="unfinished"></translation>
+        <translation>Quer as suas próprias cores? Um tema personalizado pode dar a cada uma destas áreas um gradiente.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Make a gradient…</source>
-        <translation type="unfinished"></translation>
+        <translation>Criar um gradiente…</translation>
     </message>
 </context>
 <context>
@@ -3439,22 +3441,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CollapsedEmbedRow.qml" line="+136"/>
         <source>Hide %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Ocultar %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This attachment is expanded. Activate to collapse it back to one line.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este anexo está expandido. Ative para o recolher numa linha.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This attachment is collapsed to one line. Activate to show it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este anexo está recolhido numa linha. Ative para o mostrar.</translation>
     </message>
 </context>
 <context>
@@ -3467,7 +3469,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+189"/>
         <source>Go back to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Voltar a %1</translation>
     </message>
     <message>
         <location line="+57"/>
@@ -3477,7 +3479,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+43"/>
         <source>Not a colour. Use six hex digits, like #3A6EA5.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não é uma cor. Use seis dígitos hexadecimais, como #3A6EA5.</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -3500,38 +3502,38 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/ContextView.qml" line="+93"/>
         <source>Viewing an older message</source>
-        <translation type="unfinished"></translation>
+        <translation>A ver uma mensagem mais antiga</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Jump to latest</source>
-        <translation type="unfinished">Ir para a mais recente</translation>
+        <translation>Ir para a mais recente</translation>
     </message>
     <message>
         <location line="+103"/>
         <location line="+29"/>
         <source>Could not load. Try again</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível carregar. Tente novamente</translation>
     </message>
     <message>
         <location line="-27"/>
         <source>Load older messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Carregar mensagens mais antigas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No more older messages here</source>
-        <translation type="unfinished"></translation>
+        <translation>Não há mais mensagens antigas aqui</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Load newer messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Carregar mensagens mais recentes</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Use Jump to latest for newer messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Use Ir para a mais recente para ver mensagens mais recentes</translation>
     </message>
 </context>
 <context>
@@ -3539,7 +3541,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../src/app/ConversationController.cpp" line="+53"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto está a demorar mais do que o esperado. O servidor da outra pessoa pode estar lento a responder. Se aparecer uma sala na sua lista, use essa em vez de criar outra.</translation>
     </message>
     <message>
         <location line="+44"/>
@@ -3569,7 +3571,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+3"/>
         <source>Your homeserver does not support that.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico não suporta isso.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -3584,7 +3586,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+4"/>
         <source>A conversation with this person is still being created and their server has not answered yet. If an empty room appears in your list, use that one; starting another would only add more empty rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma conversa com esta pessoa ainda está a ser criada e o servidor dela ainda não respondeu. Se aparecer uma sala vazia na sua lista, use essa; criar outra só acrescentaria mais salas vazias.</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -3609,7 +3611,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+74"/>
         <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Pode ter sido criada uma sala vazia na sua conta; se a vir na lista de salas, pode sair dela.</translation>
     </message>
 </context>
 <context>
@@ -3883,44 +3885,44 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CrossSigningSetupCard.qml" line="+73"/>
         <source>Cross-signing</source>
-        <translation type="unfinished"></translation>
+        <translation>Certificação cruzada</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This account has no cross-signing identity, so none of its sessions can be verified, including this one. Setting it up creates the identity and stores its keys in your secret storage, so your recovery key can verify new sessions.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta conta não tem identidade de certificação cruzada, por isso nenhuma das suas sessões pode ser verificada, incluindo esta. Configurá-la cria a identidade e guarda as suas chaves no armazenamento seguro, para que a sua chave de recuperação possa verificar novas sessões.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This session holds cross-signing keys that your server has not confirmed, so setting up did not finish. Finishing it uploads these keys. If the account has meanwhile got an identity from another session, Lightning tells you and changes nothing.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sessão tem chaves de certificação cruzada que o seu servidor ainda não confirmou, por isso a configuração não foi concluída. Concluí-la envia estas chaves. Se entretanto a conta tiver recebido uma identidade de outra sessão, o Lightning avisa-o e não altera nada.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This account already has a cross-signing identity, but this session does not hold its keys. Verify this session with another session, or enter your recovery key. Lightning will not replace the identity on its own.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta conta já tem uma identidade de certificação cruzada, mas esta sessão não tem as suas chaves. Verifique esta sessão a partir de outra sessão ou introduza a sua chave de recuperação. O Lightning não substitui a identidade por iniciativa própria.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>That password was not accepted. Try again.</source>
-        <translation type="unfinished">Essa palavra-passe não foi aceite. Tente novamente.</translation>
+        <translation>Essa palavra-passe não foi aceite. Tente novamente.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Confirm your account password so the server accepts the new keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>Confirme a palavra-passe da sua conta para que o servidor aceite as novas chaves.</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+1"/>
         <source>Account password</source>
-        <translation type="unfinished">Palavra-passe da conta</translation>
+        <translation>Palavra-passe da conta</translation>
     </message>
     <message>
         <location line="+8"/>
         <location line="+101"/>
         <source>Continue</source>
-        <translation type="unfinished">Continuar</translation>
+        <translation>Continuar</translation>
     </message>
     <message>
         <location line="-87"/>
@@ -3928,88 +3930,88 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+103"/>
         <location line="+150"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="-272"/>
         <source>Your account provider needs you to approve the new keys. Open the approval page, confirm there, and Lightning continues on its own.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu fornecedor de conta precisa que aprove as novas chaves. Abra a página de aprovação, confirme aí, e o Lightning continua por conta própria.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Open approval page</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir página de aprovação</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Cancelling…</source>
-        <translation type="unfinished"></translation>
+        <translation>A cancelar…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Working…</source>
-        <translation type="unfinished">A trabalhar…</translation>
+        <translation>A trabalhar…</translation>
     </message>
     <message>
         <location line="+21"/>
         <location line="+1"/>
         <source>Current recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>Chave de recuperação atual</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>A new recovery key replaces the current one, which stops working. The new one can only hold what this session has: if this session does not have your key backup&apos;s key, history that exists only in your key backup becomes unreachable from new sessions. Press again to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma nova chave de recuperação substitui a atual, que deixa de funcionar. A nova só pode conter o que esta sessão tem: se esta sessão não tiver a chave da sua cópia de segurança de chaves, o histórico que existe apenas na cópia de segurança fica inacessível a partir de novas sessões. Prima novamente para confirmar.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Replace my recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>Substituir a minha chave de recuperação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>I don&apos;t have it…</source>
-        <translation type="unfinished"></translation>
+        <translation>Não a tenho…</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>Cross-signing is set up. Your new recovery key: write it down now. Lightning does not keep it and will not show it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>A certificação cruzada está configurada. A sua nova chave de recuperação: anote-a agora. O Lightning não a guarda e não a voltará a mostrar.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>I have saved it</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardei-a</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Replacing your cross-signing identity cannot be undone. Everyone who verified you will see your identity change and has to trust you again, and your other sessions become unverified. If you have a recovery key, Lightning asks for it next so it keeps working. Your messages are not deleted. Press again to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>Substituir a sua identidade de certificação cruzada não pode ser desfeito. Todos os que o verificaram vão ver a sua identidade mudar e terão de voltar a confiar em si, e as suas outras sessões ficam não verificadas. Se tiver uma chave de recuperação, o Lightning pede-a a seguir para que continue a funcionar. As suas mensagens não são eliminadas. Prima novamente para confirmar.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Setting up…</source>
-        <translation type="unfinished"></translation>
+        <translation>A configurar…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Finish setting up</source>
-        <translation type="unfinished"></translation>
+        <translation>Concluir configuração</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Set up cross-signing</source>
-        <translation type="unfinished"></translation>
+        <translation>Configurar certificação cruzada</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Replace identity</source>
-        <translation type="unfinished"></translation>
+        <translation>Substituir identidade</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>I can&apos;t verify or recover. Reset…</source>
-        <translation type="unfinished"></translation>
+        <translation>Não consigo verificar nem recuperar. Repor…</translation>
     </message>
 </context>
 <context>
@@ -4482,312 +4484,312 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="-68"/>
         <location line="+344"/>
         <source>Text on your messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto nas suas mensagens</translation>
     </message>
     <message>
         <location line="-444"/>
         <source>Side columns</source>
-        <translation type="unfinished"></translation>
+        <translation>Colunas laterais</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The room list, the room header and the side panel take this until they have their own</source>
-        <translation type="unfinished"></translation>
+        <translation>A lista de salas, o cabeçalho da sala e o painel lateral usam esta cor até terem a sua própria</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Backgrounds</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The conversation and Settings take this until they have their own</source>
-        <translation type="unfinished"></translation>
+        <translation>A conversa e as Definições usam esta cor até terem a sua própria</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The search field, the message box, menus and dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>O campo de pesquisa, a caixa de mensagens, os menus e as caixas de diálogo</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Room header</source>
-        <translation type="unfinished"></translation>
+        <translation>Cabeçalho da sala</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The bar above the conversation with the room&apos;s name</source>
-        <translation type="unfinished"></translation>
+        <translation>A barra acima da conversa com o nome da sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Side panel</source>
-        <translation type="unfinished"></translation>
+        <translation>Painel lateral</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>People, room details and threads beside the conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>Pessoas, detalhes da sala e tópicos ao lado da conversa</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Search field</source>
-        <translation type="unfinished"></translation>
+        <translation>Campo de pesquisa</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The filter box at the top of the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>A caixa de filtro no topo da lista de salas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Message box</source>
-        <translation type="unfinished">Caixa de mensagem</translation>
+        <translation>Caixa de mensagens</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The field you type messages into</source>
-        <translation type="unfinished"></translation>
+        <translation>O campo onde escreve as mensagens</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Menus and dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>Menus e diálogos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Context menus, pop-up menus and dialog boxes</source>
-        <translation type="unfinished"></translation>
+        <translation>Menus de contexto, menus pop-up e caixas de diálogo</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>Página de definições</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The ground behind Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>O fundo por trás das Definições</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>Navegação das definições</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The column of sections down the left of Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>A coluna de secções à esquerda das Definições</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The inside of text fields in dialogs and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>O interior dos campos de texto em caixas de diálogo e painéis</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Hover</source>
-        <translation type="unfinished"></translation>
+        <translation>Passar o cursor</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The general hover colour. Rows, menu items and quiet buttons follow it until they have their own</source>
-        <translation type="unfinished"></translation>
+        <translation>A cor geral ao passar o cursor. As linhas, os itens de menu e os botões discretos seguem-na até terem a sua própria</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selection</source>
-        <translation type="unfinished"></translation>
+        <translation>Seleção</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The general selected colour: the open Space, and every selected row that has no colour of its own</source>
-        <translation type="unfinished"></translation>
+        <translation>A cor geral de seleção: o Espaço aberto e cada linha selecionada que não tenha cor própria</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selection, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>Seleção, com o cursor por cima</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Something selected with the pointer on it, such as the open room</source>
-        <translation type="unfinished"></translation>
+        <translation>Algo selecionado com o cursor por cima, como a sala aberta</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Your reaction pill</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua pílula de reação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>An emoji reaction you added yourself</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma reação emoji que adicionou pessoalmente</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unread badge</source>
-        <translation type="unfinished"></translation>
+        <translation>Distintivo de não lidas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unread counts and dots on rooms, Spaces and threads</source>
-        <translation type="unfinished"></translation>
+        <translation>Contagens e pontos de não lidas em salas, Espaços e tópicos</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Scrollbar handle</source>
-        <translation type="unfinished"></translation>
+        <translation>Cursor da barra de deslocamento</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The draggable part of every scrollbar</source>
-        <translation type="unfinished"></translation>
+        <translation>A parte arrastável de cada barra de deslocamento</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Open room row</source>
-        <translation type="unfinished"></translation>
+        <translation>Linha da sala aberta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The room you are in, in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>A sala em que está, na lista de salas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room row, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>Linha da sala, com o cursor por cima</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A room in the room list under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma sala na lista de salas sob o cursor</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open channel row</source>
-        <translation type="unfinished"></translation>
+        <translation>Linha do canal aberto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The open row in the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>A linha aberta no esquema de Canais</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Channel row, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>Linha de canal, com o cursor por cima</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A Channels row under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma linha de Canais sob o cursor</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Menu highlight</source>
-        <translation type="unfinished"></translation>
+        <translation>Destaque do menu</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The highlighted item of a menu or pop-up list</source>
-        <translation type="unfinished"></translation>
+        <translation>O item destacado de um menu ou lista pop-up</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Quiet button, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>Botão discreto, com o cursor por cima</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A button with no fill under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>Um botão sem preenchimento sob o cursor</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensagem selecionada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A message picked for forwarding, or jumped to</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma mensagem escolhida para reencaminhar, ou para onde se saltou</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selected text</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto selecionado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Text you have highlighted in a field or label</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto que realçou num campo ou etiqueta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selection in system controls</source>
-        <translation type="unfinished"></translation>
+        <translation>Seleção nos controlos do sistema</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The highlight Qt draws in standard controls</source>
-        <translation type="unfinished"></translation>
+        <translation>O realce que o Qt desenha nos controlos padrão</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The words inside the bubble behind messages you sent</source>
-        <translation type="unfinished"></translation>
+        <translation>As palavras dentro da bolha das mensagens que enviou</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Focus ring</source>
-        <translation type="unfinished"></translation>
+        <translation>Anel de foco</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The outline that shows which control the keyboard is on</source>
-        <translation type="unfinished"></translation>
+        <translation>O contorno que mostra em que controlo está o teclado</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Soft accent</source>
-        <translation type="unfinished"></translation>
+        <translation>Destaque suave</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Tinted chips: your own reactions, active icon chips and your own mentions</source>
-        <translation type="unfinished"></translation>
+        <translation>Etiquetas tingidas: as suas próprias reações, os ícones de ação ativos e as suas próprias menções</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Soft accent outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno do destaque suave</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of those tinted chips</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda dessas etiquetas tingidas</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Timestamps</source>
-        <translation type="unfinished"></translation>
+        <translation>Horas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The time beside a message</source>
-        <translation type="unfinished"></translation>
+        <translation>A hora ao lado de uma mensagem</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Placeholder text</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto de marcação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The hint inside an empty field</source>
-        <translation type="unfinished"></translation>
+        <translation>A sugestão dentro de um campo vazio</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -4802,913 +4804,913 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+3"/>
         <location line="+3"/>
         <source>Status</source>
-        <translation type="unfinished">Estado</translation>
+        <translation>Estado</translation>
     </message>
     <message>
         <location line="-229"/>
         <source>Success</source>
-        <translation type="unfinished"></translation>
+        <translation>Sucesso</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Verified marks, success messages and chips</source>
-        <translation type="unfinished"></translation>
+        <translation>Marcas de verificado, mensagens de sucesso e etiquetas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Warning</source>
-        <translation type="unfinished"></translation>
+        <translation>Aviso</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Caution text, icons and chips</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto, ícones e etiquetas de cuidado</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Errors</source>
-        <translation type="unfinished"></translation>
+        <translation>Erros</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Error text, destructive actions and failed states</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto de erro, ações destrutivas e estados de falha</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Online dot</source>
-        <translation type="unfinished"></translation>
+        <translation>Ponto de online</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The dot beside someone who is online</source>
-        <translation type="unfinished"></translation>
+        <translation>O ponto ao lado de alguém que está online</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Error tint</source>
-        <translation type="unfinished"></translation>
+        <translation>Tom de erro</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Behind destructive menu rows and the danger chip</source>
-        <translation type="unfinished"></translation>
+        <translation>Por trás das linhas de menu destrutivas e da etiqueta de perigo</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Header divider</source>
-        <translation type="unfinished"></translation>
+        <translation>Separador de cabeçalho</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The line under the room list, room and side-panel headers</source>
-        <translation type="unfinished"></translation>
+        <translation>A linha por baixo da lista de salas e dos cabeçalhos da sala e do painel lateral</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Search field outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno do campo de pesquisa</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of the room list&apos;s filter box</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda da caixa de filtro da lista de salas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Message box outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno da caixa de mensagens</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of the field you type messages into</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda do campo onde escreve as mensagens</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Text field outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno de campo de texto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of text fields in dialogs and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda dos campos de texto em caixas de diálogo e painéis</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Link preview outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno das pré-visualizações de ligações</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of link previews and other cards in messages</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda das pré-visualizações de ligações e de outros cartões nas mensagens</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Code block outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno de bloco de código</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of fenced code in a message</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda do código delimitado numa mensagem</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open folder outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno de pasta aberta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of an open folder in the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda de uma pasta aberta no esquema de Canais</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings divider</source>
-        <translation type="unfinished"></translation>
+        <translation>Separador das definições</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The lines between Settings&apos; navigation, header and page</source>
-        <translation type="unfinished"></translation>
+        <translation>As linhas entre a navegação, o cabeçalho e a página das Definições</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Disabled button outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno de botão desativado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of a button that cannot be used right now</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda de um botão que não pode ser usado neste momento</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Menu outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno de menu</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of context menus and pop-up menus</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda dos menus de contexto e menus pop-up</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Reaction pill outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno da pílula de reação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of someone else&apos;s reaction</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda da reação de outra pessoa</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Spaces rail tile</source>
-        <translation type="unfinished"></translation>
+        <translation>Peça da barra de espaços</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Home, People and folder tiles on the Spaces rail</source>
-        <translation type="unfinished"></translation>
+        <translation>Peças de Início, Pessoas e pastas na barra de espaços</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Link previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-visualizações de ligações</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Link previews, files and other cards inside messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-visualizações de ligações, ficheiros e outros cartões dentro das mensagens</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open room row, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>Linha da sala aberta, com o cursor por cima</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The room you are in, with the pointer on it</source>
-        <translation type="unfinished"></translation>
+        <translation>A sala em que está, com o cursor por cima</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>Secção das Definições aberta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The section you are in, in Settings&apos; navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>A secção em que está, na navegação das Definições</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Person row, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>Linha de pessoa, com o cursor por cima</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A person in the side panel under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma pessoa no painel lateral sob o cursor</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room unread count</source>
-        <translation type="unfinished"></translation>
+        <translation>Contagem de não lidas da sala</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The count or dot of new messages on a room</source>
-        <translation type="unfinished"></translation>
+        <translation>A contagem ou ponto de novas mensagens numa sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Space unread dot</source>
-        <translation type="unfinished"></translation>
+        <translation>Ponto de não lidas do Espaço</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The dot on a Space with something new in it</source>
-        <translation type="unfinished"></translation>
+        <translation>O ponto num Espaço com algo novo</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Open Space tile</source>
-        <translation type="unfinished"></translation>
+        <translation>Peça do Espaço aberto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The wash behind the Space you are in</source>
-        <translation type="unfinished"></translation>
+        <translation>O realce por trás do Espaço em que está</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Call banner</source>
-        <translation type="unfinished"></translation>
+        <translation>Faixa de chamada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The strip above the conversation while a call is on</source>
-        <translation type="unfinished"></translation>
+        <translation>A faixa acima da conversa enquanto uma chamada está ativa</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open Space ring</source>
-        <translation type="unfinished"></translation>
+        <translation>Anel do Espaço aberto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The ring around the Space you are in</source>
-        <translation type="unfinished"></translation>
+        <translation>O anel à volta do Espaço em que está</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your reaction outline</source>
-        <translation type="unfinished"></translation>
+        <translation>Contorno da sua reação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of a reaction you added yourself</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda de uma reação que adicionou pessoalmente</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Mentions of you</source>
-        <translation type="unfinished"></translation>
+        <translation>Menções a si</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your name, and @room, where a message mentions it</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu nome, e @room, quando uma mensagem o menciona</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Primary button</source>
-        <translation type="unfinished"></translation>
+        <translation>Botão principal</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The main button of a dialog or form, at rest</source>
-        <translation type="unfinished"></translation>
+        <translation>O botão principal de uma caixa de diálogo ou formulário, em repouso</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send button</source>
-        <translation type="unfinished"></translation>
+        <translation>Botão de envio</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The button that sends a message</source>
-        <translation type="unfinished"></translation>
+        <translation>O botão que envia uma mensagem</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unread count number</source>
-        <translation type="unfinished"></translation>
+        <translation>Número de não lidas</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+301"/>
         <source>The number on a room&apos;s unread count</source>
-        <translation type="unfinished"></translation>
+        <translation>O número na contagem de não lidas de uma sala</translation>
     </message>
     <message>
         <location line="-299"/>
         <source>Primary button label</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto do botão principal</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The words on a primary button</source>
-        <translation type="unfinished"></translation>
+        <translation>As palavras num botão principal</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send button icon</source>
-        <translation type="unfinished"></translation>
+        <translation>Ícone do botão de envio</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The arrow on the send button</source>
-        <translation type="unfinished"></translation>
+        <translation>A seta no botão de envio</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Room mention count</source>
-        <translation type="unfinished"></translation>
+        <translation>Contagem de menções da sala</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The count on a room where someone named you</source>
-        <translation type="unfinished"></translation>
+        <translation>A contagem numa sala onde alguém o mencionou</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Mention count number</source>
-        <translation type="unfinished"></translation>
+        <translation>Número da contagem de menções</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The number on a mention count</source>
-        <translation type="unfinished"></translation>
+        <translation>O número numa contagem de menções</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Message text</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto das mensagens</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The words of messages, except on your own bubbles</source>
-        <translation type="unfinished"></translation>
+        <translation>As palavras das mensagens, exceto nas suas próprias bolhas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room list heading</source>
-        <translation type="unfinished"></translation>
+        <translation>Cabeçalho da lista de salas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The name at the top of the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>O nome no topo da lista de salas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room name in the header</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome da sala no cabeçalho</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The room&apos;s name above the conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>O nome da sala acima da conversa</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unread room names</source>
-        <translation type="unfinished"></translation>
+        <translation>Nomes de salas não lidas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The name of a room with something new in it</source>
-        <translation type="unfinished"></translation>
+        <translation>O nome de uma sala com algo novo</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Code text</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto de código</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The text inside a code block</source>
-        <translation type="unfinished"></translation>
+        <translation>O texto dentro de um bloco de código</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Link preview title</source>
-        <translation type="unfinished"></translation>
+        <translation>Título da pré-visualização da ligação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The title of a link preview or media card</source>
-        <translation type="unfinished"></translation>
+        <translation>O título de uma pré-visualização de ligação ou de um cartão multimédia</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your reaction count</source>
-        <translation type="unfinished"></translation>
+        <translation>Contagem das suas reações</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The count on a reaction you added yourself</source>
-        <translation type="unfinished"></translation>
+        <translation>A contagem numa reação que adicionou pessoalmente</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Typed text</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto escrito</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>What you type in the message box</source>
-        <translation type="unfinished"></translation>
+        <translation>O que escreve na caixa de mensagens</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Text field text</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto de campo de texto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>What you type in text fields in dialogs and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>O que escreve nos campos de texto em caixas de diálogo e painéis</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Highlighted menu item</source>
-        <translation type="unfinished"></translation>
+        <translation>Item de menu destacado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The menu entry under the pointer or the keyboard</source>
-        <translation type="unfinished"></translation>
+        <translation>A entrada do menu sob o cursor ou o teclado</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Call banner text</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto da faixa de chamada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The words on the strip above a conversation with a call on</source>
-        <translation type="unfinished"></translation>
+        <translation>As palavras na faixa acima de uma conversa com uma chamada ativa</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings headings</source>
-        <translation type="unfinished"></translation>
+        <translation>Títulos das Definições</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The title of Settings and of each of its pages</source>
-        <translation type="unfinished"></translation>
+        <translation>O título das Definições e de cada uma das suas páginas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room names</source>
-        <translation type="unfinished"></translation>
+        <translation>Nomes de salas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The name of a room with nothing new in it</source>
-        <translation type="unfinished"></translation>
+        <translation>O nome de uma sala sem nada de novo</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Channel names</source>
-        <translation type="unfinished"></translation>
+        <translation>Nomes de canais</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room names in the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>Nomes de salas no esquema de Canais</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Menu items</source>
-        <translation type="unfinished"></translation>
+        <translation>Itens de menu</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The entries of context menus and pop-up menus</source>
-        <translation type="unfinished"></translation>
+        <translation>As entradas dos menus de contexto e dos menus pop-up</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Reaction count</source>
-        <translation type="unfinished"></translation>
+        <translation>Contagem de reações</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The count on someone else&apos;s reaction</source>
-        <translation type="unfinished"></translation>
+        <translation>A contagem na reação de outra pessoa</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Quiet button label</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto de botão discreto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The words on a button with no fill</source>
-        <translation type="unfinished"></translation>
+        <translation>As palavras num botão sem preenchimento</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings navigation labels</source>
-        <translation type="unfinished"></translation>
+        <translation>Rótulos da navegação das Definições</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The section names down the left of Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Os nomes das secções à esquerda das Definições</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Message previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-visualizações de mensagens</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The last message under each room&apos;s name</source>
-        <translation type="unfinished"></translation>
+        <translation>A última mensagem por baixo do nome de cada sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room list sections</source>
-        <translation type="unfinished"></translation>
+        <translation>Secções da lista de salas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Labels such as Invites and Favourites in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Rótulos como Convites e Favoritos na lista de salas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Side panel sections</source>
-        <translation type="unfinished"></translation>
+        <translation>Secções do painel lateral</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Headings over groups of people in the side panel</source>
-        <translation type="unfinished"></translation>
+        <translation>Títulos sobre grupos de pessoas no painel lateral</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Channel categories</source>
-        <translation type="unfinished"></translation>
+        <translation>Categorias de canais</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Folder and category names in the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>Nomes de pastas e categorias no esquema de Canais</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Folder arrows</source>
-        <translation type="unfinished"></translation>
+        <translation>Setas das pastas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The arrow that opens a folder in the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>A seta que abre uma pasta no esquema de Canais</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings descriptions</source>
-        <translation type="unfinished"></translation>
+        <translation>Descrições das Definições</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The explanation under each Settings page&apos;s title</source>
-        <translation type="unfinished"></translation>
+        <translation>A explicação por baixo do título de cada página das Definições</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open room&apos;s name</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome da sala aberta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The name in the open room&apos;s row</source>
-        <translation type="unfinished"></translation>
+        <translation>O nome na linha da sala aberta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open room&apos;s preview</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-visualização da sala aberta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The last message in the open room&apos;s row</source>
-        <translation type="unfinished"></translation>
+        <translation>A última mensagem na linha da sala aberta</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open channel&apos;s name</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome do canal aberto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The name in the open row of the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>O nome na linha aberta do esquema de Canais</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Text on a system selection</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto numa seleção do sistema</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Selected text in the message box and standard controls</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto selecionado na caixa de mensagens e nos controlos padrão</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Disabled button label</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto de botão desativado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The words on a button that cannot be used right now</source>
-        <translation type="unfinished"></translation>
+        <translation>As palavras num botão que não pode ser usado neste momento</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Online dot on people</source>
-        <translation type="unfinished"></translation>
+        <translation>Ponto de online nas pessoas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The dot on someone&apos;s picture while they are online</source>
-        <translation type="unfinished"></translation>
+        <translation>O ponto na imagem de alguém enquanto está online</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Success chip</source>
-        <translation type="unfinished"></translation>
+        <translation>Etiqueta de sucesso</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A small &quot;verified&quot; or &quot;done&quot; label</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma pequena etiqueta «verificado» ou «concluído»</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Warning chip</source>
-        <translation type="unfinished"></translation>
+        <translation>Etiqueta de aviso</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A small caution label, such as Invited</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma pequena etiqueta de cuidado, como Convidado</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Destructive menu item, highlighted</source>
-        <translation type="unfinished"></translation>
+        <translation>Item de menu destrutivo, destacado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The tint behind Delete or Leave under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>A cor por trás de Eliminar ou Sair sob o cursor</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Error chip</source>
-        <translation type="unfinished"></translation>
+        <translation>Etiqueta de erro</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A small &quot;failed&quot; or Banned label</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma pequena etiqueta «falhou» ou Banido</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Destructive menu item</source>
-        <translation type="unfinished"></translation>
+        <translation>Item de menu destrutivo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Delete, Leave and other menu entries that cannot be undone</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar, Sair e outras entradas de menu que não podem ser desfeitas</translation>
     </message>
     <message>
         <location line="+52"/>
         <source>Main text on the conversation background</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto principal sobre o fundo da conversa</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto principal na lista de salas</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text on panels and cards</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto principal em painéis e cartões</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text on their messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto principal nas suas mensagens</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text inside a text field</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto principal dentro de um campo de texto</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text inside a code block</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto principal dentro de um bloco de código</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text on a hovered row</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto principal numa linha sob o cursor</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text on a raised chip</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto principal numa etiqueta elevada</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Reaction text on a reaction pill</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto de reação numa pílula de reação</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Secondary text on the conversation background</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto secundário sobre o fundo da conversa</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Room names in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Nomes de salas na lista de salas</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Message previews in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-visualizações de mensagens na lista de salas</translation>
     </message>
     <message>
         <location line="+1236"/>
         <source>Replace with the imported theme</source>
-        <translation type="unfinished"></translation>
+        <translation>Substituir pelo tema importado</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>Change the starting point</source>
-        <translation type="unfinished"></translation>
+        <translation>Mudar o ponto de partida</translation>
     </message>
     <message>
         <location line="+47"/>
         <source>Change %1 colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Mudar a cor %1</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Reset %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor %1</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Apply %1 to all of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>Aplicar %1 a todos os de %2</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Reset every colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor todas as cores</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>Change %1 gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Mudar o gradiente %1</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Remove %1 gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover o gradiente %1</translation>
     </message>
     <message>
         <location line="-1516"/>
         <source>Secondary text on panels and cards</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto secundário em painéis e cartões</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Secondary text inside a text field</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto secundário dentro de um campo de texto</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Timestamps on the conversation background</source>
-        <translation type="unfinished"></translation>
+        <translation>Horas sobre o fundo da conversa</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Timestamps on panels and cards</source>
-        <translation type="unfinished"></translation>
+        <translation>Horas em painéis e cartões</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The open room&apos;s name in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>O nome da sala aberta na lista de salas</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Links on panels and cards</source>
-        <translation type="unfinished"></translation>
+        <translation>Ligações em painéis e cartões</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Text on your own messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto nas suas próprias mensagens</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The room&apos;s name in the room header</source>
-        <translation type="unfinished"></translation>
+        <translation>O nome da sala no cabeçalho da sala</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Typed text in the message box</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto escrito na caixa de mensagens</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Menu items on a menu</source>
-        <translation type="unfinished"></translation>
+        <translation>Itens de menu num menu</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>A link preview&apos;s title on its card</source>
-        <translation type="unfinished"></translation>
+        <translation>O título de uma pré-visualização de ligação no seu cartão</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>A button&apos;s label on the accent</source>
-        <translation type="unfinished"></translation>
+        <translation>O rótulo de um botão sobre a cor de destaque</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>A button&apos;s label while the pointer is on it</source>
-        <translation type="unfinished"></translation>
+        <translation>O rótulo de um botão com o cursor por cima</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>A button&apos;s label while it is held down</source>
-        <translation type="unfinished"></translation>
+        <translation>O rótulo de um botão enquanto é premido</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>A primary button&apos;s label</source>
-        <translation type="unfinished"></translation>
+        <translation>O rótulo de um botão principal</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The send button&apos;s arrow</source>
-        <translation type="unfinished"></translation>
+        <translation>A seta do botão de envio</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Hairlines against panels and cards</source>
-        <translation type="unfinished"></translation>
+        <translation>Linhas finas contra painéis e cartões</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>A field&apos;s outline against its inside</source>
-        <translation type="unfinished"></translation>
+        <translation>A borda de um campo contra o seu interior</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Panels against the conversation background</source>
-        <translation type="unfinished"></translation>
+        <translation>Painéis contra o fundo da conversa</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The Spaces rail against the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>A barra de espaços contra a lista de salas</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>A mention badge against the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Um distintivo de menção contra a lista de salas</translation>
     </message>
     <message>
         <location line="+980"/>
@@ -5858,113 +5860,113 @@ Tamanho: %3</translation>
     <message>
         <location filename="../qml/DeveloperToolsSection.qml" line="+51"/>
         <source>Developer</source>
-        <translation type="unfinished"></translation>
+        <translation>Programador</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Developer tools</source>
-        <translation type="unfinished">Ferramentas de desenvolvedor</translation>
+        <translation>Ferramentas de programador</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Shows read-only views of what the homeserver reports and what your account stores. Nothing here changes your account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostra vistas só de leitura do que o servidor doméstico indica e do que a sua conta guarda. Nada aqui altera a sua conta.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Homeserver features</source>
-        <translation type="unfinished"></translation>
+        <translation>Funcionalidades do servidor doméstico</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Asking the homeserver...</source>
-        <translation type="unfinished"></translation>
+        <translation>A perguntar ao servidor doméstico…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This backend cannot ask a homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este backend não consegue perguntar a um servidor doméstico.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Spec versions: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Versões da especificação: %1</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>on</source>
-        <translation type="unfinished"></translation>
+        <translation>ligado</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>off</source>
-        <translation type="unfinished"></translation>
+        <translation>desligado</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Refresh</source>
-        <translation type="unfinished">Atualizar</translation>
+        <translation>Atualizar</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Account data</source>
-        <translation type="unfinished"></translation>
+        <translation>Dados da conta</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Read only. Leave the room ID empty for your account&apos;s own data, or enter a room ID such as !abc:example.org. Keys and secrets are never shown: those entries appear as their type name only.</source>
-        <translation type="unfinished"></translation>
+        <translation>Só de leitura. Deixe o ID da sala vazio para os dados da própria conta, ou introduza um ID de sala como !abc:example.org. As chaves e os segredos nunca são mostrados: essas entradas aparecem apenas com o nome do seu tipo.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Room ID (empty for account-wide)</source>
-        <translation type="unfinished"></translation>
+        <translation>ID da sala (vazio para toda a conta)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Load</source>
-        <translation type="unfinished"></translation>
+        <translation>Carregar</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Loading...</source>
-        <translation type="unfinished"></translation>
+        <translation>A carregar…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This backend cannot list account data.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este backend não consegue listar os dados da conta.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>No account data found.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foram encontrados dados da conta.</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n entries shown; more exist but are not listed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n entrada mostrada; existem mais mas não estão listadas.</numerusform>
+            <numerusform>%n entradas mostradas; existem mais mas não estão listadas.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n entries.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n entrada.</numerusform>
+            <numerusform>%n entradas.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+39"/>
         <source>hidden</source>
-        <translation type="unfinished"></translation>
+        <translation>oculto</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>... cut</source>
-        <translation type="unfinished"></translation>
+        <translation>... cortado</translation>
     </message>
 </context>
 <context>
@@ -6134,73 +6136,73 @@ Tamanho: %3</translation>
     <message>
         <location filename="../qml/DownloadsCard.qml" line="+179"/>
         <source>Downloading to %1…</source>
-        <translation type="unfinished"></translation>
+        <translation>A transferir para %1…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Downloading…</source>
-        <translation type="unfinished"></translation>
+        <translation>A transferir…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The download failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>A transferência falhou.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Saved, but its folder couldn&apos;t be opened.</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardado, mas não foi possível abrir a pasta.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Saved to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardado em %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Saved</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardado</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Cancel download of %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Cancelar a transferência de %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+2"/>
         <source>Dismiss</source>
-        <translation type="unfinished">Dispensar</translation>
+        <translation>Dispensar</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>Cancel download</source>
-        <translation type="unfinished"></translation>
+        <translation>Cancelar transferência</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>This type of file can run programs, so Lightning won&apos;t open it. Open it from its folder only if you trust the sender.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este tipo de ficheiro pode executar programas, por isso o Lightning não o abre. Abra-o a partir da pasta apenas se confiar em quem o enviou.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Open</source>
-        <translation type="unfinished">Abrir</translation>
+        <translation>Abrir</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Open %1</source>
-        <translation type="unfinished">Abrir %1</translation>
+        <translation>Abrir %1</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Show in folder</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar na pasta</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Try again</source>
-        <translation type="unfinished"></translation>
+        <translation>Tentar novamente</translation>
     </message>
 </context>
 <context>
@@ -6208,17 +6210,17 @@ Tamanho: %3</translation>
     <message>
         <location filename="../src/app/DownloadsController.cpp" line="+422"/>
         <source>Save file</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardar ficheiro</translation>
     </message>
     <message>
         <location line="+71"/>
         <source>Lightning can&apos;t save outside its sandbox here. Install xdg-desktop-portal, or allow Lightning to access your Downloads folder.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue guardar fora da sua área isolada aqui. Instale o xdg-desktop-portal, ou permita que o Lightning aceda à sua pasta Transferências.</translation>
     </message>
     <message>
         <location line="+227"/>
         <source>Choose a downloads folder</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolher uma pasta de transferências</translation>
     </message>
 </context>
 <context>
@@ -6226,52 +6228,52 @@ Tamanho: %3</translation>
     <message>
         <location filename="../qml/EditHistoryDialog.qml" line="+79"/>
         <source>Edit history</source>
-        <translation type="unfinished"></translation>
+        <translation>Histórico de edições</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Loading revisions…</source>
-        <translation type="unfinished"></translation>
+        <translation>A carregar revisões…</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The revisions could not be loaded. Only what this device has synced can be shown, and nothing was.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível carregar as revisões. Só é possível mostrar o que este dispositivo sincronizou, e não foi sincronizado nada.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This may be incomplete. Older revisions could not be loaded, so the earliest versions of this message may be missing.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto pode estar incompleto. Não foi possível carregar revisões mais antigas, por isso as versões iniciais desta mensagem podem estar em falta.</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Original</source>
-        <translation type="unfinished"></translation>
+        <translation>Original</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Current</source>
-        <translation type="unfinished"></translation>
+        <translation>Atual</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Deleted</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminada</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>This revision could not be decrypted.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta revisão não pôde ser desencriptada.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This revision was deleted.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta revisão foi eliminada.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Close</source>
-        <translation type="unfinished">Fechar</translation>
+        <translation>Fechar</translation>
     </message>
 </context>
 <context>
@@ -6289,22 +6291,22 @@ Tamanho: %3</translation>
     <message>
         <location line="+253"/>
         <source>Quick reactions</source>
-        <translation type="unfinished"></translation>
+        <translation>Reações rápidas</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>React with %1</source>
-        <translation type="unfinished">Reagir com %1</translation>
+        <translation>Reagir com %1</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Show all emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar todos os emojis</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>All emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>Todos os emojis</translation>
     </message>
     <message>
         <location line="+44"/>
@@ -6357,74 +6359,81 @@ Tamanho: %3</translation>
     <message>
         <location filename="../qml/EncryptionBrokenPrompt.qml" line="+53"/>
         <source>This session cannot read encrypted messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sessão não consegue ler mensagens encriptadas</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Encrypted messages can&apos;t be opened</source>
-        <translation type="unfinished"></translation>
+        <translation>As mensagens encriptadas não podem ser abertas</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>The encryption keys this session published no longer match the ones it holds, so nothing sent to it can be unlocked. Encrypted messages stay on &quot;Waiting for keys&quot;, and in a call others hear you while you hear nothing. Sending is unaffected, so everything looks normal from your side.
 
 Signing out and signing in again is the only fix.</source>
-        <translation type="unfinished"></translation>
+        <translation>As chaves de encriptação que esta sessão publicou já não correspondem às que ela mantém, por isso nada que lhe seja enviado pode ser desbloqueado. As mensagens encriptadas continuam em «A aguardar chaves», e numa chamada os outros ouvem-no enquanto não ouve nada. O envio não é afetado, por isso tudo parece normal do seu lado.
+
+Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Sign out and back in</source>
-        <translation type="unfinished"></translation>
+        <translation>Terminar sessão e voltar a entrar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Not now</source>
-        <translation type="unfinished">Agora não</translation>
+        <translation>Agora não</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Sign out and sign in again?</source>
-        <translation type="unfinished"></translation>
+        <translation>Terminar sessão e voltar a iniciar?</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
 
 </source>
-        <translation type="unfinished"></translation>
+        <translation>Voltar a iniciar sessão cria uma NOVA sessão com novas chaves, que é o que repara isto. Esteja ciente do custo:
+
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• Encrypted messages you have already received come back only if they are in your key backup. Anything not backed up is not recoverable on this computer.
 </source>
-        <translation type="unfinished"></translation>
+        <translation>• As mensagens encriptadas que já recebeu só voltam se estiverem na sua cópia de segurança de chaves. O que não tiver cópia de segurança não é recuperável neste computador.
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• KEY BACKUP IS NOT SET UP on this account, so encrypted messages already on this computer will NOT come back. This is not reversible.
 </source>
-        <translation type="unfinished"></translation>
+        <translation>• A CÓPIA DE SEGURANÇA DE CHAVES NÃO ESTÁ CONFIGURADA nesta conta, por isso as mensagens encriptadas já neste computador NÃO voltam. Isto não é reversível.
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
 • Lightning&apos;s local data for this account on this computer is removed. Your messages stay on the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>• A nova sessão começa não verificada, por isso terá de a verificar a partir de outro dispositivo ou com a sua chave de recuperação.
+• Os dados locais do Lightning desta conta neste computador são removidos. As suas mensagens permanecem no servidor.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Sign out</source>
-        <translation type="unfinished">Terminar sessão</translation>
+        <translation>Terminar sessão</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Confirm sign out</source>
-        <translation type="unfinished">Confirmar o fim da sessão</translation>
+        <translation>Confirmar o fim da sessão</translation>
     </message>
 </context>
 <context>
@@ -6432,37 +6441,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/EventSourceDialog.qml" line="+94"/>
         <source>Event source</source>
-        <translation type="unfinished"></translation>
+        <translation>Código-fonte do evento</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Copy event ID</source>
-        <translation type="unfinished"></translation>
+        <translation>Copiar ID do evento</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Copy JSON</source>
-        <translation type="unfinished"></translation>
+        <translation>Copiar JSON</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Encrypted · %1 · sender %2 · device %3 · %4</source>
-        <translation type="unfinished"></translation>
+        <translation>Encriptado · %1 · remetente %2 · dispositivo %3 · %4</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Loading…</source>
-        <translation type="unfinished">A carregar…</translation>
+        <translation>A carregar…</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The event could not be loaded.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível carregar o evento.</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Close</source>
-        <translation type="unfinished">Fechar</translation>
+        <translation>Fechar</translation>
     </message>
 </context>
 <context>
@@ -6471,73 +6480,73 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/ExportRoomDialog.qml" line="+58"/>
         <location line="+20"/>
         <source>Export room</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar sala</translation>
     </message>
     <message>
         <location line="-18"/>
         <source>JSON (*.json)</source>
-        <translation type="unfinished"></translation>
+        <translation>JSON (*.json)</translation>
     </message>
     <message>
         <location line="+0"/>
         <location line="+1"/>
         <source>All files (*)</source>
-        <translation type="unfinished">Todos os ficheiros (*)</translation>
+        <translation>Todos os ficheiros (*)</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Text (*.txt)</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto (*.txt)</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more. Attachments are not included.</source>
-        <translation type="unfinished"></translation>
+        <translation>Exporta a 1 mensagem que o Lightning carregou para %1. Desloque-se mais para trás primeiro para incluir mais. Os anexos não são incluídos.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more. Attachments are not included.</source>
-        <translation type="unfinished"></translation>
+        <translation>Exporta as %1 mensagens que o Lightning carregou para %2. Desloque-se mais para trás primeiro para incluir mais. Os anexos não são incluídos.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Text</source>
-        <translation type="unfinished">Texto</translation>
+        <translation>Texto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>JSON</source>
-        <translation type="unfinished"></translation>
+        <translation>JSON</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>This room is encrypted. Lightning keeps its messages in memory and never writes them to disk.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala está encriptada. O Lightning mantém as suas mensagens em memória e nunca as escreve em disco.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Write the message text into this file in the clear</source>
-        <translation type="unfinished"></translation>
+        <translation>Escrever o texto das mensagens neste ficheiro em claro</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Anyone who can read the file can read the conversation. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
-        <translation type="unfinished"></translation>
+        <translation>Quem puder ler o ficheiro pode ler a conversa. Não está encriptado, e cópias de segurança, pastas de sincronização e unidades partilhadas copiam-no como qualquer outro ficheiro.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Without this, the export lists who sent what and when, with each message&apos;s text withheld.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sem isto, a exportação lista quem enviou o quê e quando, com o texto de cada mensagem omitido.</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Choose file…</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolher ficheiro…</translation>
     </message>
 </context>
 <context>
@@ -6593,37 +6602,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+66"/>
         <source>You can forward up to %1 messages at once.</source>
-        <translation type="unfinished"></translation>
+        <translation>Pode reencaminhar até %1 mensagens de cada vez.</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Nothing was selected to forward.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi selecionado nada para reencaminhar.</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>in %1</source>
-        <translation type="unfinished">em %1</translation>
+        <translation>em %1</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Forwarded from %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Reencaminhado de %1</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>Not signed in.</source>
-        <translation type="unfinished">Sessão não iniciada.</translation>
+        <translation>Não tem sessão iniciada.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Attachments can only be forwarded one at a time — use Forward on the message itself.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os anexos só podem ser reencaminhados um de cada vez — use Reencaminhar na própria mensagem.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Nothing to send.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada para enviar.</translation>
     </message>
     <message>
         <location line="+45"/>
@@ -6709,76 +6718,76 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location filename="../qml/ForwardSelectionDialog.qml" line="+72"/>
         <source>Forward %n message(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Reencaminhar %n mensagem</numerusform>
+            <numerusform>Reencaminhar %n mensagens</numerusform>
         </translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Just the message</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas a mensagem</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>With original sender</source>
-        <translation type="unfinished"></translation>
+        <translation>Com o remetente original</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Each copy will name the original sender, this room and the time — visible to everyone in the rooms you pick.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cada cópia indicará o remetente original, esta sala e a hora — visível a todos nas salas que escolher.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A clean copy, with nothing identifying where it came from.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma cópia limpa, sem nada que indique a origem.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Search rooms…</source>
-        <translation type="unfinished">Procurar salas…</translation>
+        <translation>Procurar salas…</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Sending %1 of %2…</source>
-        <translation type="unfinished"></translation>
+        <translation>A enviar %1 de %2…</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Sent %n copy(ies).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Enviada %n cópia.</numerusform>
+            <numerusform>Enviadas %n cópias.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%1 of %2 sent — %n failed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%1 de %2 enviadas — %n falhou.</numerusform>
+            <numerusform>%1 de %2 enviadas — %n falharam.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Done</source>
-        <translation type="unfinished">Concluído</translation>
+        <translation>Concluído</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Retry failed</source>
-        <translation type="unfinished"></translation>
+        <translation>Tentar novamente as falhadas</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Send</source>
-        <translation type="unfinished">Enviar</translation>
+        <translation>Enviar</translation>
     </message>
 </context>
 <context>
@@ -6791,12 +6800,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+224"/>
         <source>GIFs</source>
-        <translation type="unfinished">GIF</translation>
+        <translation>GIF</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Stickers</source>
-        <translation type="unfinished">Adesivos</translation>
+        <translation>Autocolantes</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -7000,17 +7009,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/GradientBar.qml" line="+114"/>
         <source>Gradient colour stops</source>
-        <translation type="unfinished"></translation>
+        <translation>Pontos de paragem do gradiente</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 colour at %2 percent. Left and Right move it, Up and Down pick another colour, Delete removes it, Insert adds one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor %1 a %2 por cento. Esquerda e Direita movem-na, Cima e Baixo escolhem outra cor, Delete remove-a, Insert adiciona uma.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>No colour picked. Up or Down picks one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nenhuma cor escolhida. Cima ou Baixo escolhe uma.</translation>
     </message>
 </context>
 <context>
@@ -7018,202 +7027,202 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/GradientEditor.qml" line="+372"/>
         <source>Linear</source>
-        <translation type="unfinished"></translation>
+        <translation>Linear</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Radial</source>
-        <translation type="unfinished"></translation>
+        <translation>Radial</translation>
     </message>
     <message>
         <location line="-270"/>
         <source>Soft fade</source>
-        <translation type="unfinished"></translation>
+        <translation>Desvanecimento suave</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Strong fade</source>
-        <translation type="unfinished"></translation>
+        <translation>Desvanecimento forte</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Diagonal</source>
-        <translation type="unfinished"></translation>
+        <translation>Diagonal</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Glow</source>
-        <translation type="unfinished"></translation>
+        <translation>Brilho</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Accent wash</source>
-        <translation type="unfinished"></translation>
+        <translation>Véu de destaque</translation>
     </message>
     <message>
         <location line="+139"/>
         <source>Centre</source>
-        <translation type="unfinished"></translation>
+        <translation>Centro</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Start</source>
-        <translation type="unfinished"></translation>
+        <translation>Início</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Edge</source>
-        <translation type="unfinished"></translation>
+        <translation>Extremo</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>End</source>
-        <translation type="unfinished"></translation>
+        <translation>Fim</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Middle</source>
-        <translation type="unfinished"></translation>
+        <translation>Meio</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>Fill</source>
-        <translation type="unfinished"></translation>
+        <translation>Preenchimento</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Solid</source>
-        <translation type="unfinished"></translation>
+        <translation>Sólido</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Solid colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor sólida</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Linear gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Gradiente linear</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Radial gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Gradiente radial</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>This area can be a gradient. Pick a starting point, then change its colours.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta área pode ser um gradiente. Escolha um ponto de partida e depois mude as suas cores.</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Use the %1 gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar o gradiente %1</translation>
     </message>
     <message>
         <location line="+65"/>
         <source>Direction</source>
-        <translation type="unfinished"></translation>
+        <translation>Direção</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Gradient angle</source>
-        <translation type="unfinished"></translation>
+        <translation>Ângulo do gradiente</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>%1°</source>
-        <translation type="unfinished"></translation>
+        <translation>%1°</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Colour stops</source>
-        <translation type="unfinished"></translation>
+        <translation>Pontos de paragem de cor</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Drag a handle to move a colour. Click the bar to add one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Arraste uma pega para mover uma cor. Clique na barra para adicionar uma.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Drag a handle to move a colour. Three is the most a gradient holds.</source>
-        <translation type="unfinished"></translation>
+        <translation>Arraste uma pega para mover uma cor. Três é o máximo que um gradiente suporta.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Gradient colours</source>
-        <translation type="unfinished"></translation>
+        <translation>Cores do gradiente</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Stop editing the %1 colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Parar de editar a cor %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Edit the %1 colour with the picker</source>
-        <translation type="unfinished"></translation>
+        <translation>Editar a cor %1 com o seletor</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Gradient colour %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor do gradiente %1</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Remove</source>
-        <translation type="unfinished">Remover</translation>
+        <translation>Remover</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Remove the %1 colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover a cor %1</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Add a middle colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionar uma cor intermédia</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Solid colour underneath</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor sólida por baixo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Edit the solid colour underneath the gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Editar a cor sólida por baixo do gradiente</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Reverse</source>
-        <translation type="unfinished"></translation>
+        <translation>Inverter</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reverse the gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Inverter o gradiente</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The picker below changes the %1 colour. Click it again to go back to the solid colour.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seletor abaixo altera a cor %1. Clique novamente para voltar à cor sólida.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Click a colour above to change it with the picker below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Clique numa cor acima para a alterar com o seletor abaixo.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Text stays readable at every point of this gradient.</source>
-        <translation type="unfinished"></translation>
+        <translation>O texto continua legível em cada ponto deste gradiente.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Hard to read where the gradient is at its worst: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Difícil de ler onde o gradiente está no seu pior: %1</translation>
     </message>
 </context>
 <context>
@@ -7262,17 +7271,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-2"/>
         <source>Lightning can&apos;t sync with your server. Your rooms stay available, but new messages may not arrive.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue sincronizar com o seu servidor. As suas salas continuam disponíveis, mas as novas mensagens podem não chegar.</translation>
     </message>
     <message>
         <location line="+155"/>
         <source>Enter recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduzir chave de recuperação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Set up backup</source>
-        <translation type="unfinished"></translation>
+        <translation>Configurar cópia de segurança</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -7292,7 +7301,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+7"/>
         <source>Explore rooms</source>
-        <translation type="unfinished">Explorar salas</translation>
+        <translation>Explorar salas</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -7332,33 +7341,33 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+23"/>
         <source>Make it yours</source>
-        <translation type="unfinished"></translation>
+        <translation>Personalize-o</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Theme and colours</source>
-        <translation type="unfinished"></translation>
+        <translation>Tema e cores</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+2"/>
         <source>Themes, custom colours and gradients</source>
-        <translation type="unfinished"></translation>
+        <translation>Temas, cores personalizadas e gradientes</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Name and picture</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome e imagem</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>All settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Todas as definições</translation>
     </message>
     <message>
         <location line="+24"/>
@@ -7368,7 +7377,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>Start a direct message to talk to someone, create a room for a group, or organise rooms into a Space. Explore rooms finds public ones to join. Invitations you receive appear in the room list.</source>
-        <translation type="unfinished"></translation>
+        <translation>Inicie uma mensagem direta para falar com alguém, crie uma sala para um grupo, ou organize salas num Espaço. Explorar salas encontra as públicas às quais pode aderir. Os convites que recebe aparecem na lista de salas.</translation>
     </message>
 </context>
 <context>
@@ -7439,7 +7448,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>That animation can&apos;t be kept. Turn off &quot;Keep animation&quot; to use a still frame.</source>
-        <translation type="unfinished"></translation>
+        <translation>Essa animação não pode ser mantida. Desligue «Manter animação» para usar uma imagem fixa.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -7449,18 +7458,18 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+368"/>
         <source>Converting the SVG to a picture…</source>
-        <translation type="unfinished"></translation>
+        <translation>A converter o SVG para imagem…</translation>
     </message>
     <message>
         <location line="+33"/>
         <location line="+8"/>
         <source>Keep animation</source>
-        <translation type="unfinished"></translation>
+        <translation>Manter animação</translation>
     </message>
     <message>
         <location line="-7"/>
         <source>This animation can&apos;t be kept (it is too large or unreadable), so a still frame will be used.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta animação não pode ser mantida (é demasiado grande ou ilegível), por isso será usada uma imagem fixa.</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -7470,12 +7479,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+58"/>
         <source>An animation is uploaded whole and can&apos;t be cropped. Everyone sees it centred, as outlined.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma animação é enviada inteira e não pode ser recortada. Todos a veem centrada, como indicado no contorno.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>An animation is uploaded whole and can&apos;t be cropped. It is shown roughly as outlined; some views crop it differently.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma animação é enviada inteira e não pode ser recortada. É mostrada aproximadamente como indicado no contorno; algumas vistas recortam-na de forma diferente.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -7515,7 +7524,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+643"/>
         <location line="+1"/>
         <source>Open in browser</source>
-        <translation type="unfinished">Abrir no navegador</translation>
+        <translation>Abrir no navegador</translation>
     </message>
     <message>
         <location line="-636"/>
@@ -7555,12 +7564,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+126"/>
         <source>Image %1 of %2, shown</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagem %1 de %2, mostrada</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Image %1 of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagem %1 de %2</translation>
     </message>
     <message>
         <location line="+37"/>
@@ -7570,7 +7579,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Zoom out (−)</source>
-        <translation type="unfinished"></translation>
+        <translation>Reduzir zoom (−)</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -7580,7 +7589,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Zoom in (+)</source>
-        <translation type="unfinished"></translation>
+        <translation>Aumentar zoom (+)</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -7605,12 +7614,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+47"/>
         <source>Download image</source>
-        <translation type="unfinished"></translation>
+        <translation>Transferir imagem</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Download</source>
-        <translation type="unfinished"></translation>
+        <translation>Transferir</translation>
     </message>
     <message>
         <location line="+35"/>
@@ -7653,12 +7662,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>You can&apos;t join calls in this room. A room admin can raise your power level in it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não pode entrar em chamadas nesta sala. Um administrador da sala pode aumentar o seu nível de permissão.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala está encriptada, e as chamadas encriptadas não estão disponíveis nesta versão.</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -7708,12 +7717,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+41"/>
         <source>Silence ringer</source>
-        <translation type="unfinished"></translation>
+        <translation>Silenciar toque</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Silence the ringer for this call</source>
-        <translation type="unfinished"></translation>
+        <translation>Silenciar o toque desta chamada</translation>
     </message>
     <message>
         <location line="+28"/>
@@ -7782,22 +7791,22 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/IndexAllPrompt.qml" line="+43"/>
         <location line="+23"/>
         <source>Index encrypted messages now?</source>
-        <translation type="unfinished"></translation>
+        <translation>Indexar agora as mensagens encriptadas?</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>So search can find older messages in encrypted rooms later. It can take a while, uses bandwidth, and stores the decrypted text on this device. You can also do it later in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>Para que a pesquisa possa encontrar mais tarde mensagens mais antigas em salas encriptadas. Pode demorar algum tempo, usa largura de banda e guarda o texto desencriptado neste dispositivo. Também pode fazê-lo mais tarde nas Definições.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Index now</source>
-        <translation type="unfinished"></translation>
+        <translation>Indexar agora</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Not now</source>
-        <translation type="unfinished">Agora não</translation>
+        <translation>Agora não</translation>
     </message>
 </context>
 <context>
@@ -7888,87 +7897,87 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/JumpToDateDialog.qml" line="+88"/>
         <source>Your homeserver could not find a message on or after that date.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico não encontrou nenhuma mensagem na data indicada ou depois dela.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your homeserver does not support jumping to a date. That needs a newer homeserver; searching this room still works.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico não suporta ir para uma data. Isso exige um servidor doméstico mais recente; pesquisar nesta sala continua a funcionar.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your homeserver refused the request for this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico recusou o pedido para esta sala.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your homeserver is rate limiting requests. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico está a limitar os pedidos. Tente novamente dentro de momentos.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The room changed while the answer was on its way.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sala mudou enquanto a resposta chegava.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This build cannot ask the server for a date.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta versão não consegue pedir ao servidor uma data.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Could not reach your homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível contactar o seu servidor doméstico.</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Jump to date</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir para data</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Goes to the first message on or after the date you pick. Your homeserver answers this, so it works through history that is not loaded yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Vai para a primeira mensagem na data escolhida ou depois dela. O seu servidor doméstico responde a isto, por isso funciona no histórico que ainda não foi carregado.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Today</source>
-        <translation type="unfinished">Hoje</translation>
+        <translation>Hoje</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A week ago</source>
-        <translation type="unfinished"></translation>
+        <translation>Há uma semana</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A month ago</source>
-        <translation type="unfinished"></translation>
+        <translation>Há um mês</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Pick a date</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha uma data</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>yyyy-mm-dd</source>
-        <translation type="unfinished"></translation>
+        <translation>aaaa-mm-dd</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Pick a real date that is not in the future.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha uma data real que não esteja no futuro.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Jump</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir</translation>
     </message>
 </context>
 <context>
@@ -7976,92 +7985,92 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/LinkMediaCard.qml" line="+49"/>
         <source>Plays from %1, which will see your IP address</source>
-        <translation type="unfinished"></translation>
+        <translation>Reproduz a partir de %1, que verá o seu endereço IP</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Opens from %1, which will see your IP address</source>
-        <translation type="unfinished"></translation>
+        <translation>Abre a partir de %1, que verá o seu endereço IP</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>%1 B</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 B</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 KB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 KB</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 MB</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Video</source>
-        <translation type="unfinished">Vídeo</translation>
+        <translation>Vídeo</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Image</source>
-        <translation type="unfinished">Imagem</translation>
+        <translation>Imagem</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Over %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Acima de %1</translation>
     </message>
     <message>
         <location line="+147"/>
         <source>Too large to play here</source>
-        <translation type="unfinished"></translation>
+        <translation>Demasiado grande para reproduzir aqui</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Too large to show here</source>
-        <translation type="unfinished"></translation>
+        <translation>Demasiado grande para mostrar aqui</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>%1 · Open in browser</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · Abrir no navegador</translation>
     </message>
     <message>
         <location line="+90"/>
         <source>Open link in browser</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir a ligação no navegador</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Open in browser</source>
-        <translation type="unfinished">Abrir no navegador</translation>
+        <translation>Abrir no navegador</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Dismiss link preview</source>
-        <translation type="unfinished">Dispensar visualização do link</translation>
+        <translation>Dispensar a pré-visualização da ligação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Dismiss preview</source>
-        <translation type="unfinished">Ignorar visualização</translation>
+        <translation>Dispensar a pré-visualização</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>%1 too large to show here, open %2 in browser</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 demasiado grande para mostrar aqui; abrir %2 no navegador</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Play video %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Reproduzir o vídeo %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>View image %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Ver a imagem %1</translation>
     </message>
 </context>
 <context>
@@ -8078,139 +8087,139 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/LogExportCard.qml" line="+49"/>
         <source>%1 B</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 B</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 KB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 KB</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 MB</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Troubleshooting</source>
-        <translation type="unfinished"></translation>
+        <translation>Resolução de problemas</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Export logs</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar registos</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Save Lightning&apos;s recent log, with basic facts about this build and computer, as a .zip you can attach to a bug report. Nothing is uploaded.</source>
-        <translation type="unfinished"></translation>
+        <translation>Guarde o registo recente do Lightning, com dados básicos sobre esta versão e o computador, como um .zip que pode anexar a um relatório de erro. Nada é enviado.</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+23"/>
         <source>Keep a diagnostic log</source>
-        <translation type="unfinished"></translation>
+        <translation>Manter um registo de diagnóstico</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>Disabled by the LIGHTNING_NO_ROLLING_LOG environment variable.</source>
-        <translation type="unfinished"></translation>
+        <translation>Desativado pela variável de ambiente LIGHTNING_NO_ROLLING_LOG.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Keeps up to about 8 MB of recent log on this computer, so there is something to export after a problem. Nothing is uploaded. Not synced to your other devices.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mantém até cerca de 8 MB de registo recente neste computador, para haver algo a exportar depois de um problema. Nada é enviado. Não é sincronizado com os seus outros dispositivos.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>This file has no messages, passwords or keys; user and room ids are replaced with codes.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este ficheiro não tem mensagens, palavras-passe nem chaves; os IDs de utilizador e de sala são substituídos por códigos.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Preparing…</source>
-        <translation type="unfinished"></translation>
+        <translation>A preparar…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Nothing has been logged yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda não foi registado nada.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No log has been kept. Turn on “Keep a diagnostic log”, reproduce the problem, then export.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi mantido nenhum registo. Ative «Manter um registo de diagnóstico», reproduza o problema e depois exporte.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>About %1, %2, from %3.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cerca de %1, %2, de %3.</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n line(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n linha</numerusform>
+            <numerusform>%n linhas</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n log file(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n ficheiro de registo</numerusform>
+            <numerusform>%n ficheiros de registo</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Export logs…</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar registos…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Copy last 200 lines</source>
-        <translation type="unfinished"></translation>
+        <translation>Copiar as últimas 200 linhas</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Delete saved logs</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar registos guardados</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Deleted %n log file(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Eliminado %n ficheiro de registo.</numerusform>
+            <numerusform>Eliminados %n ficheiros de registo.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Save logs</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardar registos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Zip archive (*.zip)</source>
-        <translation type="unfinished"></translation>
+        <translation>Arquivo ZIP (*.zip)</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Saved.</source>
-        <translation type="unfinished">Guardado.</translation>
+        <translation>Guardado.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Could not save the file: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível guardar o ficheiro: %1</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Copied %n line(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Copiada %n linha.</numerusform>
+            <numerusform>Copiadas %n linhas.</numerusform>
         </translation>
     </message>
 </context>
@@ -8219,12 +8228,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/LogExportController.cpp" line="+199"/>
         <source>No file was chosen.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi escolhido nenhum ficheiro.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Could not save the file.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível guardar o ficheiro.</translation>
     </message>
 </context>
 <context>
@@ -8253,7 +8262,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-1074"/>
         <source>Fix this account</source>
-        <translation type="unfinished"></translation>
+        <translation>Corrigir esta conta</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -8324,19 +8333,19 @@ Signing out and signing in again is the only fix.</source>
         <location line="-152"/>
         <source>Or continue with</source>
         <extracomment>Separates the password form from the sign-in-with-your-browser buttons below it. The longer form introduces a grid of provider names.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Ou continue com</translation>
     </message>
     <message>
         <location line="+27"/>
         <location line="+36"/>
         <location line="+11"/>
         <source>Continue in browser</source>
-        <translation type="unfinished"></translation>
+        <translation>Continuar no navegador</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>%1 signs you in with %2, in your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 inicia a sua sessão com %2, no seu navegador.</translation>
     </message>
     <message>
         <location line="+62"/>
@@ -8364,64 +8373,64 @@ Signing out and signing in again is the only fix.</source>
         <location line="+43"/>
         <source>Server</source>
         <extracomment>Label above the field for the Matrix server the account is on, e.g. matrix.org.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Servidor</translation>
     </message>
     <message>
         <location line="+64"/>
         <source>Server: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Servidor: %1</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Not encrypted</source>
         <extracomment>Shown next to the server when its connection uses http:// rather than https://.</extracomment>
-        <translation type="unfinished">Não encriptada</translation>
+        <translation>Não encriptada</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The connection to this server is not encrypted (http).</source>
-        <translation type="unfinished"></translation>
+        <translation>A ligação a este servidor não está encriptada (http).</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Change</source>
-        <translation type="unfinished">Mudança</translation>
+        <translation>Alterar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Change server</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar servidor</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Checking…</source>
-        <translation type="unfinished">A verificar…</translation>
+        <translation>A verificar…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Found</source>
         <extracomment>The server was found and answered.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Encontrado</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That is not a server address. Enter one like matrix.org.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isso não é um endereço de servidor. Introduza um como matrix.org.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This server has no sign-in method Lightning supports.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este servidor não tem um método de início de sessão suportado pelo Lightning.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Can&apos;t reach this server. Check the address.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não é possível contactar este servidor. Verifique o endereço.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Where your account is, like matrix.org</source>
-        <translation type="unfinished"></translation>
+        <translation>Onde está a sua conta, como matrix.org</translation>
     </message>
     <message>
         <location line="-280"/>
@@ -8429,25 +8438,25 @@ Signing out and signing in again is the only fix.</source>
         <location line="+796"/>
         <location line="+9"/>
         <source>Try again</source>
-        <translation type="unfinished"></translation>
+        <translation>Tentar novamente</translation>
     </message>
     <message>
         <location line="-773"/>
         <location line="+249"/>
         <source>Opens %1&apos;s sign-in page in your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation>Abre a página de início de sessão de %1 no seu navegador.</translation>
     </message>
     <message>
         <location line="-227"/>
         <location line="+15"/>
         <source>Username</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome de utilizador</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>username</source>
         <extracomment>Placeholder for the sign-in name field. The field takes a plain username - the server is the field above it - so the placeholder says so rather than showing a full @user:server id, which suggested the server had to be typed twice.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>nome de utilizador</translation>
     </message>
     <message>
         <location line="-52"/>
@@ -8522,37 +8531,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-129"/>
         <source>Create account</source>
-        <translation type="unfinished"></translation>
+        <translation>Criar conta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Opens %1&apos;s sign-up page in your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation>Abre a página de criação de conta de %1 no seu navegador.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Forgot password?</source>
-        <translation type="unfinished"></translation>
+        <translation>Esqueceu a palavra-passe?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Opens %1&apos;s account page in your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation>Abre a página da conta de %1 no seu navegador.</translation>
     </message>
     <message>
         <location line="+117"/>
         <source>This device&apos;s Matrix session is no longer valid on the server — for example, it may have been signed out from another client. Your local data, including this device&apos;s encryption keys, is intact. Signing in again above starts a new session on this device; the old session&apos;s data is kept aside, not deleted. Encrypted history can come back through key backup or another verified session, if you have one. If signing in keeps failing, you can remove this account below, which does delete this device&apos;s local copy of your encryption keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sessão Matrix deste dispositivo já não é válida no servidor — por exemplo, pode ter sido terminada a partir de outro cliente. Os seus dados locais, incluindo as chaves de encriptação deste dispositivo, estão intactos. Iniciar sessão novamente acima começa uma nova sessão neste dispositivo; os dados da sessão antiga são guardados à parte, não eliminados. O histórico encriptado pode voltar pela cópia de segurança de chaves ou por outra sessão verificada, se tiver uma. Se o início de sessão continuar a falhar, pode remover esta conta abaixo, o que elimina a cópia local das chaves de encriptação deste dispositivo.</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Your session expired</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua sessão expirou</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The server ended this device&apos;s session but kept the device. Signing in again above continues it as the same session on this device, with its encryption keys and history. Nothing on this device has been moved or deleted. If signing in keeps failing, you can remove this account below, which does delete this device&apos;s local copy of your encryption keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor terminou a sessão deste dispositivo, mas manteve o dispositivo. Iniciar sessão novamente acima continua-a como a mesma sessão neste dispositivo, com as suas chaves de encriptação e o histórico. Nada neste dispositivo foi movido ou eliminado. Se o início de sessão continuar a falhar, pode remover esta conta abaixo, o que elimina a cópia local das chaves de encriptação deste dispositivo.</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -8567,12 +8576,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+20"/>
         <source>Your keyring no longer has this sign-in</source>
-        <translation type="unfinished"></translation>
+        <translation>O porta-chaves já não tem este início de sessão</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning saved the sign-in for %1 in your system keyring, and the keyring no longer returns it. This can happen after the keyring was reset, or when a Flatpak or snap starts using a different keyring. Nothing on this device has been deleted, and its encryption keys are intact. Try again if the keyring may come back, or sign in with your password to continue as this same device.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning guardou o início de sessão de %1 no porta-chaves do sistema, e o porta-chaves já não o devolve. Isto pode acontecer depois de o porta-chaves ser reposto, ou quando um Flatpak ou snap começa a usar outro porta-chaves. Nada neste dispositivo foi eliminado, e as suas chaves de encriptação estão intactas. Tente novamente se o porta-chaves puder voltar, ou inicie sessão com a sua palavra-passe para continuar como este mesmo dispositivo.</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -8587,22 +8596,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+18"/>
         <source>This account already has a session here</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta conta já tem uma sessão aqui</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning keeps a session for %1 on this device. Open it. If it doesn&apos;t open, remove it from this device and sign in again: that deletes this device&apos;s copy of its encryption keys, and your messages stay on the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning mantém uma sessão para %1 neste dispositivo. Abra-a. Se não abrir, remova-a deste dispositivo e inicie sessão novamente: isso elimina a cópia deste dispositivo das suas chaves de encriptação, e as suas mensagens permanecem no servidor.</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Some of this account&apos;s files are still here</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda existem alguns ficheiros desta conta aqui</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 was removed from this device, but Lightning could not delete all of its files. Close anything that may be using them, then try again. Still here: %2</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 foi removida deste dispositivo, mas o Lightning não conseguiu eliminar todos os seus ficheiros. Feche o que possa estar a usá-los e tente novamente. Ainda aqui: %2</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -8642,12 +8651,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+121"/>
         <source>Try removing %1 again</source>
-        <translation type="unfinished"></translation>
+        <translation>Tentar remover %1 novamente</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Open it</source>
-        <translation type="unfinished"></translation>
+        <translation>Abri-la</translation>
     </message>
     <message>
         <location line="+42"/>
@@ -8725,32 +8734,32 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+50"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning está a desenhar com o processador, não com a placa gráfica, por isso a deslocação pode ser lenta. Isto é comum com o AppImage no NixOS.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This can happen when the AppImage cannot use your system&apos;s graphics driver, or in a virtual machine.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning está a desenhar com o processador, não com a placa gráfica, por isso a deslocação pode ser lenta. Isto pode acontecer quando o AppImage não consegue usar o driver gráfico do sistema, ou numa máquina virtual.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. On NixOS this usually means Lightning cannot reach the system&apos;s graphics driver.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning está a desenhar com o processador, não com a placa gráfica, por isso a deslocação pode ser lenta. No NixOS, isto costuma significar que o Lightning não consegue chegar ao driver gráfico do sistema.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This usually means no graphics driver is available to it, for example in a virtual machine or a remote desktop session.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning está a desenhar com o processador, não com a placa gráfica, por isso a deslocação pode ser lenta. Isto costuma significar que não há nenhum driver gráfico disponível para ele, por exemplo numa máquina virtual ou numa sessão de ambiente de trabalho remoto.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>How to fix</source>
-        <translation type="unfinished"></translation>
+        <translation>Como resolver</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Dismiss</source>
-        <translation type="unfinished">Dispensar</translation>
+        <translation>Dispensar</translation>
     </message>
     <message>
         <location line="+62"/>
@@ -8825,7 +8834,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+15"/>
         <source>Added :%1: to your emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionado :%1: aos seus emojis</translation>
     </message>
     <message>
         <location line="+172"/>
@@ -8879,7 +8888,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MainScreen.qml" line="+568"/>
         <source>Signing out…</source>
-        <translation type="unfinished"></translation>
+        <translation>A terminar sessão…</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -8903,7 +8912,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+560"/>
         <source>The media server is unreachable. Try again in a few minutes.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor de multimédia está inacessível. Tente novamente dentro de alguns minutos.</translation>
     </message>
     <message>
         <location line="+107"/>
@@ -8914,7 +8923,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+82"/>
         <source>Download cancelled.</source>
-        <translation type="unfinished"></translation>
+        <translation>Transferência cancelada.</translation>
     </message>
     <message>
         <location line="+86"/>
@@ -8942,169 +8951,169 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MediaBrowser.qml" line="+34"/>
         <source>Media</source>
-        <translation type="unfinished">Multimédia</translation>
+        <translation>Multimédia</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Images</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Videos</source>
-        <translation type="unfinished"></translation>
+        <translation>Vídeos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Audio</source>
-        <translation type="unfinished">Áudio</translation>
+        <translation>Áudio</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Files</source>
-        <translation type="unfinished"></translation>
+        <translation>Ficheiros</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Links</source>
-        <translation type="unfinished">Ligações</translation>
+        <translation>Ligações</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>Search filename, caption, sender, link…</source>
-        <translation type="unfinished"></translation>
+        <translation>Pesquisar nome do ficheiro, legenda, remetente, ligação…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Search this room&apos;s media</source>
-        <translation type="unfinished"></translation>
+        <translation>Pesquisar a multimédia desta sala</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>List</source>
-        <translation type="unfinished"></translation>
+        <translation>Lista</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Grid</source>
-        <translation type="unfinished"></translation>
+        <translation>Grelha</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Show as a list</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar como lista</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show as a grid</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar como grelha</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>From</source>
-        <translation type="unfinished">De</translation>
+        <translation>De</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Anyone</source>
-        <translation type="unfinished"></translation>
+        <translation>Qualquer pessoa</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Filter by sender</source>
-        <translation type="unfinished"></translation>
+        <translation>Filtrar por remetente</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>This backend cannot browse room history.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este backend não consegue navegar pelo histórico da sala.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>History could not be read, so this is only part of it. %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível ler o histórico, por isso isto é apenas parte dele. %1</translation>
     </message>
     <message numerus="yes">
         <location line="+6"/>
         <source>%n item(s) — all of this room&apos;s history.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n item — todo o histórico desta sala.</numerusform>
+            <numerusform>%n itens — todo o histórico desta sala.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n item(s) so far — reading older messages…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n item até agora — a ler mensagens mais antigas…</numerusform>
+            <numerusform>%n itens até agora — a ler mensagens mais antigas…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n item(s) in the %1 message(s) read so far.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n item nas %1 mensagens lidas até agora.</numerusform>
+            <numerusform>%n itens nas %1 mensagens lidas até agora.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n message(s) could not be decrypted and may hold more.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n mensagem não pôde ser desencriptada e pode conter mais.</numerusform>
+            <numerusform>%n mensagens não puderam ser desencriptadas e podem conter mais.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Load more</source>
-        <translation type="unfinished">Carregar mais</translation>
+        <translation>Carregar mais</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Load more media from older messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Carregar mais multimédia de mensagens mais antigas</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Stop</source>
-        <translation type="unfinished"></translation>
+        <translation>Parar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show all media</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar toda a multimédia</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Stop searching older messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Parar de pesquisar mensagens mais antigas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search all older messages for media</source>
-        <translation type="unfinished"></translation>
+        <translation>Pesquisar multimédia em todas as mensagens mais antigas</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Nothing matches those filters in the history read so far.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada corresponde a esses filtros no histórico lido até agora.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Nothing of this kind in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada deste tipo nesta sala.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing of this kind yet — keep loading to search further back.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada deste tipo ainda — continue a carregar para pesquisar mais atrás.</translation>
     </message>
     <message>
         <location line="+86"/>
         <source>Try again</source>
-        <translation type="unfinished"></translation>
+        <translation>Tentar novamente</translation>
     </message>
 </context>
 <context>
@@ -9112,37 +9121,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MediaBrowserRow.qml" line="+65"/>
         <source>(unnamed)</source>
-        <translation type="unfinished">(sem nome)</translation>
+        <translation>(sem nome)</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Go to message</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir para a mensagem</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Copy link</source>
-        <translation type="unfinished">Copiar link</translation>
+        <translation>Copiar ligação</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>%1 B</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 B</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 KB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 KB</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 MB</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 GB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 GB</translation>
     </message>
 </context>
 <context>
@@ -9150,7 +9159,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MediaBrowserTile.qml" line="+150"/>
         <source>Go to message</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir para a mensagem</translation>
     </message>
 </context>
 <context>
@@ -9172,22 +9181,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/models/MediaHistoryModel.cpp" line="+118"/>
         <source>Today</source>
-        <translation type="unfinished">Hoje</translation>
+        <translation>Hoje</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Yesterday</source>
-        <translation type="unfinished">Ontem</translation>
+        <translation>Ontem</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This week</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta semana</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This month</source>
-        <translation type="unfinished"></translation>
+        <translation>Este mês</translation>
     </message>
 </context>
 <context>
@@ -9195,48 +9204,48 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MediaPreviewSettings.qml" line="+20"/>
         <source>Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-visualizações de multimédia</translation>
     </message>
     <message>
         <location line="+18"/>
         <location line="+27"/>
         <source>Load media automatically</source>
-        <translation type="unfinished"></translation>
+        <translation>Carregar multimédia automaticamente</translation>
     </message>
     <message>
         <location line="-14"/>
         <source>Always</source>
-        <translation type="unfinished">Sempre</translation>
+        <translation>Sempre</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Private rooms only</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas salas privadas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Never</source>
-        <translation type="unfinished">Nunca</translation>
+        <translation>Nunca</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Pictures, GIFs, stickers, video, audio and files start as one line you can open, and are not downloaded until you do. Private rooms are encrypted rooms and direct messages. The choice is saved in your account, so other apps that support it follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens, GIF, autocolantes, vídeo, áudio e ficheiros começam como uma linha que pode abrir, e não são transferidos até o fazer. Salas privadas são salas encriptadas e mensagens diretas. A escolha é guardada na sua conta, por isso as outras aplicações que o suportam seguem-na.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar avatares em convites para salas</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Load the picture a stranger set on a room that invites you</source>
-        <translation type="unfinished"></translation>
+        <translation>Carregar a imagem que um desconhecido definiu numa sala que o convida</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Could not save this to your account. It still shows what your account holds.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível guardar isto na sua conta. Continua a mostrar o que a sua conta contém.</translation>
     </message>
 </context>
 <context>
@@ -9389,57 +9398,57 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+48"/>
         <source>Ignore this person?</source>
-        <translation type="unfinished"></translation>
+        <translation>Ignorar esta pessoa?</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Ignore %1 in every room, on every device? Their existing messages are hidden too. You can undo this from their profile.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ignorar %1 em todas as salas, em todos os dispositivos? As mensagens existentes também ficam ocultas. Pode anular isto a partir do perfil dela.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Ignore</source>
-        <translation type="unfinished">Ignorar</translation>
+        <translation>Ignorar</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Lower your own role?</source>
-        <translation type="unfinished"></translation>
+        <translation>Baixar o seu próprio cargo?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Change role?</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar o cargo?</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Set %1 to %2 in this room?</source>
-        <translation type="unfinished"></translation>
+        <translation>Definir %1 como %2 nesta sala?</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This gives them your own level or higher. You will not be able to change it back.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto dá-lhes o seu próprio nível ou superior. Não poderá voltar a alterá-lo.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>You are lowering your own role. You will not be able to raise it back yourself: only someone whose role is above your new one can, and if nobody else holds a role as high as yours, nobody can.</source>
-        <translation type="unfinished"></translation>
+        <translation>Está a baixar o seu próprio cargo. Não o poderá voltar a subir sozinho: só alguém cujo cargo esteja acima do novo pode fazê-lo, e se mais ninguém tiver um cargo tão alto como o seu, ninguém pode.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>You will also no longer be able to change roles or permissions in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Também deixará de poder alterar cargos ou permissões nesta sala.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Lower my role</source>
-        <translation type="unfinished"></translation>
+        <translation>Baixar o meu cargo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Change role</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar cargo</translation>
     </message>
     <message>
         <location line="+35"/>
@@ -9477,12 +9486,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+51"/>
         <source>On a moderation list you follow — %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Numa lista de moderação que segue — %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>On a moderation list you follow.</source>
-        <translation type="unfinished"></translation>
+        <translation>Numa lista de moderação que segue.</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -9561,7 +9570,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+104"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível remover os dados da fotografia desta imagem, por isso não foi enviada. Pode alterar isto em Definições, Privacidade.</translation>
     </message>
     <message>
         <location line="+35"/>
@@ -9592,22 +9601,22 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/MessageComposerBar.qml" line="+604"/>
         <location line="+33"/>
         <source>Add link</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionar ligação</translation>
     </message>
     <message>
         <location line="-22"/>
         <source>https://…</source>
-        <translation type="unfinished"></translation>
+        <translation>https://…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Only http, https, mailto and matrix links can be added.</source>
-        <translation type="unfinished"></translation>
+        <translation>Só é possível adicionar ligações http, https, mailto e matrix.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+450"/>
@@ -9659,7 +9668,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="-34"/>
         <location line="+41"/>
         <source>GIFs and stickers…</source>
-        <translation type="unfinished"></translation>
+        <translation>GIF e autocolantes…</translation>
     </message>
     <message>
         <location line="-40"/>
@@ -9700,7 +9709,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+75"/>
         <source>Send as message</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar como mensagem</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -9771,35 +9780,35 @@ Signing out and signing in again is the only fix.</source>
         <location line="+31"/>
         <location line="+1"/>
         <source>Underline</source>
-        <translation type="unfinished"></translation>
+        <translation>Sublinhado</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+1"/>
         <source>Numbered list</source>
-        <translation type="unfinished"></translation>
+        <translation>Lista numerada</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Rich text</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto formatado</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Markdown</source>
-        <translation type="unfinished"></translation>
+        <translation>Markdown</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+1067"/>
         <source>Switch to Markdown composing</source>
-        <translation type="unfinished"></translation>
+        <translation>Mudar para escrita em Markdown</translation>
     </message>
     <message>
         <location line="-1066"/>
         <location line="+1067"/>
         <source>Switch to rich-text composing</source>
-        <translation type="unfinished"></translation>
+        <translation>Mudar para escrita em texto formatado</translation>
     </message>
     <message>
         <location line="-1023"/>
@@ -9815,7 +9824,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+30"/>
         <source>Aa</source>
         <comment>text-formatting button mark</comment>
-        <translation type="unfinished"></translation>
+        <translation>Aa</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -9921,7 +9930,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2719"/>
         <location line="+1"/>
         <source>More</source>
-        <translation type="unfinished">Mais</translation>
+        <translation>Mais</translation>
     </message>
     <message>
         <location line="+69"/>
@@ -9967,7 +9976,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+134"/>
         <source>Scheduled messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensagens agendadas</translation>
     </message>
     <message>
         <location line="-135"/>
@@ -9977,18 +9986,18 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-213"/>
         <source>Insert a GIF or sticker</source>
-        <translation type="unfinished"></translation>
+        <translation>Inserir um GIF ou autocolante</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>GIFs and stickers are unavailable on this backend</source>
-        <translation type="unfinished"></translation>
+        <translation>Os GIF e autocolantes não estão disponíveis neste backend</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+303"/>
         <source>GIFs and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>GIF e autocolantes</translation>
     </message>
     <message>
         <location line="-95"/>
@@ -10004,22 +10013,22 @@ Signing out and signing in again is the only fix.</source>
         <location line="+29"/>
         <location line="+4"/>
         <source>Send options</source>
-        <translation type="unfinished"></translation>
+        <translation>Opções de envio</translation>
     </message>
     <message>
         <location line="-2"/>
         <source>Send options (%1 scheduled)</source>
-        <translation type="unfinished"></translation>
+        <translation>Opções de envio (%1 agendadas)</translation>
     </message>
     <message>
         <location line="+92"/>
         <source>Send later…</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar mais tarde…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Scheduled messages (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensagens agendadas (%1)</translation>
     </message>
     <message>
         <location line="+38"/>
@@ -10104,7 +10113,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+200"/>
         <source>This session can&apos;t unlock encrypted messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sessão não consegue desbloquear mensagens encriptadas</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -10139,7 +10148,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-1892"/>
         <source>Link</source>
-        <translation type="unfinished">Ligação</translation>
+        <translation>Ligação</translation>
     </message>
     <message>
         <location line="+1981"/>
@@ -10174,7 +10183,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+26"/>
         <source>edited — show edit history</source>
-        <translation type="unfinished"></translation>
+        <translation>editada — mostrar o histórico de edições</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -10222,7 +10231,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+54"/>
         <source>Edit message</source>
-        <translation type="unfinished"></translation>
+        <translation>Editar mensagem</translation>
     </message>
     <message>
         <location line="+28"/>
@@ -10283,7 +10292,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+57"/>
         <source>Sent</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviada</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -10386,7 +10395,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+12"/>
         <source>Use as my background here</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar como o meu fundo aqui</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -10401,33 +10410,33 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+12"/>
         <source>Edit history</source>
-        <translation type="unfinished"></translation>
+        <translation>Histórico de edições</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>View source</source>
-        <translation type="unfinished"></translation>
+        <translation>Ver código-fonte</translation>
     </message>
     <message>
         <location line="+1594"/>
         <source>Image unavailable</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagem indisponível</translation>
     </message>
     <message>
         <location line="+705"/>
         <location line="+1"/>
         <source>Cancel download</source>
-        <translation type="unfinished"></translation>
+        <translation>Cancelar transferência</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Download again</source>
-        <translation type="unfinished"></translation>
+        <translation>Transferir novamente</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Try again</source>
-        <translation type="unfinished"></translation>
+        <translation>Tentar novamente</translation>
     </message>
     <message>
         <location line="-3683"/>
@@ -10438,40 +10447,40 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-3850"/>
         <source>%1 B</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 B</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 KB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 KB</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 MB</translation>
     </message>
     <message>
         <location line="+22"/>
         <location line="+562"/>
         <source>Sticker</source>
-        <translation type="unfinished">Autocolante</translation>
+        <translation>Autocolante</translation>
     </message>
     <message>
         <location line="-559"/>
         <source>Voice message</source>
-        <translation type="unfinished">Mensagem de voz</translation>
+        <translation>Mensagem de voz</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+556"/>
         <source>Audio</source>
-        <translation type="unfinished">Áudio</translation>
+        <translation>Áudio</translation>
     </message>
     <message>
         <location line="-554"/>
         <location line="+552"/>
         <source>GIF</source>
-        <translation type="unfinished">GIF</translation>
+        <translation>GIF</translation>
     </message>
     <message>
         <location line="-552"/>
@@ -10479,50 +10488,50 @@ Signing out and signing in again is the only fix.</source>
         <location line="+485"/>
         <location line="+4219"/>
         <source>Image</source>
-        <translation type="unfinished">Imagem</translation>
+        <translation>Imagem</translation>
     </message>
     <message>
         <location line="-4768"/>
         <source>Attachment</source>
-        <translation type="unfinished"></translation>
+        <translation>Anexo</translation>
     </message>
     <message numerus="yes">
         <location line="+532"/>
         <source>%n image(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n imagem</numerusform>
+            <numerusform>%n imagens</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n attachment(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n anexo</numerusform>
+            <numerusform>%n anexos</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1090"/>
         <source>Message deleted</source>
-        <translation type="unfinished">Mensagem eliminada</translation>
+        <translation>Mensagem eliminada</translation>
     </message>
     <message>
         <location line="+496"/>
         <source>(edited)</source>
-        <translation type="unfinished"></translation>
+        <translation>(editada)</translation>
     </message>
     <message>
         <location line="+1572"/>
         <source>Add :%1: to my emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionar :%1: aos meus emojis</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>Add %n custom emoji to my pack</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Adicionar %n emoji personalizado ao meu pacote</numerusform>
+            <numerusform>Adicionar %n emojis personalizados ao meu pacote</numerusform>
         </translation>
     </message>
     <message>
@@ -10540,7 +10549,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+18"/>
         <source>Select messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Selecionar mensagens</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -10643,42 +10652,42 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1802"/>
         <source>Remove edits?</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover as edições?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Matrix has no unedit: this redacts the edits, so the message returns to its original text. It cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Matrix não tem «desfazer edição»: isto oculta as edições, para que a mensagem volte ao texto original. Não pode ser desfeito.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>End poll?</source>
-        <translation type="unfinished"></translation>
+        <translation>Terminar a sondagem?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This closes voting and publishes the result. A poll cannot be reopened.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto fecha a votação e publica o resultado. Uma sondagem não pode ser reaberta.</translation>
     </message>
     <message>
         <location line="+96"/>
         <source>Delete message?</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar a mensagem?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This removes the message for everyone in the room. It cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto remove a mensagem para todos na sala. Não pode ser desfeito.</translation>
     </message>
     <message>
         <location line="+263"/>
         <source>Open link in browser</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir a ligação no navegador</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Open in browser</source>
-        <translation type="unfinished">Abrir no navegador</translation>
+        <translation>Abrir no navegador</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -10695,7 +10704,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-123"/>
         <source>View image %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Ver a imagem %1</translation>
     </message>
     <message>
         <location line="+165"/>
@@ -10727,14 +10736,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+983"/>
         <location line="+247"/>
         <source>Download %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Transferir %1</translation>
     </message>
     <message>
         <location line="-1228"/>
         <location line="+983"/>
         <location line="+250"/>
         <source>Download</source>
-        <translation type="unfinished"></translation>
+        <translation>Transferir</translation>
     </message>
     <message>
         <location line="-809"/>
@@ -10749,7 +10758,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+74"/>
         <source>Media server unreachable — retrying in %1 min</source>
-        <translation type="unfinished"></translation>
+        <translation>Servidor de multimédia inacessível — a tentar novamente em %1 min</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -10798,7 +10807,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Cancelled</source>
-        <translation type="unfinished"></translation>
+        <translation>Cancelado</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -10819,37 +10828,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+48"/>
         <source>Sharing live location</source>
-        <translation type="unfinished"></translation>
+        <translation>A partilhar a localização em tempo real</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Live location (ended)</source>
-        <translation type="unfinished"></translation>
+        <translation>Localização em tempo real (terminada)</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A place</source>
-        <translation type="unfinished"></translation>
+        <translation>Um local</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Location</source>
-        <translation type="unfinished"></translation>
+        <translation>Localização</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>%1 · within %2 m</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · a menos de %2 m</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Open in a map</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir num mapa</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>This location could not be read.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível ler esta localização.</translation>
     </message>
     <message>
         <location line="+96"/>
@@ -11029,7 +11038,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
         <location line="+41"/>
@@ -11355,67 +11364,67 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/NoiseSuppressionSelector.qml" line="+31"/>
         <source>Off</source>
-        <translation type="unfinished">Desligado</translation>
+        <translation>Desligada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Standard (WebRTC)</source>
-        <translation type="unfinished"></translation>
+        <translation>Padrão (WebRTC)</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Advanced (DeepFilterNet)</source>
-        <translation type="unfinished"></translation>
+        <translation>Avançada (DeepFilterNet)</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>No noise suppression. Your microphone is sent as captured; volume levelling still applies.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sem supressão de ruído. O seu microfone é enviado tal como captado; o nivelamento de volume continua a aplicar-se.</translation>
     </message>
     <message>
         <location line="-6"/>
         <source>Strong (RNNoise) · Recommended</source>
-        <translation type="unfinished"></translation>
+        <translation>Forte (RNNoise) · Recomendada</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Standard WebRTC suppression, as browsers use. The lightest on CPU, but it removes little.</source>
-        <translation type="unfinished"></translation>
+        <translation>Supressão WebRTC padrão, como os navegadores usam. A mais leve para o processador, mas remove pouco.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Recommended. Neural suppression that removes fans, keyboards and traffic while keeping speech clear, at moderate CPU use.</source>
-        <translation type="unfinished"></translation>
+        <translation>Recomendada. Supressão neuronal que remove ventoinhas, teclados e tráfego, mantendo a fala clara, com uma utilização moderada do processador.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Advanced neural suppression. Potentially the strongest, and the most demanding on CPU.</source>
-        <translation type="unfinished"></translation>
+        <translation>Supressão neuronal avançada. Potencialmente a mais forte, e a mais exigente para o processador.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Calls are not available in this build.</source>
-        <translation type="unfinished"></translation>
+        <translation>As chamadas não estão disponíveis nesta versão.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Needs GStreamer&apos;s webrtcdsp element (gst-plugins-bad), which is not installed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Precisa do elemento webrtcdsp do GStreamer (gst-plugins-bad), que não está instalado.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Not included in this build.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não incluída nesta versão.</translation>
     </message>
     <message>
         <location line="+112"/>
         <source>%1 could not start in this call; WebRTC noise suppression is used instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível iniciar %1 nesta chamada; é usada a supressão de ruído WebRTC.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 could not start in this call, so your microphone is being sent without noise suppression.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível iniciar %1 nesta chamada, por isso o seu microfone está a ser enviado sem supressão de ruído.</translation>
     </message>
 </context>
 <context>
@@ -11429,32 +11438,32 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-263"/>
         <source>Mark as read</source>
-        <translation type="unfinished">Marcar como lida</translation>
+        <translation>Marcar como lida</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Reply</source>
-        <translation type="unfinished">Responder</translation>
+        <translation>Responder</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Reply…</source>
-        <translation type="unfinished"></translation>
+        <translation>Responder…</translation>
     </message>
     <message>
         <location line="+263"/>
         <source>Join</source>
-        <translation type="unfinished">Entrar</translation>
+        <translation>Entrar</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Answer</source>
-        <translation type="unfinished"></translation>
+        <translation>Atender</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Silence</source>
-        <translation type="unfinished"></translation>
+        <translation>Silenciar</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -11471,7 +11480,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+8"/>
         <location line="+8"/>
         <source>Off</source>
-        <translation type="unfinished">Desligado</translation>
+        <translation>Desligado</translation>
     </message>
     <message>
         <location line="-308"/>
@@ -11480,241 +11489,241 @@ Signing out and signing in again is the only fix.</source>
         <location line="+8"/>
         <location line="+8"/>
         <source>Notify</source>
-        <translation type="unfinished"></translation>
+        <translation>Notificar</translation>
     </message>
     <message>
         <location line="-308"/>
         <location line="+212"/>
         <source>Loud</source>
-        <translation type="unfinished"></translation>
+        <translation>Em voz alta</translation>
     </message>
     <message>
         <location line="-185"/>
         <source>Account notification rules</source>
-        <translation type="unfinished"></translation>
+        <translation>Regras de notificação da conta</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>These are saved to your Matrix account, so they apply on every device and in every client you use. A room you have set up yourself keeps its own level whatever is chosen here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Estas são guardadas na sua conta Matrix, por isso aplicam-se em todos os dispositivos e em todos os clientes que usa. Uma sala que configurou por si própria mantém o seu próprio nível, seja qual for o escolhido aqui.</translation>
     </message>
     <message>
         <location line="+23"/>
         <location line="+13"/>
         <source>Mute all notifications</source>
-        <translation type="unfinished"></translation>
+        <translation>Silenciar todas as notificações</translation>
     </message>
     <message>
         <location line="-7"/>
         <source>Silences every room on every device until you turn it off.</source>
-        <translation type="unfinished"></translation>
+        <translation>Silencia todas as salas em todos os dispositivos até desligar.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Default alerts</source>
-        <translation type="unfinished"></translation>
+        <translation>Alertas predefinidos</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Direct messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensagens diretas</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+7"/>
         <source>All messages</source>
-        <translation type="unfinished">Todas as mensagens</translation>
+        <translation>Todas as mensagens</translation>
     </message>
     <message>
         <location line="-7"/>
         <location line="+7"/>
         <source>Mentions and keywords</source>
-        <translation type="unfinished"></translation>
+        <translation>Menções e palavras-chave</translation>
     </message>
     <message>
         <location line="-2"/>
         <source>Rooms</source>
-        <translation type="unfinished">Salas</translation>
+        <translation>Salas</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Encrypted and unencrypted rooms were set to different levels, probably by another client. Choosing a level here sets both.</source>
-        <translation type="unfinished"></translation>
+        <translation>As salas encriptadas e não encriptadas estavam definidas com níveis diferentes, provavelmente por outro cliente. Escolher um nível aqui define ambos.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This is the level for rooms that have no setting of their own. Set a single room from its Room information.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este é o nível das salas que não têm definição própria. Defina uma única sala a partir das Informações da sala.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Mentions</source>
-        <translation type="unfinished">Menções</translation>
+        <translation>Menções</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Your user ID</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu ID de utilizador</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Your display name</source>
-        <translation type="unfinished">O seu nome de exibição</translation>
+        <translation>O seu nome de exibição</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Your username</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu nome de utilizador</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>@room</source>
-        <translation type="unfinished"></translation>
+        <translation>@room</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Notify alerts you. Loud alerts you with a sound. Off ignores that kind of mention. These apply in every room that is not muted.</source>
-        <translation type="unfinished"></translation>
+        <translation>Notificar avisa-o. Em voz alta avisa-o com um som. Desligado ignora esse tipo de menção. Estas aplicam-se em todas as salas que não estejam silenciadas.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Keywords</source>
-        <translation type="unfinished"></translation>
+        <translation>Palavras-chave</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Add a word or phrase</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionar uma palavra ou expressão</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>New keyword</source>
-        <translation type="unfinished"></translation>
+        <translation>Nova palavra-chave</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Level for the new keyword</source>
-        <translation type="unfinished"></translation>
+        <translation>Nível da nova palavra-chave</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Add</source>
-        <translation type="unfinished">Adicionar</translation>
+        <translation>Adicionar</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>No keywords. Add a word and you are notified whenever someone says it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sem palavras-chave. Adicione uma palavra e será notificado sempre que alguém a disser.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Remove</source>
-        <translation type="unfinished">Remover</translation>
+        <translation>Remover</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Remove keyword %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover a palavra-chave %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Your homeserver cannot read encrypted messages, so in encrypted rooms a keyword matches only on devices that can decrypt them.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico não consegue ler mensagens encriptadas, por isso, em salas encriptadas, uma palavra-chave só corresponde em dispositivos que as conseguem desencriptar.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Other events</source>
-        <translation type="unfinished"></translation>
+        <translation>Outros eventos</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Reactions to your messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Reações às suas mensagens</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Invitations to you</source>
-        <translation type="unfinished"></translation>
+        <translation>Convites para si</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Messages from bots</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensagens de bots</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Bot messages are the automated notices some bridges and bots post. Off keeps them quiet; Notify treats them like any other message in that room.</source>
-        <translation type="unfinished"></translation>
+        <translation>As mensagens de bots são os avisos automáticos que algumas pontes e bots publicam. Desligado mantém-nas silenciosas; Notificar trata-as como qualquer outra mensagem nessa sala.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Not getting notifications?</source>
-        <translation type="unfinished"></translation>
+        <translation>Não está a receber notificações?</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Checks the things Lightning can see: whether something can show a notification, the switches here, your account, and the room you have open. The test notification covers the rest.</source>
-        <translation type="unfinished"></translation>
+        <translation>Verifica o que o Lightning consegue ver: se algo pode mostrar uma notificação, os interruptores aqui, a sua conta e a sala que tem aberta. A notificação de teste cobre o resto.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Run checks</source>
-        <translation type="unfinished"></translation>
+        <translation>Executar verificações</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Send a test notification</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar uma notificação de teste</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>OK</source>
-        <translation type="unfinished"></translation>
+        <translation>OK</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Check</source>
-        <translation type="unfinished"></translation>
+        <translation>Verificar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Problem</source>
-        <translation type="unfinished"></translation>
+        <translation>Problema</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unknown</source>
-        <translation type="unfinished">Desconhecido</translation>
+        <translation>Desconhecido</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Turn on</source>
-        <translation type="unfinished"></translation>
+        <translation>Ativar</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Unmute</source>
-        <translation type="unfinished">Reativar o som</translation>
+        <translation>Reativar som</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Remove this keyword?</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover esta palavra-chave?</translation>
     </message>
     <message>
         <location line="+41"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Remove keyword</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover palavra-chave</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>You will stop being notified when someone says “%1”, on every device signed in to this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Deixará de ser notificado quando alguém disser «%1», em todos os dispositivos com sessão iniciada nesta conta.</translation>
     </message>
 </context>
 <context>
@@ -11722,147 +11731,147 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/NotificationTroubleshooter.cpp" line="+70"/>
         <source>A notification service is running</source>
-        <translation type="unfinished"></translation>
+        <translation>Um serviço de notificações está em execução</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your desktop&apos;s notification service answered.</source>
-        <translation type="unfinished"></translation>
+        <translation>O serviço de notificações do seu ambiente de trabalho respondeu.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Notifications use the tray icon</source>
-        <translation type="unfinished"></translation>
+        <translation>As notificações usam o ícone da bandeja</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning shows notifications as balloons from its tray icon on this system. They need the icon to be visible.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning mostra notificações como balões a partir do seu ícone na bandeja neste sistema. Estas precisam de que o ícone esteja visível.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>No way to show a notification</source>
-        <translation type="unfinished"></translation>
+        <translation>Sem forma de mostrar uma notificação</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Nothing is listening for notifications on the session bus and there is no tray to fall back on. Start a notification service (your desktop&apos;s own, or one such as dunst or mako).</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada está a escutar notificações no barramento de sessão e não há bandeja para recorrer. Inicie um serviço de notificações (o do seu ambiente de trabalho, ou um como dunst ou mako).</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The system tray is not available, so there is nowhere to show a notification from.</source>
-        <translation type="unfinished"></translation>
+        <translation>A bandeja do sistema não está disponível, por isso não há onde mostrar uma notificação.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Lightning cannot read whether macOS allows its notifications or whether a Focus mode is on. If the test below does not appear, check System Settings, Notifications and Focus.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue ler se o macOS permite as suas notificações ou se um modo Concentração está ativo. Se o teste abaixo não aparecer, verifique Definições do Sistema, Notificações e Concentração.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Lightning cannot read whether Windows allows its notifications or whether Focus assist is on. If the test below does not appear, check Settings, System, Notifications.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue ler se o Windows permite as suas notificações ou se o Assistente de Concentração está ativo. Se o teste abaixo não aparecer, verifique Definições, Sistema, Notificações.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Lightning cannot read whether your desktop is in Do Not Disturb or has muted Lightning. If the test below does not appear, check your desktop&apos;s notification settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue ler se o seu ambiente de trabalho está em Não incomodar ou silenciou o Lightning. Se o teste abaixo não aparecer, verifique as definições de notificação do seu ambiente de trabalho.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>System permission and Do Not Disturb</source>
-        <translation type="unfinished"></translation>
+        <translation>Permissão do sistema e Não incomodar</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Desktop notifications are on</source>
-        <translation type="unfinished"></translation>
+        <translation>As notificações do ambiente de trabalho estão ativas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning is allowed to show notifications.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning tem permissão para mostrar notificações.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Desktop notifications are off</source>
-        <translation type="unfinished"></translation>
+        <translation>As notificações do ambiente de trabalho estão desativadas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning is set not to show any desktop notification.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning está configurado para não mostrar nenhuma notificação do ambiente de trabalho.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Account notification settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Definições de notificação da conta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>They have not been loaded from your homeserver yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda não foram carregadas do seu servidor doméstico.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>All notifications are muted on your account</source>
-        <translation type="unfinished"></translation>
+        <translation>Todas as notificações estão silenciadas na sua conta</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The master mute is on, so your homeserver sends no notifications for any room, to any of your devices.</source>
-        <translation type="unfinished"></translation>
+        <translation>O silenciamento geral está ativo, por isso o seu servidor doméstico não envia notificações de nenhuma sala para nenhum dos seus dispositivos.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Your account is not muted</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua conta não está silenciada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The master mute is off.</source>
-        <translation type="unfinished"></translation>
+        <translation>O silenciamento geral está desligado.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>This room is muted</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala está silenciada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>It never notifies. Change it under Room information, Notifications.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nunca notifica. Altere em Informações da sala, Notificações.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This room notifies only for mentions</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala notifica apenas as menções</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ordinary messages here stay quiet. Change it under Room information, Notifications.</source>
-        <translation type="unfinished"></translation>
+        <translation>As mensagens normais aqui ficam silenciosas. Altere em Informações da sala, Notificações.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This room notifies for every message</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala notifica por cada mensagem</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing is overriding it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada a está a substituir.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This room follows your defaults</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala segue as suas predefinições</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>It has no setting of its own.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem uma definição própria.</translation>
     </message>
 </context>
 <context>
@@ -11959,7 +11968,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+20"/>
         <source>Finishing sign-in</source>
-        <translation type="unfinished"></translation>
+        <translation>A concluir o início de sessão</translation>
     </message>
 </context>
 <context>
@@ -11972,7 +11981,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+10"/>
         <source>This message is too far back to open here yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta mensagem está demasiado atrás para ser aberta aqui por enquanto.</translation>
     </message>
 </context>
 <context>
@@ -11980,57 +11989,57 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/PasswordChangeController.cpp" line="+133"/>
         <source>Password changed. Your other devices were signed out.</source>
-        <translation type="unfinished"></translation>
+        <translation>Palavra-passe alterada. Os seus outros dispositivos tiveram a sessão terminada.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Password changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Palavra-passe alterada.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Enter your current password and a new one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduza a sua palavra-passe atual e uma nova.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The new passwords do not match.</source>
-        <translation type="unfinished"></translation>
+        <translation>As novas palavras-passe não coincidem.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Use at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Use pelo menos %1 caracteres.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server did not accept your current password.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor não aceitou a sua palavra-passe atual.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server refused the new password as too weak. Try a longer or more varied one.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou a nova palavra-passe por ser fraca demais. Experimente uma mais longa ou mais variada.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Too many attempts. Wait a moment and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Demasiadas tentativas. Aguarde um momento e tente novamente.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your server does not allow changing the password here.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor não permite alterar a palavra-passe aqui.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Could not reach the server. Try again.</source>
-        <translation type="unfinished">Não foi possível contactar o servidor. Tente novamente.</translation>
+        <translation>Não foi possível contactar o servidor. Tente novamente.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The password could not be changed. Try again later.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível alterar a palavra-passe. Tente novamente mais tarde.</translation>
     </message>
 </context>
 <context>
@@ -12038,37 +12047,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/PhotoMetadataSetting.qml" line="+27"/>
         <source>Photo details removed when sending</source>
-        <translation type="unfinished"></translation>
+        <translation>Detalhes da fotografia removidos ao enviar</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Remove location (recommended)</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover a localização (recomendado)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Remove all details</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover todos os detalhes</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Keep everything</source>
-        <translation type="unfinished"></translation>
+        <translation>Manter tudo</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Removes location, camera, time and every other detail stored inside JPEG, PNG, WebP and HEIC photos. The picture itself is not re-encoded and keeps its rotation.</source>
-        <translation type="unfinished"></translation>
+        <translation>Remove a localização, a câmara, a hora e todos os outros detalhes guardados dentro de fotografias JPEG, PNG, WebP e HEIC. A própria imagem não é recodificada e mantém a sua rotação.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Photos are sent exactly as they are, including where and when they were taken.</source>
-        <translation type="unfinished"></translation>
+        <translation>As fotografias são enviadas exatamente como estão, incluindo onde e quando foram tiradas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Removes where a JPEG, PNG, WebP or HEIC photo was taken before it is sent: GPS position and any named place (city, country, location) in its details. Camera and time details stay. The picture itself is not re-encoded. TIFF, raw and JPEG XL files cannot be cleaned and are not sent. Your own file is never changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Remove onde foi tirada uma fotografia JPEG, PNG, WebP ou HEIC antes de a enviar: a posição GPS e qualquer local com nome (cidade, país, localização) nos seus detalhes. Os detalhes da câmara e da hora mantêm-se. A própria imagem não é recodificada. Os ficheiros TIFF, raw e JPEG XL não podem ser limpos e não são enviados. O seu próprio ficheiro nunca é alterado.</translation>
     </message>
 </context>
 <context>
@@ -12104,27 +12113,27 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/PolicyListController.cpp" line="+187"/>
         <source>That room&apos;s rules could not be read.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível ler as regras desta sala.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>You do not have permission to publish rules in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem permissão para publicar regras nesta sala.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That rule could not be published.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível publicar esta regra.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>You are already following as many lists as Lightning supports.</source>
-        <translation type="unfinished"></translation>
+        <translation>Já segue tantas listas quantas o Lightning suporta.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That list could not be followed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível seguir esta lista.</translation>
     </message>
 </context>
 <context>
@@ -12132,133 +12141,133 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/PolicyListDialog.qml" line="+54"/>
         <source>Moderation rules in %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Regras de moderação em %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Moderation rules</source>
-        <translation type="unfinished"></translation>
+        <translation>Regras de moderação</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Follow this list</source>
-        <translation type="unfinished"></translation>
+        <translation>Seguir esta lista</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Following a list does not block anyone by itself. Lightning will tell you when someone is covered by a list you follow, and you decide what to do — this is somebody else&apos;s judgement, not a setting.</source>
-        <translation type="unfinished"></translation>
+        <translation>Seguir uma lista não bloqueia ninguém por si só. O Lightning avisa-o quando alguém é abrangido por uma lista que segue, e você decide o que fazer — este é o juízo de outra pessoa, não uma definição.</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Reading the room&apos;s rules…</source>
-        <translation type="unfinished"></translation>
+        <translation>A ler as regras da sala…</translation>
     </message>
     <message numerus="yes">
         <location line="+8"/>
         <source>%n rule(s) — this list is long and only the first were read.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n regra — esta lista é longa e só a primeira foi lida.</numerusform>
+            <numerusform>%n regras — esta lista é longa e só as primeiras foram lidas.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n rule(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n regra.</numerusform>
+            <numerusform>%n regras.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+50"/>
         <source>everyone on this server</source>
-        <translation type="unfinished"></translation>
+        <translation>todos neste servidor</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>this room</source>
-        <translation type="unfinished">esta sala</translation>
+        <translation>esta sala</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>this user</source>
-        <translation type="unfinished"></translation>
+        <translation>este utilizador</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>ban</source>
-        <translation type="unfinished"></translation>
+        <translation>banir</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>other recommendation</source>
-        <translation type="unfinished"></translation>
+        <translation>outra recomendação</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 · %2 · %3</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · %2 · %3</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 · %2</source>
-        <translation type="unfinished">%1 · %2</translation>
+        <translation>%1 · %2</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Remove</source>
-        <translation type="unfinished">Remover</translation>
+        <translation>Remover</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Add a rule</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionar uma regra</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>User</source>
-        <translation type="unfinished">Utilizador</translation>
+        <translation>Utilizador</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Server</source>
-        <translation type="unfinished"></translation>
+        <translation>Servidor</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Room</source>
-        <translation type="unfinished">Sala</translation>
+        <translation>Sala</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>@someone:example.org or *.example.org</source>
-        <translation type="unfinished"></translation>
+        <translation>@alguem:exemplo.org ou *.exemplo.org</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Reason (published with the rule)</source>
-        <translation type="unfinished"></translation>
+        <translation>Motivo (publicado com a regra)</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Publish</source>
-        <translation type="unfinished"></translation>
+        <translation>Publicar</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>`*` matches any run of characters and `?` matches one. A rule and its reason are public to everyone who can read this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>`*` corresponde a qualquer sequência de caracteres e `?` corresponde a um. Uma regra e o seu motivo são públicos para todos os que podem ler esta sala.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>You do not have permission to publish rules in this room, so this is a read-only view of its list.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem permissão para publicar regras nesta sala, por isso esta é uma vista só de leitura da sua lista.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Done</source>
-        <translation type="unfinished">Concluído</translation>
+        <translation>Concluído</translation>
     </message>
 </context>
 <context>
@@ -12317,7 +12326,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/profile/ProfileBadges.cpp" line="+16"/>
         <source>idea master — a thank-you badge for helping develop Lightning.</source>
-        <translation type="unfinished"></translation>
+        <translation>idea master — um distintivo de agradecimento por ajudar a desenvolver o Lightning.</translation>
     </message>
 </context>
 <context>
@@ -12325,52 +12334,52 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/PushRulesController.cpp" line="+171"/>
         <source>Type a word or phrase.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escreva uma palavra ou expressão.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Keep a keyword under %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mantenha uma palavra-chave abaixo de %1 caracteres.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A keyword cannot start with a full stop.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma palavra-chave não pode começar por um ponto final.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A keyword cannot contain a slash.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma palavra-chave não pode conter uma barra.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A keyword cannot contain control characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma palavra-chave não pode conter caracteres de controlo.</translation>
     </message>
     <message>
         <location line="+129"/>
         <source>Your homeserver does not have that notification rule.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico não tem essa regra de notificação.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That setting was not accepted.</source>
-        <translation type="unfinished"></translation>
+        <translation>Essa definição não foi aceite.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your homeserver refused the change.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico recusou a alteração.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your homeserver is limiting requests. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico está a limitar os pedidos. Tente novamente dentro de momentos.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The change could not be saved. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível guardar a alteração. Verifique a sua ligação e tente novamente.</translation>
     </message>
 </context>
 <context>
@@ -12378,57 +12387,57 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/settings/SettingsSyncController.cpp" line="+34"/>
         <source>out of range</source>
-        <translation type="unfinished"></translation>
+        <translation>fora do intervalo</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>wrong kind of value</source>
-        <translation type="unfinished"></translation>
+        <translation>tipo de valor errado</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>too long</source>
-        <translation type="unfinished"></translation>
+        <translation>demasiado longo</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>contains control characters</source>
-        <translation type="unfinished"></translation>
+        <translation>contém caracteres de controlo</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>not a value this version knows</source>
-        <translation type="unfinished"></translation>
+        <translation>não é um valor que esta versão conheça</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>needs a custom theme the file does not contain</source>
-        <translation type="unfinished"></translation>
+        <translation>precisa de um tema personalizado que o ficheiro não contém</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>not valid</source>
-        <translation type="unfinished"></translation>
+        <translation>não é válido</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>That file is empty.</source>
-        <translation type="unfinished">Esse arquivo está vazio.</translation>
+        <translation>Esse ficheiro está vazio.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file is too large to be a settings file.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse ficheiro é demasiado grande para ser um ficheiro de definições.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file is not a settings file (it is not valid JSON).</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse ficheiro não é um ficheiro de definições (não é JSON válido).</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That file is not a Lightning settings file.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse ficheiro não é um ficheiro de definições do Lightning.</translation>
     </message>
 </context>
 <context>
@@ -12436,42 +12445,42 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/crypto/QrLoginController.cpp" line="+79"/>
         <source>That does not look like a sign-in code. Copy the code from the other device exactly.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isso não parece um código de início de sessão. Copie o código do outro dispositivo exatamente.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>A confirmation code is two digits.</source>
-        <translation type="unfinished"></translation>
+        <translation>Um código de confirmação tem dois dígitos.</translation>
     </message>
     <message>
         <location line="+69"/>
         <source>The sign-in took too long and the code expired. Start again to get a new one.</source>
-        <translation type="unfinished"></translation>
+        <translation>O início de sessão demorou demasiado e o código expirou. Recomece para obter um novo.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The sign-in was cancelled on the other device.</source>
-        <translation type="unfinished"></translation>
+        <translation>O início de sessão foi cancelado no outro dispositivo.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Those digits did not match. The two devices are not talking to each other — start again rather than retyping.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esses dígitos não coincidem. Os dois dispositivos não estão a comunicar entre si — recomece em vez de os reescrever.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This device has no recovery set up, so it has no keys to send. Set up recovery and backup first, then try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este dispositivo não tem recuperação configurada, por isso não tem chaves para enviar. Configure primeiro a recuperação e a cópia de segurança, e depois tente novamente.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your homeserver does not support signing in with a code.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico não suporta o início de sessão com código.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The sign-in could not be completed.</source>
-        <translation type="unfinished">Não foi possível concluir o início de sessão.</translation>
+        <translation>Não foi possível concluir o início de sessão.</translation>
     </message>
 </context>
 <context>
@@ -12479,107 +12488,107 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/QrLoginDialog.qml" line="+53"/>
         <source>Sign in another device</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciar sessão noutro dispositivo</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>The other device will be signed in AND verified: your cross-signing and message-backup keys are sent to it over an encrypted channel, so it can read your existing conversations straight away.</source>
-        <translation type="unfinished"></translation>
+        <translation>O outro dispositivo ficará com sessão iniciada E verificado: as suas chaves de certificação cruzada e de cópia de segurança de mensagens são-lhe enviadas por um canal encriptado, para que consiga ler logo as suas conversas existentes.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Show a code for the other device to scan</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar um código para o outro dispositivo ler</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>…or paste the code the other device is showing</source>
-        <translation type="unfinished"></translation>
+        <translation>…ou cole o código que o outro dispositivo está a mostrar</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Paste the sign-in code</source>
-        <translation type="unfinished"></translation>
+        <translation>Cole o código de início de sessão</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Continue</source>
-        <translation type="unfinished">Continuar</translation>
+        <translation>Continuar</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This build cannot sign in another device.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta versão não consegue iniciar sessão noutro dispositivo.</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Scan this with the other device. If it cannot scan, copy the text below into it instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>Leia isto com o outro dispositivo. Se não conseguir ler, copie para ele o texto abaixo.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Copy</source>
-        <translation type="unfinished">Copiar</translation>
+        <translation>Copiar</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>The other device is showing two digits. Type them here.</source>
-        <translation type="unfinished"></translation>
+        <translation>O outro dispositivo está a mostrar dois dígitos. Escreva-os aqui.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This proves the two devices are talking to each other and not to something in between. If the digits do not match, stop.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto prova que os dois dispositivos estão a comunicar entre si e não com algo pelo meio. Se os dígitos não coincidirem, pare.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>00</source>
-        <translation type="unfinished"></translation>
+        <translation>00</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Confirm</source>
-        <translation type="unfinished">Confirmar</translation>
+        <translation>Confirmar</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Type these digits on the other device. If it shows something different, stop.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escreva estes dígitos no outro dispositivo. Se ele mostrar outra coisa, pare.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>One more step: confirm the new sign-in on your account page.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mais um passo: confirme o novo início de sessão na sua página de conta.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Open the confirmation page</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir a página de confirmação</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Sending your keys to the new device…</source>
-        <translation type="unfinished"></translation>
+        <translation>A enviar as suas chaves para o novo dispositivo…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Starting…</source>
-        <translation type="unfinished"></translation>
+        <translation>A iniciar…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>The other device is signed in and verified.</source>
-        <translation type="unfinished"></translation>
+        <translation>O outro dispositivo tem a sessão iniciada e está verificado.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Close</source>
-        <translation type="unfinished">Fechar</translation>
+        <translation>Fechar</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
 </context>
 <context>
@@ -12640,32 +12649,32 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+12"/>
         <source>Chat background…</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your own picture behind every room</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua própria imagem por trás de todas as salas</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Chat background for this room…</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa para esta sala…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Only the room you have open</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas a sala que tem aberta</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Create your own theme…</source>
-        <translation type="unfinished"></translation>
+        <translation>Criar o seu próprio tema…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Colours and gradients, in Appearance</source>
-        <translation type="unfinished"></translation>
+        <translation>Cores e gradientes, em Aparência</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -12682,7 +12691,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-52"/>
         <source>Keyboard shortcuts</source>
-        <translation type="unfinished">Atalhos de teclado</translation>
+        <translation>Atalhos de teclado</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -12692,7 +12701,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Sound &amp; video</source>
-        <translation type="unfinished"></translation>
+        <translation>Som e vídeo</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -12712,7 +12721,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Updates</source>
-        <translation type="unfinished">Atualizações</translation>
+        <translation>Atualizações</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -12802,12 +12811,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+19"/>
         <source>Search messages for “%1”</source>
-        <translation type="unfinished"></translation>
+        <translation>Pesquisar mensagens por “%1”</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Look for public rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Procurar salas públicas</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -12832,7 +12841,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+19"/>
         <source>commands</source>
-        <translation type="unfinished"></translation>
+        <translation>comandos</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -12877,37 +12886,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RecoveryKeyEntry.qml" line="+23"/>
         <source>Restore keys</source>
-        <translation type="unfinished">Restaurar as chaves</translation>
+        <translation>Restaurar chaves</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Recovery key or passphrase</source>
-        <translation type="unfinished">Chave de recuperação ou frase-passe</translation>
+        <translation>Chave de recuperação ou frase-passe</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Restoring…</source>
-        <translation type="unfinished">A restaurar…</translation>
+        <translation>A restaurar…</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Recovery started</source>
-        <translation type="unfinished">Recuperação iniciada</translation>
+        <translation>Recuperação iniciada</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Recovery complete. This session is now verified. New messages should decrypt as keys arrive; some old messages may still require another verified device to share keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>Recuperação concluída. Esta sessão está agora verificada. As novas mensagens devem ser desencriptadas à medida que as chaves chegam; algumas mensagens antigas podem ainda exigir que outro dispositivo verificado partilhe as chaves.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Recovery complete. New messages should decrypt as keys arrive. Some old messages may still require another verified device to share keys. If this session is still not verified, your recovery storage may not hold your cross-signing keys; see Cross-signing under Privacy &amp; security.</source>
-        <translation type="unfinished"></translation>
+        <translation>Recuperação concluída. As novas mensagens devem ser desencriptadas à medida que as chaves chegam. Algumas mensagens antigas podem ainda exigir que outro dispositivo verificado partilhe as chaves. Se esta sessão continuar não verificada, o seu armazenamento de recuperação pode não ter as suas chaves de certificação cruzada; veja Certificação cruzada em Privacidade e segurança.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Recovery failed: %1</source>
-        <translation type="unfinished">A recuperação falhou: %1</translation>
+        <translation>A recuperação falhou: %1</translation>
     </message>
 </context>
 <context>
@@ -12946,7 +12955,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomActionsMenu</name>
     <message>
-        <location filename="../qml/RoomActionsMenu.qml" line="+49"/>
+        <location filename="../qml/RoomActionsMenu.qml" line="+51"/>
         <source>Remove from favourites</source>
         <translation>Remover dos favoritos</translation>
     </message>
@@ -13013,6 +13022,11 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+13"/>
         <source>Chat background…</source>
+        <translation>Fundo da conversa…</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Invite people…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -13028,12 +13042,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>Accept invitation</source>
-        <translation type="unfinished"></translation>
+        <translation>Aceitar convite</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Reject invitation</source>
-        <translation type="unfinished"></translation>
+        <translation>Recusar convite</translation>
     </message>
 </context>
 <context>
@@ -13108,12 +13122,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>You can&apos;t start or join calls in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Não pode iniciar nem entrar em chamadas nesta sala</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala está encriptada, e as chamadas encriptadas não estão disponíveis nesta versão</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -13157,7 +13171,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomChannelsPresenter</name>
     <message>
-        <location filename="../qml/RoomChannelsPresenter.qml" line="+60"/>
+        <location filename="../qml/RoomChannelsPresenter.qml" line="+61"/>
         <source>No conversations yet. Rooms you join, and the spaces they belong to, will show up here.</source>
         <translation>Nenhuma conversa ainda. As salas nas quais você participa e os espaços aos quais elas pertencem aparecerão aqui.</translation>
     </message>
@@ -13192,97 +13206,97 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomCloseDialog.qml" line="+89"/>
         <source>Leave once it is closed. If anything is left undone you stay, so you can run it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sair depois de estar fechada. Se algo ficar por fazer, fica na sala, para poder executar de novo.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Also remove it from %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover também de %1</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>It stays listed in %1: you can&apos;t change that space&apos;s rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>Continua listada em %1: não pode alterar as salas desse espaço.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Reason shown to the people removed (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>Motivo mostrado às pessoas removidas (opcional)</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Stop anyone on this server joining it again</source>
-        <translation type="unfinished"></translation>
+        <translation>Impedir que alguém neste servidor volte a entrar</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>The space itself</source>
-        <translation type="unfinished"></translation>
+        <translation>O próprio espaço</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>The room</source>
-        <translation type="unfinished"></translation>
+        <translation>A sala</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>%1 (%2 of %3 selected)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 (%2 de %3 selecionadas)</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>This space has more rooms than Lightning checks at once. Rooms past the limit are not listed and are left unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este espaço tem mais salas do que o Lightning verifica de uma só vez. As salas além do limite não são listadas e ficam inalteradas.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Type %1 to confirm. Its id, below, works too.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escreva %1 para confirmar. O seu ID, abaixo, também serve.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Its name has characters that cannot be typed. Type its id, below, to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>O nome tem caracteres que não podem ser escritos. Escreva o seu ID, abaixo, para confirmar.</translation>
     </message>
     <message>
         <location line="+62"/>
         <source>Hide</source>
-        <translation type="unfinished">Ocultar</translation>
+        <translation>Ocultar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Close</source>
-        <translation type="unfinished">Fechar</translation>
+        <translation>Fechar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+69"/>
         <source>Working…</source>
-        <translation type="unfinished">A trabalhar…</translation>
+        <translation>A trabalhar…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Waiting</source>
-        <translation type="unfinished"></translation>
+        <translation>A aguardar</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Skipped</source>
-        <translation type="unfinished"></translation>
+        <translation>Ignorada</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>%1 · also in another space</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · também noutro espaço</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Also in another space</source>
-        <translation type="unfinished"></translation>
+        <translation>Também noutro espaço</translation>
     </message>
 </context>
 <context>
@@ -13290,388 +13304,388 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/spaces/RoomClosureController.cpp" line="+213"/>
         <source>your homeserver</source>
-        <translation type="unfinished"></translation>
+        <translation>o seu servidor doméstico</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>An earlier close or delete is still running and is shown here. Start the new one when it has finished.</source>
-        <translation type="unfinished"></translation>
+        <translation>Um fecho ou eliminação anterior ainda está em curso e é mostrado aqui. Inicie o novo quando aquele terminar.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>This is how the earlier close or delete ended. Close this to start the new one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Foi assim que o fecho ou a eliminação anterior terminou. Feche isto para iniciar o novo.</translation>
     </message>
     <message>
         <location line="+463"/>
         <source>The request could not be sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível enviar o pedido.</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Removing members: %1 of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>A remover membros: %1 de %2</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Working…</source>
-        <translation type="unfinished">A trabalhar…</translation>
+        <translation>A trabalhar…</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>No answer yet. It may still finish on the server: check the room before running this again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda sem resposta. Pode ainda concluir no servidor: verifique a sala antes de executar isto novamente.</translation>
     </message>
     <message>
         <location line="+96"/>
         <source> · you stayed: rooms inside it are not fully closed</source>
-        <translation type="unfinished"></translation>
+        <translation> · ficou: as salas dentro dele não estão totalmente fechadas</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Queued on the server</source>
-        <translation type="unfinished"></translation>
+        <translation>Em fila no servidor</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server is deleting it</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor está a eliminá-la</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>The server refused to make it invite-only. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou torná-la apenas por convite. Nada foi alterado.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>No answer came back when making it invite-only, so it may or may not have changed. Nothing else was done.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não chegou resposta ao tentar torná-la apenas por convite, por isso pode ou não ter mudado. Nada mais foi feito.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>It could not be made invite-only. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível torná-la apenas por convite. Nada foi alterado.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Invite-only</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas por convite</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 removed</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 removidos</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 could not be removed</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível remover %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 not reached; run it again</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 não alcançados; execute novamente</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>its members could not be read</source>
-        <translation type="unfinished"></translation>
+        <translation>não foi possível ler os seus membros</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>%1 stay (role not below yours)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ficam (cargo não inferior ao seu)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 stay (you can&apos;t remove members here)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 ficam (não pode remover membros aqui)</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>may still be in the room directory</source>
-        <translation type="unfinished"></translation>
+        <translation>pode ainda estar no diretório de salas</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>still listed in %1 space(s)</source>
-        <translation type="unfinished"></translation>
+        <translation>ainda listada em %1 espaço(s)</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>you left</source>
-        <translation type="unfinished"></translation>
+        <translation>saiu</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>you stayed so you can run it again</source>
-        <translation type="unfinished"></translation>
+        <translation>ficou para poder executar de novo</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>leaving failed</source>
-        <translation type="unfinished"></translation>
+        <translation>a saída falhou</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Deleted from the server · %1 removed · %2 could not be removed</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminada do servidor · %1 removidos · %2 não puderam ser removidos</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Deleted from the server · %1 removed</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminada do servidor · %1 removidos</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server is still deleting it. Check again later.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor ainda a está a eliminar. Verifique novamente mais tarde.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Whether the server deleted it is not known: no clear answer came back. Check the room before trying again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não se sabe se o servidor a eliminou: não chegou uma resposta clara. Verifique a sala antes de tentar novamente.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server refused the request. A delete of this room may already be running.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou o pedido. Uma eliminação desta sala pode já estar em curso.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server did not accept this session. Sign in again.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor não aceitou esta sessão. Inicie sessão novamente.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server refused. This account may no longer be an administrator.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou. Esta conta pode já não ser administradora.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This server does not offer the delete it was asked for.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este servidor não oferece a eliminação que foi pedida.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server reported that the delete failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor indicou que a eliminação falhou.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server is rate limiting. Try again shortly.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor está a limitar os pedidos. Tente novamente dentro de instantes.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Failed. Check your connection and retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>Falhou. Verifique a sua ligação e tente novamente.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>You are not in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Não está nesta sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You can&apos;t change who may join</source>
-        <translation type="unfinished"></translation>
+        <translation>Não pode alterar quem pode entrar</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Its members could not be checked</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível verificar os seus membros</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not checked in time; left unchanged</source>
-        <translation type="unfinished"></translation>
+        <translation>Não verificada a tempo; ficou inalterada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not available here</source>
-        <translation type="unfinished"></translation>
+        <translation>Não disponível aqui</translation>
     </message>
     <message>
         <location line="+12"/>
         <source> · its history stays readable by anyone</source>
-        <translation type="unfinished"></translation>
+        <translation> · o seu histórico continua legível por qualquer pessoa</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Only you are here</source>
-        <translation type="unfinished"></translation>
+        <translation>Só você está aqui</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You can&apos;t remove members here: all %1 stay</source>
-        <translation type="unfinished"></translation>
+        <translation>Não pode remover membros aqui: todos os %1 ficam</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Removes %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Remove %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Removes nobody</source>
-        <translation type="unfinished"></translation>
+        <translation>Não remove ninguém</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 and %2 more</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 e mais %2</translation>
     </message>
     <message>
         <location line="+3"/>
         <source> · %1 stay</source>
-        <translation type="unfinished"></translation>
+        <translation> · %1 ficam</translation>
     </message>
     <message>
         <location line="+1"/>
         <source> · %1 stay: %2</source>
-        <translation type="unfinished"></translation>
+        <translation> · %1 ficam: %2</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>this space</source>
-        <translation type="unfinished"></translation>
+        <translation>este espaço</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>this room</source>
-        <translation type="unfinished">esta sala</translation>
+        <translation>esta sala</translation>
     </message>
     <message numerus="yes">
         <location line="+6"/>
         <source>Delete %1 and %n room(s) from %2?</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Eliminar %1 e %n sala de %2?</numerusform>
+            <numerusform>Eliminar %1 e %n salas de %2?</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+18"/>
         <source>the space and the %n room(s) selected below</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>o espaço e a sala %n selecionada abaixo</numerusform>
+            <numerusform>o espaço e as %n salas selecionadas abaixo</numerusform>
         </translation>
     </message>
     <message>
         <location line="-15"/>
         <source>Delete %1 from %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar %1 de %2?</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Close %1 and its rooms?</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar %1 e as suas salas?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Close %1?</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar %1?</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>it</source>
-        <translation type="unfinished"></translation>
+        <translation>ela</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This deletes %2 from %1, your homeserver: everyone on %1 is removed and %1&apos;s copy of the history is purged. It cannot be undone. Members on other servers keep the rooms and their history; for them they carry on without %1&apos;s users.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto elimina %2 de %1, o seu servidor doméstico: todos em %1 são removidos e a cópia do histórico de %1 é apagada. Não pode ser desfeito. Os membros noutros servidores mantêm as salas e o seu histórico; para eles, continuam sem os utilizadores de %1.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>the space and each room you select</source>
-        <translation type="unfinished"></translation>
+        <translation>o espaço e cada sala que selecionar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>the room</source>
-        <translation type="unfinished"></translation>
+        <translation>a sala</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Closing makes %1 invite-only, takes it out of the public room directory, removes the members you are allowed to remove (where you may remove people, everyone whose role is below yours), and then you leave.</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar torna %1 apenas por convite, retira-a do diretório público de salas, remove os membros que tem permissão para remover (onde pode remover pessoas, todos cujo cargo seja inferior ao seu) e depois sai.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Closing makes %1 invite-only, takes it out of the public room directory and removes the members you are allowed to remove (where you may remove people, everyone whose role is below yours). You stay.</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar torna %1 apenas por convite, retira-a do diretório público de salas e remove os membros que tem permissão para remover (onde pode remover pessoas, todos cujo cargo seja inferior ao seu). Você fica.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>This does not delete anything: the history stays on every server that took part, people keep whatever their apps already downloaded, and a room whose history anyone can read stays readable. Everyone you cannot remove stays, and anyone whose role is not below yours can open it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto não elimina nada: o histórico fica em cada servidor que participou, as pessoas mantêm o que as suas aplicações já transferiram, e uma sala cujo histórico qualquer pessoa pode ler continua legível. Todos os que não pode remover ficam, e qualquer pessoa cujo cargo não seja inferior ao seu pode voltar a abri-la.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Also delete rooms in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar também as salas deste espaço</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Also close rooms in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar também as salas deste espaço</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Delete from server</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar do servidor</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Close space</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar espaço</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Close room</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar sala</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Checking what closing would do… This takes at most half a minute.</source>
-        <translation type="unfinished"></translation>
+        <translation>A verificar o que o fecho faria… Isto demora no máximo meia hora.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning could not check these rooms. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu verificar estas salas. Nada foi alterado.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>There is nothing here you can close: see the reasons below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não há aqui nada que possa fechar: veja os motivos abaixo.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 of the rooms could not be checked in time. They are not offered and will be left unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 das salas não puderam ser verificadas a tempo. Não são oferecidas e ficarão inalteradas.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Working: %1 of %2. You can hide this; it keeps going.</source>
-        <translation type="unfinished"></translation>
+        <translation>A trabalhar: %1 de %2. Pode ocultar isto; continua a correr.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Done: %1 deleted, %2 still being deleted by the server, %3 failed, %4 not known yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Concluído: %1 eliminadas, %2 ainda a ser eliminadas pelo servidor, %3 falharam, %4 ainda desconhecidas.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Done: %1 closed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Concluído: %1 fechadas.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Done: %1 closed, %2 partly closed, %3 failed, %4 not known yet. The rows below say what is left.</source>
-        <translation type="unfinished"></translation>
+        <translation>Concluído: %1 fechadas, %2 parcialmente fechadas, %3 falharam, %4 ainda desconhecidas. As linhas abaixo dizem o que falta.</translation>
     </message>
 </context>
 <context>
@@ -13685,13 +13699,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <source>%1, mention in a thread</source>
         <comment>room row</comment>
-        <translation type="unfinished"></translation>
+        <translation>%1, menção num tópico</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1, unread in a thread</source>
         <comment>room row</comment>
-        <translation type="unfinished"></translation>
+        <translation>%1, não lida num tópico</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -13704,7 +13718,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1, silenciada</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+89"/>
         <source>Yesterday</source>
         <translation>Ontem</translation>
     </message>
@@ -13817,7 +13831,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/RoomInfoController.cpp" line="+50"/>
         <source>The server did not accept the change.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor não aceitou a alteração.</translation>
     </message>
     <message>
         <location line="+325"/>
@@ -13867,7 +13881,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-401"/>
         <source>Creator</source>
-        <translation type="unfinished"></translation>
+        <translation>Criador</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -13922,7 +13936,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+43"/>
         <source>Choose at least one space whose members may join.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha pelo menos um espaço cujos membros possam entrar.</translation>
     </message>
     <message>
         <location line="+72"/>
@@ -14058,73 +14072,73 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-582"/>
         <source>Widgets</source>
-        <translation type="unfinished"></translation>
+        <translation>Widgets</translation>
     </message>
     <message>
         <location line="+2113"/>
         <source>Open</source>
-        <translation type="unfinished">Abrir</translation>
+        <translation>Abrir</translation>
     </message>
     <message>
         <location line="-1478"/>
         <source>Export room…</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar sala…</translation>
     </message>
     <message>
         <location line="-499"/>
         <source>View profile</source>
-        <translation type="unfinished">Ver o perfil</translation>
+        <translation>Ver perfil</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Remove from room…</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover da sala…</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Ban from room…</source>
-        <translation type="unfinished"></translation>
+        <translation>Banir da sala…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Unban…</source>
-        <translation type="unfinished"></translation>
+        <translation>Levantar banimento…</translation>
     </message>
     <message>
         <location line="+49"/>
         <location line="+12"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Choose your avatar for this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha o seu avatar para esta sala</translation>
     </message>
     <message>
         <location line="+267"/>
         <source>This room has no override — your account&apos;s notification settings apply.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala não tem substituição — aplicam-se as definições de notificação da sua conta.</translation>
     </message>
     <message>
         <location line="+119"/>
         <source>Bridged via %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Ligada através de %1</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Moderation rules…</source>
-        <translation type="unfinished"></translation>
+        <translation>Regras de moderação…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Ban lists this room publishes</source>
-        <translation type="unfinished"></translation>
+        <translation>Listas de banimento que esta sala publica</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Save this room&apos;s loaded messages to a file</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardar as mensagens carregadas desta sala num ficheiro</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -14134,7 +14148,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+51"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa</translation>
     </message>
     <message>
         <location line="+38"/>
@@ -14172,27 +14186,27 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+60"/>
         <source>Your profile in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu perfil nesta sala</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Only affects this room. Everyone here sees it; other rooms keep your usual name and picture.</source>
-        <translation type="unfinished"></translation>
+        <translation>Afeta apenas esta sala. Todos aqui o veem; as outras salas mantêm o seu nome e imagem habituais.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Your name in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu nome nesta sala</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Change picture…</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar imagem…</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Reset to global</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor para o global</translation>
     </message>
     <message>
         <location line="+48"/>
@@ -14232,24 +14246,24 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+48"/>
         <source>Alternative addresses</source>
-        <translation type="unfinished"></translation>
+        <translation>Endereços alternativos</translation>
     </message>
     <message>
         <location line="+22"/>
         <location line="+734"/>
         <location line="+85"/>
         <source>Remove</source>
-        <translation type="unfinished">Remover</translation>
+        <translation>Remover</translation>
     </message>
     <message>
         <location line="-799"/>
         <source>#another-name</source>
-        <translation type="unfinished"></translation>
+        <translation>#outro-nome</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Add</source>
-        <translation type="unfinished">Adicionar</translation>
+        <translation>Adicionar</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -14265,12 +14279,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-795"/>
         <source>Close room…</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar sala…</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Delete from server…</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar do servidor…</translation>
     </message>
     <message>
         <location line="+38"/>
@@ -14438,82 +14452,82 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-781"/>
         <source>Members of selected spaces can join</source>
-        <translation type="unfinished"></translation>
+        <translation>Os membros dos espaços selecionados podem entrar</translation>
     </message>
     <message>
         <location line="+50"/>
         <source>Spaces whose members may join</source>
-        <translation type="unfinished"></translation>
+        <translation>Espaços cujos membros podem entrar</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Join a space first; only spaces you are in can be chosen.</source>
-        <translation type="unfinished"></translation>
+        <translation>Entre primeiro num espaço; só podem ser escolhidos espaços em que está.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>This room also allows joins by a rule Lightning can&apos;t show. It is kept when you save.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala também permite entradas por uma regra que o Lightning não consegue mostrar. Mantém-se ao guardar.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Others may ask to join (knock)</source>
-        <translation type="unfinished"></translation>
+        <translation>Outros podem pedir para entrar (bater à porta)</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Restrict to these spaces</source>
-        <translation type="unfinished"></translation>
+        <translation>Restringir a estes espaços</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Who can read history</source>
-        <translation type="unfinished"></translation>
+        <translation>Quem pode ler o histórico</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Members, from when they were invited</source>
-        <translation type="unfinished"></translation>
+        <translation>Membros, desde que foram convidados</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Members, from when they joined</source>
-        <translation type="unfinished"></translation>
+        <translation>Membros, desde que entraram</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Members, everything</source>
-        <translation type="unfinished"></translation>
+        <translation>Membros, tudo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Anyone, even without joining</source>
-        <translation type="unfinished"></translation>
+        <translation>Qualquer pessoa, mesmo sem entrar</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Guests can join</source>
-        <translation type="unfinished"></translation>
+        <translation>Convidados podem entrar</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Listed in the room directory (checking…)</source>
-        <translation type="unfinished"></translation>
+        <translation>Listada no diretório de salas (a verificar…)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Listed in the room directory</source>
-        <translation type="unfinished"></translation>
+        <translation>Listada no diretório de salas</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Room version %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Versão da sala %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Upgrade room…</source>
-        <translation type="unfinished"></translation>
+        <translation>Atualizar sala…</translation>
     </message>
     <message>
         <location line="+531"/>
@@ -14543,37 +14557,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+38"/>
         <source>No widgets in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não há widgets nesta sala.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>You do not have permission to change widgets here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem permissão para alterar widgets aqui.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Could not change the widgets (%1).</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível alterar os widgets (%1).</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Add widget…</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionar widget…</translation>
     </message>
     <message>
         <location line="+108"/>
         <source>Remove widget?</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover widget?</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Remove &quot;%1&quot; from this room? Everyone here loses it, and it cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover «%1» desta sala? Todos aqui o perdem, e não pode ser desfeito.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Remove this widget from the room? Everyone here loses it, and it cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover este widget da sala? Todos aqui o perdem, e não pode ser desfeito.</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -14597,85 +14611,85 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/RoomKeyExportController.cpp" line="+172"/>
         <source>Export finished, but this session holds no room keys yet, so the file contains none.</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportação concluída, mas esta sessão ainda não tem chaves de sala, por isso o ficheiro não contém nenhuma.</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>Exported %n room key(s). Keep the file and its passphrase safe, and apart from each other.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Exportada %n chave de sala. Guarde o ficheiro e a sua frase-passe em segurança, e separados um do outro.</numerusform>
+            <numerusform>Exportadas %n chaves de sala. Guarde o ficheiro e a sua frase-passe em segurança, e separados um do outro.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Enter a passphrase to protect the file.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduza uma frase-passe para proteger o ficheiro.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The passphrases do not match.</source>
-        <translation type="unfinished"></translation>
+        <translation>As frases-passe não coincidem.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Use at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Use pelo menos %1 caracteres.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This passphrase is too weak to protect your keys. Use at least 12 characters, or 10 that mix upper and lower case, digits or symbols.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta frase-passe é demasiado fraca para proteger as suas chaves. Use pelo menos 12 caracteres, ou 10 que misturem maiúsculas e minúsculas, dígitos ou símbolos.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning cannot save to that location. Choose another folder or file name.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue guardar nesse local. Escolha outra pasta ou outro nome de ficheiro.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning is not allowed to write to that location. Choose another folder.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não tem permissão para escrever nesse local. Escolha outra pasta.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>There is not enough space to save the file. Nothing was saved. Free some space or choose another location.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não há espaço suficiente para guardar o ficheiro. Nada foi guardado. Liberte algum espaço ou escolha outro local.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Writing the file failed. Nothing was saved. Try again or choose another location.</source>
-        <translation type="unfinished"></translation>
+        <translation>A escrita do ficheiro falhou. Nada foi guardado. Tente novamente ou escolha outro local.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Writing the file failed part-way. The file at that location may be incomplete: delete it and export again.</source>
-        <translation type="unfinished"></translation>
+        <translation>A escrita do ficheiro falhou a meio. O ficheiro nesse local pode estar incompleto: elimine-o e exporte novamente.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>An export is already running.</source>
-        <translation type="unfinished"></translation>
+        <translation>Já está em curso uma exportação.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sign in to export room keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>Inicie sessão para exportar chaves de sala.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Encryption is not ready on this session yet. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>A encriptação ainda não está pronta nesta sessão. Tente novamente dentro de momentos.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Exporting room keys needs the Matrix SDK backend.</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar chaves de sala requer o backend do SDK Matrix.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The export failed. Nothing was saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>A exportação falhou. Nada foi guardado.</translation>
     </message>
 </context>
 <context>
@@ -14683,108 +14697,108 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomKeyExportSection.qml" line="+73"/>
         <source>Export room keys</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar chaves de sala</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Save the keys that decrypt your encrypted messages to a file, locked with a passphrase you choose. Another session, or another Matrix app such as Element, can import it to read your message history. The file covers messages received up to now, and importing it does not verify a session.</source>
-        <translation type="unfinished"></translation>
+        <translation>Guarda num ficheiro as chaves que desencriptam as suas mensagens encriptadas, protegido com uma frase-passe que escolhe. Outra sessão, ou outra aplicação Matrix como o Element, pode importá-lo para ler o seu histórico de mensagens. O ficheiro cobre as mensagens recebidas até agora, e importá-lo não verifica uma sessão.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Anyone with this file and its passphrase can read your encrypted messages. Keep the file somewhere private, never send it in a chat, and store the passphrase separately from it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Quem tiver este ficheiro e a sua frase-passe pode ler as suas mensagens encriptadas. Guarde o ficheiro num local privado, nunca o envie numa conversa, e guarde a frase-passe separadamente.</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+1"/>
         <source>Passphrase for the file</source>
-        <translation type="unfinished"></translation>
+        <translation>Frase-passe do ficheiro</translation>
     </message>
     <message>
         <location line="+38"/>
         <source>Too short to export: use at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Curta demais para exportar: use pelo menos %1 caracteres.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Too weak to export: use at least 12 characters, or 10 that mix upper and lower case, digits or symbols, and avoid repeating a few characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Fraca demais para exportar: use pelo menos 12 caracteres, ou 10 que misturem maiúsculas e minúsculas, dígitos ou símbolos, e evite repetir poucos caracteres.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Fair</source>
-        <translation type="unfinished"></translation>
+        <translation>Razoável</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Strong</source>
-        <translation type="unfinished"></translation>
+        <translation>Forte</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+1"/>
         <source>Confirm the passphrase</source>
-        <translation type="unfinished"></translation>
+        <translation>Confirmar a frase-passe</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The passphrases do not match.</source>
-        <translation type="unfinished"></translation>
+        <translation>As frases-passe não coincidem.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Exporting…</source>
-        <translation type="unfinished"></translation>
+        <translation>A exportar…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Export keys…</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar chaves…</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Disabled: the passphrase is too weak.</source>
-        <translation type="unfinished"></translation>
+        <translation>Desativada: a frase-passe é demasiado fraca.</translation>
     </message>
     <message numerus="yes">
         <location line="+20"/>
         <source>Exporting room keys… %n gathered so far.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>A exportar chaves de sala… %n reunida até agora.</numerusform>
+            <numerusform>A exportar chaves de sala… %n reunidas até agora.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Exporting room keys… This can take a while on an account with a long history.</source>
-        <translation type="unfinished"></translation>
+        <translation>A exportar chaves de sala… Pode demorar algum tempo numa conta com um histórico longo.</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Save room-key export</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardar exportação de chaves de sala</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Room-key export (*.txt)</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportação de chaves de sala (*.txt)</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>All files (*)</source>
-        <translation type="unfinished">Todos os ficheiros (*)</translation>
+        <translation>Todos os ficheiros (*)</translation>
     </message>
 </context>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+98"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+99"/>
         <source>Invites</source>
         <translation>Convites</translation>
     </message>
     <message>
-        <location line="-62"/>
+        <location line="-63"/>
         <source>People</source>
         <translation>Pessoas</translation>
     </message>
@@ -14804,12 +14818,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Conversas</translation>
     </message>
     <message>
-        <location line="+61"/>
+        <location line="+62"/>
         <source>Favourites</source>
-        <translation type="unfinished"></translation>
+        <translation>Favoritos</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+74"/>
         <source>Sign in to see rooms</source>
         <translation>Inicie sessão para ver as salas</translation>
     </message>
@@ -14938,27 +14952,27 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomListSortMenu.qml" line="+27"/>
         <source>Sort rooms by</source>
-        <translation type="unfinished"></translation>
+        <translation>Ordenar salas por</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Activity</source>
-        <translation type="unfinished"></translation>
+        <translation>Atividade</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>A–Z</source>
-        <translation type="unfinished"></translation>
+        <translation>A–Z</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Space order</source>
-        <translation type="unfinished"></translation>
+        <translation>Ordem dos espaços</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Unread first</source>
-        <translation type="unfinished"></translation>
+        <translation>Não lidas primeiro</translation>
     </message>
 </context>
 <context>
@@ -14977,33 +14991,33 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+60"/>
         <source>The room to upgrade is not known.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sala a atualizar não é conhecida.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Pick a room version the server supports.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha uma versão de sala que o servidor suporte.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The upgrade could not be requested.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível pedir a atualização.</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>The server refused the upgrade: you are not allowed to upgrade this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou a atualização: não tem permissão para atualizar esta sala.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The room was upgraded, but the server did not say which room replaced it. Look for the new room in your room list.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sala foi atualizada, mas o servidor não indicou qual a sala que a substituiu. Procure a nova sala na sua lista de salas.</translation>
     </message>
     <message>
         <location line="-22"/>
         <location line="+13"/>
         <source>The upgrade did not complete. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>A atualização não foi concluída. Nada foi alterado.</translation>
     </message>
 </context>
 <context>
@@ -15011,67 +15025,67 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomUpgradeDialog.qml" line="+72"/>
         <source>Upgrade this space</source>
-        <translation type="unfinished"></translation>
+        <translation>Atualizar este espaço</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Upgrade this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Atualizar esta sala</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Upgrading creates a NEW space on a newer room version and marks this one as replaced. Members have to join the new space; the old one stays readable but closed. The server carries the settings, permissions and addresses across. This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Atualizar cria um NOVO espaço numa versão de sala mais recente e marca este como substituído. Os membros têm de entrar no novo espaço; o antigo continua legível mas fechado. O servidor transporta as definições, permissões e endereços. Isto não pode ser desfeito.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Upgrading creates a NEW room on a newer room version and marks this one as replaced. Members have to join the new room; the old one stays readable but closed. The server carries the settings, permissions and addresses across. This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Atualizar cria uma NOVA sala numa versão de sala mais recente e marca esta como substituída. Os membros têm de entrar na nova sala; a antiga continua legível mas fechada. O servidor transporta as definições, permissões e endereços. Isto não pode ser desfeito.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Current version: %1</source>
-        <translation type="unfinished">Versão atual: %1</translation>
+        <translation>Versão atual: %1</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>New version</source>
-        <translation type="unfinished"></translation>
+        <translation>Nova versão</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>recommended</source>
-        <translation type="unfinished"></translation>
+        <translation>recomendada</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>unstable</source>
-        <translation type="unfinished"></translation>
+        <translation>instável</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Asking the server which room versions it supports…</source>
-        <translation type="unfinished"></translation>
+        <translation>A perguntar ao servidor quais as versões de sala que suporta…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Also add the new room to the spaces this one is in</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionar também a nova sala aos espaços em que esta está</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Upgrading…</source>
-        <translation type="unfinished"></translation>
+        <translation>A atualizar…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Upgrade</source>
-        <translation type="unfinished"></translation>
+        <translation>Atualizar</translation>
     </message>
 </context>
 <context>
@@ -15117,21 +15131,21 @@ Signing out and signing in again is the only fix.</source>
         <location line="+48"/>
         <location line="+1"/>
         <source>Room list options</source>
-        <translation type="unfinished"></translation>
+        <translation>Opções da lista de salas</translation>
     </message>
     <message numerus="yes">
         <location line="+91"/>
         <source>Activity, %n unseen</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Atividade, %n por ver</numerusform>
+            <numerusform>Atividade, %n por ver</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+1"/>
         <source>Activity</source>
-        <translation type="unfinished"></translation>
+        <translation>Atividade</translation>
     </message>
     <message>
         <location line="+82"/>
@@ -15161,40 +15175,40 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-155"/>
         <source>Start or join a conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciar ou entrar numa conversa</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>New message, room or Space</source>
-        <translation type="unfinished"></translation>
+        <translation>Nova mensagem, sala ou Espaço</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>New message</source>
-        <translation type="unfinished">Nova mensagem</translation>
+        <translation>Nova mensagem</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>New room</source>
-        <translation type="unfinished">Nova sala</translation>
+        <translation>Nova sala</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>New Space</source>
-        <translation type="unfinished"></translation>
+        <translation>Novo Espaço</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Explore public rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Explorar salas públicas</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Join by address…</source>
-        <translation type="unfinished"></translation>
+        <translation>Entrar por endereço…</translation>
     </message>
     <message>
-        <location line="+186"/>
+        <location line="+194"/>
         <source>Leave room?</source>
         <translation>Sair da sala?</translation>
     </message>
@@ -15304,72 +15318,72 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-1348"/>
         <source>Wrong username or password.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome de utilizador ou palavra-passe errados.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Too many attempts. Wait a minute and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Demasiadas tentativas. Aguarde um minuto e tente novamente.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This account has been deactivated.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta conta foi desativada.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Can&apos;t reach the server. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não é possível contactar o servidor. Verifique a sua ligação e tente novamente.</translation>
     </message>
     <message>
         <location line="+759"/>
         <source>Enter a server, for example matrix.org.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduza um servidor, por exemplo matrix.org.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>That is not a server address. Enter one like matrix.org.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isso não é um endereço de servidor. Introduza um como matrix.org.</translation>
     </message>
     <message>
         <location line="+893"/>
         <source>The server finished the sign-in but did not say which account or device it was for. Nothing was saved on this device.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor concluiu o início de sessão, mas não indicou a que conta ou dispositivo se destinava. Nada foi guardado neste dispositivo.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The server signed you in as %1, an account name Lightning can&apos;t store on this device. Nothing was saved here.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor iniciou a sua sessão como %1, um nome de conta que o Lightning não consegue guardar neste dispositivo. Nada foi guardado aqui.</translation>
     </message>
     <message>
         <location line="+55"/>
         <source>Another account saved on this device, with the same name in different upper and lower case, uses this account&apos;s storage. Remove that account first if you want to sign in with this one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Outra conta guardada neste dispositivo, com o mesmo nome em maiúsculas e minúsculas diferentes, usa o armazenamento desta conta. Remova primeiro essa conta se quiser iniciar sessão com esta.</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>You signed in, but Lightning could not open this account&apos;s storage on this device. Nothing was saved here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciou sessão, mas o Lightning não conseguiu abrir o armazenamento desta conta neste dispositivo. Nada foi guardado aqui.</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>You signed in, but Lightning could not save this account on this device, so it did not open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciou sessão, mas o Lightning não conseguiu guardar esta conta neste dispositivo, por isso não a abriu.</translation>
     </message>
     <message>
         <location line="+115"/>
         <source>This account&apos;s old local data could not be moved aside because it is still in use. Close any other Lightning window (check the system tray) or program using it, wait a moment, and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os dados locais antigos desta conta não puderam ser postos de lado porque ainda estão em uso. Feche qualquer outra janela do Lightning (verifique a bandeja do sistema) ou programa que os esteja a usar, aguarde um momento e tente novamente.</translation>
     </message>
     <message>
         <location line="+42"/>
         <source>You signed in, but Lightning could not open this account on this device, so nothing was kept. You can try again. (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciou sessão, mas o Lightning não conseguiu abrir esta conta neste dispositivo, por isso nada foi guardado. Pode tentar novamente. (%1)</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>You signed in, but Lightning could not open this account on this device, and could not remove all of what it had started to save here. Check the log before trying again. (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciou sessão, mas o Lightning não conseguiu abrir esta conta neste dispositivo, e não conseguiu remover tudo o que começara a guardar aqui. Verifique o registo antes de tentar novamente. (%1)</translation>
     </message>
     <message>
         <location line="+346"/>
@@ -15431,12 +15445,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-1155"/>
         <source>Lightning cannot send that yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning ainda não consegue enviar isso.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This room is still loading. Try that again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sala ainda está a carregar. Tente novamente dentro de momentos.</translation>
     </message>
     <message>
         <location line="+217"/>
@@ -15456,7 +15470,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+20"/>
         <source>Signing in again as this device did not work. Nothing on this device was changed. Try again, or remove this account below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Voltar a iniciar sessão como este dispositivo não funcionou. Nada neste dispositivo foi alterado. Tente novamente, ou remova esta conta abaixo.</translation>
     </message>
     <message>
         <location line="+138"/>
@@ -15472,7 +15486,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+297"/>
         <location line="+26"/>
         <source>The reaction could not be applied.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível aplicar a reação.</translation>
     </message>
     <message>
         <location line="-15"/>
@@ -15482,48 +15496,48 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+19"/>
         <source>The message could not be deleted.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível eliminar a mensagem.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>That message had already been sent, so it could not be cancelled.</source>
-        <translation type="unfinished"></translation>
+        <translation>Essa mensagem já tinha sido enviada, por isso não pôde ser cancelada.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>That message could not be cancelled.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível cancelar essa mensagem.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>That message is no longer available to retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>Essa mensagem já não está disponível para tentar novamente.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The edit could not be applied.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível aplicar a edição.</translation>
     </message>
     <message>
         <location line="-46"/>
         <location line="+54"/>
         <source>The poll action could not be completed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível concluir a ação da sondagem.</translation>
     </message>
     <message>
         <location line="-5193"/>
         <source>Enter your username.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduza o seu nome de utilizador.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>That username is not a valid Matrix id. Use your username, or the full @you:server form.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse nome de utilizador não é um ID Matrix válido. Use o seu nome de utilizador, ou a forma completa @utilizador:servidor.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Enter your password.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduza a sua palavra-passe.</translation>
     </message>
     <message>
         <location line="+5185"/>
@@ -15625,12 +15639,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/SaveNaming.cpp" line="+460"/>
         <source>%1 file (*.%2)</source>
-        <translation type="unfinished"></translation>
+        <translation>Ficheiro %1 (*.%2)</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>All files (*)</source>
-        <translation type="unfinished">Todos os ficheiros (*)</translation>
+        <translation>Todos os ficheiros (*)</translation>
     </message>
 </context>
 <context>
@@ -15638,57 +15652,57 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/models/ScheduledSendController.cpp" line="+70"/>
         <source>Kept in Lightning instead: the server cannot hold an encrypted message.</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardada no Lightning em vez disso: o servidor não consegue guardar uma mensagem encriptada.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The server refused to schedule this message.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou agendar esta mensagem.</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>The server no longer holds this message; it may already have been sent. Check the room before scheduling it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor já não tem esta mensagem; pode já ter sido enviada. Verifique a sala antes de a agendar novamente.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The server did not cancel this message.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor não cancelou esta mensagem.</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>The server did not send this message.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor não enviou esta mensagem.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>The room did not accept this message. It was not sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sala não aceitou esta mensagem. Não foi enviada.</translation>
     </message>
     <message>
         <location line="+195"/>
         <source>Lightning closed before the server confirmed this message. Check the room before scheduling it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning fechou antes de o servidor confirmar esta mensagem. Verifique a sala antes de a agendar novamente.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Lightning closed while sending this. Check the room before sending it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning fechou enquanto enviava isto. Verifique a sala antes de a enviar novamente.</translation>
     </message>
     <message>
         <location line="+87"/>
         <source>The server could not be asked to cancel this message.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível pedir ao servidor que cancelasse esta mensagem.</translation>
     </message>
     <message>
         <location line="+75"/>
         <source>Lightning could not reach the server to send this now. It is still scheduled.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu contactar o servidor para enviar isto agora. Continua agendada.</translation>
     </message>
     <message>
         <location line="+151"/>
         <source>Waiting for the connection.</source>
-        <translation type="unfinished"></translation>
+        <translation>A aguardar a ligação.</translation>
     </message>
 </context>
 <context>
@@ -15756,44 +15770,44 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+23"/>
         <source>Sound</source>
-        <translation type="unfinished"></translation>
+        <translation>Som</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+5"/>
         <source>No sound</source>
-        <translation type="unfinished"></translation>
+        <translation>Sem som</translation>
     </message>
     <message>
         <location line="-4"/>
         <location line="+5"/>
         <source>Entire system</source>
-        <translation type="unfinished"></translation>
+        <translation>Sistema inteiro</translation>
     </message>
     <message>
         <location line="-4"/>
         <source>Only chosen apps</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas as aplicações escolhidas</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Screen share sound</source>
-        <translation type="unfinished"></translation>
+        <translation>Som da partilha de ecrã</translation>
     </message>
     <message>
         <location line="+51"/>
         <source>Lightning runs inside this window&apos;s app, so its sound can&apos;t be shared on its own without sending the call back. Its sound isn&apos;t chosen automatically.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning corre dentro da aplicação desta janela, por isso o seu som não pode ser partilhado sozinho sem reenviar a chamada. O seu som não é escolhido automaticamente.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Lightning can&apos;t tell which app this window belongs to, so its sound isn&apos;t chosen automatically. Choose the app below.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue saber a que aplicação pertence esta janela, por isso o seu som não é escolhido automaticamente. Escolha a aplicação abaixo.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This window&apos;s app isn&apos;t playing any sound right now, so its sound isn&apos;t chosen automatically.</source>
-        <translation type="unfinished"></translation>
+        <translation>A aplicação desta janela não está a reproduzir nenhum som neste momento, por isso o seu som não é escolhido automaticamente.</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -15804,7 +15818,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+12"/>
         <location line="+31"/>
         <source>Auto</source>
-        <translation type="unfinished"></translation>
+        <translation>Automático</translation>
     </message>
     <message>
         <location line="-30"/>
@@ -15986,17 +16000,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Type at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escreva pelo menos %1 caracteres.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Nothing is indexed yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda não há nada indexado.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No matching messages. Try a less common word, or search the local index.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nenhuma mensagem corresponde. Experimente uma palavra menos comum, ou pesquise no índice local.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -16006,37 +16020,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+108"/>
         <source>Indexed</source>
-        <translation type="unfinished"></translation>
+        <translation>Indexado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning&apos;s own index. Works in encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>O índice próprio do Lightning. Funciona em salas encriptadas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Server</source>
-        <translation type="unfinished"></translation>
+        <translation>Servidor</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your homeserver&apos;s search. Covers history this device has never seen, and cannot read encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>A pesquisa do seu servidor doméstico. Abrange histórico que este dispositivo nunca viu, e não consegue ler salas encriptadas.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Searching Lightning&apos;s own index. Works in encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>A pesquisar no índice próprio do Lightning. Funciona em salas encriptadas.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Searching your homeserver. It cannot read encrypted rooms and ignores very common words. Additional filters are applied to a bounded result window.</source>
-        <translation type="unfinished"></translation>
+        <translation>A pesquisar no seu servidor doméstico. Não consegue ler salas encriptadas e ignora palavras muito comuns. Os filtros adicionais são aplicados a um conjunto de resultados limitado.</translation>
     </message>
     <message>
         <location line="+141"/>
         <source>Index encrypted rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Indexar salas encriptadas</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -16135,133 +16149,133 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/SendLaterDialog.qml" line="+117"/>
         <source>Send later</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar mais tarde</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Scheduled messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensagens agendadas</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>In 30 minutes</source>
-        <translation type="unfinished"></translation>
+        <translation>Daqui a 30 minutos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Tonight</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta noite</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Tomorrow morning</source>
-        <translation type="unfinished"></translation>
+        <translation>Amanhã de manhã</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Pick date &amp; time</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolher data e hora</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>yyyy-mm-dd</source>
-        <translation type="unfinished"></translation>
+        <translation>aaaa-mm-dd</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>hh:mm</source>
-        <translation type="unfinished"></translation>
+        <translation>hh:mm</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Pick a date and time in the future.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha uma data e hora no futuro.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Sends %1 (your local time).</source>
-        <translation type="unfinished"></translation>
+        <translation>Envia %1 (a sua hora local).</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Your homeserver will hold this message and send it at that time, even if Lightning is closed.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico guardará esta mensagem e enviá-la-á a essa hora, mesmo que o Lightning esteja fechado.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning will keep this message and send it at that time. Lightning must be running and connected then — and because this room is encrypted, the message is kept only in memory: closing Lightning discards it.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning guardará esta mensagem e enviá-la-á a essa hora. O Lightning tem de estar em execução e ligado nesse momento — e, como esta sala está encriptada, a mensagem fica guardada apenas em memória: fechar o Lightning descarta-a.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning will keep this message and send it at that time. Lightning must be running and connected then.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning guardará esta mensagem e enviá-la-á a essa hora. O Lightning tem de estar em execução e ligado nesse momento.</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+156"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="-150"/>
         <source>Schedule</source>
-        <translation type="unfinished"></translation>
+        <translation>Agendar</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Pending in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Pendentes nesta sala</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Nothing is scheduled for this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada está agendado para esta sala.</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Server</source>
-        <translation type="unfinished"></translation>
+        <translation>Servidor</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Lightning</source>
-        <translation type="unfinished">Lightning</translation>
+        <translation>Lightning</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Failed</source>
-        <translation type="unfinished">Falhou</translation>
+        <translation>Falhou</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Memory only</source>
-        <translation type="unfinished"></translation>
+        <translation>Só em memória</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Send now</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar agora</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Done</source>
-        <translation type="unfinished">Concluído</translation>
+        <translation>Concluído</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Edit text</source>
-        <translation type="unfinished"></translation>
+        <translation>Editar texto</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>+1 hour</source>
-        <translation type="unfinished"></translation>
+        <translation>+1 hora</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Close</source>
-        <translation type="unfinished">Fechar</translation>
+        <translation>Fechar</translation>
     </message>
 </context>
 <context>
@@ -16269,296 +16283,296 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/SettingsBackupSection.qml" line="+26"/>
         <source>Appearance</source>
-        <translation type="unfinished">Aparência</translation>
+        <translation>Aparência</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Layout</source>
-        <translation type="unfinished"></translation>
+        <translation>Disposição</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Window</source>
-        <translation type="unfinished"></translation>
+        <translation>Janela</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Notifications and sounds</source>
-        <translation type="unfinished"></translation>
+        <translation>Notificações e sons</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>Privacidade</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Media and previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Multimédia e pré-visualizações</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Calls</source>
-        <translation type="unfinished"></translation>
+        <translation>Chamadas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Timeline</source>
-        <translation type="unfinished">Conversa</translation>
+        <translation>Cronologia</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Composer</source>
-        <translation type="unfinished"></translation>
+        <translation>Editor</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>on</source>
-        <translation type="unfinished"></translation>
+        <translation>ligado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>off</source>
-        <translation type="unfinished"></translation>
+        <translation>desligado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>not set</source>
-        <translation type="unfinished"></translation>
+        <translation>não definido</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+2"/>
         <source>none</source>
-        <translation type="unfinished"></translation>
+        <translation>nenhum</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Settings file</source>
-        <translation type="unfinished"></translation>
+        <translation>Ficheiro de definições</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Save your preferences to a file, or load them from one. It holds how Lightning looks and behaves: appearance, layout, notifications, sounds, shortcuts and your custom themes. It never holds your sign-in, keys, devices, accounts or where files are kept on this computer.</source>
-        <translation type="unfinished"></translation>
+        <translation>Guarde as suas preferências num ficheiro, ou carregue-as a partir de um. Contém o modo como o Lightning tem aspeto e se comporta: aparência, disposição, notificações, sons, atalhos e os seus temas personalizados. Nunca contém o seu início de sessão, chaves, dispositivos, contas nem onde os ficheiros são guardados neste computador.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Export settings…</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar definições…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Import settings…</source>
-        <translation type="unfinished"></translation>
+        <translation>Importar definições…</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Sync across your devices</source>
-        <translation type="unfinished"></translation>
+        <translation>Sincronizar entre os seus dispositivos</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Sync settings across your devices</source>
-        <translation type="unfinished"></translation>
+        <translation>Sincronizar definições entre os seus dispositivos</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Keeps the same preferences on every device signed in to this account, and brings them back when you sign in on a new one. They are stored in your account data on your homeserver, which its administrator can read; they hold no keys or passwords. Things that belong to one computer (window size, zoom, volumes, microphone and camera, privacy and security switches, custom themes) stay on that computer.</source>
-        <translation type="unfinished"></translation>
+        <translation>Mantém as mesmas preferências em todos os dispositivos com sessão iniciada nesta conta, e repõe-nas quando inicia sessão num novo. São guardadas nos dados da sua conta no servidor doméstico, que o administrador pode ler; não contêm chaves nem palavras-passe. As coisas que pertencem a um só computador (tamanho da janela, zoom, volumes, microfone e câmara, interruptores de privacidade e segurança, temas personalizados) ficam nesse computador.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Checking your homeserver…</source>
-        <translation type="unfinished"></translation>
+        <translation>A verificar o seu servidor doméstico…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Syncing…</source>
-        <translation type="unfinished"></translation>
+        <translation>A sincronizar…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your account&apos;s settings were saved by a newer Lightning. This version reads what it knows and writes nothing.</source>
-        <translation type="unfinished"></translation>
+        <translation>As definições da sua conta foram guardadas por uma versão mais recente do Lightning. Esta versão lê o que conhece e não escreve nada.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Settings could not be synced (%1). Trying again shortly.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível sincronizar as definições (%1). A tentar novamente dentro de momentos.</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n change(s) waiting to sync.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n alteração à espera de sincronizar.</numerusform>
+            <numerusform>%n alterações à espera de sincronizar.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Up to date. Last synced %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Atualizado. Última sincronização: %1.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Up to date.</source>
-        <translation type="unfinished"></translation>
+        <translation>Atualizado.</translation>
     </message>
     <message numerus="yes">
         <location line="+19"/>
         <source>Your account already has synced settings, and %n setting(s) you chose on this device differ. Nothing has been changed yet.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>A sua conta já tem definições sincronizadas, e %n definição que escolheu neste dispositivo é diferente. Nada foi alterado ainda.</numerusform>
+            <numerusform>A sua conta já tem definições sincronizadas, e %n definições que escolheu neste dispositivo são diferentes. Nada foi alterado ainda.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Use my account&apos;s settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar as definições da minha conta</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Upload this device&apos;s settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar as definições deste dispositivo</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Changed on another device since you edited them here, so the newer value was kept: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterado noutro dispositivo desde que as editou aqui, por isso o valor mais recente foi mantido: %1.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>OK</source>
-        <translation type="unfinished"></translation>
+        <translation>OK</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Turn off and remove from my homeserver</source>
-        <translation type="unfinished"></translation>
+        <translation>Desativar e remover do meu servidor doméstico</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Export settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar definições</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+15"/>
         <source>Settings (*.json)</source>
-        <translation type="unfinished"></translation>
+        <translation>Definições (*.json)</translation>
     </message>
     <message>
         <location line="-15"/>
         <location line="+15"/>
         <source>All files (*)</source>
-        <translation type="unfinished">Todos os ficheiros (*)</translation>
+        <translation>Todos os ficheiros (*)</translation>
     </message>
     <message>
         <location line="-10"/>
         <source>Settings exported.</source>
-        <translation type="unfinished"></translation>
+        <translation>Definições exportadas.</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+19"/>
         <source>Import settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Importar definições</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>This file changes nothing: every setting in it already has that value.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este ficheiro não altera nada: cada definição nele já tem esse valor.</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>Importing will change %n setting(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Importar irá alterar %n definição.</numerusform>
+            <numerusform>Importar irá alterar %n definições.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This file was made by a newer Lightning. The settings this version knows are read; the rest are ignored.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este ficheiro foi criado por uma versão mais recente do Lightning. As definições que esta versão conhece são lidas; as restantes são ignoradas.</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>%1: %2 → %3</source>
-        <translation type="unfinished"></translation>
+        <translation>%1: %2 → %3</translation>
     </message>
     <message numerus="yes">
         <location line="+16"/>
         <source>%n shortcut(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n atalho</numerusform>
+            <numerusform>%n atalhos</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n custom theme(s) added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n tema personalizado adicionado</numerusform>
+            <numerusform>%n temas personalizados adicionados</numerusform>
         </translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Skipped because the value is not valid: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ignorado porque o valor não é válido: %1.</translation>
     </message>
     <message numerus="yes">
         <location line="+11"/>
         <source>%n entry(ies) this version does not know were ignored.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n entrada que esta versão não conhece foi ignorada.</numerusform>
+            <numerusform>%n entradas que esta versão não conhece foram ignoradas.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+52"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="-45"/>
         <source>Import</source>
-        <translation type="unfinished">Importar</translation>
+        <translation>Importar</translation>
     </message>
     <message numerus="yes">
         <location line="+7"/>
         <source>Imported %n setting(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Importada %n definição.</numerusform>
+            <numerusform>Importadas %n definições.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n shortcut(s) could not be used and were skipped.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n atalho não pôde ser usado e foi ignorado.</numerusform>
+            <numerusform>%n atalhos não puderam ser usados e foram ignorados.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Remove synced settings?</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover as definições sincronizadas?</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>This turns settings sync off for every device on this account and empties the copy on your homeserver. Every device keeps the settings it has now.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto desativa a sincronização de definições em todos os dispositivos desta conta e esvazia a cópia no seu servidor doméstico. Cada dispositivo mantém as definições que tem agora.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Turn off and remove</source>
-        <translation type="unfinished"></translation>
+        <translation>Desativar e remover</translation>
     </message>
 </context>
 <context>
@@ -16567,7 +16581,7 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/SettingsNavOutline.qml" line="+32"/>
         <location line="+22"/>
         <source>On this page</source>
-        <translation type="unfinished"></translation>
+        <translation>Nesta página</translation>
     </message>
 </context>
 <context>
@@ -16576,7 +16590,7 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/SettingsNeedsBadge.qml" line="+36"/>
         <location line="+5"/>
         <source>Needs “%1”</source>
-        <translation type="unfinished"></translation>
+        <translation>Precisa de «%1»</translation>
     </message>
 </context>
 <context>
@@ -16584,12 +16598,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/SettingsPercentBox.qml" line="+52"/>
         <source>%1, percent</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, por cento</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Percent</source>
-        <translation type="unfinished"></translation>
+        <translation>Por cento</translation>
     </message>
 </context>
 <context>
@@ -16939,35 +16953,35 @@ Signing out and signing in again is the only fix.</source>
         <location line="+16"/>
         <location line="+4073"/>
         <source>Message box buttons</source>
-        <translation type="unfinished"></translation>
+        <translation>Botões da caixa de mensagens</translation>
     </message>
     <message>
         <location line="-4072"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
-        <translation type="unfinished"></translation>
+        <translation>botões do editor ocultar mostrar emoji gif autocolante autocolantes voz microfone formatação agendar enviar mais tarde simplificar</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+3925"/>
         <source>Check spelling as you type</source>
-        <translation type="unfinished"></translation>
+        <translation>Verificar a ortografia enquanto escreve</translation>
     </message>
     <message>
         <location line="-3924"/>
         <source>spell spelling checker dictionary typo underline language</source>
-        <translation type="unfinished"></translation>
+        <translation>ortografia verificador dicionário erro sublinhado idioma corretor</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+3931"/>
         <location line="+13"/>
         <source>Spelling language</source>
-        <translation type="unfinished"></translation>
+        <translation>Idioma da ortografia</translation>
     </message>
     <message>
         <location line="-3943"/>
         <source>spell spelling language dictionary automatic system</source>
-        <translation type="unfinished"></translation>
+        <translation>ortografia idioma dicionário automático sistema</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -17064,46 +17078,46 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1602"/>
         <location line="+2296"/>
         <source>Keep the room list still while I use it</source>
-        <translation type="unfinished"></translation>
+        <translation>Manter a lista de salas parada enquanto a uso</translation>
     </message>
     <message>
         <location line="-3897"/>
         <source>room list order sort reorder jump move still hold freeze stable recent activity conversation list sidebar channels new message</source>
-        <translation type="unfinished"></translation>
+        <translation>ordem da lista de salas ordenar reordenar saltar mover parada manter congelar estável atividade recente lista de conversas barra lateral canais nova mensagem</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+3358"/>
         <source>Keep running in the tray</source>
-        <translation type="unfinished"></translation>
+        <translation>Continuar em execução na bandeja</translation>
     </message>
     <message>
         <location line="-3357"/>
         <source>tray system tray minimize close background icon taskbar quit close to tray</source>
-        <translation type="unfinished"></translation>
+        <translation>bandeja do sistema minimizar fechar segundo plano ícone barra de tarefas sair fechar para a bandeja</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+4"/>
         <source>Appearance · System tray</source>
-        <translation type="unfinished"></translation>
+        <translation>Aparência · Bandeja do sistema</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>tray start startup minimized background icon</source>
-        <translation type="unfinished"></translation>
+        <translation>bandeja iniciar arranque minimizado segundo plano ícone</translation>
     </message>
     <message>
         <location line="+23"/>
         <location line="+1591"/>
         <location line="+2459"/>
         <source>Convert :shortcode: to emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>Converter :código: em emoji</translation>
     </message>
     <message>
         <location line="-4049"/>
         <source>emoji shortcode colon convert autoconvert auto-convert thumbsup smiley slack discord</source>
-        <translation type="unfinished"></translation>
+        <translation>emoji código de atalho dois pontos converter conversão automática thumbsup smiley slack discord</translation>
     </message>
     <message>
         <location line="+100"/>
@@ -17119,12 +17133,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Notification preview in encrypted rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-visualização de notificações em salas encriptadas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>notification preview encrypted body privacy hide message text</source>
-        <translation type="unfinished"></translation>
+        <translation>pré-visualização notificação encriptada corpo privacidade ocultar texto da mensagem</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -17141,61 +17155,61 @@ Signing out and signing in again is the only fix.</source>
         <location line="+9"/>
         <location line="+4217"/>
         <source>Only exchange messages with verified devices</source>
-        <translation type="unfinished"></translation>
+        <translation>Trocar mensagens apenas com dispositivos verificados</translation>
     </message>
     <message>
         <location line="-4216"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
-        <translation type="unfinished"></translation>
+        <translation>invisível cripto msc4153 certificação cruzada verificado confiança dispositivo inseguro excluir encriptação</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Privacy &amp; security · Device trust</source>
-        <translation type="unfinished"></translation>
+        <translation>Privacidade e segurança · Confiança nos dispositivos</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+5164"/>
         <source>Keep downloaded media on this device</source>
-        <translation type="unfinished"></translation>
+        <translation>Manter a multimédia transferida neste dispositivo</translation>
     </message>
     <message>
         <location line="-5163"/>
         <source>media cache video image picture file download offline storage disk keep clear</source>
-        <translation type="unfinished"></translation>
+        <translation>cache multimédia vídeo imagem fotografia ficheiro transferir offline armazenamento disco manter limpar</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Privacy &amp; security · Media kept on this device</source>
-        <translation type="unfinished"></translation>
+        <translation>Privacidade e segurança · Multimédia guardada neste dispositivo</translation>
     </message>
     <message>
         <location line="+16"/>
         <location line="+4245"/>
         <source>Read receipts</source>
-        <translation type="unfinished"></translation>
+        <translation>Confirmações de leitura</translation>
     </message>
     <message>
         <location line="-4244"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>confirmação de leitura confirmações privado visto marcas azuis m.read.private privacidade</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+7"/>
         <source>Privacy &amp; security · Reading and typing</source>
-        <translation type="unfinished"></translation>
+        <translation>Privacidade e segurança · Leitura e escrita</translation>
     </message>
     <message>
         <location line="-4"/>
         <location line="+4281"/>
         <source>Let others see when I am typing</source>
-        <translation type="unfinished"></translation>
+        <translation>Deixar outros verem quando estou a escrever</translation>
     </message>
     <message>
         <location line="-4280"/>
         <source>typing notice notification composing indicator privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>aviso de escrita notificação indicador de escrita privacidade</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -17233,12 +17247,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <source>message search index all rooms history local encrypted older messages backfill</source>
-        <translation type="unfinished"></translation>
+        <translation>índice de pesquisa de mensagens todas as salas histórico local encriptado mensagens mais antigas preenchimento</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Privacy &amp; security · Message search index</source>
-        <translation type="unfinished"></translation>
+        <translation>Privacidade e segurança · Índice de pesquisa de mensagens</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -17435,12 +17449,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+7339"/>
         <source>Sign in another device</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciar sessão noutro dispositivo</translation>
     </message>
     <message>
         <location line="-7338"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
-        <translation type="unfinished"></translation>
+        <translation>código qr iniciar sessão noutro dispositivo ligação telefone msc4108 entrada</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -17570,18 +17584,18 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+173"/>
         <source>Clear the search index?</source>
-        <translation type="unfinished"></translation>
+        <translation>Limpar o índice de pesquisa?</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+3563"/>
         <source>Clear index</source>
-        <translation type="unfinished"></translation>
+        <translation>Limpar índice</translation>
     </message>
     <message>
         <location line="-3552"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
-        <translation type="unfinished"></translation>
+        <translation>A pesquisa no seu histórico deixa de funcionar até o Lightning o voltar a indexar, o que faz por conta própria. Nenhuma mensagem é eliminada — o índice é apenas uma cópia que o Lightning criou para poder pesquisar.</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -17724,280 +17738,280 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+820"/>
         <source>Scales message and list text, and the Spaces rail with it, so its nesting levels stay readable at any size. Other chrome keeps its size — Interface zoom below scales the whole window.</source>
-        <translation type="unfinished"></translation>
+        <translation>Aumenta ou diminui o texto das mensagens e das listas, e a barra de espaços com ele, para que os seus níveis de aninhamento continuem legíveis em qualquer tamanho. O resto da interface mantém o tamanho — o Zoom da interface, abaixo, aumenta ou diminui a janela inteira.</translation>
     </message>
     <message>
         <location line="+1290"/>
         <source>Typing a shortcode like &quot;:thumbsup:&quot; turns it into the emoji as soon as it is complete. Custom pack shortcodes are unaffected.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ao escrever um código como «:thumbsup:», transforma-o em emoji assim que estiver completo. Os códigos de pacotes personalizados não são afetados.</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Turn off what you do not use. Attach stays: in a narrow window it is where the other actions move to.</source>
-        <translation type="unfinished"></translation>
+        <translation>Desligue o que não usa. Anexar fica: numa janela estreita é para onde as outras ações passam.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Formatting</source>
-        <translation type="unfinished">Formatação</translation>
+        <translation>Formatação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji</source>
-        <translation type="unfinished">Emoji</translation>
+        <translation>Emoji</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>GIFs and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>GIF e autocolantes</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Voice message</source>
-        <translation type="unfinished">Mensagem de voz</translation>
+        <translation>Mensagem de voz</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send options</source>
-        <translation type="unfinished"></translation>
+        <translation>Opções de envio</translation>
     </message>
     <message>
         <location line="-3642"/>
         <location line="+3857"/>
         <source>Device trust</source>
-        <translation type="unfinished"></translation>
+        <translation>Confiança nos dispositivos</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Room keys are not shared with devices their owner has not cross-signed, and messages from such devices are not decrypted. This is stricter and it has a cost: anyone who has not verified their own devices becomes unreadable to you, and you to them. Messages you can already read stay readable.</source>
-        <translation type="unfinished"></translation>
+        <translation>As chaves de sala não são partilhadas com dispositivos cujo dono não tenha feito certificação cruzada, e as mensagens desses dispositivos não são desencriptadas. Isto é mais rigoroso e tem um custo: quem não tiver verificado os seus próprios dispositivos fica ilegível para si, e você para essa pessoa. As mensagens que já consegue ler continuam legíveis.</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Takes effect the next time Lightning starts.</source>
-        <translation type="unfinished"></translation>
+        <translation>Aplica-se na próxima vez que o Lightning arrancar.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Reading and typing</source>
-        <translation type="unfinished"></translation>
+        <translation>Leitura e escrita</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Send read receipts</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar confirmações de leitura</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Private — only my own devices</source>
-        <translation type="unfinished"></translation>
+        <translation>Privado — apenas os meus dispositivos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Do not send read receipts</source>
-        <translation type="unfinished"></translation>
+        <translation>Não enviar confirmações de leitura</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Typing notices are the most frequent thing a chat client discloses — every few keystrokes, to everyone in the room. Turning this off does not hide other people&apos;s.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os avisos de escrita são a coisa mais frequente que um cliente de conversa revela — a cada poucas teclas, a toda a gente na sala. Desligar isto não oculta os dos outros.</translation>
     </message>
     <message>
         <location line="+171"/>
         <source>Message search index</source>
-        <translation type="unfinished"></translation>
+        <translation>Índice de pesquisa de mensagens</translation>
     </message>
     <message numerus="yes">
         <location line="+47"/>
         <source>%n message(s) indexed</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n mensagem indexada</numerusform>
+            <numerusform>%n mensagens indexadas</numerusform>
         </translation>
     </message>
     <message>
         <location line="+63"/>
         <source>%1 of %2 rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 de %2 salas</translation>
     </message>
     <message numerus="yes">
         <location line="+7"/>
         <location line="+34"/>
         <source>%n message(s) added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n mensagem adicionada</numerusform>
+            <numerusform>%n mensagens adicionadas</numerusform>
         </translation>
     </message>
     <message>
         <location line="-31"/>
         <source>Waiting while a call is active or a timeline is scrolling</source>
-        <translation type="unfinished"></translation>
+        <translation>A aguardar enquanto uma chamada está ativa ou uma cronologia está a deslocar-se</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The server asked Lightning to slow down; trying again shortly</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor pediu ao Lightning que abrandasse; a tentar novamente dentro de momentos</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Paused</source>
-        <translation type="unfinished"></translation>
+        <translation>Em pausa</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Continues once this account is connected</source>
-        <translation type="unfinished"></translation>
+        <translation>Continua assim que esta conta estiver ligada</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>About %n minute(s) left</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Falta cerca de %n minuto</numerusform>
+            <numerusform>Faltam cerca de %n minutos</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Finished: each room was indexed back to its start or to the per-room limit</source>
-        <translation type="unfinished"></translation>
+        <translation>Concluído: cada sala foi indexada até ao início ou até ao limite por sala</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Nothing new to do: an earlier run already covered every room</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada de novo a fazer: uma execução anterior já cobriu todas as salas</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Stopped. Rooms already indexed stay indexed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Parado. As salas já indexadas continuam indexadas.</translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n message(s) could not be decrypted yet and were skipped</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n mensagem ainda não pôde ser desencriptada e foi ignorada</numerusform>
+            <numerusform>%n mensagens ainda não puderam ser desencriptadas e foram ignoradas</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n room(s) could not be fetched and will be tried next time</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n sala não pôde ser obtida e será tentada da próxima vez</numerusform>
+            <numerusform>%n salas não puderam ser obtidas e serão tentadas da próxima vez</numerusform>
         </translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Pause</source>
-        <translation type="unfinished"></translation>
+        <translation>Pausar</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Resume</source>
-        <translation type="unfinished"></translation>
+        <translation>Retomar</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Stop</source>
-        <translation type="unfinished"></translation>
+        <translation>Parar</translation>
     </message>
     <message>
         <location line="+459"/>
         <source>Media kept on this device</source>
-        <translation type="unfinished"></translation>
+        <translation>Multimédia guardada neste dispositivo</translation>
     </message>
     <message>
         <location line="+118"/>
         <source>Clear kept media</source>
-        <translation type="unfinished"></translation>
+        <translation>Limpar a multimédia guardada</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Nothing was cleared: no account is signed in.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada foi limpo: nenhuma conta tem sessão iniciada.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Some kept media could not be removed. Try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Parte da multimédia guardada não pôde ser removida. Tente novamente.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Kept media removed, including %1 of large files.</source>
-        <translation type="unfinished"></translation>
+        <translation>Multimédia guardada removida, incluindo %1 de ficheiros grandes.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Kept media removed. It downloads again when you open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Multimédia guardada removida. É transferida novamente quando a abrir.</translation>
     </message>
     <message>
         <location line="+144"/>
         <source>Sender and message is the default: a notification carries the message text. Sender only shows who wrote and never what they wrote, and Private withholds the sender and the room as well. Encrypted messages that cannot be decrypted always show a generic notification. Notifications are suppressed while the room is open, focused, and at the latest message.</source>
-        <translation type="unfinished"></translation>
+        <translation>Remetente e mensagem é a predefinição: uma notificação inclui o texto da mensagem. Só remetente mostra quem escreveu e nunca o que escreveu, e Privado oculta também o remetente e a sala. As mensagens encriptadas que não podem ser desencriptadas mostram sempre uma notificação genérica. As notificações são suprimidas enquanto a sala está aberta, em foco, e na mensagem mais recente.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>In encrypted rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Em salas encriptadas</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Same as other rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Igual às outras salas</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Notification sound style</source>
-        <translation type="unfinished"></translation>
+        <translation>Estilo do som de notificação</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Lightning</source>
-        <translation type="unfinished">Lightning</translation>
+        <translation>Lightning</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>System default</source>
-        <translation type="unfinished">Predefinição do sistema</translation>
+        <translation>Predefinido do sistema</translation>
     </message>
     <message>
         <location line="+12"/>
         <location line="+42"/>
         <source>Notification volume</source>
-        <translation type="unfinished"></translation>
+        <translation>Volume das notificações</translation>
     </message>
     <message>
         <location line="-26"/>
         <source>Play the message sound</source>
-        <translation type="unfinished"></translation>
+        <translation>Reproduzir o som de mensagem</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Test mention</source>
-        <translation type="unfinished"></translation>
+        <translation>Teste de menção</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Play the mention sound</source>
-        <translation type="unfinished"></translation>
+        <translation>Reproduzir o som de menção</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Lightning plays its own chime, and mentions get a slightly more urgent one; the desktop&apos;s notification sound is turned off. It stays quiet during calls. Choose System default to let the desktop play its own.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning reproduz o seu próprio toque, e as menções têm um mais urgente; o som de notificação do ambiente de trabalho está desligado. Fica silencioso durante as chamadas. Escolha Predefinido do sistema para deixar o ambiente de trabalho reproduzir o seu.</translation>
     </message>
     <message>
         <location line="+153"/>
         <source>Media playback</source>
-        <translation type="unfinished"></translation>
+        <translation>Reprodução multimédia</translation>
     </message>
     <message>
         <location line="+62"/>
         <source>The level voice messages, audio files and videos start at. Changing the volume on a player remembers it here too.</source>
-        <translation type="unfinished"></translation>
+        <translation>O nível em que começam as mensagens de voz, os ficheiros de áudio e os vídeos. Alterar o volume num leitor também o memoriza aqui.</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -18005,161 +18019,161 @@ Signing out and signing in again is the only fix.</source>
         <location line="+11"/>
         <location line="+11"/>
         <source>Play sounds during calls</source>
-        <translation type="unfinished"></translation>
+        <translation>Reproduzir sons durante as chamadas</translation>
     </message>
     <message>
         <location line="-36"/>
         <source>Short sounds when you join or leave a call, when others do, and when you mute or share your screen.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sons curtos quando entra ou sai de uma chamada, quando outros o fazem, e quando desliga o microfone ou partilha o ecrã.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>People joining and leaving</source>
-        <translation type="unfinished"></translation>
+        <translation>Pessoas que entram e saem</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Muting and deafening</source>
-        <translation type="unfinished"></translation>
+        <translation>Silenciar e desativar som</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Screen shares and raised hands</source>
-        <translation type="unfinished"></translation>
+        <translation>Partilhas de ecrã e mãos levantadas</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+29"/>
         <source>Call sound volume</source>
-        <translation type="unfinished"></translation>
+        <translation>Volume dos sons de chamada</translation>
     </message>
     <message>
         <location line="-354"/>
         <location line="+339"/>
         <location line="+40"/>
         <source>Test</source>
-        <translation type="unfinished"></translation>
+        <translation>Testar</translation>
     </message>
     <message>
         <location line="-38"/>
         <source>Play a call sound</source>
-        <translation type="unfinished"></translation>
+        <translation>Reproduzir um som de chamada</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Play the ringer</source>
-        <translation type="unfinished"></translation>
+        <translation>Reproduzir o toque</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>These sounds play only on this computer; nobody else in the call hears them. While you are deafened, only your own actions make a sound. Whether a call rings at all is set under Notifications.</source>
-        <translation type="unfinished"></translation>
+        <translation>Estes sons são reproduzidos apenas neste computador; ninguém mais na chamada os ouve. Enquanto está com o som desativado, só as suas próprias ações produzem som. Se uma chamada toca de todo é definido em Notificações.</translation>
     </message>
     <message>
         <location line="+332"/>
         <source>Name colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor do nome</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Other Lightning users see this colour on your name. It is adjusted to stay readable on whatever theme they use.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os outros utilizadores do Lightning veem esta cor no seu nome. Ela é ajustada para continuar legível em qualquer tema que usem.</translation>
     </message>
     <message>
         <location line="+71"/>
         <source>Custom colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor personalizada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Custom colour…</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor personalizada…</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Use theme colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar a cor do tema</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Custom name colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor personalizada do nome</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Any colour. Other people see it adjusted to stay readable on their theme.</source>
-        <translation type="unfinished"></translation>
+        <translation>Qualquer cor. Os outros veem-na ajustada para continuar legível no tema deles.</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Apply</source>
-        <translation type="unfinished"></translation>
+        <translation>Aplicar</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Your homeserver cannot store a name colour.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico não consegue guardar uma cor de nome.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That colour could not be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível guardar essa cor.</translation>
     </message>
     <message>
         <location line="+89"/>
         <location line="+329"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)</translation>
     </message>
     <message>
         <location line="+115"/>
         <source>Access tokens are stored in the system credential store: %1. Logout clears them.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os tokens de acesso são guardados no armazenamento de credenciais do sistema: %1. Terminar sessão limpa-os.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Insecure fallback active: access tokens are stored in the application&apos;s settings file (plaintext) because the system credential store could not be used. Restart to try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Alternativa insegura ativa: os tokens de acesso são guardados no ficheiro de definições da aplicação (texto simples) porque não foi possível usar o armazenamento de credenciais do sistema. Reinicie para tentar novamente.</translation>
     </message>
     <message>
         <location line="+208"/>
         <source>Key backup: checking…</source>
-        <translation type="unfinished"></translation>
+        <translation>Cópia de segurança de chaves: a verificar…</translation>
     </message>
     <message>
         <location line="+216"/>
         <source>Use a code instead of a password. The new device is signed in and verified in one step, so it can read your existing encrypted conversations immediately.</source>
-        <translation type="unfinished"></translation>
+        <translation>Use um código em vez de uma palavra-passe. O novo dispositivo fica com sessão iniciada e verificado num só passo, por isso consegue ler de imediato as suas conversas encriptadas existentes.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Sign in another device…</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciar sessão noutro dispositivo…</translation>
     </message>
     <message>
         <location line="+105"/>
         <source>Lightning could not check whether this account has a key backup. Nothing has been ruled out.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu verificar se esta conta tem uma cópia de segurança de chaves. Nada foi excluído.</translation>
     </message>
     <message>
         <location line="+96"/>
         <source>Resetting creates a NEW recovery key and the old one stops working — anything currently recoverable only with the old key is gone. Press again to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor cria uma NOVA chave de recuperação e a antiga deixa de funcionar — tudo o que só é recuperável com a antiga fica perdido. Prima novamente para confirmar.</translation>
     </message>
     <message>
         <location line="+659"/>
         <source>Verify this session using another session already signed in to this Matrix account, or with your recovery key. Verifying with another session does not import room keys — key import is a separate action below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Verifique esta sessão usando outra sessão já com sessão iniciada nesta conta Matrix, ou com a sua chave de recuperação. Verificar com outra sessão não importa chaves de sala — a importação de chaves é uma ação separada abaixo.</translation>
     </message>
     <message>
         <location line="+175"/>
         <source>Entering your recovery key or passphrase restores your message keys and verifies this session, with no second device needed, when your account&apos;s cross-signing keys are stored with them. Without it, some old messages may show &quot;[unable to decrypt yet]&quot; until another verified device shares the room keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduzir a sua chave de recuperação ou frase-passe restaura as suas chaves de mensagens e verifica esta sessão, sem necessidade de um segundo dispositivo, quando as chaves de certificação cruzada da sua conta estão guardadas com elas. Sem isso, algumas mensagens antigas podem mostrar «[ainda não é possível desencriptar]» até outro dispositivo verificado partilhar as chaves de sala.</translation>
     </message>
     <message>
         <location line="+281"/>
         <source>Reset deletes only Lightning&apos;s local Rust SDK store for this account (also available from a terminal: lightning-matrix --reset-crypto-store). It does not touch server messages or Element data. You will need to sign in again afterwards.</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor elimina apenas o armazenamento local do SDK Rust do Lightning para esta conta (também disponível num terminal: lightning-matrix --reset-crypto-store). Não toca em mensagens do servidor nem nos dados do Element. Terá de voltar a iniciar sessão depois.</translation>
     </message>
     <message>
         <location line="-6975"/>
@@ -18169,40 +18183,40 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-2137"/>
         <source>Change password</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar palavra-passe</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>password change account security</source>
-        <translation type="unfinished"></translation>
+        <translation>alterar palavra-passe conta segurança</translation>
     </message>
     <message>
         <location line="+54"/>
         <location line="+3386"/>
         <source>Spaces rail depth</source>
-        <translation type="unfinished"></translation>
+        <translation>Profundidade da barra de espaços</translation>
     </message>
     <message>
         <location line="-3385"/>
         <source>spaces rail depth space bar sidebar nesting regions classic old style flat tint indent</source>
-        <translation type="unfinished"></translation>
+        <translation>profundidade barra de espaços barra lateral níveis aninhamento regiões clássico estilo antigo plano tom avanço</translation>
     </message>
     <message>
         <location line="+46"/>
         <location line="+1619"/>
         <location line="+1875"/>
         <source>Collapse media and link embeds</source>
-        <translation type="unfinished"></translation>
+        <translation>Recolher anexos e ligações incorporadas</translation>
     </message>
     <message>
         <location line="-3493"/>
         <source>embed embeds collapse collapsed compact single line clutter declutter media image picture gif sticker video audio voice file attachment link preview expand arrow</source>
-        <translation type="unfinished"></translation>
+        <translation>incorporado incorporados recolher recolhido compacto uma linha desordem simplificar multimédia imagem fotografia gif autocolante vídeo áudio voz ficheiro anexo pré-visualização de ligação expandir seta</translation>
     </message>
     <message>
         <location line="+120"/>
         <source>microphone mic input device voice call audio sound</source>
-        <translation type="unfinished"></translation>
+        <translation>microfone mic dispositivo de entrada voz chamada áudio som</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -18210,123 +18224,123 @@ Signing out and signing in again is the only fix.</source>
         <location line="+6"/>
         <location line="+8"/>
         <source>Sound &amp; video · Microphone</source>
-        <translation type="unfinished"></translation>
+        <translation>Som e vídeo · Microfone</translation>
     </message>
     <message>
         <location line="-17"/>
         <source>Microphone volume</source>
-        <translation type="unfinished">Volume do microfone</translation>
+        <translation>Volume do microfone</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>microphone volume gain mic input level loud quiet boost amplify sound</source>
-        <translation type="unfinished"></translation>
+        <translation>volume do microfone ganho nível de entrada alto baixo reforço amplificar som</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>speaker output headphones headset device voice call audio sound</source>
-        <translation type="unfinished"></translation>
+        <translation>altifalante saída auscultadores headset dispositivo chamada de voz áudio som</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sound &amp; video · Output</source>
-        <translation type="unfinished"></translation>
+        <translation>Som e vídeo · Saída</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+5848"/>
         <location line="+24"/>
         <source>Media playback volume</source>
-        <translation type="unfinished"></translation>
+        <translation>Volume de reprodução multimédia</translation>
     </message>
     <message>
         <location line="-5871"/>
         <source>volume sound audio video voice message playback level media loud</source>
-        <translation type="unfinished"></translation>
+        <translation>volume som áudio vídeo mensagem de voz nível de reprodução multimédia alto</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sound &amp; video · Media</source>
-        <translation type="unfinished"></translation>
+        <translation>Som e vídeo · Multimédia</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Sound &amp; video · Camera</source>
-        <translation type="unfinished"></translation>
+        <translation>Som e vídeo · Câmara</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+387"/>
         <location line="+5495"/>
         <source>Call sounds</source>
-        <translation type="unfinished"></translation>
+        <translation>Sons de chamada</translation>
     </message>
     <message>
         <location line="-5881"/>
         <source>call sounds join leave mute deafen unmute screen share hand chime beep effects</source>
-        <translation type="unfinished"></translation>
+        <translation>sons de chamada entrar sair silenciar desativar som reativar partilha de ecrã mão sinal bipe efeitos</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Sound &amp; video · Call sounds</source>
-        <translation type="unfinished"></translation>
+        <translation>Som e vídeo · Sons de chamada</translation>
     </message>
     <message>
         <location line="-3"/>
         <location line="+5980"/>
         <location line="+28"/>
         <source>Ringer volume</source>
-        <translation type="unfinished"></translation>
+        <translation>Volume do toque</translation>
     </message>
     <message>
         <location line="-6007"/>
         <source>ringer ringtone ring volume incoming call loud</source>
-        <translation type="unfinished"></translation>
+        <translation>toque campainha volume de toque chamada recebida alto</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Float the call when Lightning is minimised</source>
-        <translation type="unfinished"></translation>
+        <translation>Flutuar a chamada quando o Lightning está minimizado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>float picture in picture pip call window minimised</source>
-        <translation type="unfinished"></translation>
+        <translation>flutuar imagem na imagem pip janela de chamada minimizado</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sound &amp; video · Calls</source>
-        <translation type="unfinished"></translation>
+        <translation>Som e vídeo · Chamadas</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>ring ringer ringtone sound incoming call alert</source>
-        <translation type="unfinished"></translation>
+        <translation>tocar toque campainha som chamada recebida alerta</translation>
     </message>
     <message>
         <location line="+100"/>
         <location line="+4691"/>
         <source>Show images and videos from links inline</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar imagens e vídeos de ligações na própria linha</translation>
     </message>
     <message>
         <location line="-4690"/>
         <source>link preview image video embed inline media player viewer</source>
-        <translation type="unfinished"></translation>
+        <translation>pré-visualização de ligação imagem vídeo incorporado multimédia leitor visualizador na linha</translation>
     </message>
     <message>
         <location line="+781"/>
         <location line="+734"/>
         <location line="+4096"/>
         <source>Sound &amp; video</source>
-        <translation type="unfinished"></translation>
+        <translation>Som e vídeo</translation>
     </message>
     <message>
         <location line="-4359"/>
         <location line="+1827"/>
         <source>Regions</source>
-        <translation type="unfinished"></translation>
+        <translation>Regiões</translation>
     </message>
     <message>
         <location line="-1324"/>
@@ -18341,7 +18355,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+53"/>
         <source>%1 (in effect)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 (em vigor)</translation>
     </message>
     <message>
         <location line="+176"/>
@@ -18424,7 +18438,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+29"/>
         <source>“%1” has no letters to draw text with — it is an emoji or icon face — so Lightning is using %2. Pick another font above.</source>
-        <translation type="unfinished"></translation>
+        <translation>«%1» não tem letras para desenhar texto — é um emoji ou um símbolo — por isso o Lightning está a usar %2. Escolha outro tipo de letra acima.</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -18439,7 +18453,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+25"/>
         <source>“%1” cannot draw letters and digits — it is an emoji or icon face — so code is drawn in %2. Pick another font above.</source>
-        <translation type="unfinished"></translation>
+        <translation>«%1» não consegue desenhar letras e algarismos — é um emoji ou um símbolo — por isso o código é desenhado em %2. Escolha outro tipo de letra acima.</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -18564,12 +18578,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+36"/>
         <source>Choose how the Spaces rail shows which Space contains which</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha como a barra de espaços mostra qual Espaço contém quais</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Regions tint the rail behind a Space and everything inside it. Classic is the flat rail from earlier versions, where a nested Space steps in instead. Both show the same Spaces.</source>
-        <translation type="unfinished"></translation>
+        <translation>As regiões tingem a barra por trás de um Espaço e tudo o que está dentro dele. Clássico é a barra plana das versões anteriores, em que um Espaço aninhado recua em vez disso. Ambos mostram os mesmos Espaços.</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -18590,63 +18604,63 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-3484"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Depth</source>
-        <translation type="unfinished"></translation>
+        <translation>Profundidade</translation>
     </message>
     <message>
         <location line="+253"/>
         <source>Notification sound style and volume</source>
-        <translation type="unfinished"></translation>
+        <translation>Estilo e volume do som de notificação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>notification sound chime lightning system default volume mention test</source>
-        <translation type="unfinished"></translation>
+        <translation>som de notificação campainha lightning predefinido do sistema volume menção teste</translation>
     </message>
     <message>
         <location line="+25"/>
         <location line="+5351"/>
         <source>Always ask where to save files</source>
-        <translation type="unfinished"></translation>
+        <translation>Perguntar sempre onde guardar os ficheiros</translation>
     </message>
     <message>
         <location line="-5350"/>
         <source>download downloads save folder location directory ask where file</source>
-        <translation type="unfinished"></translation>
+        <translation>transferir transferências pasta de guardar localização diretório perguntar onde ficheiro</translation>
     </message>
     <message>
         <location line="-3"/>
         <location line="+6"/>
         <source>Privacy &amp; security · Downloads</source>
-        <translation type="unfinished"></translation>
+        <translation>Privacidade e segurança · Transferências</translation>
     </message>
     <message>
         <location line="+57"/>
         <location line="+4799"/>
         <location line="+3"/>
         <source>Preload short videos</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-carregar vídeos curtos</translation>
     </message>
     <message>
         <location line="-4801"/>
         <source>video preload prefetch download size megabytes data disk instant play</source>
-        <translation type="unfinished"></translation>
+        <translation>pré-carregar vídeo pré-busca transferir tamanho megabytes dados disco reprodução imediata</translation>
     </message>
     <message>
         <location line="+60"/>
         <location line="+5594"/>
         <location line="+3157"/>
         <source>Microphone noise suppression</source>
-        <translation type="unfinished"></translation>
+        <translation>Supressão de ruído do microfone</translation>
     </message>
     <message>
         <location line="-8750"/>
         <source>noise suppression cancellation microphone background webrtc rnnoise deepfilternet denoise</source>
-        <translation type="unfinished"></translation>
+        <translation>supressão de ruído cancelamento microfone fundo webrtc rnnoise deepfilternet remover ruído</translation>
     </message>
     <message>
         <location line="+3075"/>
@@ -18682,12 +18696,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+14"/>
         <source>Show attachments and link previews as one line with an arrow that expands them</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar anexos e pré-visualizações de ligações numa só linha, com uma seta que os expande</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Pictures, GIFs, stickers, video, audio, voice messages, files and loaded link previews each become one line naming what they are. Click the arrow, or focus the line and press Enter, to show one. Reply quotes, thread cards, polls and shared places are not affected. A collapsed attachment is not downloaded until you expand it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens, GIF, autocolantes, vídeo, áudio, mensagens de voz, ficheiros e pré-visualizações de ligações carregadas passam cada um a uma linha que indica o que são. Clique na seta, ou dê foco à linha e prima Enter, para mostrar um. Citações de resposta, cartões de tópicos, sondagens e locais partilhados não são afetados. Um anexo recolhido não é transferido até o expandir.</translation>
     </message>
     <message>
         <location line="+26"/>
@@ -18829,7 +18843,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+35"/>
         <source>New messages still update a room&apos;s preview and badge at once, but it only moves up when you open another room, switch Space, tab or search, or come back to the window.</source>
-        <translation type="unfinished"></translation>
+        <translation>As novas mensagens continuam a atualizar de imediato a pré-visualização e o distintivo de uma sala, mas esta só sobe quando abre outra sala, muda de Espaço, separador ou pesquisa, ou volta à janela.</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -18855,62 +18869,62 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+66"/>
         <source>Windows spell checker</source>
-        <translation type="unfinished"></translation>
+        <translation>Corretor ortográfico do Windows</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>macOS spell checker</source>
-        <translation type="unfinished"></translation>
+        <translation>Corretor ortográfico do macOS</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enchant (system dictionaries)</source>
-        <translation type="unfinished"></translation>
+        <translation>Enchant (dicionários do sistema)</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Dictionary: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Dicionário: %1</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Spell checking is not available in this build for this operating system.</source>
-        <translation type="unfinished"></translation>
+        <translation>A verificação ortográfica não está disponível nesta versão para este sistema operativo.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Spell checking is unavailable: the Windows spell-checking service could not be started.</source>
-        <translation type="unfinished"></translation>
+        <translation>A verificação ortográfica não está disponível: não foi possível iniciar o serviço de verificação ortográfica do Windows.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Spell checking is unavailable because the enchant-2 spelling library is not installed on this system.</source>
-        <translation type="unfinished"></translation>
+        <translation>A verificação ortográfica não está disponível porque a biblioteca de ortografia enchant-2 não está instalada neste sistema.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>your system language</source>
-        <translation type="unfinished"></translation>
+        <translation>o idioma do seu sistema</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Add the language under Windows Settings › Time &amp; language › Language to install its spelling.</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicione o idioma em Definições do Windows › Hora e idioma › Idioma para instalar a sua ortografia.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Add the language under System Settings › Keyboard › Text Input.</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicione o idioma em Definições do Sistema › Teclado › Entrada de texto.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Install your distribution&apos;s spelling dictionary for that language (usually a hunspell package). Inside Flatpak or Snap only the runtime&apos;s own dictionaries are visible.</source>
-        <translation type="unfinished"></translation>
+        <translation>Instale o dicionário ortográfico da sua distribuição para esse idioma (normalmente um pacote hunspell). Dentro de Flatpak ou Snap só são visíveis os dicionários do próprio runtime.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Spell checking is unavailable because no system dictionary is installed for %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>A verificação ortográfica não está disponível porque não há nenhum dicionário do sistema instalado para %1.</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -18948,7 +18962,7 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+108"/>
         <source>Private receipts still clear the unread badge on your own other devices; nobody else sees them. Not sending them at all means your other devices stop clearing it too, though your place in a conversation is still saved. Either way, receipts you have already sent cannot be taken back, and other people&apos;s receipts are still shown to you.</source>
-        <translation type="unfinished"></translation>
+        <translation>As confirmações privadas continuam a limpar o distintivo de não lidas nos seus outros dispositivos; ninguém mais as vê. Não as enviar de todo significa que os seus outros dispositivos também deixam de o limpar, embora a sua posição numa conversa continue guardada. Em ambos os casos, as confirmações que já enviou não podem ser retiradas, e as confirmações de outras pessoas continuam a ser-lhe mostradas.</translation>
     </message>
     <message>
         <location line="+42"/>
@@ -18983,7 +18997,7 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+35"/>
         <source>Lightning keeps its own index of the messages it has seen, so you can search rooms your homeserver cannot — encrypted ones included. It stores the message text on this device only, in this account&apos;s own folder, and it is deleted when the account is removed. It is not encrypted on disk — nor is the Matrix SDK&apos;s own message store beside it — so your device&apos;s disk encryption is what protects both.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning mantém o seu próprio índice das mensagens que viu, para poder pesquisar salas que o seu servidor doméstico não consegue — incluindo as encriptadas. Guarda o texto das mensagens apenas neste dispositivo, na pasta desta conta, e é eliminado quando a conta é removida. Não é encriptado no disco — nem o armazenamento de mensagens do próprio SDK Matrix ao lado — por isso é a encriptação do disco do seu dispositivo que protege ambos.</translation>
     </message>
     <message>
         <location line="+201"/>
@@ -18993,7 +19007,7 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+55"/>
         <source>A picture opens in Lightning&apos;s viewer and a video plays here. A video, or a picture too large to preview, is downloaded from the link&apos;s site only when you press Play or open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma imagem abre-se no visualizador do Lightning e um vídeo reproduz-se aqui. Um vídeo, ou uma imagem demasiado grande para pré-visualizar, só é transferido do site da ligação quando premir Reproduzir ou o abrir.</translation>
     </message>
     <message>
         <location line="+55"/>
@@ -19023,23 +19037,23 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+25"/>
         <source>Downloads videos up to the size below when a room opens, so Play starts at once. This uses data and disk space even for videos you never watch. When off, a video is downloaded only when you press Play.</source>
-        <translation type="unfinished"></translation>
+        <translation>Transfere vídeos até ao tamanho indicado abaixo quando uma sala abre, para que Reproduzir comece logo. Isto usa dados e espaço em disco mesmo para vídeos que nunca vê. Quando desligado, um vídeo só é transferido quando premir Reproduzir.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Up to %1 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>Até %1 MB</translation>
     </message>
     <message>
         <location line="+15"/>
         <location line="+11"/>
         <source>Largest video to preload, in megabytes</source>
-        <translation type="unfinished"></translation>
+        <translation>Maior vídeo a pré-carregar, em megabytes</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>MB</source>
-        <translation type="unfinished"></translation>
+        <translation>MB</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -19141,68 +19155,68 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+45"/>
         <source>Kept on this device, including media from encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardada neste dispositivo, incluindo multimédia de salas encriptadas.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Kept, except media from encrypted rooms: no secure system keyring holds the key.</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardada, exceto multimédia de salas encriptadas: nenhum porta-chaves seguro do sistema guarda a chave.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Kept this session, except media from encrypted rooms, while an attachment from an earlier session finishes uploading.</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardada nesta sessão, exceto multimédia de salas encriptadas, enquanto um anexo de uma sessão anterior termina de ser enviado.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Not kept this session: this account was just signed in. Media is kept from the next start.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não guardada nesta sessão: esta conta acabou de iniciar sessão. A multimédia é guardada a partir do próximo arranque.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Not kept this session: the system keyring is locked or unavailable, or its key could not be read.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não guardada nesta sessão: o porta-chaves do sistema está bloqueado ou indisponível, ou a sua chave não pôde ser lida.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Not kept this session: the media store on this device could not be opened.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não guardada nesta sessão: não foi possível abrir o armazenamento de multimédia deste dispositivo.</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Pictures, videos and files you open are kept in this account&apos;s folder, so they open again without downloading: up to about 2 GB, for 60 days after you last open them, and removed when you sign out. They are kept encrypted, and the key is kept in your system keyring. Media you open in encrypted rooms is kept only then; on macOS, in a portable install and on a desktop with no system keyring the key is kept on this disk instead, and media you open in encrypted rooms is not kept. While the keyring is locked, and in an account&apos;s first session, nothing is kept. Files over 100 MB from unencrypted rooms are kept unencrypted; files over 100 MB from encrypted rooms are downloaded again each session. Attachments you send, from any room, are kept the same way until they are uploaded and then for up to 60 days, whatever this setting says. Turning it off stops keeping media you open; Clear removes what is already kept.</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens, vídeos e ficheiros que abre são guardados na pasta desta conta, para voltarem a abrir sem transferência: até cerca de 2 GB, durante 60 dias após a última abertura, e removidos quando termina a sessão. São guardados encriptados, e a chave fica no seu porta-chaves do sistema. A multimédia que abre em salas encriptadas só é guardada nesse caso; no macOS, numa instalação portátil e num ambiente de trabalho sem porta-chaves do sistema, a chave fica neste disco, e a multimédia que abre em salas encriptadas não é guardada. Enquanto o porta-chaves estiver bloqueado, e na primeira sessão de uma conta, nada é guardado. Ficheiros acima de 100 MB de salas não encriptadas são guardados sem encriptação; ficheiros acima de 100 MB de salas encriptadas são transferidos de novo em cada sessão. Os anexos que envia, de qualquer sala, são guardados da mesma forma até serem enviados e depois durante até 60 dias, seja qual for esta definição. Desligar isto deixa de guardar a multimédia que abre; Limpar remove o que já está guardado.</translation>
     </message>
     <message>
         <location line="+84"/>
         <source>Downloads</source>
-        <translation type="unfinished"></translation>
+        <translation>Transferências</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Save files to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardar ficheiros em %1</translation>
     </message>
     <message>
         <location line="+8"/>
         <location line="+406"/>
         <source>Change…</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar…</translation>
     </message>
     <message>
         <location line="-395"/>
         <source>Use the Downloads folder</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar a pasta Transferências</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>This copy of Lightning runs in a sandbox that cannot write to your Downloads folder, so it asks where to save each file.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta cópia do Lightning corre num sandbox que não consegue escrever na sua pasta Transferências, por isso pergunta onde guardar cada ficheiro.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Download saves a file here without asking and never replaces one that is already there: a second copy is saved as &quot;name (1)&quot;. Save as… always asks. Lightning never opens a downloaded file by itself.</source>
-        <translation type="unfinished"></translation>
+        <translation>Transferir guarda um ficheiro aqui sem perguntar e nunca substitui um que já exista: uma segunda cópia é guardada como «nome (1)». Guardar como… pergunta sempre. O Lightning nunca abre um ficheiro transferido por iniciativa própria.</translation>
     </message>
     <message>
         <location line="+49"/>
@@ -19246,12 +19260,12 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+3353"/>
         <source>Experimental features, and diagnostics.</source>
-        <translation type="unfinished"></translation>
+        <translation>Funcionalidades experimentais e diagnósticos.</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Filters background noise out of your microphone in calls. One method runs at a time, and a change applies to a call in progress.</source>
-        <translation type="unfinished"></translation>
+        <translation>Filtra o ruído de fundo do seu microfone nas chamadas. Um método de cada vez, e uma alteração aplica-se a uma chamada em curso.</translation>
     </message>
     <message>
         <location line="-8931"/>
@@ -19460,44 +19474,44 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="-7131"/>
         <source>chat background wallpaper picture image photo backdrop room conversation own set custom others shared hide</source>
-        <translation type="unfinished"></translation>
+        <translation>fundo da conversa papel de parede imagem fotografia plano de fundo sala conversa próprio definido personalizado dos outros partilhado ocultar</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+20"/>
         <source>Appearance · Background and depth</source>
-        <translation type="unfinished"></translation>
+        <translation>Aparência · Fundo e profundidade</translation>
     </message>
     <message>
         <location line="-16"/>
         <source>Gradients</source>
-        <translation type="unfinished"></translation>
+        <translation>Gradientes</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>gradient gradients linear radial fade glow two-tone colour color custom theme background room list rail surface</source>
-        <translation type="unfinished"></translation>
+        <translation>gradiente gradientes linear radial desvanecimento brilho dois tons cor personalizado tema fundo lista de salas barra superfície</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+6"/>
         <source>Appearance · Custom colours and gradients</source>
-        <translation type="unfinished"></translation>
+        <translation>Aparência · Cores e gradientes personalizados</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>custom theme own colours colors palette editor create make build accent</source>
-        <translation type="unfinished"></translation>
+        <translation>tema personalizado cores próprias paleta editor criar fazer construir destaque</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>depth gradient shading shadow flat surfaces 3d</source>
-        <translation type="unfinished"></translation>
+        <translation>profundidade gradiente sombreado sombra superfícies planas 3d</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Appearance · Spaces rail and room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Aparência · Barra de espaços e lista de salas</translation>
     </message>
     <message>
         <location line="+85"/>
@@ -19505,435 +19519,435 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
         <location line="+6"/>
         <location line="+14"/>
         <source>Appearance · Banners and panel widths</source>
-        <translation type="unfinished"></translation>
+        <translation>Aparência · Faixas e larguras de painel</translation>
     </message>
     <message>
         <location line="+64"/>
         <source>Microphone test</source>
-        <translation type="unfinished"></translation>
+        <translation>Teste do microfone</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>microphone mic test check try level meter hear myself yourself echo loopback working</source>
-        <translation type="unfinished"></translation>
+        <translation>microfone mic teste verificar nível medidor ouvir-me a mim próprio eco circuito a funcionar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Noise suppression</source>
-        <translation type="unfinished"></translation>
+        <translation>Supressão de ruído</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>noise suppression cancellation denoise background microphone mic fan keyboard</source>
-        <translation type="unfinished"></translation>
+        <translation>supressão de ruído cancelamento remover ruído fundo microfone mic ventoinha teclado</translation>
     </message>
     <message>
         <location line="+80"/>
         <source>Download folder</source>
-        <translation type="unfinished"></translation>
+        <translation>Pasta de transferências</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>download downloads folder save saved files location directory where</source>
-        <translation type="unfinished"></translation>
+        <translation>transferir transferências pasta guardar ficheiros guardados localização diretório onde</translation>
     </message>
     <message>
         <location line="+36"/>
         <location line="+4640"/>
         <source>Index encrypted rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>Indexar salas encriptadas</translation>
     </message>
     <message>
         <location line="-3202"/>
         <source>background</source>
-        <translation type="unfinished"></translation>
+        <translation>fundo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>gradiente</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>microphone</source>
-        <translation type="unfinished"></translation>
+        <translation>microfone</translation>
     </message>
     <message>
         <location line="+304"/>
         <source>Theme, colours and gradients, chat background, layout, text and fonts — per account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tema, cores e gradientes, fundo da conversa, disposição, texto e tipos de letra — por conta.</translation>
     </message>
     <message>
         <location line="-1479"/>
         <location line="+1831"/>
         <source>Custom colours and gradients</source>
-        <translation type="unfinished"></translation>
+        <translation>Cores e gradientes personalizados</translation>
     </message>
     <message>
         <location line="-1829"/>
         <source>Chat background and depth</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa e profundidade</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Layout</source>
-        <translation type="unfinished"></translation>
+        <translation>Disposição</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Text and fonts</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto e tipos de letra</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+2770"/>
         <source>Spaces rail and room list</source>
-        <translation type="unfinished"></translation>
+        <translation>Barra de espaços e lista de salas</translation>
     </message>
     <message>
         <location line="-857"/>
         <source>Pick a colour for any part of the window, or a gradient for its large areas, and watch a sample room repaint.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha uma cor para qualquer parte da janela, ou um gradiente para as suas áreas grandes, e veja uma sala de exemplo ser repintada.</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Gradients: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Gradientes: %1</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Edit colours</source>
-        <translation type="unfinished"></translation>
+        <translation>Editar cores</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Create a theme</source>
-        <translation type="unfinished"></translation>
+        <translation>Criar um tema</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Add a gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionar um gradiente</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Opens the theme editor on the conversation background, where you can choose a gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Abre o editor de temas no fundo da conversa, onde pode escolher um gradiente</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Use this theme</source>
-        <translation type="unfinished">Usar este tema</translation>
+        <translation>Usar este tema</translation>
     </message>
     <message>
         <location line="+1379"/>
         <source>Banners and panel widths</source>
-        <translation type="unfinished"></translation>
+        <translation>Faixas e larguras de painel</translation>
     </message>
     <message>
         <location line="-3345"/>
         <source>Receipts and typing</source>
-        <translation type="unfinished"></translation>
+        <translation>Confirmações e escrita</translation>
     </message>
     <message>
         <location line="-631"/>
         <location line="+2817"/>
         <source>Message spacing</source>
-        <translation type="unfinished"></translation>
+        <translation>Espaçamento das mensagens</translation>
     </message>
     <message>
         <location line="-2816"/>
         <source>message spacing density compact cozy roomy gap padding</source>
-        <translation type="unfinished"></translation>
+        <translation>espaçamento das mensagens densidade compacto confortável amplo intervalo margem</translation>
     </message>
     <message>
         <location line="+91"/>
         <location line="+3742"/>
         <source>Increase contrast</source>
-        <translation type="unfinished"></translation>
+        <translation>Aumentar o contraste</translation>
     </message>
     <message>
         <location line="-3741"/>
         <source>high contrast accessibility borders text readable vision</source>
-        <translation type="unfinished"></translation>
+        <translation>alto contraste acessibilidade bordas texto legível visão</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <location line="+5"/>
         <source>Appearance · Accessibility</source>
-        <translation type="unfinished"></translation>
+        <translation>Aparência · Acessibilidade</translation>
     </message>
     <message>
         <location line="-8"/>
         <location line="+3750"/>
         <source>Always underline links</source>
-        <translation type="unfinished"></translation>
+        <translation>Sublinhar sempre as ligações</translation>
     </message>
     <message>
         <location line="-3749"/>
         <source>underline links mentions accessibility colour blind</source>
-        <translation type="unfinished"></translation>
+        <translation>sublinhar ligações menções acessibilidade daltonismo cor</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+3758"/>
         <source>Name colour readability</source>
-        <translation type="unfinished"></translation>
+        <translation>Legibilidade da cor do nome</translation>
     </message>
     <message>
         <location line="-3757"/>
         <source>name color colour contrast sender readable strong weak off</source>
-        <translation type="unfinished"></translation>
+        <translation>cor do nome contraste remetente legível forte fraco desligado</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Emoji and sticker packs</source>
-        <translation type="unfinished"></translation>
+        <translation>Pacotes de emojis e autocolantes</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>emoji sticker pack custom emote use everywhere room space export import zip share</source>
-        <translation type="unfinished"></translation>
+        <translation>pacote de emojis autocolantes emote personalizado usar em toda a parte sala espaço exportar importar zip partilhar</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Appearance · Emoji and sticker packs</source>
-        <translation type="unfinished"></translation>
+        <translation>Aparência · Pacotes de emojis e autocolantes</translation>
     </message>
     <message>
         <location line="+208"/>
         <location line="+4877"/>
         <source>Photo details when sending</source>
-        <translation type="unfinished"></translation>
+        <translation>Detalhes da fotografia ao enviar</translation>
     </message>
     <message>
         <location line="-4876"/>
         <source>photo image exif gps location metadata strip remove privacy upload picture camera</source>
-        <translation type="unfinished"></translation>
+        <translation>fotografia imagem exif gps localização metadados remover privacidade carregar foto câmara</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Export room keys</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar chaves de sala</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>export room keys backup file passphrase element</source>
-        <translation type="unfinished"></translation>
+        <translation>exportar chaves de sala ficheiro de cópia de segurança frase-passe element</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Export and import settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar e importar definições</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>export import backup settings file restore</source>
-        <translation type="unfinished"></translation>
+        <translation>exportar importar cópia de segurança definições ficheiro restaurar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Account · Settings file</source>
-        <translation type="unfinished"></translation>
+        <translation>Conta · Ficheiro de definições</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sync settings across your devices</source>
-        <translation type="unfinished"></translation>
+        <translation>Sincronizar definições entre os seus dispositivos</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>sync settings devices account data backup</source>
-        <translation type="unfinished"></translation>
+        <translation>sincronizar definições dispositivos dados da conta cópia de segurança</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Account · Sync</source>
-        <translation type="unfinished"></translation>
+        <translation>Conta · Sincronização</translation>
     </message>
     <message>
         <location line="+143"/>
         <source>Profile</source>
-        <translation type="unfinished">Perfil</translation>
+        <translation>Perfil</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Password</source>
-        <translation type="unfinished">Palavra-passe</translation>
+        <translation>Palavra-passe</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+3217"/>
         <source>Accessibility</source>
-        <translation type="unfinished"></translation>
+        <translation>Acessibilidade</translation>
     </message>
     <message>
         <location line="-3209"/>
         <source>Previews</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-visualizações</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sound</source>
-        <translation type="unfinished"></translation>
+        <translation>Som</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Calls</source>
-        <translation type="unfinished"></translation>
+        <translation>Chamadas</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Speaker</source>
-        <translation type="unfinished"></translation>
+        <translation>Altifalante</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Media volume</source>
-        <translation type="unfinished"></translation>
+        <translation>Volume da multimédia</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Message search</source>
-        <translation type="unfinished"></translation>
+        <translation>Pesquisa de mensagens</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Link previews and GIFs</source>
-        <translation type="unfinished"></translation>
+        <translation>Pré-visualizações de ligações e GIF</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Media and downloads</source>
-        <translation type="unfinished"></translation>
+        <translation>Multimédia e transferências</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Encryption</source>
-        <translation type="unfinished">Encriptação</translation>
+        <translation>Encriptação</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>Chave de recuperação</translation>
     </message>
     <message>
         <location line="+983"/>
         <location line="+1"/>
         <location line="+383"/>
         <source>Copy link to this setting</source>
-        <translation type="unfinished"></translation>
+        <translation>Copiar ligação para esta definição</translation>
     </message>
     <message>
         <location line="-191"/>
         <source>User</source>
-        <translation type="unfinished">Utilizador</translation>
+        <translation>Utilizador</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Interface</source>
-        <translation type="unfinished"></translation>
+        <translation>Interface</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Behavior</source>
-        <translation type="unfinished"></translation>
+        <translation>Comportamento</translation>
     </message>
     <message>
         <location line="+963"/>
         <source>Cozy</source>
-        <translation type="unfinished"></translation>
+        <translation>Confortável</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Roomy</source>
-        <translation type="unfinished"></translation>
+        <translation>Amplo</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Space between messages and between senders</source>
-        <translation type="unfinished"></translation>
+        <translation>Espaço entre mensagens e entre remetentes</translation>
     </message>
     <message>
         <location line="+617"/>
         <source>Show the Spaces rail</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar a barra de espaços</translation>
     </message>
     <message>
         <location line="+391"/>
         <source>Make secondary text and borders stronger</source>
-        <translation type="unfinished"></translation>
+        <translation>Tornar o texto secundário e as bordas mais fortes</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Pulls secondary text toward the main text colour and strengthens borders, on any theme.</source>
-        <translation type="unfinished"></translation>
+        <translation>Aproxima o texto secundário da cor do texto principal e reforça as bordas, em qualquer tema.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Underline mentions and in-app links as well</source>
-        <translation type="unfinished"></translation>
+        <translation>Sublinhar também menções e ligações internas da aplicação</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Web links in messages are always underlined. This adds mentions and the link texts in cards and previews.</source>
-        <translation type="unfinished"></translation>
+        <translation>As ligações web nas mensagens são sempre sublinhadas. Isto acrescenta as menções e os textos das ligações nos cartões e pré-visualizações.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Strong</source>
-        <translation type="unfinished"></translation>
+        <translation>Forte</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Weak</source>
-        <translation type="unfinished"></translation>
+        <translation>Fraco</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>How strongly sender name colours are adjusted to stay readable</source>
-        <translation type="unfinished"></translation>
+        <translation>Quanto as cores dos nomes dos remetentes são ajustadas para continuarem legíveis</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Sender names are lightened or darkened until they read against the background: Strong aims for 4.5:1, Weak for 3:1, Off keeps the colour exactly as chosen.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os nomes dos remetentes são clareados ou escurecidos até se lerem sobre o fundo: Forte visa 4,5:1, Fraco 3:1, Desligado mantém a cor exatamente como escolhida.</translation>
     </message>
     <message>
         <location line="+976"/>
         <source>Index encrypted rooms fetches older history for every encrypted room you are in, one room at a time and up to the same per-room limit as Index this room, so you can search it here. It can take a long time and uses bandwidth, and like the rest of the index it stores the decrypted message text on this device. Messages that cannot be decrypted yet are skipped until their keys arrive — run it again then and they are added. It pauses during calls and continues after a restart.</source>
-        <translation type="unfinished"></translation>
+        <translation>Indexar salas encriptadas vai buscar o histórico mais antigo de todas as salas encriptadas em que está, uma sala de cada vez e até ao mesmo limite por sala de Indexar esta sala, para que possa pesquisá-lo aqui. Pode demorar muito tempo e usa largura de banda e, como o resto do índice, guarda o texto desencriptado das mensagens neste dispositivo. As mensagens que ainda não podem ser desencriptadas são ignoradas até as suas chaves chegarem — execute de novo nessa altura e serão adicionadas. Pausa durante as chamadas e continua após um reinício.</translation>
     </message>
     <message>
         <location line="+169"/>
         <source>If your homeserver cannot build the preview, Lightning fetches the link itself and the site sees your IP address.</source>
-        <translation type="unfinished"></translation>
+        <translation>Se o seu servidor doméstico não conseguir gerar a pré-visualização, o Lightning vai buscar a ligação ele próprio e o site vê o seu endereço IP.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Asking for a preview tells your homeserver which link was in an encrypted message.</source>
-        <translation type="unfinished"></translation>
+        <translation>Pedir uma pré-visualização diz ao seu servidor doméstico qual a ligação que estava numa mensagem encriptada.</translation>
     </message>
     <message>
         <location line="+265"/>
         <source>Only the words you search for go to the provider. Your Matrix ID, rooms and messages never do.</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas as palavras que pesquisa são enviadas ao fornecedor. O seu ID Matrix, as salas e as mensagens nunca são.</translation>
     </message>
     <message>
         <location line="+641"/>
         <source>Lightning does not register for push, so its notifications arrive only while it is running, in the window or the tray.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não se regista para notificações push, por isso as suas notificações só chegam enquanto está em execução, na janela ou na bandeja.</translation>
     </message>
     <message>
         <location line="+85"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · uma experiência, definida em Laboratório ou no menu do microfone da chamada</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Change noise suppression in Labs</source>
-        <translation type="unfinished"></translation>
+        <translation>Altere a supressão de ruído em Laboratório</translation>
     </message>
     <message>
         <location line="+1118"/>
@@ -19983,7 +19997,7 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+23"/>
         <source>Portable mode: access tokens are encrypted inside this portable folder, with the key stored beside them, so anyone who copies the folder can use your session. Keep the folder private.</source>
-        <translation type="unfinished"></translation>
+        <translation>Modo portátil: os tokens de acesso são encriptados dentro desta pasta portátil, com a chave guardada ao lado, por isso quem copiar a pasta pode usar a sua sessão. Mantenha a pasta privada.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -20025,14 +20039,14 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
         <location line="+18"/>
         <location line="+1174"/>
         <source>Use recovery key instead</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar antes a chave de recuperação</translation>
     </message>
     <message>
         <location line="-1163"/>
         <location line="+696"/>
         <location line="+493"/>
         <source>Use recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar chave de recuperação</translation>
     </message>
     <message>
         <location line="-1178"/>
@@ -20238,122 +20252,122 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+65"/>
         <source>Cross-signing</source>
-        <translation type="unfinished"></translation>
+        <translation>Certificação cruzada</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Master key</source>
-        <translation type="unfinished"></translation>
+        <translation>Chave mestra</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Self-signing key</source>
-        <translation type="unfinished"></translation>
+        <translation>Chave de autocertificação</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>User-signing key</source>
-        <translation type="unfinished"></translation>
+        <translation>Chave de certificação de utilizador</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This session verified</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta sessão verificada</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Secrets recoverable (secret storage)</source>
-        <translation type="unfinished"></translation>
+        <translation>Segredos recuperáveis (armazenamento seguro)</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Available</source>
-        <translation type="unfinished"></translation>
+        <translation>Disponível</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Missing</source>
-        <translation type="unfinished"></translation>
+        <translation>Em falta</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Key backup</source>
-        <translation type="unfinished"></translation>
+        <translation>Cópia de segurança de chaves</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>No key backup exists for this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não existe cópia de segurança de chaves para esta conta.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Backup active — this session can use it (%1).</source>
-        <translation type="unfinished"></translation>
+        <translation>Cópia de segurança ativa — esta sessão pode usá-la (%1).</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A backup exists but this session cannot use it yet (%1). Restore with your recovery key first.</source>
-        <translation type="unfinished"></translation>
+        <translation>Existe uma cópia de segurança, mas esta sessão ainda não a pode usar (%1). Restaure primeiro com a sua chave de recuperação.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Uploading room keys: %1 of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>A enviar chaves de sala: %1 de %2</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Upload: %1 · backup: %2</source>
-        <translation type="unfinished"></translation>
+        <translation>Envio: %1 · cópia de segurança: %2</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Your new recovery key. Write it down now: Lightning does not keep it, and it will not be shown again once you leave this card.</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua nova chave de recuperação. Anote-a agora: o Lightning não a guarda, e não voltará a ser mostrada depois de sair deste cartão.</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>I have saved it</source>
-        <translation type="unfinished"></translation>
+        <translation>Guardei-a</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Deleting the backup removes every room key stored on the server. Keys only in this session stay here; keys only in the backup are gone. Press again to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar a cópia de segurança remove do servidor todas as chaves de sala guardadas. As chaves que existem apenas nesta sessão continuam aqui; as que existem apenas na cópia de segurança desaparecem. Prima novamente para confirmar.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Disabling recovery removes secret storage and the backup from the server. Press again to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>Desativar a recuperação remove o armazenamento seguro e a cópia de segurança do servidor. Prima novamente para confirmar.</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Setting up…</source>
-        <translation type="unfinished"></translation>
+        <translation>A configurar…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Set up cross-signing and recovery…</source>
-        <translation type="unfinished"></translation>
+        <translation>Configurar certificação cruzada e recuperação…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Set up recovery and backup</source>
-        <translation type="unfinished"></translation>
+        <translation>Configurar recuperação e cópia de segurança</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Create backup</source>
-        <translation type="unfinished"></translation>
+        <translation>Criar cópia de segurança</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>New recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>Nova chave de recuperação</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Delete backup</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar cópia de segurança</translation>
     </message>
     <message>
         <location line="+65"/>
@@ -20378,7 +20392,7 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+28"/>
         <source>Enter your recovery key or passphrase. It restores your message keys, and if your account&apos;s cross-signing keys are stored with it, this session becomes verified without another device.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduza a sua chave de recuperação ou frase-passe. Restaura as suas chaves de mensagens e, se as chaves de certificação cruzada da sua conta estiverem guardadas com ela, esta sessão fica verificada sem outro dispositivo.</translation>
     </message>
     <message>
         <location line="+73"/>
@@ -20403,17 +20417,17 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+12"/>
         <source>All</source>
-        <translation type="unfinished">Todas</translation>
+        <translation>Todas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Current</source>
-        <translation type="unfinished"></translation>
+        <translation>Atual</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unverified</source>
-        <translation type="unfinished"></translation>
+        <translation>Não verificada</translation>
     </message>
     <message>
         <location line="+95"/>
@@ -20444,17 +20458,17 @@ Escape e as letras únicas que o menu de mensagens usa enquanto está aberto sã
     <message>
         <location line="+25"/>
         <source>Rename</source>
-        <translation type="unfinished">Mudar o nome</translation>
+        <translation>Mudar o nome</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Rename session %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Mudar o nome da sessão %1</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Session name</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome da sessão</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -20669,33 +20683,33 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <location filename="../src/settings/SettingsSyncController.cpp" line="+549"/>
         <location line="+50"/>
         <source>Settings are not available.</source>
-        <translation type="unfinished"></translation>
+        <translation>As definições não estão disponíveis.</translation>
     </message>
     <message>
         <location line="-47"/>
         <source>Choose a file to save to.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha um ficheiro onde guardar.</translation>
     </message>
     <message>
         <location line="+32"/>
         <location line="+5"/>
         <source>Could not write that file.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível escrever esse ficheiro.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Could not read that file.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível ler esse ficheiro.</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>Choose a file first.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha primeiro um ficheiro.</translation>
     </message>
     <message>
         <location line="+45"/>
         <source>Could not apply %1. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível aplicar %1. Nada foi alterado.</translation>
     </message>
 </context>
 <context>
@@ -20752,7 +20766,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+195"/>
         <source>The calling service refused to connect you to this call.</source>
-        <translation type="unfinished"></translation>
+        <translation>O serviço de chamadas recusou ligá-lo a esta chamada.</translation>
     </message>
     <message>
         <location line="+574"/>
@@ -20767,112 +20781,112 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="-707"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera. If the camera works in other apps, allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
-        <translation type="unfinished"></translation>
+        <translation>O portal de câmara do seu ambiente de trabalho não ofereceu nenhuma câmara ao Lightning. Se a câmara funciona noutras aplicações, permita que o Lightning use todos os dispositivos (no Flatseal: «Todos os dispositivos»), e depois volte a ligar a câmara.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera.</source>
-        <translation type="unfinished"></translation>
+        <translation>O portal de câmara do seu ambiente de trabalho não ofereceu nenhuma câmara ao Lightning.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your desktop&apos;s camera portal sent no picture. To let Lightning open the camera itself, allow it to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
-        <translation type="unfinished"></translation>
+        <translation>O portal de câmara do seu ambiente de trabalho não enviou imagem. Para o Lightning abrir a câmara ele próprio, permita que use todos os dispositivos (no Flatseal: «Todos os dispositivos»), e depois volte a ligar a câmara.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your desktop&apos;s camera portal sent no picture from the camera.</source>
-        <translation type="unfinished"></translation>
+        <translation>O portal de câmara do seu ambiente de trabalho não enviou imagem da câmara.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This desktop has no camera portal. Install xdg-desktop-portal, or allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;).</source>
-        <translation type="unfinished"></translation>
+        <translation>Este ambiente de trabalho não tem portal de câmara. Instale o xdg-desktop-portal, ou permita que o Lightning use todos os dispositivos (no Flatseal: «Todos os dispositivos»).</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This desktop has no camera portal, so the camera can&apos;t be used.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este ambiente de trabalho não tem portal de câmara, por isso a câmara não pode ser usada.</translation>
     </message>
     <message>
         <location line="+109"/>
         <source>Screen sharing isn&apos;t available in this sandboxed (Flatpak or Snap) build on an X11 session: it can only share through the desktop&apos;s screen-sharing portal, and none is available, and GStreamer plugins installed on your system cannot be used from the sandbox. To share your screen, use the AppImage or a distribution package of Lightning, which capture an X11 screen directly, or log into a Wayland session, where your desktop&apos;s portal provides screen sharing. If your desktop&apos;s xdg-desktop-portal supports screen casting on X11, make sure it is installed and running.</source>
-        <translation type="unfinished"></translation>
+        <translation>A partilha de ecrã não está disponível nesta versão em sandbox (Flatpak ou Snap) numa sessão X11: só consegue partilhar através do portal de partilha de ecrã do ambiente de trabalho, que não está disponível, e os plugins GStreamer instalados no seu sistema não podem ser usados a partir do sandbox. Para partilhar o ecrã, use o AppImage ou um pacote da distribuição do Lightning, que captam diretamente um ecrã X11, ou inicie sessão numa sessão Wayland, onde o portal do ambiente de trabalho fornece a partilha de ecrã. Se o xdg-desktop-portal do seu ambiente de trabalho suporta transmissão de ecrã em X11, confirme que está instalado e em execução.</translation>
     </message>
     <message>
         <location line="+555"/>
         <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem permissão para entrar em chamadas nesta sala. Um administrador da sala pode aumentar o seu nível de permissão; o Lightning não consegue alterar o que a participação nas chamadas exige.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The calling service this call uses didn&apos;t answer. It&apos;s chosen by whoever started the call, not by your homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>O serviço de chamadas usado por esta chamada não respondeu. Quem iniciou a chamada é que o escolheu, não o seu servidor doméstico.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Your homeserver doesn&apos;t support Matrix calls.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu servidor doméstico não suporta chamadas Matrix.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Your screen is being shared without its sound — the audio capture couldn&apos;t be started.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu ecrã está a ser partilhado sem som — não foi possível iniciar a captura de áudio.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Your screen is being shared without its sound — this system has no way to capture what it is playing.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu ecrã está a ser partilhado sem som — este sistema não tem forma de captar o que está a reproduzir.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your screen is being shared without its sound — the apps you chose can&apos;t be captured on this system.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu ecrã está a ser partilhado sem som — as aplicações que escolheu não podem ser captadas neste sistema.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>This call&apos;s service is on a private network address, which Lightning won&apos;t connect to. Whoever set up the call needs to give it an address reachable from the internet.</source>
-        <translation type="unfinished"></translation>
+        <translation>O serviço desta chamada está num endereço de rede privada, ao qual o Lightning não se liga. Quem configurou a chamada tem de lhe dar um endereço acessível pela Internet.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Lightning couldn&apos;t look up this call&apos;s service. Its name doesn&apos;t resolve, or this network&apos;s DNS isn&apos;t answering.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu encontrar o serviço desta chamada. O nome não resolve, ou o DNS desta rede não está a responder.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This call&apos;s service is advertised under a name that only means &quot;this computer&quot;, so Lightning won&apos;t connect to it. Whoever set up the call needs to give it a real address.</source>
-        <translation type="unfinished"></translation>
+        <translation>O serviço desta chamada é anunciado com um nome que só significa «este computador», por isso o Lightning não se liga a ele. Quem configurou a chamada tem de lhe dar um endereço real.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>This network has no route to the call&apos;s service. If you&apos;re on a VPN or a restricted network, that&apos;s the first thing to check.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta rede não tem rota para o serviço da chamada. Se está numa VPN ou numa rede restrita, é isso que deve verificar primeiro.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The call&apos;s service refused the connection — nothing is listening at the address it published.</source>
-        <translation type="unfinished"></translation>
+        <translation>O serviço da chamada recusou a ligação — não há nada à escuta no endereço que publicou.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Something on this computer blocked the connection to the call&apos;s service — a firewall or a security policy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Algo neste computador bloqueou a ligação ao serviço da chamada — uma firewall ou uma política de segurança.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The call&apos;s service didn&apos;t answer in time.</source>
-        <translation type="unfinished"></translation>
+        <translation>O serviço da chamada não respondeu a tempo.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning couldn&apos;t open a secure connection to the call&apos;s service. Its certificate or its TLS setup was refused.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu abrir uma ligação segura ao serviço da chamada. O certificado ou a configuração TLS foram recusados.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The call&apos;s service answered, but not as a call service. Something between you and it — a proxy or a sign-in portal — may be intercepting the connection.</source>
-        <translation type="unfinished"></translation>
+        <translation>O serviço da chamada respondeu, mas não como um serviço de chamadas. Algo entre si e ele — um proxy ou um portal de início de sessão — pode estar a intercetar a ligação.</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -20889,7 +20903,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+9"/>
         <source>This call&apos;s service isn&apos;t set up correctly, so Lightning couldn&apos;t connect to it.</source>
-        <translation type="unfinished"></translation>
+        <translation>O serviço desta chamada não está configurado corretamente, por isso o Lightning não conseguiu ligar-se a ele.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -20904,7 +20918,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+6"/>
         <source>Your camera isn&apos;t available. Lightning is a snap: run snap connect lightning:camera</source>
-        <translation type="unfinished"></translation>
+        <translation>A sua câmara não está disponível. O Lightning é um snap: execute snap connect lightning:camera</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -20914,22 +20928,22 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+4"/>
         <source>The camera sent no picture. If it&apos;s a virtual camera, make sure something is feeding it.</source>
-        <translation type="unfinished"></translation>
+        <translation>A câmara não enviou imagem. Se for uma câmara virtual, confirme que há algo a alimentá-la.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Camera access is turned off in your system settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>O acesso à câmara está desligado nas definições do seu sistema.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>The camera you chose isn&apos;t available, so no camera was turned on. Choose a camera in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>A câmara que escolheu não está disponível, por isso nenhuma câmara foi ligada. Escolha uma câmara nas Definições.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Lightning couldn&apos;t read the list of cameras, so no camera was turned on. Restart Lightning, or choose the system default camera in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu ler a lista de câmaras, por isso nenhuma câmara foi ligada. Reinicie o Lightning, ou escolha a câmara predefinida do sistema nas Definições.</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -20950,22 +20964,22 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="-79"/>
         <source>Still checking whether calling is available here. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda a verificar se as chamadas estão disponíveis aqui. Tente novamente dentro de momentos.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>There&apos;s no Matrix calling service on this homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não há nenhum serviço de chamadas Matrix neste servidor doméstico.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning couldn&apos;t check whether calling is available here.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu verificar se as chamadas estão disponíveis aqui.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This call has ended.</source>
-        <translation type="unfinished">Esta chamada foi encerrada.</translation>
+        <translation>Esta chamada terminou.</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -20977,12 +20991,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="-71"/>
         <source>You don&apos;t have permission to start or join calls in this room. A room admin can raise your power level in it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem permissão para iniciar ou entrar em chamadas nesta sala. Um administrador da sala pode aumentar o seu nível de permissão.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This call can&apos;t be joined right now.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não é possível entrar nesta chamada neste momento.</translation>
     </message>
     <message>
         <location line="+74"/>
@@ -20992,67 +21006,67 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+427"/>
         <source>You can share your screen once the call has reconnected.</source>
-        <translation type="unfinished"></translation>
+        <translation>Pode partilhar o seu ecrã quando a chamada se voltar a ligar.</translation>
     </message>
     <message>
         <location line="+788"/>
         <source>Call audio stopped: this computer&apos;s sound output disconnected. It resumes when an output is available again; if it does not, leave and rejoin the call.</source>
-        <translation type="unfinished"></translation>
+        <translation>O áudio da chamada parou: a saída de som deste computador desligou-se. Retoma quando uma saída estiver novamente disponível; se não retomar, saia da chamada e volte a entrar.</translation>
     </message>
     <message>
         <location line="+2114"/>
         <source>This system can&apos;t capture the sound it plays.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este sistema não consegue captar o som que reproduz.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Sound: everything this computer plays, except Lightning.</source>
-        <translation type="unfinished"></translation>
+        <translation>Som: tudo o que este computador reproduz, exceto o Lightning.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sound: everything this computer plays, including this call, so others may hear themselves.</source>
-        <translation type="unfinished"></translation>
+        <translation>Som: tudo o que este computador reproduz, incluindo esta chamada, por isso os outros podem ouvir-se a si próprios.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>No apps chosen, so the share has no sound.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nenhuma aplicação escolhida, por isso a partilha não tem som.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sound: only %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Som: apenas %1.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The share has no sound.</source>
-        <translation type="unfinished"></translation>
+        <translation>A partilha não tem som.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>%1 couldn&apos;t be captured.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível captar %1.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Too many apps to capture at once; some are left out.</source>
-        <translation type="unfinished"></translation>
+        <translation>Demasiadas aplicações para captar de uma só vez; algumas ficam de fora.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>None of them is playing right now.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nenhuma delas está a reproduzir neste momento.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No app is playing right now.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nenhuma aplicação está a reproduzir neste momento.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nothing is being heard right now.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não se ouve nada neste momento.</translation>
     </message>
     <message>
         <location line="-3443"/>
@@ -21075,42 +21089,42 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/ShareAudioAppList.qml" line="+47"/>
         <source>Single apps can&apos;t be chosen on this system. It needs PipeWire on Linux, or Windows 10 version 2004 or newer.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não é possível escolher aplicações individuais neste sistema. É preciso PipeWire no Linux, ou Windows 10 versão 2004 ou mais recente.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>No app is playing sound right now. Start one and it appears here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nenhuma aplicação está a reproduzir som neste momento. Inicie uma e ela aparece aqui.</translation>
     </message>
     <message>
         <location line="+94"/>
         <source>Includes Lightning</source>
-        <translation type="unfinished"></translation>
+        <translation>Inclui o Lightning</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Couldn&apos;t capture</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível captar</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>In the share</source>
-        <translation type="unfinished"></translation>
+        <translation>Na partilha</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Playing</source>
-        <translation type="unfinished"></translation>
+        <translation>A reproduzir</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not playing</source>
-        <translation type="unfinished"></translation>
+        <translation>Sem reprodução</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Lightning runs inside this app, so capturing it would send the call back to everyone.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning corre dentro desta aplicação, por isso captá-la reenviaria a chamada para todos.</translation>
     </message>
 </context>
 <context>
@@ -21118,22 +21132,22 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/ShareAudioAppsDialog.qml" line="+15"/>
         <source>Share sound from apps</source>
-        <translation type="unfinished"></translation>
+        <translation>Partilhar som de aplicações</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Only the apps you tick are heard in your screen share. Lightning itself is never included, so nobody hears the call back.</source>
-        <translation type="unfinished"></translation>
+        <translation>Só se ouvem na sua partilha de ecrã as aplicações que marcar. O próprio Lightning nunca é incluído, por isso ninguém ouve a chamada de volta.</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Use the entire system</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar o sistema inteiro</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Done</source>
-        <translation type="unfinished">Concluído</translation>
+        <translation>Concluído</translation>
     </message>
 </context>
 <context>
@@ -21161,7 +21175,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+1"/>
         <source>Message box</source>
-        <translation type="unfinished">Caixa de mensagem</translation>
+        <translation>Caixa de mensagens</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -21171,7 +21185,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+1"/>
         <source>Calls</source>
-        <translation type="unfinished"></translation>
+        <translation>Chamadas</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -21181,12 +21195,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+8"/>
         <source>Open Settings, or focus its search field</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir Definições, ou dar foco ao seu campo de pesquisa</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Show the keyboard shortcuts</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar os atalhos de teclado</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -21211,12 +21225,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+4"/>
         <source>Start a direct message</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciar uma mensagem direta</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Open the Activity Center</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir o Centro de Atividade</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -21256,72 +21270,72 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+10"/>
         <source>Mark every conversation as read</source>
-        <translation type="unfinished"></translation>
+        <translation>Marcar todas as conversas como lidas</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Mark the open conversation as unread</source>
-        <translation type="unfinished"></translation>
+        <translation>Marcar a conversa aberta como não lida</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Show or hide the people in this conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar ou ocultar as pessoas desta conversa</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Show or hide pinned messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar ou ocultar as mensagens fixadas</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Mute or unmute the microphone</source>
-        <translation type="unfinished"></translation>
+        <translation>Silenciar ou reativar o microfone</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Deafen or undeafen</source>
-        <translation type="unfinished"></translation>
+        <translation>Desativar ou reativar o som</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Turn the camera on or off</source>
-        <translation type="unfinished"></translation>
+        <translation>Ligar ou desligar a câmara</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Return to the active call</source>
-        <translation type="unfinished"></translation>
+        <translation>Voltar à chamada ativa</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Start a call in this conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>Iniciar uma chamada nesta conversa</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Leave the call</source>
-        <translation type="unfinished"></translation>
+        <translation>Sair da chamada</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Share your screen, or stop sharing</source>
-        <translation type="unfinished"></translation>
+        <translation>Partilhar o seu ecrã, ou parar a partilha</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Open the emoji picker</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir o seletor de emojis</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Open the GIF and sticker picker</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir o seletor de GIF e autocolantes</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Attach files</source>
-        <translation type="unfinished">Anexar ficheiros</translation>
+        <translation>Anexar ficheiros</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -21356,17 +21370,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+4"/>
         <source>Underline</source>
-        <translation type="unfinished"></translation>
+        <translation>Sublinhado</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Link</source>
-        <translation type="unfinished">Ligação</translation>
+        <translation>Ligação</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>closing the find bar, room information, a thread, Settings or the open conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>fechar a barra de pesquisa, as informações da sala, um tópico, as Definições ou a conversa aberta</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -21519,12 +21533,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/SlashCommandPopup.qml" line="+106"/>
         <source>Commands</source>
-        <translation type="unfinished"></translation>
+        <translation>Comandos</translation>
     </message>
     <message>
         <location line="+89"/>
         <source>%1 · you lack the required power level</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · não tem o nível de permissão necessário</translation>
     </message>
 </context>
 <context>
@@ -21532,93 +21546,93 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../src/models/SlashCommands.cpp" line="+28"/>
         <source>Send an action message</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar uma mensagem de ação</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Append ¯\_(ツ)_/¯ to a message</source>
-        <translation type="unfinished"></translation>
+        <translation>Acrescentar ¯\_(ツ)_/¯ a uma mensagem</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send the message as a click-to-reveal spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>Enviar a mensagem como spoiler que se revela ao clicar</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Join a room</source>
-        <translation type="unfinished"></translation>
+        <translation>Entrar numa sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Invite a user to this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Convidar um utilizador para esta sala</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Remove a user from this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover um utilizador desta sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ban a user from this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Banir um utilizador desta sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unban a user from this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Levantar o banimento de um utilizador nesta sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Change this room&apos;s topic</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar o tópico desta sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Change this room&apos;s name</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar o nome desta sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Change your display name</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar o seu nome de exibição</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Switch between Markdown and rich-text composing</source>
-        <translation type="unfinished"></translation>
+        <translation>Alternar entre escrita em Markdown e em texto formatado</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Clear the message box and queued attachments</source>
-        <translation type="unfinished"></translation>
+        <translation>Limpar a caixa de mensagens e os anexos em fila</translation>
     </message>
     <message>
         <location line="+100"/>
         <location line="+140"/>
         <source>Unknown command.</source>
-        <translation type="unfinished"></translation>
+        <translation>Comando desconhecido.</translation>
     </message>
     <message>
         <location line="-138"/>
         <source>/%1 needs arguments: /%1 %2</source>
-        <translation type="unfinished"></translation>
+        <translation>/%1 precisa de argumentos: /%1 %2</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>/%1 is not available from here.</source>
-        <translation type="unfinished"></translation>
+        <translation>/%1 não está disponível daqui.</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>/join needs a room address (#room:server) or room id.</source>
-        <translation type="unfinished"></translation>
+        <translation>/join precisa de um endereço de sala (#sala:servidor) ou de um ID de sala.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>/%1 needs a user id (@user:server).</source>
-        <translation type="unfinished"></translation>
+        <translation>/%1 precisa de um ID de utilizador (@utilizador:servidor).</translation>
     </message>
 </context>
 <context>
@@ -21658,7 +21672,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+7"/>
         <source>Direct Messages</source>
-        <translation type="unfinished">Mensagens Diretas</translation>
+        <translation>Mensagens diretas</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -21686,27 +21700,27 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-198"/>
         <source>Rooms</source>
-        <translation type="unfinished">Salas</translation>
+        <translation>Salas</translation>
     </message>
     <message>
         <location line="+145"/>
         <source>More actions for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Mais ações para %1</translation>
     </message>
     <message>
         <location line="+134"/>
         <source>%1, not joined</source>
-        <translation type="unfinished"></translation>
+        <translation>%1, não entrou</translation>
     </message>
     <message>
         <location line="+203"/>
         <source>Open space</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir espaço</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Remove from this Space</source>
-        <translation type="unfinished"></translation>
+        <translation>Remover deste Espaço</translation>
     </message>
 </context>
 <context>
@@ -21732,57 +21746,57 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/SpaceMemberActionDialog.qml" line="+94"/>
         <source>Reason (optional)</source>
-        <translation type="unfinished">Motivo (opcional)</translation>
+        <translation>Motivo (opcional)</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The reason is recorded in each room it applies to, where its members can read it.</source>
-        <translation type="unfinished"></translation>
+        <translation>O motivo fica registado em cada sala a que se aplica, onde os seus membros o podem ler.</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>The space itself</source>
-        <translation type="unfinished"></translation>
+        <translation>O próprio espaço</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>%1 (%2 of %3 selected)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 (%2 de %3 selecionadas)</translation>
     </message>
     <message>
         <location line="+81"/>
         <source>This space has more rooms than Lightning checks at once. Rooms past the limit are not listed and are left unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este espaço tem mais salas do que o Lightning verifica de uma só vez. As salas além do limite não são listadas e ficam inalteradas.</translation>
     </message>
     <message>
         <location line="+38"/>
         <source>Close</source>
-        <translation type="unfinished">Fechar</translation>
+        <translation>Fechar</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Done</source>
-        <translation type="unfinished">Concluído</translation>
+        <translation>Concluído</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Working…</source>
-        <translation type="unfinished">A trabalhar…</translation>
+        <translation>A trabalhar…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Waiting</source>
-        <translation type="unfinished"></translation>
+        <translation>A aguardar</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Skipped</source>
-        <translation type="unfinished"></translation>
+        <translation>Ignorada</translation>
     </message>
 </context>
 <context>
@@ -21790,202 +21804,202 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../src/spaces/SpaceModerationController.cpp" line="+53"/>
         <source>No answer. It may still have happened: check before retrying.</source>
-        <translation type="unfinished"></translation>
+        <translation>Sem resposta. Pode ter acontecido na mesma: verifique antes de tentar novamente.</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>An earlier action is still running and is shown here. Start the new one when it has finished.</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma ação anterior ainda está em curso e é mostrada aqui. Inicie a nova quando aquela terminar.</translation>
     </message>
     <message>
         <location line="+282"/>
         <source>The request could not be sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível enviar o pedido.</translation>
     </message>
     <message>
         <location line="+47"/>
         <source>Not a member here</source>
-        <translation type="unfinished"></translation>
+        <translation>Não é membro aqui</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Already banned here</source>
-        <translation type="unfinished"></translation>
+        <translation>Já banido aqui</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not banned here</source>
-        <translation type="unfinished"></translation>
+        <translation>Não está banido aqui</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You don&apos;t have permission here</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem permissão aqui</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Their role here is not below yours</source>
-        <translation type="unfinished"></translation>
+        <translation>O cargo dele aqui não é inferior ao seu</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You are not in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Não está nesta sala</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Their membership here could not be checked</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível verificar a sua presença aqui</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not checked in time; left unchanged</source>
-        <translation type="unfinished"></translation>
+        <translation>Não verificada a tempo; ficou inalterada</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not available here</source>
-        <translation type="unfinished"></translation>
+        <translation>Não disponível aqui</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The server refused. You may not have permission here.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou. Pode não ter permissão aqui.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server is rate limiting. Try again shortly.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor está a limitar os pedidos. Tente novamente dentro de instantes.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Failed. Check your connection and retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>Falhou. Verifique a sua ligação e tente novamente.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>this space</source>
-        <translation type="unfinished"></translation>
+        <translation>este espaço</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Kick %1 from rooms in %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>Expulsar %1 das salas de %2?</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ban %1 from rooms in %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>Banir %1 das salas de %2?</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unban %1 in rooms of %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>Levantar o banimento de %1 nas salas de %2?</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Kick %1 from %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>Expulsar %1 de %2?</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ban %1 from %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>Banir %1 de %2?</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unban %1 in %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>Levantar o banimento de %1 em %2?</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>The space itself is unchanged (%1). Only the rooms selected below are affected.</source>
-        <translation type="unfinished"></translation>
+        <translation>O próprio espaço fica inalterado (%1). Apenas as salas selecionadas abaixo são afetadas.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>They are removed from the space and can join again if invited, or if the space is public. Kicking from the space alone does not remove them from its rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>São removidos do espaço e podem voltar a entrar se forem convidados, ou se o espaço for público. Expulsar apenas do espaço não os remove das suas salas.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>They are removed from the space and cannot join it again until someone unbans them. Banning from the space alone does not remove them from its rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>São removidos do espaço e não podem voltar a entrar até alguém lhes levantar o banimento. Banir apenas do espaço não os remove das suas salas.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>They can join the space again if invited, or if the space is public. They are not invited back.</source>
-        <translation type="unfinished"></translation>
+        <translation>Podem voltar a entrar no espaço se forem convidados, ou se o espaço for público. Não são convidados de volta.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Also kick them from rooms in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>Expulsar também das salas deste espaço</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Also ban them from rooms in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>Banir também das salas deste espaço</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Also unban them in rooms in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>Levantar também o banimento nas salas deste espaço</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Kick</source>
-        <translation type="unfinished">Chute</translation>
+        <translation>Expulsar</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ban</source>
-        <translation type="unfinished">Banir</translation>
+        <translation>Banir</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unban</source>
-        <translation type="unfinished">Levantar o banimento</translation>
+        <translation>Levantar banimento</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Checking where you can do this… This takes at most half a minute.</source>
-        <translation type="unfinished"></translation>
+        <translation>A verificar onde pode fazer isto… Demora no máximo meia hora.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning could not check this space&apos;s rooms. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu verificar as salas deste espaço. Nada foi alterado.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>There is nowhere you can do this: see the reasons below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não há onde fazer isto: veja os motivos abaixo.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 of the rooms could not be checked in time. They are not offered and will be left unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 das salas não puderam ser verificadas a tempo. Não são oferecidas e ficarão inalteradas.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Working: %1 of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>A trabalhar: %1 de %2</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Done: %1 succeeded, %2 failed, %3 not known. The rooms are marked below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Concluído: %1 com sucesso, %2 falharam, %3 desconhecidas. As salas estão marcadas abaixo.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Done: %1 succeeded.</source>
-        <translation type="unfinished"></translation>
+        <translation>Concluído: %1 com sucesso.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Done with errors: %1 succeeded, %2 failed. The failed rooms are marked below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Concluído com erros: %1 com sucesso, %2 falharam. As salas que falharam estão marcadas abaixo.</translation>
     </message>
 </context>
 <context>
@@ -22151,12 +22165,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="-16"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -22227,7 +22241,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+11"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -22293,42 +22307,42 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+16"/>
         <source>Upgrading is irreversible: it creates a new space and marks this one as replaced. The rooms this space lists stay listed by the OLD space; re-add them to the new one afterwards.</source>
-        <translation type="unfinished"></translation>
+        <translation>Atualizar é irreversível: cria um novo espaço e marca este como substituído. As salas que este espaço lista continuam listadas pelo espaço ANTIGO; volte a adicioná-las ao novo depois.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Only someone allowed to send m.room.tombstone can upgrade this space.</source>
-        <translation type="unfinished"></translation>
+        <translation>Só alguém autorizado a enviar m.room.tombstone pode atualizar este espaço.</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Upgrade space…</source>
-        <translation type="unfinished"></translation>
+        <translation>Atualizar espaço…</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Close or delete</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar ou eliminar</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Closing makes the space and the rooms you choose invite-only and removes the members you are allowed to remove. Nothing is deleted: history stays on every server that took part.</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar o espaço e as salas que escolher torna-os apenas por convite e remove os membros que tem permissão para remover. Nada é eliminado: o histórico fica em cada servidor que participou.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Close space…</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar espaço…</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Delete from server…</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar do servidor…</translation>
     </message>
     <message numerus="yes">
         <location line="+35"/>
         <source>%n member(s)</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n membro</numerusform>
             <numerusform>%n membros</numerusform>
         </translation>
@@ -22398,7 +22412,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+135"/>
         <source>Actions for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Ações para %1</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -22533,57 +22547,57 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+80"/>
         <source>Role in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>Cargo neste espaço</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Kick from space…</source>
-        <translation type="unfinished"></translation>
+        <translation>Expulsar do espaço…</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Ban from space…</source>
-        <translation type="unfinished"></translation>
+        <translation>Banir do espaço…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Unban…</source>
-        <translation type="unfinished"></translation>
+        <translation>Levantar banimento…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>You can&apos;t change this member</source>
-        <translation type="unfinished"></translation>
+        <translation>Não pode alterar este membro</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Lower your own role?</source>
-        <translation type="unfinished"></translation>
+        <translation>Baixar o seu próprio cargo?</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Change role?</source>
-        <translation type="unfinished"></translation>
+        <translation>Alterar o cargo?</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Set %1 to %2 in this space? Roles in the space&apos;s rooms are set in each room.</source>
-        <translation type="unfinished"></translation>
+        <translation>Definir %1 como %2 neste espaço? Os cargos nas salas do espaço são definidos em cada sala.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This gives them your own level or higher. You will not be able to change it back.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto dá-lhes o seu próprio nível ou superior. Não poderá voltar a alterá-lo.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>You are lowering your own role. You will not be able to raise it back yourself: only someone whose role is above your new one can, and if nobody else holds a role as high as yours, nobody can.</source>
-        <translation type="unfinished"></translation>
+        <translation>Está a baixar o seu próprio cargo. Não o poderá voltar a subir sozinho: só alguém cujo cargo esteja acima do novo pode fazê-lo, e se mais ninguém tiver um cargo tão alto como o seu, ninguém pode.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>You will also no longer be able to change roles or permissions in this space.</source>
-        <translation type="unfinished"></translation>
+        <translation>Também deixará de poder alterar cargos ou permissões neste espaço.</translation>
     </message>
 </context>
 <context>
@@ -22650,12 +22664,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+4"/>
         <source>Mentions: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Menções: %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unread messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Mensagens não lidas</translation>
     </message>
     <message>
         <location line="+290"/>
@@ -22738,7 +22752,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+14"/>
         <source>Mark all rooms read</source>
-        <translation type="unfinished"></translation>
+        <translation>Marcar todas as salas como lidas</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -22794,22 +22808,22 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+7"/>
         <source>Order Spaces by</source>
-        <translation type="unfinished"></translation>
+        <translation>Ordenar os Espaços por</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Manual</source>
-        <translation type="unfinished"></translation>
+        <translation>Manual</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>A–Z</source>
-        <translation type="unfinished"></translation>
+        <translation>A–Z</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Recent activity</source>
-        <translation type="unfinished"></translation>
+        <translation>Atividade recente</translation>
     </message>
     <message>
         <location line="+53"/>
@@ -22857,7 +22871,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../src/text/SpellChecker.cpp" line="+337"/>
         <source>Automatic (system language)</source>
-        <translation type="unfinished"></translation>
+        <translation>Automático (idioma do sistema)</translation>
     </message>
 </context>
 <context>
@@ -22865,92 +22879,92 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/StatusDialog.qml" line="+82"/>
         <source>Set a status</source>
-        <translation type="unfinished"></translation>
+        <translation>Definir um estado</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Status emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>Emoji de estado</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Working from home</source>
-        <translation type="unfinished"></translation>
+        <translation>A trabalhar a partir de casa</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Status text</source>
-        <translation type="unfinished"></translation>
+        <translation>Texto do estado</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Clear after (your local time)</source>
-        <translation type="unfinished"></translation>
+        <translation>Limpar depois de (a sua hora local)</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Never</source>
-        <translation type="unfinished">Nunca</translation>
+        <translation>Nunca</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>30 min</source>
-        <translation type="unfinished"></translation>
+        <translation>30 min</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>1 hour</source>
-        <translation type="unfinished"></translation>
+        <translation>1 hora</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>4 hours</source>
-        <translation type="unfinished"></translation>
+        <translation>4 horas</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Today</source>
-        <translation type="unfinished">Hoje</translation>
+        <translation>Hoje</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Custom</source>
-        <translation type="unfinished"></translation>
+        <translation>Personalizado</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>yyyy-mm-dd</source>
-        <translation type="unfinished"></translation>
+        <translation>aaaa-mm-dd</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>hh:mm</source>
-        <translation type="unfinished"></translation>
+        <translation>hh:mm</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Pick a date and time in the future.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escolha uma data e hora no futuro.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Everyone on Matrix sees the emoji and text as your presence status. The clear-after time is handled by Lightning on this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Todos no Matrix veem o emoji e o texto como o seu estado de presença. A hora de limpeza é gerida pelo Lightning nesta conta.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Clear status</source>
-        <translation type="unfinished"></translation>
+        <translation>Limpar estado</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Set status</source>
-        <translation type="unfinished"></translation>
+        <translation>Definir estado</translation>
     </message>
 </context>
 <context>
@@ -22958,124 +22972,124 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/StickerPackEditor.qml" line="+79"/>
         <source>Export pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar pacote</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+9"/>
         <source>Sticker pack (*.zip)</source>
-        <translation type="unfinished"></translation>
+        <translation>Pacote de autocolantes (*.zip)</translation>
     </message>
     <message>
         <location line="-2"/>
         <source>Import a sticker pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Importar um pacote de autocolantes</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Saved.</source>
-        <translation type="unfinished">Guardado.</translation>
+        <translation>Guardado.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>That name is already used in this pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse nome já está a ser usado neste pacote.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That name cannot be used.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse nome não pode ser usado.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That is no longer in the pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isso já não está no pacote.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You do not have permission to change this room&apos;s pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não tem permissão para alterar o pacote desta sala.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That change could not be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível guardar essa alteração.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Manage pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Gerir pacote</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Pack name</source>
-        <translation type="unfinished"></translation>
+        <translation>Nome do pacote</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+154"/>
         <source>Rename</source>
-        <translation type="unfinished">Mudar o nome</translation>
+        <translation>Mudar o nome</translation>
     </message>
     <message>
         <location line="-142"/>
         <source>Leave the name empty to use the default — for a room&apos;s pack that is the room&apos;s own name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Deixe o nome vazio para usar o predefinido — no caso do pacote de uma sala, é o próprio nome da sala.</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>This pack belongs to a room, and you do not have permission to change it here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este pacote pertence a uma sala, e não tem permissão para o alterar aqui.</translation>
     </message>
     <message>
         <location line="+131"/>
         <source>Save</source>
-        <translation type="unfinished">Guardar</translation>
+        <translation>Guardar</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Remove</source>
-        <translation type="unfinished">Remover</translation>
+        <translation>Remover</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>This pack has no images.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este pacote não tem imagens.</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Delete everything in this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar tudo neste pacote</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Delete pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar pacote</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Export…</source>
-        <translation type="unfinished"></translation>
+        <translation>Exportar…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>sticker-pack</source>
-        <translation type="unfinished"></translation>
+        <translation>sticker-pack</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Import…</source>
-        <translation type="unfinished"></translation>
+        <translation>Importar…</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Done</source>
-        <translation type="unfinished">Concluído</translation>
+        <translation>Concluído</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>This removes every image and the pack&apos;s name. It cannot be undone, and for a room&apos;s pack everyone in the room loses it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Isto remove todas as imagens e o nome do pacote. Não pode ser desfeito, e no caso do pacote de uma sala, todos na sala o perdem.</translation>
     </message>
 </context>
 <context>
@@ -23083,152 +23097,152 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../src/stickers/StickerPackManager.cpp" line="+744"/>
         <source>Enter a name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Introduza um nome.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Names can be at most 64 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os nomes podem ter no máximo 64 caracteres.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Use only letters, numbers, - and _ (no spaces, colons or accents).</source>
-        <translation type="unfinished"></translation>
+        <translation>Use apenas letras, números, - e _ (sem espaços, dois pontos ou acentos).</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>A name cannot start or end with - or _, or contain __.</source>
-        <translation type="unfinished"></translation>
+        <translation>Um nome não pode começar ou terminar com - ou _, nem conter __.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Another image in this pack already uses that name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Outra imagem deste pacote já usa esse nome.</translation>
     </message>
     <message>
         <location line="+241"/>
         <source>This pack has no images to export.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este pacote não tem imagens para exportar.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That pack has no usable images. SVG files are not accepted.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse pacote não tem imagens utilizáveis. Não são aceites ficheiros SVG.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>None of the images could be downloaded, so nothing was exported.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível transferir nenhuma das imagens, por isso nada foi exportado.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The file could not be written.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível escrever o ficheiro.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file is not a readable sticker pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse ficheiro não é um pacote de autocolantes legível.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That ZIP is not a Lightning sticker pack (it has no pack.json).</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse ZIP não é um pacote de autocolantes do Lightning (não tem pack.json).</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That pack file is damaged, or was made by a newer version of Lightning.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse ficheiro de pacote está danificado, ou foi criado por uma versão mais recente do Lightning.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Your pack is full. Remove some images in another client to add more.</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu pacote está cheio. Remova algumas imagens noutro cliente para adicionar mais.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That pack is no longer available.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse pacote já não está disponível.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The pack could not be exported.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível exportar o pacote.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The emoji could not be added.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível adicionar o emoji.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The pack could not be imported.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível importar o pacote.</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Exported %n image(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Exportada %n imagem.</numerusform>
+            <numerusform>Exportadas %n imagens.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Already in your custom emoji.</source>
-        <translation type="unfinished"></translation>
+        <translation>Já está nos seus emojis personalizados.</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>Added %n custom emoji to your pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Adicionado %n emoji personalizado ao seu pacote.</numerusform>
+            <numerusform>Adicionados %n emojis personalizados ao seu pacote.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Everything in that pack is already in yours.</source>
-        <translation type="unfinished"></translation>
+        <translation>Tudo o que está nesse pacote já está no seu.</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>Added %n image(s) to your pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Adicionada %n imagem ao seu pacote.</numerusform>
+            <numerusform>Adicionadas %n imagens ao seu pacote.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n could not be included.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n não pôde ser incluído.</numerusform>
+            <numerusform>%n não puderam ser incluídos.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n already there or not usable.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n já está lá ou não é utilizável.</numerusform>
+            <numerusform>%n já estão lá ou não são utilizáveis.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n could not be downloaded.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n não pôde ser transferido.</numerusform>
+            <numerusform>%n não puderam ser transferidos.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n failed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n falhou.</numerusform>
+            <numerusform>%n falharam.</numerusform>
         </translation>
     </message>
 </context>
@@ -23237,88 +23251,88 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/StickerPacksSettings.qml" line="+35"/>
         <source>Emoji and sticker packs</source>
-        <translation type="unfinished"></translation>
+        <translation>Pacotes de emojis e autocolantes</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>A room&apos;s packs work inside that room. Turn on Use everywhere to use a pack in every room. Packs from the room you have open and the ones you turned on are listed here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os pacotes de uma sala funcionam dentro dessa sala. Ative Usar em toda a parte para usar um pacote em todas as salas. Os pacotes da sala que tem aberta e os que ativou aparecem listados aqui.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Packs are not available with this connection.</source>
-        <translation type="unfinished"></translation>
+        <translation>Os pacotes não estão disponíveis com esta ligação.</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Room pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Pacote da sala</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your pack</source>
-        <translation type="unfinished">Seu pacote</translation>
+        <translation>O seu pacote</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n sticker(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n autocolante</numerusform>
+            <numerusform>%n autocolantes</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n emoji</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n emoji</numerusform>
+            <numerusform>%n emojis</numerusform>
         </translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Use %1 in every room</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar %1 em todas as salas</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Use everywhere</source>
-        <translation type="unfinished">Use em qualquer lugar</translation>
+        <translation>Usar em toda a parte</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Manage</source>
-        <translation type="unfinished">Gerir</translation>
+        <translation>Gerir</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>No packs yet. Import one, or add a sticker from the sticker picker to start your own.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda não há pacotes. Importe um, ou adicione um autocolante a partir do seletor de autocolantes para começar o seu.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Import a sticker pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Importar um pacote de autocolantes</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sticker pack (*.zip)</source>
-        <translation type="unfinished"></translation>
+        <translation>Pacote de autocolantes (*.zip)</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Import a pack…</source>
-        <translation type="unfinished"></translation>
+        <translation>Importar um pacote…</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>%1 of %2</source>
-        <translation type="unfinished">%1 de %2</translation>
+        <translation>%1 de %2</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>That could not be changed. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível alterar. Tente novamente dentro de momentos.</translation>
     </message>
 </context>
 <context>
@@ -23326,7 +23340,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/StickerPicker.qml" line="+135"/>
         <source>GIFs</source>
-        <translation type="unfinished">GIF</translation>
+        <translation>GIF</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -23342,7 +23356,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens (*.png *.jpg *.jpeg *.webp *.gif *.svg)</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -23357,12 +23371,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+17"/>
         <source>Manage this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Gerir este pacote</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Manage pack</source>
-        <translation type="unfinished"></translation>
+        <translation>Gerir pacote</translation>
     </message>
     <message>
         <location line="+19"/>
@@ -23455,42 +23469,42 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../src/media/SvgRaster.h" line="+478"/>
         <source>That SVG is too large to convert (the limit is 2 MB).</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse SVG é demasiado grande para converter (o limite é 2 MB).</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Compressed SVG (.svgz) can&apos;t be converted. Save it as a plain .svg and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>SVG comprimido (.svgz) não pode ser convertido. Guarde-o como .svg simples e tente novamente.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>That SVG is too complex to convert.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse SVG é complexo demais para converter.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That SVG links to other files or images, which Lightning won&apos;t load. Embed or remove them and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse SVG liga a outros ficheiros ou imagens, que o Lightning não carrega. Incorpore-os ou remova-os e tente novamente.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That SVG contains text, which can&apos;t be converted on this platform. Convert the text to outlines and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse SVG contém texto, que não pode ser convertido nesta plataforma. Converta o texto em contornos e tente novamente.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This build of Lightning can&apos;t convert SVG pictures.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta versão do Lightning não consegue converter imagens SVG.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That file isn&apos;t a valid SVG.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse ficheiro não é um SVG válido.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That SVG uses features Lightning can&apos;t convert.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse SVG usa funcionalidades que o Lightning não consegue converter.</translation>
     </message>
 </context>
 <context>
@@ -23514,204 +23528,204 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <location line="-976"/>
         <source>Theme imported. %n thing(s) in it will be hard to read.</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Tema importado. %n elemento nele será difícil de ler.</numerusform>
+            <numerusform>Tema importado. %n elementos nele serão difíceis de ler.</numerusform>
         </translation>
     </message>
     <message>
         <location line="-156"/>
         <source>Replace with %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Substituir por %1</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Start from %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Começar a partir de %1</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Started over from %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Recomeçado a partir de %1.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Now based on %1; your changes are kept.</source>
-        <translation type="unfinished"></translation>
+        <translation>Agora baseado em %1; as suas alterações foram mantidas.</translation>
     </message>
     <message>
         <location line="+106"/>
         <source>Copied. Paste it to share it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Copiado. Cole-o para o partilhar.</translation>
     </message>
     <message>
         <location line="+50"/>
         <source>That is not a theme file Lightning can read.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esse não é um ficheiro de tema que o Lightning consiga ler.</translation>
     </message>
     <message>
         <location line="+210"/>
         <location line="+7"/>
         <source>Undo: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Anular: %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing to undo</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada para anular</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Redo: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Refazer: %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing to redo</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada para refazer</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Reset %1 to its group</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor %1 para o seu grupo</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>%1 follows %2 again.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 volta a seguir %2.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>%1 now gives its colour to all of %2.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 passa agora a dar a sua cor a todo o %2.</translation>
     </message>
     <message>
         <location line="+41"/>
         <source>Include the elements of %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Incluir os elementos de %1</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Every element of %1 follows it now.</source>
-        <translation type="unfinished"></translation>
+        <translation>Todos os elementos de %1 seguem-no agora.</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Unlink %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Desligar %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>%1 is no longer linked to %2.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 já não está ligado a %2.</translation>
     </message>
     <message>
         <location line="+42"/>
         <source>No lightness of %1 clears the bar. Try changing the colour beside it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nenhuma luminosidade de %1 torna a barra legível. Experimente alterar a cor ao lado dela.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Make %1 readable</source>
-        <translation type="unfinished"></translation>
+        <translation>Tornar %1 legível</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>%1 is easier to read now.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 está agora mais fácil de ler.</translation>
     </message>
     <message>
         <location line="+70"/>
         <source>Own colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor própria</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Linked to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Ligado a %1</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>gradiente</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>changed</source>
-        <translation type="unfinished"></translation>
+        <translation>alterado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>unreadable</source>
-        <translation type="unfinished"></translation>
+        <translation>ilegível</translation>
     </message>
     <message>
         <location line="+348"/>
         <source>Theme: %1. Open the theme menu</source>
-        <translation type="unfinished"></translation>
+        <translation>Tema: %1. Abrir o menu de temas</translation>
     </message>
     <message>
         <location line="+84"/>
         <source>Preview only: choose Use this theme to see it everywhere.</source>
-        <translation type="unfinished"></translation>
+        <translation>Apenas pré-visualização: escolha Usar este tema para o ver em toda a parte.</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n colour(s) changed.</source>
         <comment>custom theme, count of edited roles</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n cor alterada.</numerusform>
+            <numerusform>%n cores alteradas.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+38"/>
         <source>Open the readability report</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir o relatório de legibilidade</translation>
     </message>
     <message numerus="yes">
         <location line="+23"/>
         <source>%n thing(s) hard to read</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n elemento difícil de ler</numerusform>
+            <numerusform>%n elementos difíceis de ler</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+6"/>
         <source>Readable, %n not checked</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Legível, %n não verificado</numerusform>
+            <numerusform>Legível, %n não verificados</numerusform>
         </translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Readable</source>
-        <translation type="unfinished"></translation>
+        <translation>Legível</translation>
     </message>
     <message>
         <location line="+1470"/>
         <source>Click a part of the sample window in the middle, or find a colour in the list on the left, and its colour opens here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Clique numa parte da janela de exemplo no centro, ou encontre uma cor na lista à esquerda, e a sua cor abre-se aqui.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>See what is hard to read</source>
-        <translation type="unfinished"></translation>
+        <translation>Ver o que é difícil de ler</translation>
     </message>
     <message>
         <location line="-2302"/>
         <location line="+863"/>
         <source>Undo</source>
-        <translation type="unfinished"></translation>
+        <translation>Anular</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Redo</source>
-        <translation type="unfinished"></translation>
+        <translation>Refazer</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -23752,46 +23766,46 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+22"/>
         <source>Base theme: %1. Change</source>
-        <translation type="unfinished"></translation>
+        <translation>Tema base: %1. Alterar</translation>
     </message>
     <message>
         <location line="+194"/>
         <location line="+19"/>
         <source>Find a colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Encontrar uma cor</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Nothing matches that.</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada corresponde a isso.</translation>
     </message>
     <message>
         <location line="+297"/>
         <source>Radial gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Gradiente radial</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Linear gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>Gradiente linear</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 · see-through</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · transparente</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>follows %1</source>
-        <translation type="unfinished"></translation>
+        <translation>segue %1</translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
         <source>%n element(s)</source>
         <comment>custom theme, size of a group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n elemento</numerusform>
+            <numerusform>%n elementos</numerusform>
         </translation>
     </message>
     <message>
@@ -23807,83 +23821,83 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+58"/>
         <source>Themes</source>
-        <translation type="unfinished"></translation>
+        <translation>Temas</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Share or import a theme</source>
-        <translation type="unfinished"></translation>
+        <translation>Partilhar ou importar um tema</translation>
     </message>
     <message>
         <location line="+34"/>
         <location line="+452"/>
         <source>Readability report</source>
-        <translation type="unfinished"></translation>
+        <translation>Relatório de legibilidade</translation>
     </message>
     <message>
         <location line="-413"/>
         <source>Drop a theme file to see what it would do</source>
-        <translation type="unfinished"></translation>
+        <translation>Largue um ficheiro de tema para ver o que faria</translation>
     </message>
     <message>
         <location line="+97"/>
         <source>Under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>Sob o cursor</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Reset: follow %1 again</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor: seguir %1 novamente</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Reset to the base theme</source>
-        <translation type="unfinished">Repor para o tema base</translation>
+        <translation>Repor para o tema base</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Gradient colour: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor do gradiente: %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Solid colour underneath the gradient, also used by what follows this one</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor sólida por baixo do gradiente, também usada pelo que segue este</translation>
     </message>
     <message>
         <location line="+133"/>
         <source>Readability</source>
-        <translation type="unfinished"></translation>
+        <translation>Legibilidade</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Make readable</source>
-        <translation type="unfinished"></translation>
+        <translation>Tornar legível</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Move this colour to the nearest one that is easy to read against its neighbours</source>
-        <translation type="unfinished"></translation>
+        <translation>Mover esta cor para a mais próxima que seja fácil de ler contra as suas vizinhas</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>see-through</source>
-        <translation type="unfinished"></translation>
+        <translation>transparente</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1:1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1:1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>ΔL* %1</source>
-        <translation type="unfinished"></translation>
+        <translation>ΔL* %1</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>/ %1</source>
-        <translation type="unfinished"></translation>
+        <translation>/ %1</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -23896,37 +23910,37 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/ThemeLevelSwitch.qml" line="+19"/>
         <source>Simple</source>
-        <translation type="unfinished"></translation>
+        <translation>Simples</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Groups</source>
-        <translation type="unfinished"></translation>
+        <translation>Grupos</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Elements</source>
-        <translation type="unfinished"></translation>
+        <translation>Elementos</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A few base colours; everything else follows them</source>
-        <translation type="unfinished"></translation>
+        <translation>Algumas cores de base; tudo o resto as segue</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Each group of colours, such as panels or text</source>
-        <translation type="unfinished"></translation>
+        <translation>Cada grupo de cores, como painéis ou texto</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Every part of the window on its own</source>
-        <translation type="unfinished"></translation>
+        <translation>Cada parte da janela em separado</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Detail level</source>
-        <translation type="unfinished"></translation>
+        <translation>Nível de detalhe</translation>
     </message>
 </context>
 <context>
@@ -23934,95 +23948,95 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/ThemeLinkRow.qml" line="+127"/>
         <source>Linked to %1. It changes when that does.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ligado a %1. Muda quando esse muda.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Own colour. Part of %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cor própria. Parte de %1.</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Edit %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Editar %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open %1, so a change recolours everything linked to it</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir %1, para que uma alteração recolora tudo o que está ligado a ele</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Unlink</source>
-        <translation type="unfinished"></translation>
+        <translation>Desligar</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Keep the colour it has now, and stop it following %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Manter a cor que tem agora e deixar de a fazer seguir %1</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Reset to group</source>
-        <translation type="unfinished"></translation>
+        <translation>Repor para o grupo</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Take the colour of %1 again</source>
-        <translation type="unfinished"></translation>
+        <translation>Voltar a tomar a cor de %1</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Apply to all %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Aplicar a todos os %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Give this colour to %1 and everything in it</source>
-        <translation type="unfinished"></translation>
+        <translation>Dar esta cor a %1 e a tudo o que está nele</translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
         <source>Also changes %n element(s)</source>
         <comment>custom theme, count of linked elements</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Altera também %n elemento</numerusform>
+            <numerusform>Altera também %n elementos</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Hide</source>
-        <translation type="unfinished">Ocultar</translation>
+        <translation>Ocultar</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Show</source>
-        <translation type="unfinished">Mostrar</translation>
+        <translation>Mostrar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>List the elements that follow this colour</source>
-        <translation type="unfinished"></translation>
+        <translation>Listar os elementos que seguem esta cor</translation>
     </message>
     <message numerus="yes">
         <location line="+14"/>
         <source>%n keep their own colour</source>
         <comment>custom theme, count of elements that do not follow</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n mantém a sua própria cor</numerusform>
+            <numerusform>%n mantêm a sua própria cor</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Include them</source>
-        <translation type="unfinished"></translation>
+        <translation>Incluí-los</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Give them this colour too, dropping their own</source>
-        <translation type="unfinished"></translation>
+        <translation>Dar-lhes também esta cor, descartando a sua própria</translation>
     </message>
 </context>
 <context>
@@ -24030,74 +24044,74 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/ThemeMenuPanel.qml" line="+100"/>
         <source>Your themes</source>
-        <translation type="unfinished">Os seus temas</translation>
+        <translation>Os seus temas</translation>
     </message>
     <message>
         <location line="+55"/>
         <location line="+41"/>
         <location line="+144"/>
         <source>Untitled</source>
-        <translation type="unfinished">Sem título</translation>
+        <translation>Sem título</translation>
     </message>
     <message numerus="yes">
         <location line="-133"/>
         <source>%n changed</source>
         <comment>custom theme, edited colours</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n alterado</numerusform>
+            <numerusform>%n alterados</numerusform>
         </translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Name</source>
-        <translation type="unfinished">Nome</translation>
+        <translation>Nome</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Theme name</source>
-        <translation type="unfinished">Nome do tema</translation>
+        <translation>Nome do tema</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Name this theme</source>
-        <translation type="unfinished">Dê um nome a este tema</translation>
+        <translation>Dar um nome a este tema</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>New</source>
-        <translation type="unfinished">Novo</translation>
+        <translation>Novo</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Duplicate</source>
-        <translation type="unfinished">Duplicar</translation>
+        <translation>Duplicar</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Share…</source>
-        <translation type="unfinished"></translation>
+        <translation>Partilhar…</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Import…</source>
-        <translation type="unfinished"></translation>
+        <translation>Importar…</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+29"/>
         <source>Delete</source>
-        <translation type="unfinished">Eliminar</translation>
+        <translation>Eliminar</translation>
     </message>
     <message>
         <location line="-12"/>
         <source>Delete “%1”? This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Eliminar «%1»? Não pode ser desfeito.</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Keep</source>
-        <translation type="unfinished">Manter</translation>
+        <translation>Manter</translation>
     </message>
 </context>
 <context>
@@ -24106,36 +24120,36 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <location filename="../qml/ThemePresetPrompt.qml" line="+33"/>
         <location line="+76"/>
         <source>Start from %1?</source>
-        <translation type="unfinished"></translation>
+        <translation>Começar a partir de %1?</translation>
     </message>
     <message numerus="yes">
         <location line="+10"/>
         <source>This theme has %n colour(s) of its own.</source>
         <comment>custom theme, count of edited roles</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Este tema tem %n cor própria.</numerusform>
+            <numerusform>Este tema tem %n cores próprias.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Keep them on top of the new preset, or start over from it?</source>
-        <translation type="unfinished"></translation>
+        <translation>Mantê-las por cima do novo predefinido, ou começar de novo a partir dele?</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Keep my changes</source>
-        <translation type="unfinished"></translation>
+        <translation>Manter as minhas alterações</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Replace</source>
-        <translation type="unfinished"></translation>
+        <translation>Substituir</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
 </context>
 <context>
@@ -24211,22 +24225,22 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="-140"/>
         <source>Sample window. Tab or the arrow keys move between its parts, Enter edits one, Escape goes back to the list.</source>
-        <translation type="unfinished"></translation>
+        <translation>Janela de exemplo. Tab ou as setas movem-se entre as suas partes, Enter edita uma, Escape volta à lista.</translation>
     </message>
     <message>
         <location line="+131"/>
         <source>New release is out</source>
-        <translation type="unfinished"></translation>
+        <translation>Nova versão disponível</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Support</source>
-        <translation type="unfinished"></translation>
+        <translation>Apoio</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Open, pointer on it</source>
-        <translation type="unfinished"></translation>
+        <translation>Aberta, com o cursor por cima</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -24247,17 +24261,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="-884"/>
         <source>Favourites</source>
-        <translation type="unfinished"></translation>
+        <translation>Favoritos</translation>
     </message>
     <message>
         <location line="+277"/>
         <source>Call in progress</source>
-        <translation type="unfinished"></translation>
+        <translation>Chamada em curso</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>12:41</source>
-        <translation type="unfinished"></translation>
+        <translation>12:41</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -24302,17 +24316,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+24"/>
         <source>+1</source>
-        <translation type="unfinished"></translation>
+        <translation>+1</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Typing </source>
-        <translation type="unfinished"></translation>
+        <translation>A escrever </translation>
     </message>
     <message>
         <location line="+14"/>
         <source>this</source>
-        <translation type="unfinished"></translation>
+        <translation>isto</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -24322,82 +24336,82 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+57"/>
         <source>Reply</source>
-        <translation type="unfinished">Responder</translation>
+        <translation>Responder</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Forward</source>
-        <translation type="unfinished">Reencaminhar</translation>
+        <translation>Reencaminhar</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Delete</source>
-        <translation type="unfinished">Eliminar</translation>
+        <translation>Eliminar</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Admins</source>
-        <translation type="unfinished"></translation>
+        <translation>Administradores</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>Invited</source>
-        <translation type="unfinished">Convidado</translation>
+        <translation>Convidado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Banned</source>
-        <translation type="unfinished">Banido</translation>
+        <translation>Banido</translation>
     </message>
     <message>
         <location line="+82"/>
         <source>Open room</source>
-        <translation type="unfinished"></translation>
+        <translation>Sala aberta</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Room, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>Sala, com o cursor por cima</translation>
     </message>
     <message>
         <location line="-92"/>
         <source>Verified</source>
-        <translation type="unfinished">Verificada</translation>
+        <translation>Verificado</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Open channel</source>
-        <translation type="unfinished"></translation>
+        <translation>Canal aberto</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Channel, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>Canal, com o cursor por cima</translation>
     </message>
     <message>
         <location line="+55"/>
         <source>Quiet button</source>
-        <translation type="unfinished"></translation>
+        <translation>Botão discreto</translation>
     </message>
     <message>
         <location line="+57"/>
         <source>Settings</source>
-        <translation type="unfinished">Definições</translation>
+        <translation>Definições</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Rest</source>
-        <translation type="unfinished"></translation>
+        <translation>Repouso</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Hover</source>
-        <translation type="unfinished"></translation>
+        <translation>Ao passar</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Held</source>
-        <translation type="unfinished"></translation>
+        <translation>Premido</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -24410,86 +24424,86 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/ThemeReadabilityPanel.qml" line="+46"/>
         <source>Hard to read</source>
-        <translation type="unfinished"></translation>
+        <translation>Difícil de ler</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing hard to read</source>
-        <translation type="unfinished"></translation>
+        <translation>Nada difícil de ler</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Readable</source>
-        <translation type="unfinished"></translation>
+        <translation>Legível</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Close the readability report</source>
-        <translation type="unfinished"></translation>
+        <translation>Fechar o relatório de legibilidade</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>These are measured against the same rules the built-in themes meet. Click one to open it, or fix it here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Estes são medidos pelas mesmas regras que os temas incorporados cumprem. Clique num para o abrir, ou corrija-o aqui.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Every text and edge this theme paints clears the bar the built-in themes clear.</source>
-        <translation type="unfinished"></translation>
+        <translation>Cada texto e cada borda que este tema pinta cumpre o limiar que os temas incorporados cumprem.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing has been changed yet, so this is the starting preset as it ships.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda não foi alterado nada, por isso este é o predefinido inicial tal como é distribuído.</translation>
     </message>
     <message numerus="yes">
         <location line="+16"/>
         <source>%n colour(s) could not be checked: a see-through colour reads differently depending on what is behind it.</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n cor não pôde ser verificada: uma cor transparente lê-se de forma diferente consoante o que está por trás dela.</numerusform>
+            <numerusform>%n cores não puderam ser verificadas: uma cor transparente lê-se de forma diferente consoante o que está por trás dela.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+15"/>
         <source>%n check(s) could not be made: this build has no colour by that name.</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n verificação não pôde ser feita: esta versão não tem nenhuma cor com esse nome.</numerusform>
+            <numerusform>%n verificações não puderam ser feitas: esta versão não tem nenhuma cor com esse nome.</numerusform>
         </translation>
     </message>
     <message>
         <location line="+129"/>
         <source>Aa</source>
         <extracomment>A two-letter type specimen shown on a colour pair to demonstrate its readability. Translate to whichever letters best show this locale&apos;s script — a Latin &quot;Aa&quot; says nothing about legibility in Cyrillic, Greek or CJK.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Aa</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>%1:1 — needs %2:1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1:1 — precisa de %2:1</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>ΔL* %1 — needs %2</source>
-        <translation type="unfinished"></translation>
+        <translation>ΔL* %1 — precisa de %2</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Make this readable</source>
-        <translation type="unfinished"></translation>
+        <translation>Tornar isto legível</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Move the colour to the nearest one that is easy to read against its neighbours</source>
-        <translation type="unfinished"></translation>
+        <translation>Mover a cor para a mais próxima que seja fácil de ler contra as suas vizinhas</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Fix</source>
-        <translation type="unfinished"></translation>
+        <translation>Corrigir</translation>
     </message>
 </context>
 <context>
@@ -24497,36 +24511,36 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/ThemeSharePanel.qml" line="+121"/>
         <source>Share or import</source>
-        <translation type="unfinished"></translation>
+        <translation>Partilhar ou importar</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Share</source>
-        <translation type="unfinished">Partilhar</translation>
+        <translation>Partilhar</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Import</source>
-        <translation type="unfinished">Importar</translation>
+        <translation>Importar</translation>
     </message>
     <message>
         <location line="+65"/>
         <source>“%1” as a code you can paste to anyone. It holds colours and gradients only, nothing about you or your rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>«%1» como um código que pode colar para qualquer pessoa. Contém apenas cores e gradientes, nada sobre si nem sobre as suas salas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+312"/>
         <source>Untitled</source>
-        <translation type="unfinished">Sem título</translation>
+        <translation>Sem título</translation>
     </message>
     <message numerus="yes">
         <location line="-301"/>
         <source>%1 · %2 · %n thing(s) in it are hard to read</source>
         <comment>custom theme share summary</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%1 · %2 · %n elemento nele é difícil de ler</numerusform>
+            <numerusform>%1 · %2 · %n elementos nele são difíceis de ler</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -24535,9 +24549,9 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <location line="+220"/>
         <source>%n colour(s)</source>
         <comment>custom theme, edited colours</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n cor</numerusform>
+            <numerusform>%n cores</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -24546,89 +24560,89 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <location line="+220"/>
         <source>%n gradient(s)</source>
         <comment>custom theme, gradients</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n gradiente</numerusform>
+            <numerusform>%n gradientes</numerusform>
         </translation>
     </message>
     <message>
         <location line="-223"/>
         <source>%1 · %2 · readable</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · %2 · legível</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Copy code</source>
-        <translation type="unfinished">Copiar o código</translation>
+        <translation>Copiar código</translation>
     </message>
     <message>
         <location line="+51"/>
         <source>Paste a shared theme</source>
-        <translation type="unfinished">Colar um tema partilhado</translation>
+        <translation>Colar um tema partilhado</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Paste a shared theme, or drop its file on the editor</source>
-        <translation type="unfinished"></translation>
+        <translation>Cole um tema partilhado, ou largue o seu ficheiro no editor</translation>
     </message>
     <message>
         <location line="+56"/>
         <source>A small preview of the theme</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma pequena pré-visualização do tema</translation>
     </message>
     <message>
         <location line="+77"/>
         <source>Based on %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Baseado em %1</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>%1 · %2</source>
-        <translation type="unfinished">%1 · %2</translation>
+        <translation>%1 · %2</translation>
     </message>
     <message numerus="yes">
         <location line="+18"/>
         <source>%n thing(s) in it would be hard to read (estimated)</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n elemento nele seria difícil de ler (estimado)</numerusform>
+            <numerusform>%n elementos nele seriam difíceis de ler (estimado)</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Readable (estimated)</source>
-        <translation type="unfinished"></translation>
+        <translation>Legível (estimado)</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>You already have the most themes there is room for. Replace the current one, or delete another first.</source>
-        <translation type="unfinished"></translation>
+        <translation>Já tem tantos temas quantos cabem. Substitua o atual, ou elimine outro primeiro.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Import as new theme</source>
-        <translation type="unfinished"></translation>
+        <translation>Importar como novo tema</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Replace current</source>
-        <translation type="unfinished"></translation>
+        <translation>Substituir o atual</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Replace the colours of “%1” with these. Its name stays, and Undo brings the old colours back.</source>
-        <translation type="unfinished"></translation>
+        <translation>Substituir as cores de «%1» por estas. O nome mantém-se, e Anular repõe as cores antigas.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Clear</source>
-        <translation type="unfinished">Limpar</translation>
+        <translation>Limpar</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Replace keeps the name “%1” and changes only its colours and gradients.</source>
-        <translation type="unfinished"></translation>
+        <translation>Substituir mantém o nome «%1» e altera apenas as suas cores e gradientes.</translation>
     </message>
 </context>
 <context>
@@ -24636,55 +24650,55 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/ThemeSimplePanel.qml" line="+69"/>
         <source>Start from</source>
-        <translation type="unfinished">Partir de</translation>
+        <translation>Começar a partir de</translation>
     </message>
     <message>
         <location line="+87"/>
         <source>Base colours</source>
-        <translation type="unfinished"></translation>
+        <translation>Cores de base</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>A dark theme. Everything else is worked out from these colours; switch to Groups to refine it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Um tema escuro. Tudo o resto é calculado a partir destas cores; mude para Grupos para o refinar.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A light theme. Everything else is worked out from these colours; switch to Groups to refine it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Um tema claro. Tudo o resto é calculado a partir destas cores; mude para Grupos para o refinar.</translation>
     </message>
     <message numerus="yes">
         <location line="+47"/>
         <source>%n spot(s) hard to read. Review</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n ponto difícil de ler. Rever</numerusform>
+            <numerusform>%n pontos difíceis de ler. Rever</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Readable, %n not checked</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>Legível, %n não verificado</numerusform>
+            <numerusform>Legível, %n não verificados</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Readable everywhere</source>
-        <translation type="unfinished"></translation>
+        <translation>Legível em toda a parte</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Gradients</source>
-        <translation type="unfinished"></translation>
+        <translation>Gradientes</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The large areas can be a gradient instead of one colour. Open one, then choose Linear or Radial under Fill.</source>
-        <translation type="unfinished"></translation>
+        <translation>As áreas grandes podem ser um gradiente em vez de uma cor. Abra um e escolha Linear ou Radial em Preenchimento.</translation>
     </message>
 </context>
 <context>
@@ -24702,7 +24716,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+57"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível remover os dados da fotografia desta imagem, por isso não foi enviada. Pode alterar isto em Definições, Privacidade.</translation>
     </message>
     <message>
         <location line="+28"/>
@@ -24929,7 +24943,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <location line="+21"/>
         <location line="+128"/>
         <source>Press Enter again to send it as a message.</source>
-        <translation type="unfinished"></translation>
+        <translation>Prima Enter novamente para enviar como mensagem.</translation>
     </message>
     <message>
         <location line="-89"/>
@@ -24975,17 +24989,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+23"/>
         <source>Insert a GIF or sticker</source>
-        <translation type="unfinished"></translation>
+        <translation>Inserir um GIF ou autocolante</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>GIFs and stickers are unavailable on this backend</source>
-        <translation type="unfinished"></translation>
+        <translation>Os GIF e autocolantes não estão disponíveis neste backend</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>GIFs and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>GIF e autocolantes</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -25157,12 +25171,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/ThreadUnreadBadge.qml" line="+25"/>
         <source>Mention in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Menção num tópico</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unread in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Não lida num tópico</translation>
     </message>
 </context>
 <context>
@@ -25286,12 +25300,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+20"/>
         <source>Threads, mention in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Tópicos, menção num tópico</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Threads, unread in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Tópicos, não lida num tópico</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -25301,12 +25315,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+3"/>
         <source>Mention in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Menção num tópico</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unread in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>Não lida num tópico</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -25344,17 +25358,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <location line="-3663"/>
         <location line="+1"/>
         <source>More room actions</source>
-        <translation type="unfinished"></translation>
+        <translation>Mais ações da sala</translation>
     </message>
     <message>
         <location line="+70"/>
         <source>Chat background…</source>
-        <translation type="unfinished"></translation>
+        <translation>Fundo da conversa…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Room settings</source>
-        <translation type="unfinished"></translation>
+        <translation>Definições da sala</translation>
     </message>
     <message>
         <location line="+161"/>
@@ -25404,12 +25418,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+39"/>
         <source>Jump to date</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir para data</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Jump to a date in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir para uma data nesta sala</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -25459,62 +25473,62 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+23"/>
         <source>No matches in loaded messages</source>
-        <translation type="unfinished"></translation>
+        <translation>Sem correspondências nas mensagens carregadas</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Search all rooms for &apos;%1&apos;</source>
-        <translation type="unfinished"></translation>
+        <translation>Pesquisar todas as salas por «%1»</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Indexing this room&apos;s history…</source>
-        <translation type="unfinished"></translation>
+        <translation>A indexar o histórico desta sala…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Type at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>Escreva pelo menos %1 caracteres.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Nothing is indexed yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Ainda não há nada indexado.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Searching %1 messages Lightning has indexed, including encrypted ones.</source>
-        <translation type="unfinished"></translation>
+        <translation>A pesquisar em %1 mensagens que o Lightning indexou, incluindo as encriptadas.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Index this room</source>
-        <translation type="unfinished"></translation>
+        <translation>Indexar esta sala</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Fetch this room&apos;s older messages so they can be searched</source>
-        <translation type="unfinished"></translation>
+        <translation>Obter as mensagens mais antigas desta sala para poderem ser pesquisadas</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Indexed</source>
-        <translation type="unfinished"></translation>
+        <translation>Indexado</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning&apos;s own index. Works in encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>O índice próprio do Lightning. Funciona em salas encriptadas.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Server</source>
-        <translation type="unfinished"></translation>
+        <translation>Servidor</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your homeserver&apos;s search. Covers history this device has never seen, and cannot read encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>A pesquisa do seu servidor doméstico. Abrange histórico que este dispositivo nunca viu, e não consegue ler salas encriptadas.</translation>
     </message>
     <message>
         <location line="+44"/>
@@ -25595,17 +25609,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+37"/>
         <source>Jump to first unread message</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir para a primeira mensagem não lida</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Go to where you stopped reading</source>
-        <translation type="unfinished"></translation>
+        <translation>Ir para onde parou de ler</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>First unread</source>
-        <translation type="unfinished"></translation>
+        <translation>Primeira não lida</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -25620,20 +25634,20 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message numerus="yes">
         <location line="+224"/>
         <source>%n message(s) selected</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n mensagem selecionada</numerusform>
+            <numerusform>%n mensagens selecionadas</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Tap messages to select them</source>
-        <translation type="unfinished"></translation>
+        <translation>Toque nas mensagens para as selecionar</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Forward…</source>
-        <translation type="unfinished"></translation>
+        <translation>Reencaminhar…</translation>
     </message>
     <message>
         <location line="+396"/>
@@ -25978,17 +25992,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <location line="-5626"/>
         <location line="+91"/>
         <source>View profile</source>
-        <translation type="unfinished">Ver o perfil</translation>
+        <translation>Ver perfil</translation>
     </message>
     <message>
         <location line="+4857"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
     <message>
         <location line="+375"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>Imagens (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
         <location line="+284"/>
@@ -26057,12 +26071,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../src/app/TrayIcon.cpp" line="+254"/>
         <source>Show Lightning</source>
-        <translation type="unfinished"></translation>
+        <translation>Mostrar o Lightning</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Quit Lightning</source>
-        <translation type="unfinished">Sair de Lightning</translation>
+        <translation>Sair do Lightning</translation>
     </message>
     <message numerus="yes">
         <location line="+104"/>
@@ -26100,7 +26114,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+43"/>
         <source>Use recovery key instead</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar antes a chave de recuperação</translation>
     </message>
 </context>
 <context>
@@ -26248,12 +26262,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+3"/>
         <source>Updates for this installation are managed by zypper.</source>
-        <translation type="unfinished"></translation>
+        <translation>As atualizações desta instalação são geridas pelo zypper.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Updates for this installation are managed by dnf.</source>
-        <translation type="unfinished"></translation>
+        <translation>As atualizações desta instalação são geridas pelo dnf.</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -26388,7 +26402,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
         <location line="-401"/>
         <source>No check has run since Lightning started.</source>
         <extracomment>Shown under Status when no update check has run since the application started, but one has run before -- the date is on the &quot;Last checked&quot; row above.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>Ainda não foi feita nenhuma verificação desde que o Lightning arrancou.</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26433,12 +26447,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+3"/>
         <source>Updates for this installation are managed by zypper.</source>
-        <translation type="unfinished"></translation>
+        <translation>As atualizações desta instalação são geridas pelo zypper.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Updates for this installation are managed by dnf.</source>
-        <translation type="unfinished"></translation>
+        <translation>As atualizações desta instalação são geridas pelo dnf.</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -26518,12 +26532,12 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+8"/>
         <source>The last update could not be installed, and nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível instalar a última atualização, e nada foi alterado.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Code: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Código: %1</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -26761,17 +26775,17 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+15"/>
         <source>Hide recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>Ocultar chave de recuperação</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Use recovery key instead</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar antes a chave de recuperação</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Use key</source>
-        <translation type="unfinished"></translation>
+        <translation>Usar chave</translation>
     </message>
 </context>
 <context>
@@ -26830,7 +26844,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/VoiceConnectedBar.qml" line="+49"/>
         <source>Reconnecting…</source>
-        <translation type="unfinished">Reconectando…</translation>
+        <translation>A voltar a ligar…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -26878,47 +26892,47 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/VoiceMiniPlayer.qml" line="+308"/>
         <source>Now playing: %1 in %2. Go to the message</source>
-        <translation type="unfinished"></translation>
+        <translation>A reproduzir agora: %1 em %2. Ir para a mensagem</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Now playing: %1. Go to the message</source>
-        <translation type="unfinished"></translation>
+        <translation>A reproduzir agora: %1. Ir para a mensagem</translation>
     </message>
     <message>
         <location line="+84"/>
         <source>This audio cannot be played</source>
-        <translation type="unfinished">Não é possível reproduzir este áudio</translation>
+        <translation>Este áudio não pode ser reproduzido</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Voice message</source>
-        <translation type="unfinished">Mensagem de voz</translation>
+        <translation>Mensagem de voz</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Audio</source>
-        <translation type="unfinished">Áudio</translation>
+        <translation>Áudio</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>%1 of %2</source>
-        <translation type="unfinished">%1 de %2</translation>
+        <translation>%1 de %2</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Pause playback</source>
-        <translation type="unfinished"></translation>
+        <translation>Pausar a reprodução</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Resume playback</source>
-        <translation type="unfinished"></translation>
+        <translation>Retomar a reprodução</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Stop playback</source>
-        <translation type="unfinished"></translation>
+        <translation>Parar a reprodução</translation>
     </message>
 </context>
 <context>
@@ -26936,7 +26950,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+72"/>
         <source>Recording waveform</source>
-        <translation type="unfinished"></translation>
+        <translation>Forma de onda da gravação</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -27002,82 +27016,82 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../src/models/WidgetController.cpp" line="+308"/>
         <source>Your full Matrix ID</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu ID Matrix completo</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your display name</source>
-        <translation type="unfinished">O seu nome de exibição</translation>
+        <translation>O seu nome de exibição</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A link to your profile picture</source>
-        <translation type="unfinished"></translation>
+        <translation>Uma ligação à sua imagem de perfil</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This device&apos;s ID</source>
-        <translation type="unfinished"></translation>
+        <translation>O ID deste dispositivo</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Which room you opened it from</source>
-        <translation type="unfinished"></translation>
+        <translation>A sala a partir da qual o abriu</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Which theme you use</source>
-        <translation type="unfinished"></translation>
+        <translation>O tema que usa</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Which language you use</source>
-        <translation type="unfinished"></translation>
+        <translation>O idioma que usa</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your homeserver&apos;s address</source>
-        <translation type="unfinished"></translation>
+        <translation>O endereço do seu servidor doméstico</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your IP address, and anything your browser normally sends</source>
-        <translation type="unfinished"></translation>
+        <translation>O seu endereço IP, e tudo o que o seu navegador normalmente envia</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Something this build does not recognise (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>Algo que esta versão não reconhece (%1)</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>This widget&apos;s address is not HTTPS, so Lightning will not open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>O endereço deste widget não é HTTPS, por isso o Lightning não o vai abrir.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This widget&apos;s address hides its real site behind a name before the @, so Lightning will not open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>O endereço deste widget esconde o seu site real atrás de um nome antes do @, por isso o Lightning não o vai abrir.</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This widget builds its own address out of your profile, which could send your details anywhere. Lightning will not open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Este widget constrói o seu próprio endereço a partir do seu perfil, o que poderia enviar os seus dados para qualquer lado. O Lightning não o vai abrir.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This widget&apos;s address names no site.</source>
-        <translation type="unfinished"></translation>
+        <translation>O endereço deste widget não indica nenhum site.</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This widget&apos;s address is not a valid web address.</source>
-        <translation type="unfinished"></translation>
+        <translation>O endereço deste widget não é um endereço web válido.</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning cannot open this widget.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não consegue abrir este widget.</translation>
     </message>
 </context>
 <context>
@@ -27085,32 +27099,32 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../qml/WidgetOpenSheet.qml" line="+46"/>
         <source>Open this widget?</source>
-        <translation type="unfinished"></translation>
+        <translation>Abrir este widget?</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Lightning opens widgets in your browser rather than inside the app, so the page cannot reach your account, your keys, or your messages.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning abre os widgets no seu navegador em vez de dentro da aplicação, por isso a página não consegue chegar à sua conta, às suas chaves nem às suas mensagens.</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Added by %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Adicionado por %1</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The site will receive:</source>
-        <translation type="unfinished"></translation>
+        <translation>O site vai receber:</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Cancel</source>
-        <translation type="unfinished">Cancelar</translation>
+        <translation>Cancelar</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Open in browser</source>
-        <translation type="unfinished">Abrir no navegador</translation>
+        <translation>Abrir no navegador</translation>
     </message>
 </context>
 <context>
@@ -27118,57 +27132,57 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../src/update/UpdateManager.cpp" line="+1053"/>
         <source>Lightning is installed for all users of this computer, so installing an update needs administrator approval, and Windows did not get it. Nothing was changed. Approve the prompt next time, or ask an administrator to install the update.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning está instalado para todos os utilizadores deste computador, por isso instalar uma atualização exige aprovação de administrador, e o Windows não a obteve. Nada foi alterado. Aprove o pedido da próxima vez, ou peça a um administrador que instale a atualização.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The Windows installer refused the update (code %1). Installing the new version over the old one by hand usually works, and the code is worth reporting.</source>
-        <translation type="unfinished"></translation>
+        <translation>O instalador do Windows recusou a atualização (código %1). Instalar a nova versão por cima da antiga, manualmente, costuma funcionar, e o código vale a pena comunicar.</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The downloaded update did not match the signed release, so it was discarded and nothing was changed. This is usually a corrupted download. Checking again is safe.</source>
-        <translation type="unfinished"></translation>
+        <translation>A atualização transferida não corresponde à versão assinada, por isso foi descartada e nada foi alterado. Normalmente trata-se de uma transferência corrompida. Voltar a verificar é seguro.</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>The downloaded update could not be read and nothing was changed. Checking for the update again is safe.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível ler a atualização transferida e nada foi alterado. Voltar a verificar a atualização é seguro.</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Lightning could not write to its own installation folder, so nothing was changed. This usually means another program is holding files open, or the folder needs administrator rights. Closing Lightning fully and installing the new version by hand will work.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não conseguiu escrever na sua própria pasta de instalação, por isso nada foi alterado. Normalmente isto significa que outro programa tem ficheiros abertos, ou que a pasta precisa de direitos de administrador. Fechar totalmente o Lightning e instalar a nova versão manualmente vai funcionar.</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Lightning did not finish closing, so the update was cancelled and nothing was changed. If Lightning is set to keep running in the tray, quit it from the tray first, then install the update.</source>
-        <translation type="unfinished"></translation>
+        <translation>O Lightning não terminou de fechar, por isso a atualização foi cancelada e nada foi alterado. Se o Lightning estiver configurado para continuar em execução na bandeja, saia dele a partir da bandeja e depois instale a atualização.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The new version could not be put in place, so the previous one was restored. Nothing was lost.</source>
-        <translation type="unfinished"></translation>
+        <translation>A nova versão não pôde ser colocada no lugar, por isso a anterior foi restaurada. Nada se perdeu.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The update failed and the previous version could not be fully restored. Please reinstall Lightning from the downloads page. Your messages and account are on the server and are not affected.</source>
-        <translation type="unfinished"></translation>
+        <translation>A atualização falhou e a versão anterior não pôde ser totalmente restaurada. Reinstale o Lightning a partir da página de transferências. As suas mensagens e a sua conta estão no servidor e não são afetadas.</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The Windows installer could not be started, so nothing was changed. Installing the new version by hand will work.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível iniciar o instalador do Windows, por isso nada foi alterado. Instalar a nova versão manualmente vai funcionar.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>This installation cannot update itself, so nothing was changed. Install the new version the same way this copy was installed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Esta instalação não se consegue atualizar sozinha, por isso nada foi alterado. Instale a nova versão da mesma forma que esta cópia foi instalada.</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>The update was stopped by one of Lightning&apos;s own safety checks and nothing was changed. This is a fault in Lightning rather than anything you did. Please report it with the code below.</source>
-        <translation type="unfinished"></translation>
+        <translation>A atualização foi interrompida por uma das verificações de segurança do próprio Lightning e nada foi alterado. Isto é uma falha do Lightning e não algo que tenha feito. Por favor, comunique-a com o código abaixo.</translation>
     </message>
 </context>
 <context>
@@ -27219,37 +27233,37 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location filename="../src/matrix/RoomActionError.cpp" line="+10"/>
         <source>Could not change this room&apos;s favourite status.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível alterar o estado de favorito desta sala.</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Could not mark this room as read.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível marcar esta sala como lida.</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Could not change this room&apos;s unread mark.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível alterar a marca de não lida desta sala.</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>The server could not be reached. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Não foi possível contactar o servidor. Verifique a sua ligação e tente novamente.</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The server is busy or having trouble. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor está ocupado ou com problemas. Tente novamente dentro de momentos.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The server did not accept this session. Try again, and sign in again if it keeps happening.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor não aceitou esta sessão. Tente novamente, e inicie sessão de novo se isto continuar a acontecer.</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The server refused the change.</source>
-        <translation type="unfinished"></translation>
+        <translation>O servidor recusou a alteração.</translation>
     </message>
 </context>
 </TS>

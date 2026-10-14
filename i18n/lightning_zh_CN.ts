@@ -6,87 +6,87 @@
     <message>
         <location filename="../src/app/AboutController.cpp" line="+22"/>
         <source>The homeserver could not be reached.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法连接到主服务器。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The homeserver refused the request.</source>
-        <translation type="unfinished"></translation>
+        <translation>主服务器拒绝了该请求。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The answer was too large to show.</source>
-        <translation type="unfinished"></translation>
+        <translation>结果太大，无法显示。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The homeserver did not give a usable answer.</source>
-        <translation type="unfinished"></translation>
+        <translation>主服务器没有返回可用的结果。</translation>
     </message>
     <message>
         <location line="+132"/>
         <source>Nothing was cleared: you are not signed in.</source>
-        <translation type="unfinished"></translation>
+        <translation>未清除任何内容：你尚未登录。</translation>
     </message>
     <message>
         <location line="+12"/>
         <location line="+26"/>
         <location line="+36"/>
         <source>media cache</source>
-        <translation type="unfinished"></translation>
+        <translation>媒体缓存</translation>
     </message>
     <message>
         <location line="-57"/>
         <location line="+56"/>
         <location line="+65"/>
         <source>event cache</source>
-        <translation type="unfinished"></translation>
+        <translation>事件缓存</translation>
     </message>
     <message>
         <location line="-117"/>
         <location line="+2"/>
         <source>search index</source>
-        <translation type="unfinished"></translation>
+        <translation>搜索索引</translation>
     </message>
     <message>
         <location line="+74"/>
         <source>Disk use of those caches went from %1 to %2.</source>
-        <translation type="unfinished"></translation>
+        <translation>这些缓存占用的磁盘空间从 %1 变为 %2。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Could not be compacted: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法压缩：%1。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Still being compacted: %1. The space is returned when that finishes.</source>
-        <translation type="unfinished"></translation>
+        <translation>仍在压缩：%1。完成后会释放空间。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Compaction did not report back: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>压缩没有返回结果：%1。</translation>
     </message>
     <message>
         <location line="+52"/>
         <source>Clearing did not finish. Some of the cache may still be on disk; you can try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>清理未完成。部分缓存可能仍在磁盘上；你可以再试一次。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Cleared the event cache, the media cache and the search index. Your sign-in and encryption keys were not touched.</source>
-        <translation type="unfinished"></translation>
+        <translation>已清除事件缓存、媒体缓存和搜索索引。你的登录状态和加密密钥未受影响。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Nothing was cleared (%1). Your sign-in and encryption keys were not touched.</source>
-        <translation type="unfinished"></translation>
+        <translation>未清除任何内容（%1）。你的登录状态和加密密钥未受影响。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Cleared: %1. Could not clear: %2. Your sign-in and encryption keys were not touched.</source>
-        <translation type="unfinished"></translation>
+        <translation>已清除：%1。无法清除：%2。你的登录状态和加密密钥未受影响。</translation>
     </message>
 </context>
 <context>
@@ -94,131 +94,133 @@
     <message>
         <location filename="../qml/AboutToolsSection.qml" line="+61"/>
         <source>This build</source>
-        <translation type="unfinished"></translation>
+        <translation>当前版本</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Copied</source>
-        <translation type="unfinished">已复制</translation>
+        <translation>已复制</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Copy version</source>
-        <translation type="unfinished"></translation>
+        <translation>复制版本信息</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Copies the version, commit, platform and package kind</source>
-        <translation type="unfinished"></translation>
+        <translation>复制版本、提交、平台和安装包类型</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Report an issue</source>
-        <translation type="unfinished"></translation>
+        <translation>报告问题</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Opens the issue tracker in your browser</source>
-        <translation type="unfinished"></translation>
+        <translation>在浏览器中打开问题跟踪页面</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Paste the version into your report. Please leave out anything private.</source>
-        <translation type="unfinished"></translation>
+        <translation>将版本信息粘贴到你的报告中。请删去任何隐私内容。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Homeserver</source>
-        <translation type="unfinished">主服务器</translation>
+        <translation>主服务器</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Asking the homeserver...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在向主服务器查询…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This backend cannot ask a homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>此后端无法查询主服务器。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Address</source>
-        <translation type="unfinished"></translation>
+        <translation>地址</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Software</source>
-        <translation type="unfinished"></translation>
+        <translation>软件</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Not published by this server</source>
-        <translation type="unfinished"></translation>
+        <translation>此服务器未公布</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Features</source>
-        <translation type="unfinished"></translation>
+        <translation>功能</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Matrix %1</source>
-        <translation type="unfinished"></translation>
+        <translation>Matrix %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>None listed</source>
-        <translation type="unfinished"></translation>
+        <translation>未列出</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source> and %n more (see Developer tools)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>，另有 %n 项（参见开发者工具）</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Refresh</source>
-        <translation type="unfinished">刷新</translation>
+        <translation>刷新</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Local data</source>
-        <translation type="unfinished"></translation>
+        <translation>本地数据</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>If rooms look stale or stuck, clearing the local cache makes Lightning fetch them from the server again.</source>
-        <translation type="unfinished"></translation>
+        <translation>如果房间显示过时或卡住，清除本地缓存后，Lightning 会重新从服务器获取它们。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Reset local cache</source>
-        <translation type="unfinished"></translation>
+        <translation>重置本地缓存</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Reset the local cache?</source>
-        <translation type="unfinished"></translation>
+        <translation>重置本地缓存？</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Reset cache</source>
-        <translation type="unfinished"></translation>
+        <translation>重置缓存</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This clears three things on this device: the event cache (messages stored for quick opening), the media cache, and the search index. Rooms reload from the server and media downloads again, and searching your history stops working until Lightning has indexed it again.
 
 It does not touch your encryption keys, your sign-in or any message on the server, and it does not sign you out.</source>
-        <translation type="unfinished"></translation>
+        <translation>这将清除本设备上的三项内容：事件缓存（为快速打开而保存的消息）、媒体缓存和搜索索引。房间会从服务器重新加载，媒体会重新下载，在 Lightning 重新建立索引之前，搜索历史记录的功能将无法使用。
+
+此操作不会影响你的加密密钥、登录状态或服务器上的任何消息，也不会让你退出登录。</translation>
     </message>
 </context>
 <context>
@@ -237,7 +239,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+135"/>
         <source>Encryption ready. Open Security and Recovery.</source>
-        <translation type="unfinished"></translation>
+        <translation>加密已就绪。请打开“安全与恢复”。</translation>
     </message>
     <message>
         <location line="+97"/>
@@ -258,63 +260,63 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="-322"/>
         <source>Edit status…</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑状态…</translation>
     </message>
     <message>
         <location line="-73"/>
         <source>Encrypted</source>
-        <translation type="unfinished">已加密</translation>
+        <translation>已加密</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Verified</source>
-        <translation type="unfinished">已验证</translation>
+        <translation>已验证</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Verify this device</source>
-        <translation type="unfinished"></translation>
+        <translation>验证此设备</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Finish security setup</source>
-        <translation type="unfinished"></translation>
+        <translation>完成安全设置</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1: %2 of %3 trust checks done. Open Security and Recovery.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1：已完成 %2 项，共 %3 项信任检查。请打开“安全与恢复”。</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+84"/>
         <source>Security and recovery</source>
-        <translation type="unfinished"></translation>
+        <translation>安全与恢复</translation>
     </message>
     <message>
         <location line="-82"/>
         <source>This device isn&apos;t verified yet. Verify it so your other sessions trust it.</source>
-        <translation type="unfinished"></translation>
+        <translation>此设备尚未验证。请验证它，以便你的其他会话信任它。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Some security steps are not done yet. Open Security and recovery to finish them.</source>
-        <translation type="unfinished"></translation>
+        <translation>部分安全步骤尚未完成。请打开“安全与恢复”来完成它们。</translation>
     </message>
     <message>
         <location line="+59"/>
         <source>Set a status…</source>
-        <translation type="unfinished"></translation>
+        <translation>设置状态…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Theme, colours and background</source>
-        <translation type="unfinished"></translation>
+        <translation>主题、颜色和背景</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Name and picture</source>
-        <translation type="unfinished"></translation>
+        <translation>名称和头像</translation>
     </message>
     <message>
         <location line="+60"/>
@@ -355,65 +357,65 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message numerus="yes">
         <location line="+19"/>
         <source>%n of your chat backgrounds is not saved on your homeserver yet. Signing out now deletes it from this device.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>你的 %n 个聊天背景尚未保存到你的主服务器。现在退出登录会将其从此设备删除。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
         <source>%n chat background you removed is still on your homeserver and comes back when you sign in again.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>你移除的 %n 个聊天背景仍在你的主服务器上，重新登录后会再次出现。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Checking your key backup…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在检查你的密钥备份…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your room keys are not backed up. Encrypted messages that only this session can read cannot be read again once you sign out.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的房间密钥未备份。仅此会话可以读取的加密消息，在你退出登录后将无法再次读取。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>You have no recovery key. Your keys are backed up, but without a recovery key you cannot unlock that backup after signing in again.</source>
-        <translation type="unfinished"></translation>
+        <translation>你没有恢复密钥。你的密钥已备份，但没有恢复密钥，重新登录后将无法解锁该备份。</translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n room key is not backed up yet. Signing out now loses it for good.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>有 %n 个房间密钥尚未备份。现在退出登录将永久丢失它。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning could not confirm that your room keys are backed up.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法确认你的房间密钥已备份。</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n other verified session keeps its own keys, though not necessarily every one this session holds.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>另有 %n 个已验证会话保存着它们自己的密钥，但不一定包含此会话持有的每一个密钥。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+5"/>
         <source>You have no other verified session.</source>
-        <translation type="unfinished"></translation>
+        <translation>你没有其他已验证的会话。</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Set up recovery</source>
-        <translation type="unfinished"></translation>
+        <translation>设置恢复</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Sign out anyway</source>
-        <translation type="unfinished"></translation>
+        <translation>仍然退出登录</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -426,154 +428,154 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/ActivityCenterPanel.qml" line="+46"/>
         <source>Mentioned you</source>
-        <translation type="unfinished"></translation>
+        <translation>提及了你</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mentioned everyone</source>
-        <translation type="unfinished"></translation>
+        <translation>提及了所有人</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Replied to you</source>
-        <translation type="unfinished"></translation>
+        <translation>回复了你</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Replied in your thread</source>
-        <translation type="unfinished"></translation>
+        <translation>在你的话题中回复</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reacted %1 to your message</source>
-        <translation type="unfinished"></translation>
+        <translation>对你的消息作出了 %1 表情回应</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Invited you</source>
-        <translation type="unfinished"></translation>
+        <translation>邀请了你</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Keyword</source>
-        <translation type="unfinished"></translation>
+        <translation>关键词</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Mention or keyword</source>
-        <translation type="unfinished"></translation>
+        <translation>提及或关键词</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Activity</source>
-        <translation type="unfinished"></translation>
+        <translation>动态</translation>
     </message>
     <message numerus="yes">
         <location line="+10"/>
         <source>%n new</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 条新消息</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Mark all seen</source>
-        <translation type="unfinished"></translation>
+        <translation>全部标记为已读</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Close</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>All</source>
-        <translation type="unfinished">全部</translation>
+        <translation>全部</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mentions</source>
-        <translation type="unfinished">提及</translation>
+        <translation>提及</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Replies</source>
-        <translation type="unfinished">回复</translation>
+        <translation>回复</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Threads</source>
-        <translation type="unfinished">话题</translation>
+        <translation>话题</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reactions</source>
-        <translation type="unfinished"></translation>
+        <translation>表情回应</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Invites</source>
-        <translation type="unfinished">邀请</translation>
+        <translation>邀请</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Keywords</source>
-        <translation type="unfinished"></translation>
+        <translation>关键词</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Keywords, separated by commas</source>
-        <translation type="unfinished"></translation>
+        <translation>关键词，用逗号分隔</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Save</source>
-        <translation type="unfinished">保存</translation>
+        <translation>保存</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Add keywords above to be told when someone uses them.</source>
-        <translation type="unfinished"></translation>
+        <translation>在上方添加关键词，有人使用时你会收到通知。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No message has used your keywords yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>还没有消息使用你的关键词。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No pending invites.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有待处理的邀请。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nobody has reacted to your messages yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>还没有人对你的消息作出表情回应。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing here yet. Mentions, replies and reactions to you will show up as they arrive.</source>
-        <translation type="unfinished"></translation>
+        <translation>这里还没有内容。提及你、回复你以及对你的表情回应到达时会显示在这里。</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>%1 in %2, %3: %4</source>
-        <translation type="unfinished"></translation>
+        <translation>%2 的 %3 中，%1：%4</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>encrypted message</source>
-        <translation type="unfinished"></translation>
+        <translation>加密消息</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>Encrypted message</source>
-        <translation type="unfinished">加密消息</translation>
+        <translation>加密消息</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>From %1</source>
-        <translation type="unfinished"></translation>
+        <translation>来自 %1</translation>
     </message>
 </context>
 <context>
@@ -581,117 +583,117 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/AddWidgetDialog.qml" line="+22"/>
         <source>Web page</source>
-        <translation type="unfinished"></translation>
+        <translation>网页</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Any https page — a dashboard, a document, a board.</source>
-        <translation type="unfinished"></translation>
+        <translation>任何 https 页面，例如仪表板、文档或看板。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Etherpad pad</source>
-        <translation type="unfinished"></translation>
+        <translation>Etherpad 文档</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The pad&apos;s own address, e.g. https://pad.example/p/notes</source>
-        <translation type="unfinished"></translation>
+        <translation>该文档自身的地址，例如 https://pad.example/p/notes</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Jitsi meeting</source>
-        <translation type="unfinished"></translation>
+        <translation>Jitsi 会议</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The meeting address, e.g. https://meet.example/room-name. Lightning has its own calls; this is for a room that already uses Jitsi.</source>
-        <translation type="unfinished"></translation>
+        <translation>会议地址，例如 https://meet.example/room-name。Lightning 自带通话功能；此项适用于已在使用 Jitsi 的房间。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Video</source>
-        <translation type="unfinished">视频</translation>
+        <translation>视频</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A video page address.</source>
-        <translation type="unfinished"></translation>
+        <translation>视频页面的地址。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Image</source>
-        <translation type="unfinished">图片</translation>
+        <translation>图片</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>An image address (https).</source>
-        <translation type="unfinished"></translation>
+        <translation>图片地址（https）。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Grafana dashboard</source>
-        <translation type="unfinished"></translation>
+        <translation>Grafana 仪表板</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A Grafana dashboard&apos;s share address.</source>
-        <translation type="unfinished"></translation>
+        <translation>Grafana 仪表板的分享地址。</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>You do not have permission to add widgets here.</source>
-        <translation type="unfinished"></translation>
+        <translation>你没有在此处添加小组件的权限。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The widget could not be added.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法添加该小组件。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Add a widget</source>
-        <translation type="unfinished"></translation>
+        <translation>添加小组件</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Kind</source>
-        <translation type="unfinished"></translation>
+        <translation>类型</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Address</source>
-        <translation type="unfinished"></translation>
+        <translation>地址</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>https://…</source>
-        <translation type="unfinished"></translation>
+        <translation>https://…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The address must start with https:// and carry no username or password.</source>
-        <translation type="unfinished"></translation>
+        <translation>地址必须以 https:// 开头，且不得包含用户名或密码。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Name (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>名称（可选）</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Everyone in the room will see this widget. Lightning opens widgets in your browser, so the page never reaches your account, keys or messages.</source>
-        <translation type="unfinished"></translation>
+        <translation>房间中的所有人都会看到此小组件。Lightning 会在你的浏览器中打开小组件，因此该页面无法接触你的账号、密钥或消息。</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Add</source>
-        <translation type="unfinished">添加</translation>
+        <translation>添加</translation>
     </message>
 </context>
 <context>
@@ -743,7 +745,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+39"/>
         <source>The sign-out was cancelled because the account changed. Nothing was reset.</source>
-        <translation type="unfinished"></translation>
+        <translation>因账号已变更，退出登录已取消。未重置任何内容。</translation>
     </message>
     <message>
         <location line="+63"/>
@@ -826,12 +828,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+139"/>
         <source>The server refused to rename this session.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了重命名此会话的请求。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The session could not be renamed.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法重命名此会话。</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -885,17 +887,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="-2237"/>
         <location line="+2353"/>
         <source>Lightning</source>
-        <translation type="unfinished">Lightning</translation>
+        <translation>Lightning</translation>
     </message>
     <message>
         <location line="-2352"/>
         <source>This is a test notification. If you can read it, desktop notifications work.</source>
-        <translation type="unfinished"></translation>
+        <translation>这是一条测试通知。如果你能看到它，说明桌面通知可以正常工作。</translation>
     </message>
     <message>
         <location line="+2353"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>该通知属于另一个账号，因此未发送。请切换回该账号后重试。</translation>
     </message>
     <message>
         <location line="+543"/>
@@ -1007,22 +1009,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+305"/>
         <source>No room is open.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有打开的房间。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Choose a file on this computer.</source>
-        <translation type="unfinished"></translation>
+        <translation>请选择此电脑上的一个文件。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Could not write that file.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法写入该文件。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Could not finish writing that file.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法完成该文件的写入。</translation>
     </message>
     <message>
         <location line="+166"/>
@@ -1063,7 +1065,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+31"/>
         <source>Renaming sessions is not available here.</source>
-        <translation type="unfinished"></translation>
+        <translation>此处无法重命名会话。</translation>
     </message>
     <message>
         <location line="+39"/>
@@ -1090,7 +1092,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+175"/>
         <source>The keyring still does not return this account&apos;s saved sign-in.</source>
-        <translation type="unfinished"></translation>
+        <translation>密钥环仍无法返回此账号保存的登录信息。</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -1100,7 +1102,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+519"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 目前无法读取本设备保存的登录信息：系统密钥环已锁定或不可用。你的其他账号仍保存在本设备上；请解锁密钥环并重新启动 Lightning 以继续使用它们。</translation>
     </message>
     <message>
         <location line="+113"/>
@@ -1141,19 +1143,19 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+9"/>
         <source>Your system keyring no longer returns that account&apos;s saved sign-in. Nothing was deleted: sign in to it again to continue on this device.</source>
-        <translation type="unfinished"></translation>
+        <translation>系统密钥环不再返回该账号保存的登录信息。未删除任何内容：请重新登录该账号以继续在本设备上使用。</translation>
     </message>
     <message>
         <location line="+281"/>
         <source>This account can&apos;t be removed while the system keyring can&apos;t be read: its saved sign-in is there and would be left behind. Unlock the keyring, or start it, and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>在系统密钥环无法读取时，无法移除此账号：其保存的登录信息仍在，移除后会残留。请解锁或启动密钥环后重试。</translation>
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+377"/>
         <location filename="../src/app/AppController.cpp" line="-1206"/>
         <location line="+935"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 目前无法读取本设备保存的登录信息：系统密钥环已锁定或不可用。请解锁后重试。</translation>
     </message>
     <message>
         <location filename="../src/app/AppController.cpp" line="+32"/>
@@ -1285,7 +1287,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+163"/>
         <source>The converted picture couldn&apos;t be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法保存转换后的图片。</translation>
     </message>
     <message>
         <location line="+67"/>
@@ -1303,7 +1305,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/AudioLevelBar.qml" line="+27"/>
         <source>Microphone level</source>
-        <translation type="unfinished"></translation>
+        <translation>麦克风音量</translation>
     </message>
 </context>
 <context>
@@ -1362,7 +1364,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+52"/>
         <source>Download %1</source>
-        <translation type="unfinished"></translation>
+        <translation>下载 %1</translation>
     </message>
     <message>
         <location line="+0"/>
@@ -1375,7 +1377,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../src/auth/AuthManager.cpp" line="+132"/>
         <source>Couldn&apos;t open your web browser. Cancel and try again, or sign in another way.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法打开你的网页浏览器。请取消后重试，或以其他方式登录。</translation>
     </message>
     <message>
         <location line="+300"/>
@@ -1385,7 +1387,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+26"/>
         <source>This server does not create accounts from Lightning.</source>
-        <translation type="unfinished"></translation>
+        <translation>此服务器不支持通过 Lightning 创建账号。</translation>
     </message>
     <message>
         <location line="+59"/>
@@ -1395,12 +1397,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+53"/>
         <source>Lightning can&apos;t keep an account for this server on this device, so it did not open your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法为此服务器在本设备上保存账号，因此没有打开你的浏览器。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>That is not a server address. Enter one like matrix.org.</source>
-        <translation type="unfinished"></translation>
+        <translation>这不是有效的服务器地址。请输入类似 matrix.org 的地址。</translation>
     </message>
 </context>
 <context>
@@ -1408,57 +1410,57 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/BackgroundSyncPrompt.qml" line="+78"/>
         <source>Chat backgrounds on your homeserver</source>
-        <translation type="unfinished"></translation>
+        <translation>主服务器上的聊天背景</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Two different backgrounds</source>
-        <translation type="unfinished"></translation>
+        <translation>两个不同的背景</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Lightning will now keep your chat backgrounds on your homeserver, encrypted, so they follow you to your other devices. The key to each picture is kept in your account data, which your homeserver&apos;s administrator can read.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 现在会将你的聊天背景加密后保存在你的主服务器上，使其能在你的其他设备上同步。每张图片的密钥保存在你的账号数据中，主服务器的管理员可以读取。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>A different background for every room came from your other device.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的另一台设备为每个房间设置了不同的背景。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A different background for %1 came from your other device.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的另一台设备为 %1 设置了不同的背景。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>a room</source>
-        <translation type="unfinished"></translation>
+        <translation>某个房间</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>They look the same.</source>
-        <translation type="unfinished"></translation>
+        <translation>它们看起来相同。</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>OK</source>
-        <translation type="unfinished"></translation>
+        <translation>好</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Use this one</source>
-        <translation type="unfinished"></translation>
+        <translation>使用此背景</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Don&apos;t keep them on my homeserver</source>
-        <translation type="unfinished"></translation>
+        <translation>不要保存到我的主服务器</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Use the synced one</source>
-        <translation type="unfinished"></translation>
+        <translation>使用已同步的背景</translation>
     </message>
 </context>
 <context>
@@ -1466,124 +1468,124 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../src/crypto/BackupController.cpp" line="+115"/>
         <source>The approval had already gone through before Cancel took effect, so the change was completed.</source>
-        <translation type="unfinished"></translation>
+        <translation>在“取消”生效前，审批已经通过，因此更改已完成。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The approval page the server sent is not a secure (https) address, so Lightning did not open it and stopped.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器发送的审批页面不是安全（https）地址，因此 Lightning 没有打开它并已停止。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server asked for an authentication step Lightning cannot do here. Use your account&apos;s own management page for this change.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器要求进行 Lightning 在此无法完成的身份验证步骤。请使用你账号自己的管理页面进行此更改。</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>This account already has a cross-signing identity, but this session does not hold its keys and they could not be created again without replacing that identity. Lightning will not replace it automatically. Verify this session with another session, or enter your recovery key; resetting is the last resort.</source>
-        <translation type="unfinished"></translation>
+        <translation>此账号已有交叉签名身份，但此会话未持有其密钥；若不替换该身份，这些密钥无法重新创建。Lightning 不会自动替换它。请用其他会话验证此会话，或输入你的恢复密钥；重置是最后的手段。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>This account already has a recovery key. Enter it so the new keys are stored with it and it keeps working. If you no longer have it, Lightning can replace it with a new one instead. Nothing was changed yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>此账号已有恢复密钥。请输入它，以便新密钥与之一同保存并继续有效。如果你已不再拥有它，Lightning 可以改为生成新的恢复密钥。尚未更改任何内容。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>That recovery key does not unlock your secret storage. Nothing was changed; check it and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>该恢复密钥无法解锁你的秘密存储。未更改任何内容；请检查后重试。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Cancelled. The server did not receive any new keys, so nothing changed on your account.</source>
-        <translation type="unfinished"></translation>
+        <translation>已取消。服务器未收到任何新密钥，因此你的账号未发生变化。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Cancelled. The server never accepted the replacement keys, so your account keeps its existing cross-signing identity. The new keys this session had already prepared for the reset were discarded; verify this session with another session or with your recovery key.</source>
-        <translation type="unfinished"></translation>
+        <translation>已取消。服务器从未接受替换密钥，因此你的账号保留其现有的交叉签名身份。此会话为重置而准备的新密钥已被丢弃；请用其他会话或你的恢复密钥验证此会话。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Cancelled. The server never accepted the replacement keys, so your account keeps its existing cross-signing identity. This session still holds the unused replacement keys until it next checks your identity with the server, which it could not do just now.</source>
-        <translation type="unfinished"></translation>
+        <translation>已取消。服务器从未接受替换密钥，因此你的账号保留其现有的交叉签名身份。此会话仍持有未使用的替换密钥，直到下次向服务器核对你的身份时才会处理，而刚才无法完成该核对。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The reset did not go through: the server kept your existing cross-signing identity. The replacement keys this session had already prepared were discarded. Verify this session with another session or with your recovery key, or try the reset again.</source>
-        <translation type="unfinished"></translation>
+        <translation>重置未成功：服务器保留了你现有的交叉签名身份。此会话已准备好的替换密钥已被丢弃。请用其他会话或你的恢复密钥验证此会话，或再次尝试重置。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The reset did not complete, and Lightning could not confirm with the server what it left behind. Check the state above again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>重置未完成，且 Lightning 无法向服务器确认它遗留的状态。请稍后再次检查上方的状态。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your cross-signing identity was replaced, but the reset did not finish. Use &quot;Finish setting up&quot; to complete it.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的交叉签名身份已被替换，但重置未完成。请使用“完成设置”来完成它。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The server accepted your new cross-signing identity, but this session lost its keys while the reset was waiting for your approval, so nobody holds them and the new identity cannot verify anything. Nothing is fixed by waiting: run &quot;Reset&quot; again.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器已接受你的新交叉签名身份，但在重置等待你批准期间，此会话丢失了其密钥，因此没有人持有这些密钥，新身份无法验证任何内容。等待不会解决此问题：请再次运行“重置”。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Cross-signing is set up on your account, but this session could not be signed with it yet. Use &quot;Finish setting up&quot; in a moment to sign it.</source>
-        <translation type="unfinished"></translation>
+        <translation>你账号上的交叉签名已设置，但此会话尚无法用它签名。请稍后使用“完成设置”来为其签名。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your account has a key backup but no secret storage, and Lightning cannot store the new keys alongside a backup it cannot open. Nothing was changed. If you have that backup&apos;s recovery key, restore it first. If you don&apos;t, the last resort is &quot;Delete backup&quot;: messages whose keys exist only in that backup then become unreadable on every new session, for good. Set up cross-signing again after that.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的账号有密钥备份但没有秘密存储，而 Lightning 无法在它打不开的备份旁边保存新密钥。未更改任何内容。如果你有该备份的恢复密钥，请先恢复它。如果没有，最后的手段是“删除备份”：此后，密钥仅存在于该备份中的消息将永久无法在每个新会话中读取。之后请重新设置交叉签名。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Lightning could not confirm whether the reset was stopped before the server accepted it. Check the state above again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法确认重置是否在服务器接受之前已被停止。请稍后再次检查上方的状态。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The approval was not given in time. The server did not receive the new keys; try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>未在限定时间内给予批准。服务器未收到新密钥；请重试。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning could not tell whether secret storage is set up yet. Wait a moment and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法确定秘密存储是否已设置。请稍候再试。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The server refused this backup change.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了此次备份更改。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The backup change did not complete. Some of it may already have been applied — check the state above.</source>
-        <translation type="unfinished"></translation>
+        <translation>备份更改未完成。其中部分内容可能已生效，请检查上方的状态。</translation>
     </message>
     <message>
         <location line="+18"/>
         <location line="+27"/>
         <source>Unknown backup action.</source>
-        <translation type="unfinished"></translation>
+        <translation>未知的备份操作。</translation>
     </message>
     <message>
         <location line="-17"/>
         <location line="+35"/>
         <source>Backup management is not available on this backend.</source>
-        <translation type="unfinished"></translation>
+        <translation>此后端不支持备份管理。</translation>
     </message>
     <message>
         <location line="-12"/>
         <source>Use either your current recovery key or a new one, not both.</source>
-        <translation type="unfinished"></translation>
+        <translation>请只使用当前的恢复密钥或新的恢复密钥之一，不要两者都用。</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>The password could not be sent. Try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法发送密码。请重试。</translation>
     </message>
 </context>
 <context>
@@ -1629,83 +1631,83 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+12"/>
         <source>Your chosen camera isn&apos;t connected</source>
-        <translation type="unfinished"></translation>
+        <translation>所选摄像头未连接</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Input level</source>
-        <translation type="unfinished"></translation>
+        <translation>输入音量</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Muted</source>
-        <translation type="unfinished">已静音</translation>
+        <translation>已静音</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Nothing heard</source>
-        <translation type="unfinished"></translation>
+        <translation>未听到声音</translation>
     </message>
     <message>
         <location line="+59"/>
         <location line="+29"/>
         <source>Input volume</source>
-        <translation type="unfinished"></translation>
+        <translation>输入音量</translation>
     </message>
     <message>
         <location line="+56"/>
         <source>Above 100% amplifies and can clip.</source>
-        <translation type="unfinished"></translation>
+        <translation>超过 100% 会放大，并可能产生削波失真。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Reset input volume</source>
-        <translation type="unfinished"></translation>
+        <translation>重置输入音量</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Noise suppression</source>
-        <translation type="unfinished"></translation>
+        <translation>降噪</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Off</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Standard (WebRTC)</source>
-        <translation type="unfinished"></translation>
+        <translation>标准（WebRTC）</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Strong (RNNoise) · Recommended</source>
-        <translation type="unfinished"></translation>
+        <translation>强（RNNoise）· 推荐</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Advanced (DeepFilterNet)</source>
-        <translation type="unfinished"></translation>
+        <translation>高级（DeepFilterNet）</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>%1 couldn&apos;t start; using WebRTC instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 无法启动；改用 WebRTC。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 couldn&apos;t start; your microphone is sent without it.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 无法启动；你的麦克风将在不使用它的情况下发送音频。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>More about these in Settings → Labs…</source>
-        <translation type="unfinished"></translation>
+        <translation>关于这些功能的详情，请参见“设置 → 实验性功能”…</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Sound settings…</source>
-        <translation type="unfinished"></translation>
+        <translation>声音设置…</translation>
     </message>
 </context>
 <context>
@@ -1713,7 +1715,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallDeviceSettings.qml" line="+74"/>
         <source>Chosen camera not connected</source>
-        <translation type="unfinished"></translation>
+        <translation>所选摄像头未连接</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -1759,77 +1761,77 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+30"/>
         <source>This build of Lightning has no call media engine, so it can&apos;t test audio devices.</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本的 Lightning 没有通话媒体引擎，因此无法测试音频设备。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Audio devices can&apos;t be tested: the call media engine didn&apos;t start on this computer.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法测试音频设备：此电脑上的通话媒体引擎未能启动。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Not available during a call. In a call, the menu next to the microphone button shows your level.</source>
-        <translation type="unfinished"></translation>
+        <translation>通话期间不可用。在通话中，麦克风按钮旁的菜单会显示你的音量。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The microphone couldn&apos;t be opened. Check that it&apos;s connected and that Lightning may use it.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法打开麦克风。请检查它是否已连接，以及 Lightning 是否获准使用它。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The output device couldn&apos;t be opened.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法打开输出设备。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This build can&apos;t measure the microphone level.</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本无法测量麦克风音量。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The audio test couldn&apos;t start.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法开始音频测试。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not available during a call.</source>
-        <translation type="unfinished"></translation>
+        <translation>通话期间不可用。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Microphone test</source>
-        <translation type="unfinished"></translation>
+        <translation>麦克风测试</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Say something: the bar shows what others would get, and you&apos;ll hear yourself through the output device below. Use headphones, or the microphone hears the playback and echoes.</source>
-        <translation type="unfinished"></translation>
+        <translation>请说句话：音量条显示其他人会听到的音量，你还可以通过下方的输出设备听到自己。请使用耳机，否则麦克风会收到播放的声音并产生回声。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Say something: the bar shows what others would get.</source>
-        <translation type="unfinished"></translation>
+        <translation>请说句话：音量条显示其他人会听到的音量。</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Stop testing</source>
-        <translation type="unfinished"></translation>
+        <translation>停止测试</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Test microphone</source>
-        <translation type="unfinished"></translation>
+        <translation>测试麦克风</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Hear yourself</source>
-        <translation type="unfinished"></translation>
+        <translation>听听自己</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Stops in %1 s</source>
-        <translation type="unfinished"></translation>
+        <translation>将在 %1 秒后停止</translation>
     </message>
     <message>
         <location line="+19"/>
@@ -1839,12 +1841,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+23"/>
         <source>Playing…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在播放…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Play test sound</source>
-        <translation type="unfinished"></translation>
+        <translation>播放测试音</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -1854,7 +1856,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+17"/>
         <source>Your desktop chooses the camera when you turn it on in a call.</source>
-        <translation type="unfinished"></translation>
+        <translation>在通话中开启摄像头时，由你的桌面系统选择摄像头。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -1864,22 +1866,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+14"/>
         <source>Your chosen camera isn&apos;t connected, so calls turn on no camera until it&apos;s back or you choose another.</source>
-        <translation type="unfinished"></translation>
+        <translation>所选摄像头未连接，因此在它恢复或你选择其他摄像头之前，通话不会开启任何摄像头。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Float the call when Lightning is minimised</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 最小化时让通话浮动显示</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>A small always-on-top window with the call&apos;s video and its controls. It appears only while Lightning is minimised or in the tray, and goes away when the window comes back. You can also pop it out at any time from the call controls.</source>
-        <translation type="unfinished"></translation>
+        <translation>一个始终置顶的小窗口，显示通话视频及其控件。仅在 Lightning 最小化或位于托盘时出现，窗口恢复后即消失。你也可以随时通过通话控件将其弹出。</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Devices belong to this computer, not to your account. The microphone level belongs to your account. A change applies to your next call; during a call you can switch from the controls at the top of the conversation.</source>
-        <translation type="unfinished"></translation>
+        <translation>设备属于这台电脑，而不属于你的账号。麦克风音量属于你的账号。更改将应用于你的下一次通话；通话期间，你可以在对话顶部的控件中切换。</translation>
     </message>
 </context>
 <context>
@@ -1887,47 +1889,47 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallEventDelegate.qml" line="+94"/>
         <source>This build can&apos;t join Matrix calls</source>
-        <translation type="unfinished">此版本无法加入 Matrix 调用</translation>
+        <translation>此版本无法加入 Matrix 通话</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Checking whether calling is available…</source>
-        <translation type="unfinished">Checking whether calling is available…</translation>
+        <translation>正在检查是否可以通话…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No MatrixRTC service on this homeserver</source>
-        <translation type="unfinished">该家庭服务器上没有 MatrixRTC 服务</translation>
+        <translation>此主服务器上没有 MatrixRTC 服务</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Couldn&apos;t check whether calling is available</source>
-        <translation type="unfinished">无法检查通话是否可用</translation>
+        <translation>无法检查是否可以通话</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This call has ended</source>
-        <translation type="unfinished">本次通话已结束</translation>
+        <translation>此通话已结束</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Joining calls isn&apos;t supported yet in this build</source>
-        <translation type="unfinished">此版本尚不支持加入通话</translation>
+        <translation>此版本暂不支持加入通话</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You can&apos;t join calls in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>你无法在此房间中加入通话</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间已加密，而此版本不支持加密通话</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Joining isn&apos;t available</source>
-        <translation type="unfinished">无法加入</translation>
+        <translation>无法加入</translation>
     </message>
     <message>
         <location line="+158"/>
@@ -2032,32 +2034,32 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+22"/>
         <source>Send a reaction</source>
-        <translation type="unfinished"></translation>
+        <translation>发送表情回应</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Thumbs up</source>
-        <translation type="unfinished"></translation>
+        <translation>点赞</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Party</source>
-        <translation type="unfinished"></translation>
+        <translation>庆祝</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Applause</source>
-        <translation type="unfinished"></translation>
+        <translation>鼓掌</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Dog</source>
-        <translation type="unfinished"></translation>
+        <translation>狗</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Cat</source>
-        <translation type="unfinished"></translation>
+        <translation>猫</translation>
     </message>
     <message>
         <location line="+66"/>
@@ -2072,7 +2074,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+20"/>
         <source>Pop the call out into a floating window</source>
-        <translation type="unfinished"></translation>
+        <translation>将通话弹出为浮动窗口</translation>
     </message>
     <message>
         <location line="-359"/>
@@ -2140,7 +2142,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+2"/>
         <source>Reacted with %1</source>
-        <translation type="unfinished"></translation>
+        <translation>已用 %1 作出表情回应</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -2174,59 +2176,59 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallPipWindow.qml" line="+117"/>
         <source>Lightning call</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 通话</translation>
     </message>
     <message>
         <location line="+130"/>
         <source>Call in progress</source>
-        <translation type="unfinished"></translation>
+        <translation>通话进行中</translation>
     </message>
     <message numerus="yes">
         <location line="+10"/>
         <source>%n participant(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 位参与者</numerusform>
         </translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Unmute microphone</source>
-        <translation type="unfinished">取消麦克风静音</translation>
+        <translation>取消静音</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Mute microphone</source>
-        <translation type="unfinished">麦克风静音</translation>
+        <translation>静音麦克风</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Undeafen</source>
-        <translation type="unfinished">不聋</translation>
+        <translation>取消拒听</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Deafen</source>
-        <translation type="unfinished">聋哑人</translation>
+        <translation>拒听</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Show everyone again</source>
-        <translation type="unfinished"></translation>
+        <translation>再次显示所有人</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Fill this window with the share</source>
-        <translation type="unfinished"></translation>
+        <translation>让此窗口填满共享画面</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Back to Lightning</source>
-        <translation type="unfinished"></translation>
+        <translation>返回 Lightning</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Leave the call</source>
-        <translation type="unfinished"></translation>
+        <translation>离开通话</translation>
     </message>
 </context>
 <context>
@@ -2234,12 +2236,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallQualitySettings.qml" line="+72"/>
         <source>Quality</source>
-        <translation type="unfinished">品质</translation>
+        <translation>画质</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Camera resolution</source>
-        <translation type="unfinished"></translation>
+        <translation>摄像头分辨率</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -2247,129 +2249,129 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+12"/>
         <location line="+11"/>
         <source>Auto</source>
-        <translation type="unfinished"></translation>
+        <translation>自动</translation>
     </message>
     <message>
         <location line="-34"/>
         <source>360p</source>
-        <translation type="unfinished"></translation>
+        <translation>360p</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>480p</source>
-        <translation type="unfinished"></translation>
+        <translation>480p</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+10"/>
         <source>720p</source>
-        <translation type="unfinished">720p</translation>
+        <translation>720p</translation>
     </message>
     <message>
         <location line="-9"/>
         <location line="+10"/>
         <source>1080p</source>
-        <translation type="unfinished">1080p</translation>
+        <translation>1080p</translation>
     </message>
     <message>
         <location line="-5"/>
         <source>Screen share resolution</source>
-        <translation type="unfinished">屏幕共享分辨率</translation>
+        <translation>屏幕共享分辨率</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>1440p</source>
-        <translation type="unfinished">1440p</translation>
+        <translation>1440p</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>4K</source>
-        <translation type="unfinished">4K</translation>
+        <translation>4K</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Screen share frame rate</source>
-        <translation type="unfinished">屏幕共享帧率</translation>
+        <translation>屏幕共享帧率</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>15 fps</source>
-        <translation type="unfinished">15 帧/秒</translation>
+        <translation>15 fps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>30 fps</source>
-        <translation type="unfinished">30 帧/秒</translation>
+        <translation>30 fps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>60 fps</source>
-        <translation type="unfinished">60 帧/秒</translation>
+        <translation>60 fps</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Screen share bitrate limit</source>
-        <translation type="unfinished"></translation>
+        <translation>屏幕共享码率上限</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>0.5 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>0.5 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>1 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>1 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>2 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>2 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>3 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>3 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>4.5 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>4.5 Mbps</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This resolution and frame rate ask a lot of your computer and may stutter.</source>
-        <translation type="unfinished"></translation>
+        <translation>此分辨率和帧率对你的电脑要求较高，可能会卡顿。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. Changes apply to the next camera or share you start.</source>
-        <translation type="unfinished"></translation>
+        <translation>“自动”对摄像头为 720p，对屏幕共享为 1080p（30 fps）。码率上限只会降低共享画面的质量，在网络较慢时有所帮助。更改将应用于你接下来开始的摄像头或共享。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Microphone processing</source>
-        <translation type="unfinished"></translation>
+        <translation>麦克风处理</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Automatic gain control</source>
-        <translation type="unfinished"></translation>
+        <translation>自动增益控制</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Lifts a quiet microphone and evens out loud and soft speech. Turn it off if you set your level by hand.</source>
-        <translation type="unfinished"></translation>
+        <translation>提升较小的麦克风声音，并平衡大声与轻声的说话。如果你手动设置音量，请关闭此项。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Echo cancellation</source>
-        <translation type="unfinished"></translation>
+        <translation>回声消除</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Removes your callers&apos; voices from your microphone when you use speakers. Headphones do not need it. It needs the WebRTC audio component and is new: with several people in a call it may cancel only some of them. Both apply to your next call.</source>
-        <translation type="unfinished"></translation>
+        <translation>使用扬声器时，从你的麦克风中去除其他通话者的声音。使用耳机时不需要此项。它需要 WebRTC 音频组件，且为新功能：在多人通话中，它可能只能消除部分人的声音。两项设置均将应用于你的下一次通话。</translation>
     </message>
 </context>
 <context>
@@ -2377,22 +2379,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CallShareOptionsMenu.qml" line="+50"/>
         <source>Screen share sound</source>
-        <translation type="unfinished"></translation>
+        <translation>屏幕共享声音</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>No sound</source>
-        <translation type="unfinished"></translation>
+        <translation>无声音</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Entire system</source>
-        <translation type="unfinished"></translation>
+        <translation>整个系统</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Choose apps…</source>
-        <translation type="unfinished"></translation>
+        <translation>选择应用…</translation>
     </message>
     <message>
         <location line="+35"/>
@@ -2404,7 +2406,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+25"/>
         <location line="+29"/>
         <source>Auto</source>
-        <translation type="unfinished"></translation>
+        <translation>自动</translation>
     </message>
     <message>
         <location line="-53"/>
@@ -2454,32 +2456,32 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+12"/>
         <source>Bitrate limit</source>
-        <translation type="unfinished"></translation>
+        <translation>码率上限</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>0.5 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>0.5 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>1 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>1 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>2 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>2 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>3 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>3 Mbps</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>4.5 Mbps</source>
-        <translation type="unfinished"></translation>
+        <translation>4.5 Mbps</translation>
     </message>
 </context>
 <context>
@@ -2569,17 +2571,17 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+22"/>
         <source>This call is encrypted, but media from someone here cannot be decrypted and is being dropped. You will not hear or see them.</source>
-        <translation type="unfinished"></translation>
+        <translation>此通话已加密，但来自此处某人的媒体无法解密，已被丢弃。你将无法听到或看到他们。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This call is end-to-end encrypted.</source>
-        <translation type="unfinished"></translation>
+        <translation>此通话已端到端加密。</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Your microphone is not picking anything up, so nobody here can hear you. Check which microphone is selected in call settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的麦克风没有收到任何声音，因此此处没有人能听到你。请在通话设置中检查所选的麦克风。</translation>
     </message>
     <message>
         <location line="+131"/>
@@ -2604,7 +2606,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+42"/>
         <source>Video can&apos;t be shown on this computer — there is no working graphics acceleration, so cameras and shared screens won&apos;t appear. Audio is unaffected.</source>
-        <translation type="unfinished"></translation>
+        <translation>此电脑无法显示视频：没有可用的图形加速，因此摄像头和共享屏幕都不会显示。音频不受影响。</translation>
     </message>
     <message>
         <location line="+118"/>
@@ -2643,85 +2645,85 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location filename="../qml/ChangePasswordSection.qml" line="+99"/>
         <location line="+135"/>
         <source>Change password</source>
-        <translation type="unfinished"></translation>
+        <translation>更改密码</translation>
     </message>
     <message>
         <location line="-115"/>
         <location line="+1"/>
         <source>Current password</source>
-        <translation type="unfinished"></translation>
+        <translation>当前密码</translation>
     </message>
     <message>
         <location line="+12"/>
         <location line="+2"/>
         <source>New password</source>
-        <translation type="unfinished"></translation>
+        <translation>新密码</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>Too short: use at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>太短：请至少使用 %1 个字符。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Weak</source>
-        <translation type="unfinished"></translation>
+        <translation>弱</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Fair</source>
-        <translation type="unfinished"></translation>
+        <translation>一般</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Strong</source>
-        <translation type="unfinished"></translation>
+        <translation>强</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+2"/>
         <source>Confirm new password</source>
-        <translation type="unfinished"></translation>
+        <translation>确认新密码</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Passwords don&apos;t match</source>
-        <translation type="unfinished"></translation>
+        <translation>密码不一致</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Sign out of all other devices</source>
-        <translation type="unfinished"></translation>
+        <translation>退出所有其他设备的登录</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Signed-out devices lose the encryption keys stored on them. Set up your recovery key first if you want to keep your encrypted history.</source>
-        <translation type="unfinished"></translation>
+        <translation>已退出登录的设备会丢失存储在其上的加密密钥。如果你想保留加密的历史消息，请先设置恢复密钥。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Changing…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在更改…</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Your server does not allow changing the password here.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的服务器不允许在此处更改密码。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Your password is managed by your account provider.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的密码由你的账号提供方管理。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your password is managed by your account provider. Change it on its account page.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的密码由你的账号提供方管理。请在其账号页面中更改。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Manage account</source>
-        <translation type="unfinished"></translation>
+        <translation>管理账号</translation>
     </message>
 </context>
 <context>
@@ -2764,7 +2766,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
 <context>
     <name>ChannelDelegate</name>
     <message>
-        <location filename="../qml/ChannelDelegate.qml" line="+100"/>
+        <location filename="../qml/ChannelDelegate.qml" line="+101"/>
         <source>%1, invitation</source>
         <translation>%1，邀请</translation>
     </message>
@@ -2777,13 +2779,13 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+3"/>
         <source>%1, mention in a thread</source>
         <comment>channel row</comment>
-        <translation type="unfinished"></translation>
+        <translation>%1，话题中有提及</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1, unread in a thread</source>
         <comment>channel row</comment>
-        <translation type="unfinished"></translation>
+        <translation>%1，话题中有未读消息</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -2798,12 +2800,12 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+163"/>
         <source>Remove from favourites</source>
-        <translation type="unfinished">从收藏中移除</translation>
+        <translation>从收藏中移除</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Add to favourites</source>
-        <translation type="unfinished">添加到收藏</translation>
+        <translation>添加到收藏</translation>
     </message>
 </context>
 <context>
@@ -2829,37 +2831,37 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/ChatBackgroundDialog.qml" line="+47"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Chat background for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 的聊天背景</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Chat backgrounds aren&apos;t available with this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>此账号无法使用聊天背景。</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Shown behind every conversation, only to you. A room can still have a background of its own.</source>
-        <translation type="unfinished"></translation>
+        <translation>显示在每个对话背后，仅你自己可见。房间仍可以拥有自己的背景。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Pick a picture, adjust it, then Apply. Colours and gradients for the whole window are themes.</source>
-        <translation type="unfinished"></translation>
+        <translation>选择一张图片，调整后点击“应用”。整个窗口的颜色和渐变属于主题。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>One picture for every room…</source>
-        <translation type="unfinished"></translation>
+        <translation>所有房间使用同一张图片…</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Themes, colours and gradients…</source>
-        <translation type="unfinished"></translation>
+        <translation>主题、颜色和渐变…</translation>
     </message>
 </context>
 <context>
@@ -2867,328 +2869,328 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/ChatBackgroundEditor.qml" line="+185"/>
         <source>That file is not a picture Lightning can use (PNG, JPEG, WebP, GIF or BMP).</source>
-        <translation type="unfinished"></translation>
+        <translation>该文件不是 Lightning 可以使用的图片（支持 PNG、JPEG、WebP、GIF 或 BMP）。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file is too large to use (over 64 MB).</source>
-        <translation type="unfinished"></translation>
+        <translation>该文件过大，无法使用（超过 64 MB）。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That picture is damaged or in a format this computer cannot open.</source>
-        <translation type="unfinished"></translation>
+        <translation>该图片已损坏，或为此电脑无法打开的格式。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file could not be opened.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法打开该文件。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning could not convert that picture. Try another one.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法转换该图片。请尝试其他图片。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Choose a picture first.</source>
-        <translation type="unfinished"></translation>
+        <translation>请先选择一张图片。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning could not stage the picture for upload: the temporary folder is not writable.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法暂存图片以便上传：临时文件夹不可写。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The converted picture is still too large to upload (over 16 MB). Try a smaller one.</source>
-        <translation type="unfinished"></translation>
+        <translation>转换后的图片仍然过大，无法上传（超过 16 MB）。请换一张更小的图片。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning could not build a valid background from these settings. Please report this.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法根据这些设置生成有效的背景。请报告此问题。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You are no longer in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>你已不在此房间中。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your session has ended. Sign in again, then retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的会话已结束。请重新登录后再试。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning could not start the upload. Please report this if it keeps happening.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法开始上传。如果问题持续，请报告此问题。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>You are not allowed to change this background: your power level in this room is too low.</source>
-        <translation type="unfinished"></translation>
+        <translation>你无法更改此背景：你在此房间中的权限级别过低。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server is limiting requests. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器正在限制请求。请稍后再试。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server refused the picture because it is larger than it accepts.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了该图片，因为它超过了服务器的接受上限。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server refused the background&apos;s data. Please report this: it is a Lightning bug.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了背景的数据。请报告此问题：这是 Lightning 的缺陷。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server had a problem saving the background. Try again later.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器在保存背景时出错。请稍后再试。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server refused the background.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了该背景。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server took too long to answer. Try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器响应时间过长。请重试。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Could not reach the server. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法连接服务器。请检查网络连接后重试。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Sign in to keep your own backgrounds.</source>
-        <translation type="unfinished"></translation>
+        <translation>请登录以保留你自己的背景。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Pictures from encrypted rooms cannot be used as a background.</source>
-        <translation type="unfinished"></translation>
+        <translation>加密房间中的图片不能用作背景。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>You have your own background in too many rooms. Remove one first.</source>
-        <translation type="unfinished"></translation>
+        <translation>你在太多房间中设置了自己的背景。请先移除一个。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The background could not be saved (%1).</source>
-        <translation type="unfinished"></translation>
+        <translation>无法保存背景（%1）。</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Background</source>
-        <translation type="unfinished"></translation>
+        <translation>背景</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Everyone here</source>
-        <translation type="unfinished"></translation>
+        <translation>此处所有人</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Only me</source>
-        <translation type="unfinished"></translation>
+        <translation>仅自己</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Background preview</source>
-        <translation type="unfinished"></translation>
+        <translation>背景预览</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Messages stay readable on top of it.</source>
-        <translation type="unfinished"></translation>
+        <translation>消息在其上仍可清晰阅读。</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>No background</source>
-        <translation type="unfinished"></translation>
+        <translation>无背景</translation>
     </message>
     <message>
         <location line="-26"/>
         <source>Lightning dims the picture as much as this theme needs.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 会按此主题所需的程度压暗图片。</translation>
     </message>
     <message>
         <location line="+65"/>
         <source>Only people allowed to change this space&apos;s settings can set its background.</source>
-        <translation type="unfinished"></translation>
+        <translation>只有有权更改此空间设置的人才能设置其背景。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Only people allowed to change this room&apos;s settings can set a background everyone sees. You can still choose one just for yourself.</source>
-        <translation type="unfinished"></translation>
+        <translation>只有有权更改此房间设置的人才能设置所有人都能看到的背景。你仍然可以只为自己选择一个背景。</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>A newer version of Lightning set this background, so it is not shown here.</source>
-        <translation type="unfinished"></translation>
+        <translation>较新版本的 Lightning 设置了此背景，因此不在此处显示。</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Everyone here sees the room&apos;s picture. You chose your own picture for this room under &quot;Only me&quot;, so on this account you see yours instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>此处所有人看到的是房间的图片。你在“仅自己”下为此房间选择了自己的图片，因此在此账号上你看到的是你自己的图片。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Use the room&apos;s picture instead</source>
-        <translation type="unfinished"></translation>
+        <translation>改用房间的图片</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Everyone in this space sees this picture behind its rooms, unless a room has its own. It is stored on the homeserver unencrypted.</source>
-        <translation type="unfinished"></translation>
+        <translation>除非某个房间有自己的背景，否则此空间中的所有人都会在其房间后方看到这张图片。图片会以未加密的形式保存在主服务器上。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Room backgrounds are not end-to-end encrypted: everyone here sees this picture, and so can the homeserver, even though this room&apos;s messages are encrypted.</source>
-        <translation type="unfinished"></translation>
+        <translation>房间背景不是端到端加密的：此处所有人都能看到这张图片，主服务器也能看到，即使此房间的消息是加密的。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Everyone here sees this picture in Lightning. Other apps ignore it.</source>
-        <translation type="unfinished"></translation>
+        <translation>此处所有人都在 Lightning 中看到这张图片。其他应用会忽略它。</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Change picture…</source>
-        <translation type="unfinished"></translation>
+        <translation>更换图片…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Choose picture…</source>
-        <translation type="unfinished"></translation>
+        <translation>选择图片…</translation>
     </message>
     <message>
         <location line="-31"/>
         <source>Apply</source>
-        <translation type="unfinished"></translation>
+        <translation>应用</translation>
     </message>
     <message>
         <location line="-129"/>
         <source>Click to choose a picture</source>
-        <translation type="unfinished"></translation>
+        <translation>点击选择图片</translation>
     </message>
     <message>
         <location line="+147"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Remove</source>
-        <translation type="unfinished"></translation>
+        <translation>移除</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Dim</source>
-        <translation type="unfinished"></translation>
+        <translation>压暗</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Dim the picture</source>
-        <translation type="unfinished"></translation>
+        <translation>压暗图片</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Blur</source>
-        <translation type="unfinished"></translation>
+        <translation>模糊</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Blur the picture</source>
-        <translation type="unfinished"></translation>
+        <translation>模糊图片</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Blur is off on this computer because it is drawing without graphics acceleration.</source>
-        <translation type="unfinished"></translation>
+        <translation>此电脑在不使用图形加速的情况下绘制，因此模糊已关闭。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Tint</source>
-        <translation type="unfinished"></translation>
+        <translation>着色</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Tint the theme with the picture&apos;s colour</source>
-        <translation type="unfinished"></translation>
+        <translation>用图片的颜色为主题着色</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Size</source>
-        <translation type="unfinished"></translation>
+        <translation>尺寸</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Fill</source>
-        <translation type="unfinished"></translation>
+        <translation>填充</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Fit</source>
-        <translation type="unfinished"></translation>
+        <translation>适应</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Tile</source>
-        <translation type="unfinished"></translation>
+        <translation>平铺</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Position</source>
-        <translation type="unfinished"></translation>
+        <translation>位置</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Centre</source>
-        <translation type="unfinished"></translation>
+        <translation>居中</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Top</source>
-        <translation type="unfinished"></translation>
+        <translation>顶部</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Bottom</source>
-        <translation type="unfinished"></translation>
+        <translation>底部</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Hide backgrounds others set for this room</source>
-        <translation type="unfinished"></translation>
+        <translation>隐藏其他人为此房间设置的背景</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Converting the SVG to a picture…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在将 SVG 转换为图片…</translation>
     </message>
     <message>
         <location line="-394"/>
         <location line="+414"/>
         <source>Choose a background picture</source>
-        <translation type="unfinished"></translation>
+        <translation>选择背景图片</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
 </context>
 <context>
@@ -3196,204 +3198,204 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/ChatBackgroundSettings.qml" line="+49"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A picture behind every conversation. Only you see it.</source>
-        <translation type="unfinished"></translation>
+        <translation>显示在每个对话后方的图片。仅你自己可见。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>For one room only, or a picture everyone in a room or space sees: choose Chat background… from the room&apos;s ⋮ menu or right-click the room in the list.</source>
-        <translation type="unfinished"></translation>
+        <translation>如需仅用于单个房间，或让房间或空间中的所有人都看到同一张图片：请从房间的 ⋮ 菜单中选择“聊天背景…”，或在列表中右键点击该房间。</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>the server is limiting requests</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器正在限制请求</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>the server could not be reached</source>
-        <translation type="unfinished"></translation>
+        <translation>无法连接服务器</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>a picture is too large for the server</source>
-        <translation type="unfinished"></translation>
+        <translation>图片对服务器来说过大</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>the server refused it</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了它</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>a newer version of Lightning saved it</source>
-        <translation type="unfinished"></translation>
+        <translation>较新版本的 Lightning 保存了它</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>it was turned off on another device</source>
-        <translation type="unfinished"></translation>
+        <translation>它已在另一台设备上关闭</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>you have your own background in too many rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>你在太多房间中设置了自己的背景</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>your homeserver could not be read</source>
-        <translation type="unfinished"></translation>
+        <translation>无法读取你的主服务器</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>a saved picture could not be used</source>
-        <translation type="unfinished"></translation>
+        <translation>已保存的图片无法使用</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>error: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>错误：%1</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Keep my backgrounds on my homeserver</source>
-        <translation type="unfinished"></translation>
+        <translation>将我的背景保存在我的主服务器上</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Your own backgrounds then follow you to your other devices and come back when you sign in again. The server stores each picture encrypted, but the key is kept in your account data, which your homeserver&apos;s administrator can read.</source>
-        <translation type="unfinished"></translation>
+        <translation>之后，你自己的背景会同步到你的其他设备，并在你重新登录时恢复。服务器会以加密形式存储每张图片，但密钥保存在你的账号数据中，主服务器的管理员可以读取。</translation>
     </message>
     <message numerus="yes">
         <location line="+27"/>
         <source>Saving %n background(s) on your homeserver…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>正在将 %n 个背景保存到你的主服务器…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Fetching %n background(s) from your homeserver…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>正在从你的主服务器获取 %n 个背景…</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Checking your homeserver…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在检查你的主服务器…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Removing your backgrounds from your homeserver…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在从你的主服务器移除你的背景…</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n background(s) could not be saved on or fetched from your homeserver (%1).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个背景无法保存到你的主服务器或从中获取（%1）。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Removed from your homeserver. Your other devices keep their own copies until you remove them there. The encrypted pictures already uploaded stay in its media storage, which offers no way to delete them; without the key they cannot be viewed.</source>
-        <translation type="unfinished"></translation>
+        <translation>已从你的主服务器移除。你的其他设备会保留各自的副本，直到你在那里将其移除。已上传的加密图片仍保留在其媒体存储中，该存储没有删除它们的方式；没有密钥就无法查看。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>%1 removed from your homeserver, %2 could not be (a room you left, or saved by a newer Lightning). Your other devices keep their own copies.</source>
-        <translation type="unfinished"></translation>
+        <translation>已从你的主服务器移除 %1 个，另有 %2 个无法移除（你已离开的房间，或由较新版本的 Lightning 保存）。你的其他设备会保留各自的副本。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Nothing could be removed from your homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法从你的主服务器移除任何内容。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Off on this device, but your homeserver could not be told yet (%1); Lightning keeps trying.</source>
-        <translation type="unfinished"></translation>
+        <translation>本设备上已关闭，但尚未能通知你的主服务器（%1）；Lightning 会继续尝试。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your backgrounds stay on this device only, and are deleted when you sign out. This applies to all your devices. Turning it on again puts the pictures this device has back on your homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的背景仅保存在本设备上，并会在你退出登录时删除。此设置适用于你的所有设备。重新开启后，本设备上的图片会重新保存到你的主服务器。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Retry</source>
-        <translation type="unfinished">重试</translation>
+        <translation>重试</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Retry removal</source>
-        <translation type="unfinished"></translation>
+        <translation>重试移除</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Stop keeping backgrounds on your homeserver?</source>
-        <translation type="unfinished"></translation>
+        <translation>停止在主服务器上保存背景？</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This turns it off on all your devices. Your backgrounds stay on this device until you sign out. You can also remove the copies on your homeserver; your other devices keep the pictures they already have until you remove them there. The encrypted pictures themselves cannot be deleted from the server&apos;s media storage, but without the key they cannot be viewed. Turning it on again later puts each device&apos;s pictures back on your homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>此操作会在你的所有设备上关闭该功能。你的背景会保留在本设备上，直到你退出登录。你也可以移除主服务器上的副本；你的其他设备会保留它们已有的图片，直到你在那里将其移除。服务器媒体存储中的加密图片本身无法删除，但没有密钥就无法查看。之后重新开启时，每台设备的图片都会重新保存到你的主服务器。</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Keep server copies</source>
-        <translation type="unfinished"></translation>
+        <translation>保留服务器上的副本</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Remove server copies</source>
-        <translation type="unfinished"></translation>
+        <translation>移除服务器上的副本</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Show backgrounds set by others</source>
-        <translation type="unfinished"></translation>
+        <translation>显示其他人设置的背景</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Rooms and spaces can share a picture with everyone in them. Turn this off to see only your own.</source>
-        <translation type="unfinished"></translation>
+        <translation>房间和空间可以与其中的所有人共享一张图片。关闭此项后，只显示你自己的背景。</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+8"/>
         <source>Depth</source>
-        <translation type="unfinished"></translation>
+        <translation>景深</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>Flat</source>
-        <translation type="unfinished"></translation>
+        <translation>平面</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Depth gives the conversation, the room list and the spaces rail a soft light-from-above shading. Text never gets harder to read: the shading always moves away from it.</source>
-        <translation type="unfinished"></translation>
+        <translation>景深会为对话、房间列表和空间栏添加柔和的上方光照阴影。文字永远不会因此变得更难阅读：阴影始终远离文字。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Want your own colours? A custom theme can give each of these areas a gradient.</source>
-        <translation type="unfinished"></translation>
+        <translation>想要自己的颜色？自定义主题可以为这些区域分别设置渐变。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Make a gradient…</source>
-        <translation type="unfinished"></translation>
+        <translation>制作渐变…</translation>
     </message>
 </context>
 <context>
@@ -3429,22 +3431,22 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CollapsedEmbedRow.qml" line="+136"/>
         <source>Hide %1</source>
-        <translation type="unfinished"></translation>
+        <translation>隐藏 %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show %1</source>
-        <translation type="unfinished"></translation>
+        <translation>显示 %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This attachment is expanded. Activate to collapse it back to one line.</source>
-        <translation type="unfinished"></translation>
+        <translation>此附件已展开。激活即可将其收起为一行。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This attachment is collapsed to one line. Activate to show it.</source>
-        <translation type="unfinished"></translation>
+        <translation>此附件已收起为一行。激活即可显示。</translation>
     </message>
 </context>
 <context>
@@ -3457,7 +3459,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+189"/>
         <source>Go back to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>返回 %1</translation>
     </message>
     <message>
         <location line="+57"/>
@@ -3467,7 +3469,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+43"/>
         <source>Not a colour. Use six hex digits, like #3A6EA5.</source>
-        <translation type="unfinished"></translation>
+        <translation>这不是颜色。请使用六位十六进制数字，例如 #3A6EA5。</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -3490,38 +3492,38 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/ContextView.qml" line="+93"/>
         <source>Viewing an older message</source>
-        <translation type="unfinished"></translation>
+        <translation>正在查看较早的消息</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Jump to latest</source>
-        <translation type="unfinished">跳到最新</translation>
+        <translation>跳到最新</translation>
     </message>
     <message>
         <location line="+103"/>
         <location line="+29"/>
         <source>Could not load. Try again</source>
-        <translation type="unfinished"></translation>
+        <translation>无法加载。请重试</translation>
     </message>
     <message>
         <location line="-27"/>
         <source>Load older messages</source>
-        <translation type="unfinished"></translation>
+        <translation>加载较早的消息</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No more older messages here</source>
-        <translation type="unfinished"></translation>
+        <translation>这里没有更早的消息了</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Load newer messages</source>
-        <translation type="unfinished"></translation>
+        <translation>加载较新的消息</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Use Jump to latest for newer messages</source>
-        <translation type="unfinished"></translation>
+        <translation>如需较新的消息，请使用“跳到最新”</translation>
     </message>
 </context>
 <context>
@@ -3529,7 +3531,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../src/app/ConversationController.cpp" line="+53"/>
         <source>This is taking longer than expected. The other person&apos;s server may be slow to respond. If a room appears in your list, use that one rather than starting another.</source>
-        <translation type="unfinished"></translation>
+        <translation>耗时超出预期。对方的服务器可能响应较慢。如果列表中出现了房间，请使用它，而不要再创建一个。</translation>
     </message>
     <message>
         <location line="+44"/>
@@ -3559,7 +3561,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+3"/>
         <source>Your homeserver does not support that.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器不支持此操作。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -3574,7 +3576,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+4"/>
         <source>A conversation with this person is still being created and their server has not answered yet. If an empty room appears in your list, use that one; starting another would only add more empty rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>与此人的会话仍在创建中，且对方的服务器尚未响应。如果列表中出现了空房间，请使用它；再创建一个只会增加更多空房间。</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -3599,7 +3601,7 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location line="+74"/>
         <source>An empty room may have been created on your account; if you see one in your room list you can leave it.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的账号上可能已创建了一个空房间；如果你在房间列表中看到它，可以离开。</translation>
     </message>
 </context>
 <context>
@@ -3873,44 +3875,44 @@ It does not touch your encryption keys, your sign-in or any message on the serve
     <message>
         <location filename="../qml/CrossSigningSetupCard.qml" line="+73"/>
         <source>Cross-signing</source>
-        <translation type="unfinished"></translation>
+        <translation>交叉签名</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This account has no cross-signing identity, so none of its sessions can be verified, including this one. Setting it up creates the identity and stores its keys in your secret storage, so your recovery key can verify new sessions.</source>
-        <translation type="unfinished"></translation>
+        <translation>此账号没有交叉签名身份，因此它的所有会话（包括此会话）都无法验证。设置后会创建该身份，并将其密钥存储在你的秘密存储中，以便你的恢复密钥可以验证新会话。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This session holds cross-signing keys that your server has not confirmed, so setting up did not finish. Finishing it uploads these keys. If the account has meanwhile got an identity from another session, Lightning tells you and changes nothing.</source>
-        <translation type="unfinished"></translation>
+        <translation>此会话持有的交叉签名密钥尚未得到服务器确认，因此设置未完成。完成设置会上传这些密钥。如果该账号此时已从其他会话获得了身份，Lightning 会告知你并且不作任何更改。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This account already has a cross-signing identity, but this session does not hold its keys. Verify this session with another session, or enter your recovery key. Lightning will not replace the identity on its own.</source>
-        <translation type="unfinished"></translation>
+        <translation>此账号已有交叉签名身份，但此会话不持有其密钥。请用其他会话验证此会话，或输入你的恢复密钥。Lightning 不会自动替换该身份。</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>That password was not accepted. Try again.</source>
-        <translation type="unfinished">该密码未被接受。请重试。</translation>
+        <translation>该密码未被接受。请重试。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Confirm your account password so the server accepts the new keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>请确认你的账号密码，以便服务器接受新密钥。</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+1"/>
         <source>Account password</source>
-        <translation type="unfinished">账号密码</translation>
+        <translation>账号密码</translation>
     </message>
     <message>
         <location line="+8"/>
         <location line="+101"/>
         <source>Continue</source>
-        <translation type="unfinished">继续</translation>
+        <translation>继续</translation>
     </message>
     <message>
         <location line="-87"/>
@@ -3918,88 +3920,88 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+103"/>
         <location line="+150"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="-272"/>
         <source>Your account provider needs you to approve the new keys. Open the approval page, confirm there, and Lightning continues on its own.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的账号提供方需要你批准新密钥。请打开审批页面并在那里确认，Lightning 将自动继续。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Open approval page</source>
-        <translation type="unfinished"></translation>
+        <translation>打开审批页面</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Cancelling…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在取消…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Working…</source>
-        <translation type="unfinished">处理中…</translation>
+        <translation>处理中…</translation>
     </message>
     <message>
         <location line="+21"/>
         <location line="+1"/>
         <source>Current recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>当前恢复密钥</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>A new recovery key replaces the current one, which stops working. The new one can only hold what this session has: if this session does not have your key backup&apos;s key, history that exists only in your key backup becomes unreachable from new sessions. Press again to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>新的恢复密钥会取代当前的恢复密钥，而当前的密钥将失效。新密钥只能包含此会话所拥有的内容：如果此会话没有密钥备份的密钥，那么仅存在于密钥备份中的历史记录将无法从新会话中访问。再次按下即可确认。</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Replace my recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>替换我的恢复密钥</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>I don&apos;t have it…</source>
-        <translation type="unfinished"></translation>
+        <translation>我没有它…</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>Cross-signing is set up. Your new recovery key: write it down now. Lightning does not keep it and will not show it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>交叉签名已设置。请立即记下你的新恢复密钥：Lightning 不会保存它，也不会再次显示。</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>I have saved it</source>
-        <translation type="unfinished"></translation>
+        <translation>我已保存</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Replacing your cross-signing identity cannot be undone. Everyone who verified you will see your identity change and has to trust you again, and your other sessions become unverified. If you have a recovery key, Lightning asks for it next so it keeps working. Your messages are not deleted. Press again to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>替换交叉签名身份无法撤销。所有验证过你的人都会看到你的身份发生变化，需要重新信任你，你的其他会话也会变为未验证状态。如果你有恢复密钥，Lightning 接下来会要求输入它，以便它继续有效。你的消息不会被删除。再次按下即可确认。</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Setting up…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在设置…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Finish setting up</source>
-        <translation type="unfinished"></translation>
+        <translation>完成设置</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Set up cross-signing</source>
-        <translation type="unfinished"></translation>
+        <translation>设置交叉签名</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Replace identity</source>
-        <translation type="unfinished"></translation>
+        <translation>替换身份</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>I can&apos;t verify or recover. Reset…</source>
-        <translation type="unfinished"></translation>
+        <translation>我无法验证或恢复。重置…</translation>
     </message>
 </context>
 <context>
@@ -4470,312 +4472,312 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="-68"/>
         <location line="+344"/>
         <source>Text on your messages</source>
-        <translation type="unfinished"></translation>
+        <translation>你的消息上的文字</translation>
     </message>
     <message>
         <location line="-444"/>
         <source>Side columns</source>
-        <translation type="unfinished"></translation>
+        <translation>侧边栏</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The room list, the room header and the side panel take this until they have their own</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表、房间标题栏和侧边面板在未设置自己的颜色前使用此颜色</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Backgrounds</source>
-        <translation type="unfinished"></translation>
+        <translation>背景</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The conversation and Settings take this until they have their own</source>
-        <translation type="unfinished"></translation>
+        <translation>对话和设置在未设置自己的颜色前使用此颜色</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The search field, the message box, menus and dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>搜索框、消息输入框、菜单和对话框</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Room header</source>
-        <translation type="unfinished"></translation>
+        <translation>房间标题栏</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The bar above the conversation with the room&apos;s name</source>
-        <translation type="unfinished"></translation>
+        <translation>对话上方显示房间名称的栏</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Side panel</source>
-        <translation type="unfinished"></translation>
+        <translation>侧边面板</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>People, room details and threads beside the conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>对话旁边的成员、房间详情和话题</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Search field</source>
-        <translation type="unfinished"></translation>
+        <translation>搜索框</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The filter box at the top of the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表顶部的筛选框</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Message box</source>
-        <translation type="unfinished">留言框</translation>
+        <translation>消息输入框</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The field you type messages into</source>
-        <translation type="unfinished"></translation>
+        <translation>你输入消息的输入框</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Menus and dialogs</source>
-        <translation type="unfinished"></translation>
+        <translation>菜单和对话框</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Context menus, pop-up menus and dialog boxes</source>
-        <translation type="unfinished"></translation>
+        <translation>右键菜单、弹出菜单和对话框</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings page</source>
-        <translation type="unfinished"></translation>
+        <translation>设置页面</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The ground behind Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>设置背后的底层颜色</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>设置导航</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The column of sections down the left of Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>设置左侧的分区列</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The inside of text fields in dialogs and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>对话框和面板中文本框的内部</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Hover</source>
-        <translation type="unfinished"></translation>
+        <translation>悬停</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The general hover colour. Rows, menu items and quiet buttons follow it until they have their own</source>
-        <translation type="unfinished"></translation>
+        <translation>通用的悬停颜色。行、菜单项和普通按钮在未设置自己的颜色前使用此颜色</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selection</source>
-        <translation type="unfinished"></translation>
+        <translation>选中</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The general selected colour: the open Space, and every selected row that has no colour of its own</source>
-        <translation type="unfinished"></translation>
+        <translation>通用的选中颜色：当前打开的空间，以及没有自己颜色的所有选中行</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selection, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>选中且悬停</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Something selected with the pointer on it, such as the open room</source>
-        <translation type="unfinished"></translation>
+        <translation>鼠标悬停在上面的选中项，例如当前打开的房间</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Your reaction pill</source>
-        <translation type="unfinished"></translation>
+        <translation>你的表情回应气泡</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>An emoji reaction you added yourself</source>
-        <translation type="unfinished"></translation>
+        <translation>你自己添加的表情回应</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unread badge</source>
-        <translation type="unfinished"></translation>
+        <translation>未读标记</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unread counts and dots on rooms, Spaces and threads</source>
-        <translation type="unfinished"></translation>
+        <translation>房间、空间和话题上的未读数量和小圆点</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Scrollbar handle</source>
-        <translation type="unfinished"></translation>
+        <translation>滚动条滑块</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The draggable part of every scrollbar</source>
-        <translation type="unfinished"></translation>
+        <translation>每个滚动条中可拖动的部分</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Open room row</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的房间行</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The room you are in, in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表中你所在的房间</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room row, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>房间行，悬停</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A room in the room list under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表中鼠标悬停的房间</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open channel row</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的频道行</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The open row in the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>频道布局中打开的行</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Channel row, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>频道行，悬停</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A Channels row under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>鼠标悬停的频道行</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Menu highlight</source>
-        <translation type="unfinished"></translation>
+        <translation>菜单高亮</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The highlighted item of a menu or pop-up list</source>
-        <translation type="unfinished"></translation>
+        <translation>菜单或弹出列表中高亮的项</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Quiet button, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>普通按钮，悬停</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A button with no fill under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>鼠标悬停时无填充的按钮</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selected message</source>
-        <translation type="unfinished"></translation>
+        <translation>选中的消息</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A message picked for forwarding, or jumped to</source>
-        <translation type="unfinished"></translation>
+        <translation>为转发而选中，或已跳转到的消息</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selected text</source>
-        <translation type="unfinished"></translation>
+        <translation>选中的文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Text you have highlighted in a field or label</source>
-        <translation type="unfinished"></translation>
+        <translation>你在输入框或标签中高亮选中的文字</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Selection in system controls</source>
-        <translation type="unfinished"></translation>
+        <translation>系统控件中的选中</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The highlight Qt draws in standard controls</source>
-        <translation type="unfinished"></translation>
+        <translation>Qt 在标准控件中绘制的高亮</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The words inside the bubble behind messages you sent</source>
-        <translation type="unfinished"></translation>
+        <translation>你发送的消息气泡中的文字</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>Focus ring</source>
-        <translation type="unfinished"></translation>
+        <translation>焦点环</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The outline that shows which control the keyboard is on</source>
-        <translation type="unfinished"></translation>
+        <translation>显示键盘当前所在控件的轮廓</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Soft accent</source>
-        <translation type="unfinished"></translation>
+        <translation>柔和强调色</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Tinted chips: your own reactions, active icon chips and your own mentions</source>
-        <translation type="unfinished"></translation>
+        <translation>着色标签：你自己的表情回应、激活的图标标签和你自己的提及</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Soft accent outline</source>
-        <translation type="unfinished"></translation>
+        <translation>柔和强调色轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of those tinted chips</source>
-        <translation type="unfinished"></translation>
+        <translation>着色标签的边缘</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Timestamps</source>
-        <translation type="unfinished"></translation>
+        <translation>时间戳</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The time beside a message</source>
-        <translation type="unfinished"></translation>
+        <translation>消息旁边的时间</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Placeholder text</source>
-        <translation type="unfinished"></translation>
+        <translation>占位文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The hint inside an empty field</source>
-        <translation type="unfinished"></translation>
+        <translation>空输入框中的提示文字</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -4790,913 +4792,913 @@ It does not touch your encryption keys, your sign-in or any message on the serve
         <location line="+3"/>
         <location line="+3"/>
         <source>Status</source>
-        <translation type="unfinished">状态</translation>
+        <translation>状态</translation>
     </message>
     <message>
         <location line="-229"/>
         <source>Success</source>
-        <translation type="unfinished"></translation>
+        <translation>成功</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Verified marks, success messages and chips</source>
-        <translation type="unfinished"></translation>
+        <translation>已验证标记、成功消息和标签</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Warning</source>
-        <translation type="unfinished"></translation>
+        <translation>警告</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Caution text, icons and chips</source>
-        <translation type="unfinished"></translation>
+        <translation>注意文字、图标和标签</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Errors</source>
-        <translation type="unfinished"></translation>
+        <translation>错误</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Error text, destructive actions and failed states</source>
-        <translation type="unfinished"></translation>
+        <translation>错误文字、破坏性操作和失败状态</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Online dot</source>
-        <translation type="unfinished"></translation>
+        <translation>在线圆点</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The dot beside someone who is online</source>
-        <translation type="unfinished"></translation>
+        <translation>在线用户旁边的圆点</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Error tint</source>
-        <translation type="unfinished"></translation>
+        <translation>错误色调</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Behind destructive menu rows and the danger chip</source>
-        <translation type="unfinished"></translation>
+        <translation>破坏性菜单行和危险标签的背景</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Header divider</source>
-        <translation type="unfinished"></translation>
+        <translation>标题分隔线</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The line under the room list, room and side-panel headers</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表、房间和侧边面板标题下方的线条</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Search field outline</source>
-        <translation type="unfinished"></translation>
+        <translation>搜索框轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of the room list&apos;s filter box</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表筛选框的边缘</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Message box outline</source>
-        <translation type="unfinished"></translation>
+        <translation>消息输入框轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of the field you type messages into</source>
-        <translation type="unfinished"></translation>
+        <translation>你输入消息的输入框的边缘</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Text field outline</source>
-        <translation type="unfinished"></translation>
+        <translation>文本框轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of text fields in dialogs and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>对话框和面板中文本框的边缘</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Link preview outline</source>
-        <translation type="unfinished"></translation>
+        <translation>链接预览轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of link previews and other cards in messages</source>
-        <translation type="unfinished"></translation>
+        <translation>消息中链接预览和其他卡片的边缘</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Code block outline</source>
-        <translation type="unfinished"></translation>
+        <translation>代码块轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of fenced code in a message</source>
-        <translation type="unfinished"></translation>
+        <translation>消息中围栏代码的边缘</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open folder outline</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的文件夹轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of an open folder in the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>频道布局中打开的文件夹的边缘</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings divider</source>
-        <translation type="unfinished"></translation>
+        <translation>设置分隔线</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The lines between Settings&apos; navigation, header and page</source>
-        <translation type="unfinished"></translation>
+        <translation>设置的导航、标题和页面之间的线条</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Disabled button outline</source>
-        <translation type="unfinished"></translation>
+        <translation>禁用按钮轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of a button that cannot be used right now</source>
-        <translation type="unfinished"></translation>
+        <translation>当前无法使用的按钮的边缘</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Menu outline</source>
-        <translation type="unfinished"></translation>
+        <translation>菜单轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of context menus and pop-up menus</source>
-        <translation type="unfinished"></translation>
+        <translation>右键菜单和弹出菜单的边缘</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Reaction pill outline</source>
-        <translation type="unfinished"></translation>
+        <translation>表情回应气泡轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of someone else&apos;s reaction</source>
-        <translation type="unfinished"></translation>
+        <translation>他人表情回应的边缘</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Spaces rail tile</source>
-        <translation type="unfinished"></translation>
+        <translation>空间栏图块</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Home, People and folder tiles on the Spaces rail</source>
-        <translation type="unfinished"></translation>
+        <translation>空间栏上的主页、联系人和文件夹图块</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Link previews</source>
-        <translation type="unfinished"></translation>
+        <translation>链接预览</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Link previews, files and other cards inside messages</source>
-        <translation type="unfinished"></translation>
+        <translation>消息中的链接预览、文件和其他卡片</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open room row, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的房间行，悬停</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The room you are in, with the pointer on it</source>
-        <translation type="unfinished"></translation>
+        <translation>你所在的房间，鼠标悬停其上</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open Settings section</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的设置分区</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The section you are in, in Settings&apos; navigation</source>
-        <translation type="unfinished"></translation>
+        <translation>设置导航中你所在的分区</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Person row, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>成员行，悬停</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A person in the side panel under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>侧边面板中鼠标悬停的成员</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room unread count</source>
-        <translation type="unfinished"></translation>
+        <translation>房间未读数</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The count or dot of new messages on a room</source>
-        <translation type="unfinished"></translation>
+        <translation>房间上新消息的数量或圆点</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Space unread dot</source>
-        <translation type="unfinished"></translation>
+        <translation>空间未读圆点</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The dot on a Space with something new in it</source>
-        <translation type="unfinished"></translation>
+        <translation>空间中有新内容时显示的圆点</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Open Space tile</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的空间图块</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The wash behind the Space you are in</source>
-        <translation type="unfinished"></translation>
+        <translation>你所在空间背后的淡色底纹</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Call banner</source>
-        <translation type="unfinished"></translation>
+        <translation>通话横幅</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The strip above the conversation while a call is on</source>
-        <translation type="unfinished"></translation>
+        <translation>通话进行时对话上方的条带</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open Space ring</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的空间环</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The ring around the Space you are in</source>
-        <translation type="unfinished"></translation>
+        <translation>你所在空间周围的环</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your reaction outline</source>
-        <translation type="unfinished"></translation>
+        <translation>你的表情回应轮廓</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The edge of a reaction you added yourself</source>
-        <translation type="unfinished"></translation>
+        <translation>你自己添加的表情回应的边缘</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Mentions of you</source>
-        <translation type="unfinished"></translation>
+        <translation>对你的提及</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your name, and @room, where a message mentions it</source>
-        <translation type="unfinished"></translation>
+        <translation>你的名字，以及消息中提及的 @room</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Primary button</source>
-        <translation type="unfinished"></translation>
+        <translation>主要按钮</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The main button of a dialog or form, at rest</source>
-        <translation type="unfinished"></translation>
+        <translation>对话框或表单中的主按钮（静止状态）</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send button</source>
-        <translation type="unfinished"></translation>
+        <translation>发送按钮</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The button that sends a message</source>
-        <translation type="unfinished"></translation>
+        <translation>发送消息的按钮</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unread count number</source>
-        <translation type="unfinished"></translation>
+        <translation>未读数字</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+301"/>
         <source>The number on a room&apos;s unread count</source>
-        <translation type="unfinished"></translation>
+        <translation>房间未读数上的数字</translation>
     </message>
     <message>
         <location line="-299"/>
         <source>Primary button label</source>
-        <translation type="unfinished"></translation>
+        <translation>主要按钮文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The words on a primary button</source>
-        <translation type="unfinished"></translation>
+        <translation>主要按钮上的文字</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send button icon</source>
-        <translation type="unfinished"></translation>
+        <translation>发送按钮图标</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The arrow on the send button</source>
-        <translation type="unfinished"></translation>
+        <translation>发送按钮上的箭头</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Room mention count</source>
-        <translation type="unfinished"></translation>
+        <translation>房间提及数</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The count on a room where someone named you</source>
-        <translation type="unfinished"></translation>
+        <translation>有人提到你的房间上的数量</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Mention count number</source>
-        <translation type="unfinished"></translation>
+        <translation>提及数数字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The number on a mention count</source>
-        <translation type="unfinished"></translation>
+        <translation>提及数上的数字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Message text</source>
-        <translation type="unfinished"></translation>
+        <translation>消息文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The words of messages, except on your own bubbles</source>
-        <translation type="unfinished"></translation>
+        <translation>消息的文字，你自己的气泡除外</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room list heading</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表标题</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The name at the top of the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表顶部的名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room name in the header</source>
-        <translation type="unfinished"></translation>
+        <translation>标题栏中的房间名称</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The room&apos;s name above the conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>对话上方的房间名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unread room names</source>
-        <translation type="unfinished"></translation>
+        <translation>未读房间名称</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The name of a room with something new in it</source>
-        <translation type="unfinished"></translation>
+        <translation>有新内容的房间的名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Code text</source>
-        <translation type="unfinished"></translation>
+        <translation>代码文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The text inside a code block</source>
-        <translation type="unfinished"></translation>
+        <translation>代码块中的文字</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Link preview title</source>
-        <translation type="unfinished"></translation>
+        <translation>链接预览标题</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The title of a link preview or media card</source>
-        <translation type="unfinished"></translation>
+        <translation>链接预览或媒体卡片的标题</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your reaction count</source>
-        <translation type="unfinished"></translation>
+        <translation>你的表情回应数量</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The count on a reaction you added yourself</source>
-        <translation type="unfinished"></translation>
+        <translation>你自己添加的表情回应上的数量</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Typed text</source>
-        <translation type="unfinished"></translation>
+        <translation>输入中的文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>What you type in the message box</source>
-        <translation type="unfinished"></translation>
+        <translation>你在消息输入框中键入的内容</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Text field text</source>
-        <translation type="unfinished"></translation>
+        <translation>文本框文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>What you type in text fields in dialogs and panels</source>
-        <translation type="unfinished"></translation>
+        <translation>你在对话框和面板的文本框中键入的内容</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Highlighted menu item</source>
-        <translation type="unfinished"></translation>
+        <translation>高亮的菜单项</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The menu entry under the pointer or the keyboard</source>
-        <translation type="unfinished"></translation>
+        <translation>鼠标或键盘所在的菜单项</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Call banner text</source>
-        <translation type="unfinished"></translation>
+        <translation>通话横幅文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The words on the strip above a conversation with a call on</source>
-        <translation type="unfinished"></translation>
+        <translation>通话进行时对话上方条带中的文字</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings headings</source>
-        <translation type="unfinished"></translation>
+        <translation>设置标题</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The title of Settings and of each of its pages</source>
-        <translation type="unfinished"></translation>
+        <translation>设置及其每个页面的标题</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room names</source>
-        <translation type="unfinished"></translation>
+        <translation>房间名称</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The name of a room with nothing new in it</source>
-        <translation type="unfinished"></translation>
+        <translation>没有新内容的房间的名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Channel names</source>
-        <translation type="unfinished"></translation>
+        <translation>频道名称</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Room names in the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>频道布局中的房间名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Menu items</source>
-        <translation type="unfinished"></translation>
+        <translation>菜单项</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The entries of context menus and pop-up menus</source>
-        <translation type="unfinished"></translation>
+        <translation>右键菜单和弹出菜单中的条目</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Reaction count</source>
-        <translation type="unfinished"></translation>
+        <translation>表情回应数量</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The count on someone else&apos;s reaction</source>
-        <translation type="unfinished"></translation>
+        <translation>他人表情回应上的数量</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Quiet button label</source>
-        <translation type="unfinished"></translation>
+        <translation>普通按钮文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The words on a button with no fill</source>
-        <translation type="unfinished"></translation>
+        <translation>无填充按钮上的文字</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings navigation labels</source>
-        <translation type="unfinished"></translation>
+        <translation>设置导航标签</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The section names down the left of Settings</source>
-        <translation type="unfinished"></translation>
+        <translation>设置左侧的分区名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Message previews</source>
-        <translation type="unfinished"></translation>
+        <translation>消息预览</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The last message under each room&apos;s name</source>
-        <translation type="unfinished"></translation>
+        <translation>每个房间名称下方的最后一条消息</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Room list sections</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表分区</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Labels such as Invites and Favourites in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表中“邀请”“收藏”等标签</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Side panel sections</source>
-        <translation type="unfinished"></translation>
+        <translation>侧边面板分区</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Headings over groups of people in the side panel</source>
-        <translation type="unfinished"></translation>
+        <translation>侧边面板中成员分组的标题</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Channel categories</source>
-        <translation type="unfinished"></translation>
+        <translation>频道分类</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Folder and category names in the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>频道布局中的文件夹和分类名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Folder arrows</source>
-        <translation type="unfinished"></translation>
+        <translation>文件夹箭头</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The arrow that opens a folder in the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>频道布局中用于展开文件夹的箭头</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Settings descriptions</source>
-        <translation type="unfinished"></translation>
+        <translation>设置说明</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The explanation under each Settings page&apos;s title</source>
-        <translation type="unfinished"></translation>
+        <translation>每个设置页面标题下方的说明</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open room&apos;s name</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的房间名称</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The name in the open room&apos;s row</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的房间行中的名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open room&apos;s preview</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的房间预览</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The last message in the open room&apos;s row</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的房间行中的最后一条消息</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open channel&apos;s name</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的频道名称</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The name in the open row of the Channels layout</source>
-        <translation type="unfinished"></translation>
+        <translation>频道布局中打开行的名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Text on a system selection</source>
-        <translation type="unfinished"></translation>
+        <translation>系统选中区域中的文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Selected text in the message box and standard controls</source>
-        <translation type="unfinished"></translation>
+        <translation>消息输入框和标准控件中选中的文字</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Disabled button label</source>
-        <translation type="unfinished"></translation>
+        <translation>禁用按钮文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The words on a button that cannot be used right now</source>
-        <translation type="unfinished"></translation>
+        <translation>当前无法使用的按钮上的文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Online dot on people</source>
-        <translation type="unfinished"></translation>
+        <translation>成员的在线圆点</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The dot on someone&apos;s picture while they are online</source>
-        <translation type="unfinished"></translation>
+        <translation>用户在线时头像上的圆点</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Success chip</source>
-        <translation type="unfinished"></translation>
+        <translation>成功标签</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A small &quot;verified&quot; or &quot;done&quot; label</source>
-        <translation type="unfinished"></translation>
+        <translation>小型“已验证”或“已完成”标签</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Warning chip</source>
-        <translation type="unfinished"></translation>
+        <translation>警告标签</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A small caution label, such as Invited</source>
-        <translation type="unfinished"></translation>
+        <translation>小型注意标签，例如“已邀请”</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Destructive menu item, highlighted</source>
-        <translation type="unfinished"></translation>
+        <translation>高亮的破坏性菜单项</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The tint behind Delete or Leave under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>鼠标悬停在“删除”或“离开”上时的底色</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Error chip</source>
-        <translation type="unfinished"></translation>
+        <translation>错误标签</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A small &quot;failed&quot; or Banned label</source>
-        <translation type="unfinished"></translation>
+        <translation>小型“失败”或“已封禁”标签</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Destructive menu item</source>
-        <translation type="unfinished"></translation>
+        <translation>破坏性菜单项</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Delete, Leave and other menu entries that cannot be undone</source>
-        <translation type="unfinished"></translation>
+        <translation>“删除”、“离开”及其他无法撤销的菜单项</translation>
     </message>
     <message>
         <location line="+52"/>
         <source>Main text on the conversation background</source>
-        <translation type="unfinished"></translation>
+        <translation>对话背景上的主要文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表中的主要文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text on panels and cards</source>
-        <translation type="unfinished"></translation>
+        <translation>面板和卡片上的主要文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text on their messages</source>
-        <translation type="unfinished"></translation>
+        <translation>他人消息上的主要文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text inside a text field</source>
-        <translation type="unfinished"></translation>
+        <translation>文本框内的主要文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text inside a code block</source>
-        <translation type="unfinished"></translation>
+        <translation>代码块内的主要文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text on a hovered row</source>
-        <translation type="unfinished"></translation>
+        <translation>悬停行上的主要文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Main text on a raised chip</source>
-        <translation type="unfinished"></translation>
+        <translation>突出标签上的主要文字</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Reaction text on a reaction pill</source>
-        <translation type="unfinished"></translation>
+        <translation>表情回应气泡上的表情回应文字</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Secondary text on the conversation background</source>
-        <translation type="unfinished"></translation>
+        <translation>对话背景上的次要文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Room names in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表中的房间名称</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Message previews in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表中的消息预览</translation>
     </message>
     <message>
         <location line="+1236"/>
         <source>Replace with the imported theme</source>
-        <translation type="unfinished"></translation>
+        <translation>用导入的主题替换</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>Change the starting point</source>
-        <translation type="unfinished"></translation>
+        <translation>更改起始点</translation>
     </message>
     <message>
         <location line="+47"/>
         <source>Change %1 colour</source>
-        <translation type="unfinished"></translation>
+        <translation>更改 %1 颜色</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Reset %1</source>
-        <translation type="unfinished"></translation>
+        <translation>重置 %1</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Apply %1 to all of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>将 %1 应用到 %2 的全部</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Reset every colour</source>
-        <translation type="unfinished"></translation>
+        <translation>重置所有颜色</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>Change %1 gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>更改 %1 渐变</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Remove %1 gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>移除 %1 渐变</translation>
     </message>
     <message>
         <location line="-1516"/>
         <source>Secondary text on panels and cards</source>
-        <translation type="unfinished"></translation>
+        <translation>面板和卡片上的次要文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Secondary text inside a text field</source>
-        <translation type="unfinished"></translation>
+        <translation>文本框内的次要文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Timestamps on the conversation background</source>
-        <translation type="unfinished"></translation>
+        <translation>对话背景上的时间戳</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Timestamps on panels and cards</source>
-        <translation type="unfinished"></translation>
+        <translation>面板和卡片上的时间戳</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The open room&apos;s name in the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表中打开房间的名称</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Links on panels and cards</source>
-        <translation type="unfinished"></translation>
+        <translation>面板和卡片上的链接</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Text on your own messages</source>
-        <translation type="unfinished"></translation>
+        <translation>你自己消息上的文字</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The room&apos;s name in the room header</source>
-        <translation type="unfinished"></translation>
+        <translation>房间标题栏中的房间名称</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Typed text in the message box</source>
-        <translation type="unfinished"></translation>
+        <translation>消息输入框中输入的文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Menu items on a menu</source>
-        <translation type="unfinished"></translation>
+        <translation>菜单上的菜单项</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>A link preview&apos;s title on its card</source>
-        <translation type="unfinished"></translation>
+        <translation>卡片上链接预览的标题</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>A button&apos;s label on the accent</source>
-        <translation type="unfinished"></translation>
+        <translation>强调色上按钮的文字</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>A button&apos;s label while the pointer is on it</source>
-        <translation type="unfinished"></translation>
+        <translation>鼠标悬停时按钮的文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>A button&apos;s label while it is held down</source>
-        <translation type="unfinished"></translation>
+        <translation>按下时按钮的文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>A primary button&apos;s label</source>
-        <translation type="unfinished"></translation>
+        <translation>主要按钮的文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The send button&apos;s arrow</source>
-        <translation type="unfinished"></translation>
+        <translation>发送按钮的箭头</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Hairlines against panels and cards</source>
-        <translation type="unfinished"></translation>
+        <translation>面板和卡片与其背景之间的细线</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>A field&apos;s outline against its inside</source>
-        <translation type="unfinished"></translation>
+        <translation>文本框轮廓与其内部之间的边线</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Panels against the conversation background</source>
-        <translation type="unfinished"></translation>
+        <translation>面板与对话背景之间</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The Spaces rail against the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>空间栏与房间列表之间</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>A mention badge against the room list</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表中的提及标记与其背景之间</translation>
     </message>
     <message>
         <location line="+980"/>
@@ -5846,111 +5848,111 @@ Size: %3</source>
     <message>
         <location filename="../qml/DeveloperToolsSection.qml" line="+51"/>
         <source>Developer</source>
-        <translation type="unfinished"></translation>
+        <translation>开发者</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Developer tools</source>
-        <translation type="unfinished">开发者工具</translation>
+        <translation>开发者工具</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Shows read-only views of what the homeserver reports and what your account stores. Nothing here changes your account.</source>
-        <translation type="unfinished"></translation>
+        <translation>显示主服务器报告的内容以及你的账号所存储内容的只读视图。此处的任何操作都不会更改你的账号。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Homeserver features</source>
-        <translation type="unfinished"></translation>
+        <translation>主服务器功能</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Asking the homeserver...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在向主服务器查询…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This backend cannot ask a homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>此后端无法查询主服务器。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Spec versions: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>规范版本：%1</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>on</source>
-        <translation type="unfinished"></translation>
+        <translation>开</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>off</source>
-        <translation type="unfinished"></translation>
+        <translation>关</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Refresh</source>
-        <translation type="unfinished">刷新</translation>
+        <translation>刷新</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Account data</source>
-        <translation type="unfinished"></translation>
+        <translation>账号数据</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Read only. Leave the room ID empty for your account&apos;s own data, or enter a room ID such as !abc:example.org. Keys and secrets are never shown: those entries appear as their type name only.</source>
-        <translation type="unfinished"></translation>
+        <translation>只读。房间 ID 留空以查看你账号自身的数据，或输入类似 !abc:example.org 的房间 ID。密钥和机密信息永远不会显示：这些条目只显示其类型名称。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Room ID (empty for account-wide)</source>
-        <translation type="unfinished"></translation>
+        <translation>房间 ID（留空表示账号全局）</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Load</source>
-        <translation type="unfinished"></translation>
+        <translation>加载</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Loading...</source>
-        <translation type="unfinished"></translation>
+        <translation>正在加载…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This backend cannot list account data.</source>
-        <translation type="unfinished"></translation>
+        <translation>此后端无法列出账号数据。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>No account data found.</source>
-        <translation type="unfinished"></translation>
+        <translation>未找到账号数据。</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n entries shown; more exist but are not listed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已显示 %n 项；还有更多未列出。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n entries.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 项。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+39"/>
         <source>hidden</source>
-        <translation type="unfinished"></translation>
+        <translation>已隐藏</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>... cut</source>
-        <translation type="unfinished"></translation>
+        <translation>……已截断</translation>
     </message>
 </context>
 <context>
@@ -6119,73 +6121,73 @@ Size: %3</source>
     <message>
         <location filename="../qml/DownloadsCard.qml" line="+179"/>
         <source>Downloading to %1…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在下载到 %1…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Downloading…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在下载…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The download failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>下载失败。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Saved, but its folder couldn&apos;t be opened.</source>
-        <translation type="unfinished"></translation>
+        <translation>已保存，但无法打开其所在文件夹。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Saved to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>已保存到 %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Saved</source>
-        <translation type="unfinished">已保存</translation>
+        <translation>已保存</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Cancel download of %1</source>
-        <translation type="unfinished"></translation>
+        <translation>取消下载 %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+2"/>
         <source>Dismiss</source>
-        <translation type="unfinished">忽略</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>Cancel download</source>
-        <translation type="unfinished"></translation>
+        <translation>取消下载</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>This type of file can run programs, so Lightning won&apos;t open it. Open it from its folder only if you trust the sender.</source>
-        <translation type="unfinished"></translation>
+        <translation>此类文件可以运行程序，因此 Lightning 不会打开它。只有在你信任发送者时，才从其所在文件夹中打开它。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Open</source>
-        <translation type="unfinished">打开</translation>
+        <translation>打开</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Open %1</source>
-        <translation type="unfinished">打开 %1</translation>
+        <translation>打开 %1</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Show in folder</source>
-        <translation type="unfinished"></translation>
+        <translation>在文件夹中显示</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Try again</source>
-        <translation type="unfinished"></translation>
+        <translation>重试</translation>
     </message>
 </context>
 <context>
@@ -6193,17 +6195,17 @@ Size: %3</source>
     <message>
         <location filename="../src/app/DownloadsController.cpp" line="+422"/>
         <source>Save file</source>
-        <translation type="unfinished"></translation>
+        <translation>保存文件</translation>
     </message>
     <message>
         <location line="+71"/>
         <source>Lightning can&apos;t save outside its sandbox here. Install xdg-desktop-portal, or allow Lightning to access your Downloads folder.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 在此无法保存到其沙盒之外。请安装 xdg-desktop-portal，或允许 Lightning 访问你的“下载”文件夹。</translation>
     </message>
     <message>
         <location line="+227"/>
         <source>Choose a downloads folder</source>
-        <translation type="unfinished"></translation>
+        <translation>选择下载文件夹</translation>
     </message>
 </context>
 <context>
@@ -6211,52 +6213,52 @@ Size: %3</source>
     <message>
         <location filename="../qml/EditHistoryDialog.qml" line="+79"/>
         <source>Edit history</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑历史</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Loading revisions…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在加载修订版本…</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The revisions could not be loaded. Only what this device has synced can be shown, and nothing was.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法加载修订版本。只能显示本设备已同步的内容，而目前没有可显示的内容。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This may be incomplete. Older revisions could not be loaded, so the earliest versions of this message may be missing.</source>
-        <translation type="unfinished"></translation>
+        <translation>内容可能不完整。较早的修订版本无法加载，因此此消息的最早版本可能缺失。</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Original</source>
-        <translation type="unfinished"></translation>
+        <translation>原始</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Current</source>
-        <translation type="unfinished"></translation>
+        <translation>当前</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Deleted</source>
-        <translation type="unfinished"></translation>
+        <translation>已删除</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>This revision could not be decrypted.</source>
-        <translation type="unfinished"></translation>
+        <translation>此修订版本无法解密。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This revision was deleted.</source>
-        <translation type="unfinished"></translation>
+        <translation>此修订版本已被删除。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Close</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
 </context>
 <context>
@@ -6274,22 +6276,22 @@ Size: %3</source>
     <message>
         <location line="+253"/>
         <source>Quick reactions</source>
-        <translation type="unfinished"></translation>
+        <translation>快速表情回应</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>React with %1</source>
-        <translation type="unfinished">用 %1 回应</translation>
+        <translation>用 %1 作出表情回应</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Show all emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>显示所有表情</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>All emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>所有表情</translation>
     </message>
     <message>
         <location line="+44"/>
@@ -6342,74 +6344,81 @@ Size: %3</source>
     <message>
         <location filename="../qml/EncryptionBrokenPrompt.qml" line="+53"/>
         <source>This session cannot read encrypted messages</source>
-        <translation type="unfinished"></translation>
+        <translation>此会话无法读取加密消息</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Encrypted messages can&apos;t be opened</source>
-        <translation type="unfinished"></translation>
+        <translation>无法打开加密消息</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>The encryption keys this session published no longer match the ones it holds, so nothing sent to it can be unlocked. Encrypted messages stay on &quot;Waiting for keys&quot;, and in a call others hear you while you hear nothing. Sending is unaffected, so everything looks normal from your side.
 
 Signing out and signing in again is the only fix.</source>
-        <translation type="unfinished"></translation>
+        <translation>此会话发布的加密密钥与其持有的密钥不再匹配，因此发给它的任何内容都无法解密。加密消息会停留在“等待密钥”状态；在通话中，其他人能听到你，而你却听不到他们。发送功能不受影响，因此从你这边看一切正常。
+
+退出登录后再重新登录是唯一的修复方法。</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Sign out and back in</source>
-        <translation type="unfinished"></translation>
+        <translation>退出并重新登录</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Not now</source>
-        <translation type="unfinished">暂不</translation>
+        <translation>暂不</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Sign out and sign in again?</source>
-        <translation type="unfinished"></translation>
+        <translation>退出登录并重新登录？</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>Signing in again creates a NEW session with new keys, which is what repairs this. Be aware of the cost:
 
 </source>
-        <translation type="unfinished"></translation>
+        <translation>重新登录会创建一个带有新密钥的新会话，这正是修复此问题的方法。请注意其代价：
+
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• Encrypted messages you have already received come back only if they are in your key backup. Anything not backed up is not recoverable on this computer.
 </source>
-        <translation type="unfinished"></translation>
+        <translation>• 你已收到的加密消息只有在密钥备份中时才会恢复。未备份的内容无法在此电脑上恢复。
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• KEY BACKUP IS NOT SET UP on this account, so encrypted messages already on this computer will NOT come back. This is not reversible.
 </source>
-        <translation type="unfinished"></translation>
+        <translation>• 此账号未设置密钥备份，因此此电脑上已有的加密消息将不会恢复。此操作无法撤销。
+</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>• The new session starts unverified, so you will need to verify it from another device or with your recovery key.
 • Lightning&apos;s local data for this account on this computer is removed. Your messages stay on the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>• 新会话开始时为未验证状态，因此你需要从另一台设备或使用你的恢复密钥进行验证。
+• 此电脑上该账号的 Lightning 本地数据将被删除。你的消息会保留在服务器上。</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Sign out</source>
-        <translation type="unfinished"></translation>
+        <translation>退出登录</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Confirm sign out</source>
-        <translation type="unfinished">确认退出登录</translation>
+        <translation>确认退出登录</translation>
     </message>
 </context>
 <context>
@@ -6417,37 +6426,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/EventSourceDialog.qml" line="+94"/>
         <source>Event source</source>
-        <translation type="unfinished"></translation>
+        <translation>事件源</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Copy event ID</source>
-        <translation type="unfinished"></translation>
+        <translation>复制事件 ID</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Copy JSON</source>
-        <translation type="unfinished"></translation>
+        <translation>复制 JSON</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Encrypted · %1 · sender %2 · device %3 · %4</source>
-        <translation type="unfinished"></translation>
+        <translation>已加密 · %1 · 发送者 %2 · 设备 %3 · %4</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Loading…</source>
-        <translation type="unfinished">加载中…</translation>
+        <translation>正在加载…</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The event could not be loaded.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法加载该事件。</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Close</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
 </context>
 <context>
@@ -6456,73 +6465,73 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/ExportRoomDialog.qml" line="+58"/>
         <location line="+20"/>
         <source>Export room</source>
-        <translation type="unfinished"></translation>
+        <translation>导出房间</translation>
     </message>
     <message>
         <location line="-18"/>
         <source>JSON (*.json)</source>
-        <translation type="unfinished"></translation>
+        <translation>JSON (*.json)</translation>
     </message>
     <message>
         <location line="+0"/>
         <location line="+1"/>
         <source>All files (*)</source>
-        <translation type="unfinished">所有文件 (*)</translation>
+        <translation>所有文件 (*)</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Text (*.txt)</source>
-        <translation type="unfinished"></translation>
+        <translation>文本 (*.txt)</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Exports the 1 message Lightning has loaded for %1. Scroll further back first to include more. Attachments are not included.</source>
-        <translation type="unfinished"></translation>
+        <translation>将导出 Lightning 为 %1 加载的 1 条消息。如需包含更多消息，请先向上滚动。不包含附件。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Exports the %1 messages Lightning has loaded for %2. Scroll further back first to include more. Attachments are not included.</source>
-        <translation type="unfinished"></translation>
+        <translation>将导出 Lightning 为 %2 加载的 %1 条消息。如需包含更多消息，请先向上滚动。不包含附件。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Text</source>
-        <translation type="unfinished">文字</translation>
+        <translation>文本</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>JSON</source>
-        <translation type="unfinished"></translation>
+        <translation>JSON</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>This room is encrypted. Lightning keeps its messages in memory and never writes them to disk.</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间已加密。Lightning 将消息保存在内存中，从不写入磁盘。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Write the message text into this file in the clear</source>
-        <translation type="unfinished"></translation>
+        <translation>将消息正文以明文写入此文件</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Anyone who can read the file can read the conversation. It is not encrypted, and backups, sync folders and shared drives copy it like any other file.</source>
-        <translation type="unfinished"></translation>
+        <translation>任何能读取该文件的人都能读取这段对话。文件未加密，备份、同步文件夹和共享云盘会像复制其他文件一样复制它。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Without this, the export lists who sent what and when, with each message&apos;s text withheld.</source>
-        <translation type="unfinished"></translation>
+        <translation>如不勾选，导出内容将列出每条消息的发送者和时间，但会隐去消息正文。</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Choose file…</source>
-        <translation type="unfinished"></translation>
+        <translation>选择文件…</translation>
     </message>
 </context>
 <context>
@@ -6578,37 +6587,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+66"/>
         <source>You can forward up to %1 messages at once.</source>
-        <translation type="unfinished"></translation>
+        <translation>一次最多可转发 %1 条消息。</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Nothing was selected to forward.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有选中要转发的内容。</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>in %1</source>
-        <translation type="unfinished">在 %1</translation>
+        <translation>在 %1 中</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Forwarded from %1</source>
-        <translation type="unfinished"></translation>
+        <translation>转发自 %1</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>Not signed in.</source>
-        <translation type="unfinished"></translation>
+        <translation>未登录。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Attachments can only be forwarded one at a time — use Forward on the message itself.</source>
-        <translation type="unfinished"></translation>
+        <translation>附件只能逐个转发：请直接对消息本身使用“转发”。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Nothing to send.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有可发送的内容。</translation>
     </message>
     <message>
         <location line="+45"/>
@@ -6694,73 +6703,73 @@ Signing out and signing in again is the only fix.</source>
     <message numerus="yes">
         <location filename="../qml/ForwardSelectionDialog.qml" line="+72"/>
         <source>Forward %n message(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>转发 %n 条消息</numerusform>
         </translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Just the message</source>
-        <translation type="unfinished"></translation>
+        <translation>仅消息</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>With original sender</source>
-        <translation type="unfinished"></translation>
+        <translation>附带原发送者</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Each copy will name the original sender, this room and the time — visible to everyone in the rooms you pick.</source>
-        <translation type="unfinished"></translation>
+        <translation>每份副本都会注明原发送者、本房间和时间，你所选房间中的所有人都能看到。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A clean copy, with nothing identifying where it came from.</source>
-        <translation type="unfinished"></translation>
+        <translation>干净的副本，不包含任何其来源信息。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Search rooms…</source>
-        <translation type="unfinished">搜索房间…</translation>
+        <translation>搜索房间…</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Sending %1 of %2…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在发送第 %1 项，共 %2 项…</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Sent %n copy(ies).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已发送 %n 份副本。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%1 of %2 sent — %n failed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已发送 %1 项，共 %2 项 — %n 项失败。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Done</source>
-        <translation type="unfinished">完成</translation>
+        <translation>完成</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Retry failed</source>
-        <translation type="unfinished"></translation>
+        <translation>重试失败项</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Send</source>
-        <translation type="unfinished">发送</translation>
+        <translation>发送</translation>
     </message>
 </context>
 <context>
@@ -6773,12 +6782,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+224"/>
         <source>GIFs</source>
-        <translation type="unfinished">GIF</translation>
+        <translation>GIF</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Stickers</source>
-        <translation type="unfinished">贴纸</translation>
+        <translation>贴纸</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -6982,17 +6991,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/GradientBar.qml" line="+114"/>
         <source>Gradient colour stops</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变色标</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 colour at %2 percent. Left and Right move it, Up and Down pick another colour, Delete removes it, Insert adds one.</source>
-        <translation type="unfinished"></translation>
+        <translation>%2% 处的 %1 颜色。左右键移动它，上下键选择其他颜色，Delete 删除，Insert 添加。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>No colour picked. Up or Down picks one.</source>
-        <translation type="unfinished"></translation>
+        <translation>尚未选择颜色。使用上下键选择一个。</translation>
     </message>
 </context>
 <context>
@@ -7000,202 +7009,202 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/GradientEditor.qml" line="+372"/>
         <source>Linear</source>
-        <translation type="unfinished"></translation>
+        <translation>线性</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Radial</source>
-        <translation type="unfinished"></translation>
+        <translation>径向</translation>
     </message>
     <message>
         <location line="-270"/>
         <source>Soft fade</source>
-        <translation type="unfinished"></translation>
+        <translation>柔和渐隐</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Strong fade</source>
-        <translation type="unfinished"></translation>
+        <translation>强烈渐隐</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Diagonal</source>
-        <translation type="unfinished"></translation>
+        <translation>对角</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Glow</source>
-        <translation type="unfinished"></translation>
+        <translation>光晕</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Accent wash</source>
-        <translation type="unfinished"></translation>
+        <translation>强调色渐变</translation>
     </message>
     <message>
         <location line="+139"/>
         <source>Centre</source>
-        <translation type="unfinished"></translation>
+        <translation>中心</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Start</source>
-        <translation type="unfinished"></translation>
+        <translation>起点</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Edge</source>
-        <translation type="unfinished"></translation>
+        <translation>边缘</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>End</source>
-        <translation type="unfinished"></translation>
+        <translation>终点</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Middle</source>
-        <translation type="unfinished"></translation>
+        <translation>中间</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>Fill</source>
-        <translation type="unfinished"></translation>
+        <translation>填充</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Solid</source>
-        <translation type="unfinished"></translation>
+        <translation>纯色</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Solid colour</source>
-        <translation type="unfinished"></translation>
+        <translation>纯色</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Linear gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>线性渐变</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Radial gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>径向渐变</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>This area can be a gradient. Pick a starting point, then change its colours.</source>
-        <translation type="unfinished"></translation>
+        <translation>此区域可以使用渐变。请选择一个起点，然后更改其颜色。</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Use the %1 gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>使用 %1 渐变</translation>
     </message>
     <message>
         <location line="+65"/>
         <source>Direction</source>
-        <translation type="unfinished"></translation>
+        <translation>方向</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Gradient angle</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变角度</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>%1°</source>
-        <translation type="unfinished"></translation>
+        <translation>%1°</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Colour stops</source>
-        <translation type="unfinished"></translation>
+        <translation>颜色标记</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Drag a handle to move a colour. Click the bar to add one.</source>
-        <translation type="unfinished"></translation>
+        <translation>拖动手柄可移动颜色。点击色条可添加颜色。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Drag a handle to move a colour. Three is the most a gradient holds.</source>
-        <translation type="unfinished"></translation>
+        <translation>拖动手柄可移动颜色。渐变最多只能包含三种颜色。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Gradient colours</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变颜色</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Stop editing the %1 colour</source>
-        <translation type="unfinished"></translation>
+        <translation>停止编辑 %1 颜色</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Edit the %1 colour with the picker</source>
-        <translation type="unfinished"></translation>
+        <translation>用取色器编辑 %1 颜色</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Gradient colour %1</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变颜色 %1</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Remove</source>
-        <translation type="unfinished"></translation>
+        <translation>移除</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Remove the %1 colour</source>
-        <translation type="unfinished"></translation>
+        <translation>移除 %1 颜色</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Add a middle colour</source>
-        <translation type="unfinished"></translation>
+        <translation>添加中间颜色</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Solid colour underneath</source>
-        <translation type="unfinished"></translation>
+        <translation>底层纯色</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Edit the solid colour underneath the gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑渐变底层的纯色</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Reverse</source>
-        <translation type="unfinished"></translation>
+        <translation>反转</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reverse the gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>反转渐变</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The picker below changes the %1 colour. Click it again to go back to the solid colour.</source>
-        <translation type="unfinished"></translation>
+        <translation>下方的取色器会更改 %1 颜色。再次点击即可恢复为纯色。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Click a colour above to change it with the picker below.</source>
-        <translation type="unfinished"></translation>
+        <translation>点击上方的颜色，即可用下方的取色器更改它。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Text stays readable at every point of this gradient.</source>
-        <translation type="unfinished"></translation>
+        <translation>在此渐变的每个位置，文字都保持可读。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Hard to read where the gradient is at its worst: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变最难读的位置：%1</translation>
     </message>
 </context>
 <context>
@@ -7244,17 +7253,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-2"/>
         <source>Lightning can&apos;t sync with your server. Your rooms stay available, but new messages may not arrive.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法与你的服务器同步。你的房间仍可使用，但新消息可能无法送达。</translation>
     </message>
     <message>
         <location line="+155"/>
         <source>Enter recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>输入恢复密钥</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Set up backup</source>
-        <translation type="unfinished"></translation>
+        <translation>设置备份</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -7274,7 +7283,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+7"/>
         <source>Explore rooms</source>
-        <translation type="unfinished">探索房间</translation>
+        <translation>探索房间</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -7314,33 +7323,33 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+23"/>
         <source>Make it yours</source>
-        <translation type="unfinished"></translation>
+        <translation>个性化设置</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Theme and colours</source>
-        <translation type="unfinished"></translation>
+        <translation>主题和颜色</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+2"/>
         <source>Themes, custom colours and gradients</source>
-        <translation type="unfinished"></translation>
+        <translation>主题、自定义颜色和渐变</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Name and picture</source>
-        <translation type="unfinished"></translation>
+        <translation>名称和头像</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>All settings</source>
-        <translation type="unfinished"></translation>
+        <translation>所有设置</translation>
     </message>
     <message>
         <location line="+24"/>
@@ -7350,7 +7359,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>Start a direct message to talk to someone, create a room for a group, or organise rooms into a Space. Explore rooms finds public ones to join. Invitations you receive appear in the room list.</source>
-        <translation type="unfinished"></translation>
+        <translation>发起私聊与某人交谈，为群组创建房间，或将房间整理到空间中。“探索房间”可以找到可加入的公开房间。你收到的邀请会显示在房间列表中。</translation>
     </message>
 </context>
 <context>
@@ -7421,7 +7430,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>That animation can&apos;t be kept. Turn off &quot;Keep animation&quot; to use a still frame.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法保留该动画。请关闭“保留动画”以使用静态帧。</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -7431,18 +7440,18 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+368"/>
         <source>Converting the SVG to a picture…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在将 SVG 转换为图片…</translation>
     </message>
     <message>
         <location line="+33"/>
         <location line="+8"/>
         <source>Keep animation</source>
-        <translation type="unfinished"></translation>
+        <translation>保留动画</translation>
     </message>
     <message>
         <location line="-7"/>
         <source>This animation can&apos;t be kept (it is too large or unreadable), so a still frame will be used.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法保留此动画（太大或无法读取），将使用静态帧。</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -7452,12 +7461,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+58"/>
         <source>An animation is uploaded whole and can&apos;t be cropped. Everyone sees it centred, as outlined.</source>
-        <translation type="unfinished"></translation>
+        <translation>动画会整体上传，无法裁剪。所有人都会看到它居中显示，如轮廓所示。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>An animation is uploaded whole and can&apos;t be cropped. It is shown roughly as outlined; some views crop it differently.</source>
-        <translation type="unfinished"></translation>
+        <translation>动画会整体上传，无法裁剪。它大致按轮廓所示显示；某些视图的裁剪方式可能不同。</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -7497,7 +7506,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+643"/>
         <location line="+1"/>
         <source>Open in browser</source>
-        <translation type="unfinished">在浏览器中打开</translation>
+        <translation>在浏览器中打开</translation>
     </message>
     <message>
         <location line="-636"/>
@@ -7537,12 +7546,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+126"/>
         <source>Image %1 of %2, shown</source>
-        <translation type="unfinished"></translation>
+        <translation>第 %1 张（共 %2 张），已显示</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Image %1 of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>第 %1 张，共 %2 张</translation>
     </message>
     <message>
         <location line="+37"/>
@@ -7552,7 +7561,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Zoom out (−)</source>
-        <translation type="unfinished"></translation>
+        <translation>缩小 (−)</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -7562,7 +7571,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Zoom in (+)</source>
-        <translation type="unfinished"></translation>
+        <translation>放大 (+)</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -7587,12 +7596,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+47"/>
         <source>Download image</source>
-        <translation type="unfinished"></translation>
+        <translation>下载图片</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Download</source>
-        <translation type="unfinished"></translation>
+        <translation>下载</translation>
     </message>
     <message>
         <location line="+35"/>
@@ -7635,12 +7644,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>You can&apos;t join calls in this room. A room admin can raise your power level in it.</source>
-        <translation type="unfinished"></translation>
+        <translation>你无法在此房间中加入通话。房间管理员可以提高你在其中的权限级别。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build.</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间已加密，而此版本不支持加密通话。</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -7690,12 +7699,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+41"/>
         <source>Silence ringer</source>
-        <translation type="unfinished"></translation>
+        <translation>静音铃声</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Silence the ringer for this call</source>
-        <translation type="unfinished"></translation>
+        <translation>为此通话静音铃声</translation>
     </message>
     <message>
         <location line="+28"/>
@@ -7764,22 +7773,22 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/IndexAllPrompt.qml" line="+43"/>
         <location line="+23"/>
         <source>Index encrypted messages now?</source>
-        <translation type="unfinished"></translation>
+        <translation>现在为加密消息建立索引？</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>So search can find older messages in encrypted rooms later. It can take a while, uses bandwidth, and stores the decrypted text on this device. You can also do it later in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>这样以后在加密房间中搜索时，就能找到较早的消息。此过程可能需要一些时间，会占用网络流量，并会将解密后的文本存储在此设备上。你也可以稍后在“设置”中进行。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Index now</source>
-        <translation type="unfinished"></translation>
+        <translation>立即建立索引</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Not now</source>
-        <translation type="unfinished">暂不</translation>
+        <translation>暂不</translation>
     </message>
 </context>
 <context>
@@ -7869,87 +7878,87 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/JumpToDateDialog.qml" line="+88"/>
         <source>Your homeserver could not find a message on or after that date.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器在该日期当天或之后未找到任何消息。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your homeserver does not support jumping to a date. That needs a newer homeserver; searching this room still works.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器不支持跳转到日期。这需要更新版本的主服务器；搜索此房间仍然可用。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your homeserver refused the request for this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器拒绝了此房间的请求。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your homeserver is rate limiting requests. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器正在限制请求。请稍后再试。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The room changed while the answer was on its way.</source>
-        <translation type="unfinished"></translation>
+        <translation>在答复返回期间，房间已发生变化。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This build cannot ask the server for a date.</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本无法向服务器查询日期。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Could not reach your homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法连接你的主服务器。</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Jump to date</source>
-        <translation type="unfinished"></translation>
+        <translation>跳转到日期</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Goes to the first message on or after the date you pick. Your homeserver answers this, so it works through history that is not loaded yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>跳转到你所选日期当天或之后的第一条消息。此操作由你的主服务器完成，因此即使尚未加载的历史记录也能跳转。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Today</source>
-        <translation type="unfinished">今天</translation>
+        <translation>今天</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A week ago</source>
-        <translation type="unfinished"></translation>
+        <translation>一周前</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A month ago</source>
-        <translation type="unfinished"></translation>
+        <translation>一个月前</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Pick a date</source>
-        <translation type="unfinished"></translation>
+        <translation>选择日期</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>yyyy-mm-dd</source>
-        <translation type="unfinished"></translation>
+        <translation>yyyy-mm-dd</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Pick a real date that is not in the future.</source>
-        <translation type="unfinished"></translation>
+        <translation>请选择一个不在未来的真实日期。</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Jump</source>
-        <translation type="unfinished"></translation>
+        <translation>跳转</translation>
     </message>
 </context>
 <context>
@@ -7957,92 +7966,92 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/LinkMediaCard.qml" line="+49"/>
         <source>Plays from %1, which will see your IP address</source>
-        <translation type="unfinished"></translation>
+        <translation>从 %1 播放，该服务器将能看到你的 IP 地址</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Opens from %1, which will see your IP address</source>
-        <translation type="unfinished"></translation>
+        <translation>从 %1 打开，该服务器将能看到你的 IP 地址</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>%1 B</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 B</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 KB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 KB</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 MB</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Video</source>
-        <translation type="unfinished">视频</translation>
+        <translation>视频</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Image</source>
-        <translation type="unfinished">图片</translation>
+        <translation>图片</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Over %1</source>
-        <translation type="unfinished"></translation>
+        <translation>超过 %1</translation>
     </message>
     <message>
         <location line="+147"/>
         <source>Too large to play here</source>
-        <translation type="unfinished"></translation>
+        <translation>过大，无法在此播放</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Too large to show here</source>
-        <translation type="unfinished"></translation>
+        <translation>过大，无法在此显示</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>%1 · Open in browser</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · 在浏览器中打开</translation>
     </message>
     <message>
         <location line="+90"/>
         <source>Open link in browser</source>
-        <translation type="unfinished"></translation>
+        <translation>在浏览器中打开链接</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Open in browser</source>
-        <translation type="unfinished">在浏览器中打开</translation>
+        <translation>在浏览器中打开</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Dismiss link preview</source>
-        <translation type="unfinished">关闭链接预览</translation>
+        <translation>关闭链接预览</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Dismiss preview</source>
-        <translation type="unfinished">关闭预览</translation>
+        <translation>关闭预览</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>%1 too large to show here, open %2 in browser</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 过大，无法在此显示；请在浏览器中打开 %2</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Play video %1</source>
-        <translation type="unfinished"></translation>
+        <translation>播放视频 %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>View image %1</source>
-        <translation type="unfinished"></translation>
+        <translation>查看图片 %1</translation>
     </message>
 </context>
 <context>
@@ -8059,135 +8068,135 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/LogExportCard.qml" line="+49"/>
         <source>%1 B</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 B</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 KB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 KB</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 MB</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Troubleshooting</source>
-        <translation type="unfinished"></translation>
+        <translation>故障排查</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Export logs</source>
-        <translation type="unfinished"></translation>
+        <translation>导出日志</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Save Lightning&apos;s recent log, with basic facts about this build and computer, as a .zip you can attach to a bug report. Nothing is uploaded.</source>
-        <translation type="unfinished"></translation>
+        <translation>将 Lightning 的最近日志以及此版本和电脑的基本信息保存为 .zip 文件，可附在错误报告中。不会上传任何内容。</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+23"/>
         <source>Keep a diagnostic log</source>
-        <translation type="unfinished"></translation>
+        <translation>保留诊断日志</translation>
     </message>
     <message>
         <location line="-11"/>
         <source>Disabled by the LIGHTNING_NO_ROLLING_LOG environment variable.</source>
-        <translation type="unfinished"></translation>
+        <translation>已被环境变量 LIGHTNING_NO_ROLLING_LOG 禁用。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Keeps up to about 8 MB of recent log on this computer, so there is something to export after a problem. Nothing is uploaded. Not synced to your other devices.</source>
-        <translation type="unfinished"></translation>
+        <translation>在此电脑上保留最多约 8 MB 的近期日志，以便出现问题后可以导出。不会上传任何内容。不会同步到你的其他设备。</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>This file has no messages, passwords or keys; user and room ids are replaced with codes.</source>
-        <translation type="unfinished"></translation>
+        <translation>此文件不包含消息、密码或密钥；用户和房间 ID 已替换为代码。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Preparing…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在准备…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Nothing has been logged yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>尚未记录任何日志。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No log has been kept. Turn on “Keep a diagnostic log”, reproduce the problem, then export.</source>
-        <translation type="unfinished"></translation>
+        <translation>尚未保留任何日志。请开启“保留诊断日志”，重现问题后再导出。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>About %1, %2, from %3.</source>
-        <translation type="unfinished"></translation>
+        <translation>关于 %1，%2，来自 %3。</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n line(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 行</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n log file(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个日志文件</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Export logs…</source>
-        <translation type="unfinished"></translation>
+        <translation>导出日志…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Copy last 200 lines</source>
-        <translation type="unfinished"></translation>
+        <translation>复制最后 200 行</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Delete saved logs</source>
-        <translation type="unfinished"></translation>
+        <translation>删除已保存的日志</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Deleted %n log file(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已删除 %n 个日志文件。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Save logs</source>
-        <translation type="unfinished"></translation>
+        <translation>保存日志</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Zip archive (*.zip)</source>
-        <translation type="unfinished"></translation>
+        <translation>Zip 压缩包 (*.zip)</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Saved.</source>
-        <translation type="unfinished">已保存。</translation>
+        <translation>已保存。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Could not save the file: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>无法保存文件：%1</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Copied %n line(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已复制 %n 行。</numerusform>
         </translation>
     </message>
 </context>
@@ -8196,12 +8205,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/LogExportController.cpp" line="+199"/>
         <source>No file was chosen.</source>
-        <translation type="unfinished"></translation>
+        <translation>未选择文件。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Could not save the file.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法保存文件。</translation>
     </message>
 </context>
 <context>
@@ -8230,7 +8239,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-1074"/>
         <source>Fix this account</source>
-        <translation type="unfinished"></translation>
+        <translation>修复此账号</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -8301,19 +8310,19 @@ Signing out and signing in again is the only fix.</source>
         <location line="-152"/>
         <source>Or continue with</source>
         <extracomment>Separates the password form from the sign-in-with-your-browser buttons below it. The longer form introduces a grid of provider names.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>或使用以下方式继续</translation>
     </message>
     <message>
         <location line="+27"/>
         <location line="+36"/>
         <location line="+11"/>
         <source>Continue in browser</source>
-        <translation type="unfinished"></translation>
+        <translation>在浏览器中继续</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>%1 signs you in with %2, in your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 将在你的浏览器中使用 %2 为你登录。</translation>
     </message>
     <message>
         <location line="+62"/>
@@ -8341,64 +8350,64 @@ Signing out and signing in again is the only fix.</source>
         <location line="+43"/>
         <source>Server</source>
         <extracomment>Label above the field for the Matrix server the account is on, e.g. matrix.org.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>服务器</translation>
     </message>
     <message>
         <location line="+64"/>
         <source>Server: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器：%1</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Not encrypted</source>
         <extracomment>Shown next to the server when its connection uses http:// rather than https://.</extracomment>
-        <translation type="unfinished">未加密</translation>
+        <translation>未加密</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The connection to this server is not encrypted (http).</source>
-        <translation type="unfinished"></translation>
+        <translation>与此服务器的连接未加密（http）。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Change</source>
-        <translation type="unfinished">改变</translation>
+        <translation>更改</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Change server</source>
-        <translation type="unfinished"></translation>
+        <translation>更改服务器</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Checking…</source>
-        <translation type="unfinished">正在检查…</translation>
+        <translation>正在检查…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Found</source>
         <extracomment>The server was found and answered.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>已找到</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That is not a server address. Enter one like matrix.org.</source>
-        <translation type="unfinished"></translation>
+        <translation>这不是服务器地址。请输入类似 matrix.org 的地址。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This server has no sign-in method Lightning supports.</source>
-        <translation type="unfinished"></translation>
+        <translation>此服务器没有 Lightning 支持的登录方式。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Can&apos;t reach this server. Check the address.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法连接此服务器。请检查地址。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Where your account is, like matrix.org</source>
-        <translation type="unfinished"></translation>
+        <translation>你的账号所在位置，例如 matrix.org</translation>
     </message>
     <message>
         <location line="-280"/>
@@ -8406,25 +8415,25 @@ Signing out and signing in again is the only fix.</source>
         <location line="+796"/>
         <location line="+9"/>
         <source>Try again</source>
-        <translation type="unfinished"></translation>
+        <translation>重试</translation>
     </message>
     <message>
         <location line="-773"/>
         <location line="+249"/>
         <source>Opens %1&apos;s sign-in page in your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation>在浏览器中打开 %1 的登录页面。</translation>
     </message>
     <message>
         <location line="-227"/>
         <location line="+15"/>
         <source>Username</source>
-        <translation type="unfinished"></translation>
+        <translation>用户名</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>username</source>
         <extracomment>Placeholder for the sign-in name field. The field takes a plain username - the server is the field above it - so the placeholder says so rather than showing a full @user:server id, which suggested the server had to be typed twice.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>用户名</translation>
     </message>
     <message>
         <location line="-52"/>
@@ -8499,37 +8508,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-129"/>
         <source>Create account</source>
-        <translation type="unfinished"></translation>
+        <translation>创建账号</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Opens %1&apos;s sign-up page in your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation>在浏览器中打开 %1 的注册页面。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Forgot password?</source>
-        <translation type="unfinished"></translation>
+        <translation>忘记密码？</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Opens %1&apos;s account page in your browser.</source>
-        <translation type="unfinished"></translation>
+        <translation>在浏览器中打开 %1 的账号页面。</translation>
     </message>
     <message>
         <location line="+117"/>
         <source>This device&apos;s Matrix session is no longer valid on the server — for example, it may have been signed out from another client. Your local data, including this device&apos;s encryption keys, is intact. Signing in again above starts a new session on this device; the old session&apos;s data is kept aside, not deleted. Encrypted history can come back through key backup or another verified session, if you have one. If signing in keeps failing, you can remove this account below, which does delete this device&apos;s local copy of your encryption keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>此设备在服务器上的 Matrix 会话已失效，例如它可能已在其他客户端中退出登录。你的本地数据（包括此设备的加密密钥）完好无损。在上方重新登录会在此设备上开始一个新会话；旧会话的数据会被保留在一旁，而不会被删除。如果你有密钥备份或其他已验证的会话，加密历史记录可以通过它们恢复。如果重新登录持续失败，你可以在下方移除此账号，但这会删除此设备上的加密密钥本地副本。</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Your session expired</source>
-        <translation type="unfinished"></translation>
+        <translation>你的会话已过期</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The server ended this device&apos;s session but kept the device. Signing in again above continues it as the same session on this device, with its encryption keys and history. Nothing on this device has been moved or deleted. If signing in keeps failing, you can remove this account below, which does delete this device&apos;s local copy of your encryption keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器结束了此设备的会话，但保留了该设备。在上方重新登录会以同一会话在此设备上继续，并保留其加密密钥和历史记录。此设备上的任何内容都未被移动或删除。如果重新登录持续失败，你可以在下方移除此账号，但这会删除此设备上的加密密钥本地副本。</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -8544,12 +8553,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+20"/>
         <source>Your keyring no longer has this sign-in</source>
-        <translation type="unfinished"></translation>
+        <translation>你的密钥环已不再保存此登录信息</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning saved the sign-in for %1 in your system keyring, and the keyring no longer returns it. This can happen after the keyring was reset, or when a Flatpak or snap starts using a different keyring. Nothing on this device has been deleted, and its encryption keys are intact. Try again if the keyring may come back, or sign in with your password to continue as this same device.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 将 %1 的登录信息保存在你的系统密钥环中，而密钥环已不再返回它。这可能发生在密钥环被重置之后，或 Flatpak 或 snap 改用了另一个密钥环时。此设备上的任何内容都未被删除，其加密密钥完好无损。如果密钥环可能恢复，请重试；或使用密码登录，以同一设备继续使用。</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -8564,22 +8573,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+18"/>
         <source>This account already has a session here</source>
-        <translation type="unfinished"></translation>
+        <translation>此账号在此已有一个会话</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning keeps a session for %1 on this device. Open it. If it doesn&apos;t open, remove it from this device and sign in again: that deletes this device&apos;s copy of its encryption keys, and your messages stay on the server.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 在此设备上保留了 %1 的一个会话。请打开它。如果无法打开，请将其从此设备移除并重新登录：这会删除此设备上其加密密钥的副本，而你的消息仍保留在服务器上。</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Some of this account&apos;s files are still here</source>
-        <translation type="unfinished"></translation>
+        <translation>此账号的部分文件仍在此处</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 was removed from this device, but Lightning could not delete all of its files. Close anything that may be using them, then try again. Still here: %2</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 已从此设备移除，但 Lightning 无法删除其所有文件。请关闭可能正在使用这些文件的程序，然后重试。仍在此处的文件：%2</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -8619,12 +8628,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+121"/>
         <source>Try removing %1 again</source>
-        <translation type="unfinished"></translation>
+        <translation>再次尝试移除 %1</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Open it</source>
-        <translation type="unfinished"></translation>
+        <translation>打开它</translation>
     </message>
     <message>
         <location line="+42"/>
@@ -8702,32 +8711,32 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+50"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This is common with the AppImage on NixOS.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 正在使用 CPU 而非显卡进行绘制，因此滚动可能较慢。在 NixOS 上运行 AppImage 时这很常见。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This can happen when the AppImage cannot use your system&apos;s graphics driver, or in a virtual machine.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 正在使用 CPU 而非显卡进行绘制，因此滚动可能较慢。当 AppImage 无法使用系统的显卡驱动时，或在虚拟机中，可能会出现这种情况。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. On NixOS this usually means Lightning cannot reach the system&apos;s graphics driver.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 正在使用 CPU 而非显卡进行绘制，因此滚动可能较慢。在 NixOS 上，这通常意味着 Lightning 无法访问系统的显卡驱动。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning is drawing on the CPU, not your graphics card, so scrolling may be slow. This usually means no graphics driver is available to it, for example in a virtual machine or a remote desktop session.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 正在使用 CPU 而非显卡进行绘制，因此滚动可能较慢。这通常意味着它无法使用任何显卡驱动，例如在虚拟机或远程桌面会话中。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>How to fix</source>
-        <translation type="unfinished"></translation>
+        <translation>如何修复</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Dismiss</source>
-        <translation type="unfinished">忽略</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location line="+62"/>
@@ -8802,7 +8811,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+15"/>
         <source>Added :%1: to your emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>已将 :%1: 添加到你的表情</translation>
     </message>
     <message>
         <location line="+172"/>
@@ -8856,7 +8865,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MainScreen.qml" line="+568"/>
         <source>Signing out…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在退出登录…</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -8880,7 +8889,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+560"/>
         <source>The media server is unreachable. Try again in a few minutes.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法连接媒体服务器。请几分钟后再试。</translation>
     </message>
     <message>
         <location line="+107"/>
@@ -8891,7 +8900,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+82"/>
         <source>Download cancelled.</source>
-        <translation type="unfinished"></translation>
+        <translation>已取消下载。</translation>
     </message>
     <message>
         <location line="+86"/>
@@ -8919,165 +8928,165 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MediaBrowser.qml" line="+34"/>
         <source>Media</source>
-        <translation type="unfinished">媒体</translation>
+        <translation>媒体</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Images</source>
-        <translation type="unfinished"></translation>
+        <translation>图片</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Videos</source>
-        <translation type="unfinished"></translation>
+        <translation>视频</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Audio</source>
-        <translation type="unfinished">音频</translation>
+        <translation>音频</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Files</source>
-        <translation type="unfinished"></translation>
+        <translation>文件</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Links</source>
-        <translation type="unfinished">友情链接</translation>
+        <translation>链接</translation>
     </message>
     <message>
         <location line="+66"/>
         <source>Search filename, caption, sender, link…</source>
-        <translation type="unfinished"></translation>
+        <translation>搜索文件名、说明文字、发送者、链接…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Search this room&apos;s media</source>
-        <translation type="unfinished"></translation>
+        <translation>搜索此房间的媒体</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>List</source>
-        <translation type="unfinished"></translation>
+        <translation>列表</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Grid</source>
-        <translation type="unfinished"></translation>
+        <translation>网格</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Show as a list</source>
-        <translation type="unfinished"></translation>
+        <translation>以列表显示</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show as a grid</source>
-        <translation type="unfinished"></translation>
+        <translation>以网格显示</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>From</source>
-        <translation type="unfinished">发送者</translation>
+        <translation>来自</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Anyone</source>
-        <translation type="unfinished"></translation>
+        <translation>任何人</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Filter by sender</source>
-        <translation type="unfinished"></translation>
+        <translation>按发送者筛选</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>This backend cannot browse room history.</source>
-        <translation type="unfinished"></translation>
+        <translation>此后端无法浏览房间历史记录。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>History could not be read, so this is only part of it. %1</source>
-        <translation type="unfinished"></translation>
+        <translation>无法读取部分历史记录，因此这只是其中一部分。%1</translation>
     </message>
     <message numerus="yes">
         <location line="+6"/>
         <source>%n item(s) — all of this room&apos;s history.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 项 — 这是此房间的全部历史记录。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n item(s) so far — reading older messages…</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>目前已找到 %n 项 — 正在读取较早的消息…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n item(s) in the %1 message(s) read so far.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>在已读取的 %1 条消息中有 %n 项。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n message(s) could not be decrypted and may hold more.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 条消息无法解密，其中可能还包含更多内容。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Load more</source>
-        <translation type="unfinished">加载更多</translation>
+        <translation>加载更多</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Load more media from older messages</source>
-        <translation type="unfinished"></translation>
+        <translation>从较早的消息中加载更多媒体</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Stop</source>
-        <translation type="unfinished"></translation>
+        <translation>停止</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Show all media</source>
-        <translation type="unfinished"></translation>
+        <translation>显示所有媒体</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Stop searching older messages</source>
-        <translation type="unfinished"></translation>
+        <translation>停止搜索较早的消息</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Search all older messages for media</source>
-        <translation type="unfinished"></translation>
+        <translation>在所有较早的消息中搜索媒体</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Nothing matches those filters in the history read so far.</source>
-        <translation type="unfinished"></translation>
+        <translation>在目前已读取的历史记录中，没有符合这些筛选条件的内容。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Nothing of this kind in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间中没有此类内容。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing of this kind yet — keep loading to search further back.</source>
-        <translation type="unfinished"></translation>
+        <translation>目前还没有此类内容 — 请继续加载以向更早处搜索。</translation>
     </message>
     <message>
         <location line="+86"/>
         <source>Try again</source>
-        <translation type="unfinished"></translation>
+        <translation>重试</translation>
     </message>
 </context>
 <context>
@@ -9085,37 +9094,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MediaBrowserRow.qml" line="+65"/>
         <source>(unnamed)</source>
-        <translation type="unfinished">（未命名）</translation>
+        <translation>（未命名）</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>Go to message</source>
-        <translation type="unfinished"></translation>
+        <translation>跳转到消息</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Copy link</source>
-        <translation type="unfinished">复制链接</translation>
+        <translation>复制链接</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>%1 B</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 B</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 KB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 KB</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 MB</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 GB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 GB</translation>
     </message>
 </context>
 <context>
@@ -9123,7 +9132,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MediaBrowserTile.qml" line="+150"/>
         <source>Go to message</source>
-        <translation type="unfinished"></translation>
+        <translation>跳转到消息</translation>
     </message>
 </context>
 <context>
@@ -9145,22 +9154,22 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/models/MediaHistoryModel.cpp" line="+118"/>
         <source>Today</source>
-        <translation type="unfinished">今天</translation>
+        <translation>今天</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Yesterday</source>
-        <translation type="unfinished">昨天</translation>
+        <translation>昨天</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This week</source>
-        <translation type="unfinished"></translation>
+        <translation>本周</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This month</source>
-        <translation type="unfinished"></translation>
+        <translation>本月</translation>
     </message>
 </context>
 <context>
@@ -9168,48 +9177,48 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/MediaPreviewSettings.qml" line="+20"/>
         <source>Media previews</source>
-        <translation type="unfinished"></translation>
+        <translation>媒体预览</translation>
     </message>
     <message>
         <location line="+18"/>
         <location line="+27"/>
         <source>Load media automatically</source>
-        <translation type="unfinished"></translation>
+        <translation>自动加载媒体</translation>
     </message>
     <message>
         <location line="-14"/>
         <source>Always</source>
-        <translation type="unfinished">始终</translation>
+        <translation>始终</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Private rooms only</source>
-        <translation type="unfinished"></translation>
+        <translation>仅私密房间</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Never</source>
-        <translation type="unfinished">从不</translation>
+        <translation>从不</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Pictures, GIFs, stickers, video, audio and files start as one line you can open, and are not downloaded until you do. Private rooms are encrypted rooms and direct messages. The choice is saved in your account, so other apps that support it follow it.</source>
-        <translation type="unfinished"></translation>
+        <translation>图片、GIF、贴纸、视频、音频和文件会先以一行的形式显示，可以打开，在你打开之前不会下载。私密房间指加密房间和私聊。此设置保存在你的账号中，其他支持它的应用会遵循该设置。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Show avatars in room invitations</source>
-        <translation type="unfinished"></translation>
+        <translation>在房间邀请中显示头像</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Load the picture a stranger set on a room that invites you</source>
-        <translation type="unfinished"></translation>
+        <translation>加载陌生人为邀请你的房间设置的头像</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Could not save this to your account. It still shows what your account holds.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法将此设置保存到你的账号。它仍显示你的账号中保存的内容。</translation>
     </message>
 </context>
 <context>
@@ -9362,57 +9371,57 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+48"/>
         <source>Ignore this person?</source>
-        <translation type="unfinished"></translation>
+        <translation>忽略此用户？</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Ignore %1 in every room, on every device? Their existing messages are hidden too. You can undo this from their profile.</source>
-        <translation type="unfinished"></translation>
+        <translation>在每个房间、每台设备上忽略 %1？其已有的消息也会被隐藏。你可以在其个人资料中撤销此操作。</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Ignore</source>
-        <translation type="unfinished">忽略</translation>
+        <translation>忽略</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Lower your own role?</source>
-        <translation type="unfinished"></translation>
+        <translation>降低你自己的角色？</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Change role?</source>
-        <translation type="unfinished"></translation>
+        <translation>更改角色？</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Set %1 to %2 in this room?</source>
-        <translation type="unfinished"></translation>
+        <translation>在此房间中将 %1 设为 %2？</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This gives them your own level or higher. You will not be able to change it back.</source>
-        <translation type="unfinished"></translation>
+        <translation>这会将其设为你自己的级别或更高。你将无法将其改回。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>You are lowering your own role. You will not be able to raise it back yourself: only someone whose role is above your new one can, and if nobody else holds a role as high as yours, nobody can.</source>
-        <translation type="unfinished"></translation>
+        <translation>你正在降低自己的角色。你将无法自行将其提回：只有角色高于你新角色的人才能提升，如果没有其他人持有与你原来相同的角色，则任何人都无法提升。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>You will also no longer be able to change roles or permissions in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>你也将无法再更改此房间中的角色或权限。</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Lower my role</source>
-        <translation type="unfinished"></translation>
+        <translation>降低我的角色</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Change role</source>
-        <translation type="unfinished"></translation>
+        <translation>更改角色</translation>
     </message>
     <message>
         <location line="+35"/>
@@ -9450,12 +9459,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+51"/>
         <source>On a moderation list you follow — %1</source>
-        <translation type="unfinished"></translation>
+        <translation>在你关注的一个管理名单中 — %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>On a moderation list you follow.</source>
-        <translation type="unfinished"></translation>
+        <translation>在你关注的一个管理名单中。</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -9534,7 +9543,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+104"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法从此图片中移除照片详情，因此未发送。你可以在“设置 → 隐私”中更改此项。</translation>
     </message>
     <message>
         <location line="+35"/>
@@ -9565,22 +9574,22 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/MessageComposerBar.qml" line="+604"/>
         <location line="+33"/>
         <source>Add link</source>
-        <translation type="unfinished"></translation>
+        <translation>添加链接</translation>
     </message>
     <message>
         <location line="-22"/>
         <source>https://…</source>
-        <translation type="unfinished"></translation>
+        <translation>https://…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Only http, https, mailto and matrix links can be added.</source>
-        <translation type="unfinished"></translation>
+        <translation>只能添加 http、https、mailto 和 matrix 链接。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+450"/>
@@ -9632,7 +9641,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="-34"/>
         <location line="+41"/>
         <source>GIFs and stickers…</source>
-        <translation type="unfinished"></translation>
+        <translation>GIF 和贴纸…</translation>
     </message>
     <message>
         <location line="-40"/>
@@ -9673,7 +9682,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+75"/>
         <source>Send as message</source>
-        <translation type="unfinished"></translation>
+        <translation>以消息形式发送</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -9744,35 +9753,35 @@ Signing out and signing in again is the only fix.</source>
         <location line="+31"/>
         <location line="+1"/>
         <source>Underline</source>
-        <translation type="unfinished"></translation>
+        <translation>下划线</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+1"/>
         <source>Numbered list</source>
-        <translation type="unfinished"></translation>
+        <translation>编号列表</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Rich text</source>
-        <translation type="unfinished"></translation>
+        <translation>富文本</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Markdown</source>
-        <translation type="unfinished"></translation>
+        <translation>Markdown</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+1067"/>
         <source>Switch to Markdown composing</source>
-        <translation type="unfinished"></translation>
+        <translation>切换为 Markdown 编辑</translation>
     </message>
     <message>
         <location line="-1066"/>
         <location line="+1067"/>
         <source>Switch to rich-text composing</source>
-        <translation type="unfinished"></translation>
+        <translation>切换为富文本编辑</translation>
     </message>
     <message>
         <location line="-1023"/>
@@ -9788,7 +9797,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+30"/>
         <source>Aa</source>
         <comment>text-formatting button mark</comment>
-        <translation type="unfinished"></translation>
+        <translation>Aa</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -9894,7 +9903,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+2719"/>
         <location line="+1"/>
         <source>More</source>
-        <translation type="unfinished">更多</translation>
+        <translation>更多</translation>
     </message>
     <message>
         <location line="+69"/>
@@ -9940,7 +9949,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+134"/>
         <source>Scheduled messages</source>
-        <translation type="unfinished"></translation>
+        <translation>定时消息</translation>
     </message>
     <message>
         <location line="-135"/>
@@ -9950,18 +9959,18 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-213"/>
         <source>Insert a GIF or sticker</source>
-        <translation type="unfinished"></translation>
+        <translation>插入 GIF 或贴纸</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>GIFs and stickers are unavailable on this backend</source>
-        <translation type="unfinished"></translation>
+        <translation>此后端不提供 GIF 和贴纸</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+303"/>
         <source>GIFs and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>GIF 和贴纸</translation>
     </message>
     <message>
         <location line="-95"/>
@@ -9977,22 +9986,22 @@ Signing out and signing in again is the only fix.</source>
         <location line="+29"/>
         <location line="+4"/>
         <source>Send options</source>
-        <translation type="unfinished"></translation>
+        <translation>发送选项</translation>
     </message>
     <message>
         <location line="-2"/>
         <source>Send options (%1 scheduled)</source>
-        <translation type="unfinished"></translation>
+        <translation>发送选项（%1 条已定时）</translation>
     </message>
     <message>
         <location line="+92"/>
         <source>Send later…</source>
-        <translation type="unfinished"></translation>
+        <translation>稍后发送…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Scheduled messages (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>定时消息（%1）</translation>
     </message>
     <message>
         <location line="+38"/>
@@ -10076,7 +10085,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+200"/>
         <source>This session can&apos;t unlock encrypted messages</source>
-        <translation type="unfinished"></translation>
+        <translation>此会话无法解锁加密消息</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -10111,7 +10120,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-1892"/>
         <source>Link</source>
-        <translation type="unfinished">链接</translation>
+        <translation>链接</translation>
     </message>
     <message>
         <location line="+1981"/>
@@ -10146,7 +10155,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+26"/>
         <source>edited — show edit history</source>
-        <translation type="unfinished"></translation>
+        <translation>已编辑 — 查看编辑历史</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -10194,7 +10203,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+54"/>
         <source>Edit message</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑消息</translation>
     </message>
     <message>
         <location line="+28"/>
@@ -10255,7 +10264,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+57"/>
         <source>Sent</source>
-        <translation type="unfinished"></translation>
+        <translation>已发送</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -10358,7 +10367,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+12"/>
         <source>Use as my background here</source>
-        <translation type="unfinished"></translation>
+        <translation>在此处用作我的背景</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -10373,33 +10382,33 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+12"/>
         <source>Edit history</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑历史</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>View source</source>
-        <translation type="unfinished"></translation>
+        <translation>查看源码</translation>
     </message>
     <message>
         <location line="+1594"/>
         <source>Image unavailable</source>
-        <translation type="unfinished"></translation>
+        <translation>图片不可用</translation>
     </message>
     <message>
         <location line="+705"/>
         <location line="+1"/>
         <source>Cancel download</source>
-        <translation type="unfinished"></translation>
+        <translation>取消下载</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Download again</source>
-        <translation type="unfinished"></translation>
+        <translation>重新下载</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Try again</source>
-        <translation type="unfinished"></translation>
+        <translation>重试</translation>
     </message>
     <message>
         <location line="-3683"/>
@@ -10410,40 +10419,40 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-3850"/>
         <source>%1 B</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 B</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 KB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 KB</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 MB</translation>
     </message>
     <message>
         <location line="+22"/>
         <location line="+562"/>
         <source>Sticker</source>
-        <translation type="unfinished">贴纸</translation>
+        <translation>贴纸</translation>
     </message>
     <message>
         <location line="-559"/>
         <source>Voice message</source>
-        <translation type="unfinished">语音消息</translation>
+        <translation>语音消息</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+556"/>
         <source>Audio</source>
-        <translation type="unfinished">音频</translation>
+        <translation>音频</translation>
     </message>
     <message>
         <location line="-554"/>
         <location line="+552"/>
         <source>GIF</source>
-        <translation type="unfinished">GIF</translation>
+        <translation>GIF</translation>
     </message>
     <message>
         <location line="-552"/>
@@ -10451,47 +10460,47 @@ Signing out and signing in again is the only fix.</source>
         <location line="+485"/>
         <location line="+4219"/>
         <source>Image</source>
-        <translation type="unfinished">图片</translation>
+        <translation>图片</translation>
     </message>
     <message>
         <location line="-4768"/>
         <source>Attachment</source>
-        <translation type="unfinished"></translation>
+        <translation>附件</translation>
     </message>
     <message numerus="yes">
         <location line="+532"/>
         <source>%n image(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 张图片</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n attachment(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个附件</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1090"/>
         <source>Message deleted</source>
-        <translation type="unfinished">消息已删除</translation>
+        <translation>消息已删除</translation>
     </message>
     <message>
         <location line="+496"/>
         <source>(edited)</source>
-        <translation type="unfinished"></translation>
+        <translation>（已编辑）</translation>
     </message>
     <message>
         <location line="+1572"/>
         <source>Add :%1: to my emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>将 :%1: 添加到我的表情</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>Add %n custom emoji to my pack</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>将 %n 个自定义表情添加到我的表情包</numerusform>
         </translation>
     </message>
     <message>
@@ -10509,7 +10518,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+18"/>
         <source>Select messages</source>
-        <translation type="unfinished"></translation>
+        <translation>选择消息</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -10612,42 +10621,42 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1802"/>
         <source>Remove edits?</source>
-        <translation type="unfinished"></translation>
+        <translation>移除编辑？</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Matrix has no unedit: this redacts the edits, so the message returns to its original text. It cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Matrix 没有“撤销编辑”：此操作会撤回这些编辑，使消息恢复为原始文本。无法撤销。</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>End poll?</source>
-        <translation type="unfinished"></translation>
+        <translation>结束投票？</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This closes voting and publishes the result. A poll cannot be reopened.</source>
-        <translation type="unfinished"></translation>
+        <translation>这将结束投票并公布结果。投票一旦结束便无法重新开启。</translation>
     </message>
     <message>
         <location line="+96"/>
         <source>Delete message?</source>
-        <translation type="unfinished"></translation>
+        <translation>删除消息？</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This removes the message for everyone in the room. It cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>这将为房间中的所有人删除此消息。无法撤销。</translation>
     </message>
     <message>
         <location line="+263"/>
         <source>Open link in browser</source>
-        <translation type="unfinished"></translation>
+        <translation>在浏览器中打开链接</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Open in browser</source>
-        <translation type="unfinished">在浏览器中打开</translation>
+        <translation>在浏览器中打开</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -10664,7 +10673,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-123"/>
         <source>View image %1</source>
-        <translation type="unfinished"></translation>
+        <translation>查看图片 %1</translation>
     </message>
     <message>
         <location line="+165"/>
@@ -10696,14 +10705,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+983"/>
         <location line="+247"/>
         <source>Download %1</source>
-        <translation type="unfinished"></translation>
+        <translation>下载 %1</translation>
     </message>
     <message>
         <location line="-1228"/>
         <location line="+983"/>
         <location line="+250"/>
         <source>Download</source>
-        <translation type="unfinished"></translation>
+        <translation>下载</translation>
     </message>
     <message>
         <location line="-809"/>
@@ -10718,7 +10727,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+74"/>
         <source>Media server unreachable — retrying in %1 min</source>
-        <translation type="unfinished"></translation>
+        <translation>媒体服务器无法连接 — %1 分钟后重试</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -10767,7 +10776,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Cancelled</source>
-        <translation type="unfinished"></translation>
+        <translation>已取消</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -10788,37 +10797,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+48"/>
         <source>Sharing live location</source>
-        <translation type="unfinished"></translation>
+        <translation>正在共享实时位置</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Live location (ended)</source>
-        <translation type="unfinished"></translation>
+        <translation>实时位置（已结束）</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A place</source>
-        <translation type="unfinished"></translation>
+        <translation>某个地点</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Location</source>
-        <translation type="unfinished"></translation>
+        <translation>位置</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>%1 · within %2 m</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · 距离 %2 米以内</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Open in a map</source>
-        <translation type="unfinished"></translation>
+        <translation>在地图中打开</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>This location could not be read.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法读取此位置。</translation>
     </message>
     <message>
         <location line="+96"/>
@@ -10996,7 +11005,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
         <location line="+41"/>
@@ -11322,67 +11331,67 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/NoiseSuppressionSelector.qml" line="+31"/>
         <source>Off</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Standard (WebRTC)</source>
-        <translation type="unfinished"></translation>
+        <translation>标准（WebRTC）</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Advanced (DeepFilterNet)</source>
-        <translation type="unfinished"></translation>
+        <translation>高级（DeepFilterNet）</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>No noise suppression. Your microphone is sent as captured; volume levelling still applies.</source>
-        <translation type="unfinished"></translation>
+        <translation>不进行降噪。你的麦克风将按采集的原样发送；音量均衡仍然生效。</translation>
     </message>
     <message>
         <location line="-6"/>
         <source>Strong (RNNoise) · Recommended</source>
-        <translation type="unfinished"></translation>
+        <translation>强（RNNoise）· 推荐</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Standard WebRTC suppression, as browsers use. The lightest on CPU, but it removes little.</source>
-        <translation type="unfinished"></translation>
+        <translation>标准 WebRTC 降噪，与浏览器所用的相同。对 CPU 占用最低，但去除的噪声较少。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Recommended. Neural suppression that removes fans, keyboards and traffic while keeping speech clear, at moderate CPU use.</source>
-        <translation type="unfinished"></translation>
+        <translation>推荐。神经网络降噪，可去除风扇、键盘和交通噪声，同时保持语音清晰，CPU 占用适中。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Advanced neural suppression. Potentially the strongest, and the most demanding on CPU.</source>
-        <translation type="unfinished"></translation>
+        <translation>高级神经网络降噪。可能是降噪效果最强的选项，对 CPU 要求也最高。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Calls are not available in this build.</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本不提供通话功能。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Needs GStreamer&apos;s webrtcdsp element (gst-plugins-bad), which is not installed.</source>
-        <translation type="unfinished"></translation>
+        <translation>需要 GStreamer 的 webrtcdsp 组件（gst-plugins-bad），而此组件未安装。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Not included in this build.</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本未包含该功能。</translation>
     </message>
     <message>
         <location line="+112"/>
         <source>%1 could not start in this call; WebRTC noise suppression is used instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 无法在此通话中启动；改用 WebRTC 降噪。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 could not start in this call, so your microphone is being sent without noise suppression.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 无法在此通话中启动，因此你的麦克风将在不进行降噪的情况下发送。</translation>
     </message>
 </context>
 <context>
@@ -11396,32 +11405,32 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-263"/>
         <source>Mark as read</source>
-        <translation type="unfinished">标记为已读</translation>
+        <translation>标记为已读</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Reply</source>
-        <translation type="unfinished">回复</translation>
+        <translation>回复</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Reply…</source>
-        <translation type="unfinished"></translation>
+        <translation>回复…</translation>
     </message>
     <message>
         <location line="+263"/>
         <source>Join</source>
-        <translation type="unfinished">加入</translation>
+        <translation>加入</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Answer</source>
-        <translation type="unfinished"></translation>
+        <translation>接听</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Silence</source>
-        <translation type="unfinished"></translation>
+        <translation>静音</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -11438,7 +11447,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+8"/>
         <location line="+8"/>
         <source>Off</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location line="-308"/>
@@ -11447,241 +11456,241 @@ Signing out and signing in again is the only fix.</source>
         <location line="+8"/>
         <location line="+8"/>
         <source>Notify</source>
-        <translation type="unfinished"></translation>
+        <translation>通知</translation>
     </message>
     <message>
         <location line="-308"/>
         <location line="+212"/>
         <source>Loud</source>
-        <translation type="unfinished"></translation>
+        <translation>响亮</translation>
     </message>
     <message>
         <location line="-185"/>
         <source>Account notification rules</source>
-        <translation type="unfinished"></translation>
+        <translation>账号通知规则</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>These are saved to your Matrix account, so they apply on every device and in every client you use. A room you have set up yourself keeps its own level whatever is chosen here.</source>
-        <translation type="unfinished"></translation>
+        <translation>这些设置保存在你的 Matrix 账号中，因此会在你使用的每台设备和每个客户端上生效。你自己设置过的房间会保留其自己的级别，不受此处选择的影响。</translation>
     </message>
     <message>
         <location line="+23"/>
         <location line="+13"/>
         <source>Mute all notifications</source>
-        <translation type="unfinished"></translation>
+        <translation>静音所有通知</translation>
     </message>
     <message>
         <location line="-7"/>
         <source>Silences every room on every device until you turn it off.</source>
-        <translation type="unfinished"></translation>
+        <translation>在你将其关闭之前，所有设备上的每个房间都保持静音。</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Default alerts</source>
-        <translation type="unfinished"></translation>
+        <translation>默认提醒</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Direct messages</source>
-        <translation type="unfinished"></translation>
+        <translation>私聊</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+7"/>
         <source>All messages</source>
-        <translation type="unfinished">所有消息</translation>
+        <translation>所有消息</translation>
     </message>
     <message>
         <location line="-7"/>
         <location line="+7"/>
         <source>Mentions and keywords</source>
-        <translation type="unfinished"></translation>
+        <translation>提及和关键词</translation>
     </message>
     <message>
         <location line="-2"/>
         <source>Rooms</source>
-        <translation type="unfinished">房间</translation>
+        <translation>房间</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Encrypted and unencrypted rooms were set to different levels, probably by another client. Choosing a level here sets both.</source>
-        <translation type="unfinished"></translation>
+        <translation>加密房间和未加密房间被设置为不同的级别，可能是由其他客户端设置的。在此选择一个级别会同时设置两者。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This is the level for rooms that have no setting of their own. Set a single room from its Room information.</source>
-        <translation type="unfinished"></translation>
+        <translation>这是没有自己设置的房间所使用的级别。请在“房间信息”中为单个房间设置。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Mentions</source>
-        <translation type="unfinished">提及</translation>
+        <translation>提及</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Your user ID</source>
-        <translation type="unfinished"></translation>
+        <translation>你的用户 ID</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Your display name</source>
-        <translation type="unfinished">你的显示名称</translation>
+        <translation>你的显示名称</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Your username</source>
-        <translation type="unfinished"></translation>
+        <translation>你的用户名</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>@room</source>
-        <translation type="unfinished"></translation>
+        <translation>@room</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Notify alerts you. Loud alerts you with a sound. Off ignores that kind of mention. These apply in every room that is not muted.</source>
-        <translation type="unfinished"></translation>
+        <translation>“通知”会提醒你。“响亮”会以声音提醒你。“关闭”会忽略该类提及。这些设置适用于每个未静音的房间。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Keywords</source>
-        <translation type="unfinished"></translation>
+        <translation>关键词</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Add a word or phrase</source>
-        <translation type="unfinished"></translation>
+        <translation>添加一个词或短语</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>New keyword</source>
-        <translation type="unfinished"></translation>
+        <translation>新关键词</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Level for the new keyword</source>
-        <translation type="unfinished"></translation>
+        <translation>新关键词的级别</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Add</source>
-        <translation type="unfinished">添加</translation>
+        <translation>添加</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>No keywords. Add a word and you are notified whenever someone says it.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有关键词。添加一个词后，只要有人说出它，你都会收到通知。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Remove</source>
-        <translation type="unfinished"></translation>
+        <translation>移除</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Remove keyword %1</source>
-        <translation type="unfinished"></translation>
+        <translation>移除关键词 %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Your homeserver cannot read encrypted messages, so in encrypted rooms a keyword matches only on devices that can decrypt them.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器无法读取加密消息，因此在加密房间中，关键词只会在能够解密它们的设备上匹配。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Other events</source>
-        <translation type="unfinished"></translation>
+        <translation>其他事件</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Reactions to your messages</source>
-        <translation type="unfinished"></translation>
+        <translation>对你消息的表情回应</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Invitations to you</source>
-        <translation type="unfinished"></translation>
+        <translation>发给你的邀请</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Messages from bots</source>
-        <translation type="unfinished"></translation>
+        <translation>来自机器人的消息</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Bot messages are the automated notices some bridges and bots post. Off keeps them quiet; Notify treats them like any other message in that room.</source>
-        <translation type="unfinished"></translation>
+        <translation>机器人消息是某些桥接或机器人发布的自动通知。“关闭”会使其保持安静；“通知”则将其视为该房间中的任何其他消息。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Not getting notifications?</source>
-        <translation type="unfinished"></translation>
+        <translation>没有收到通知？</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Checks the things Lightning can see: whether something can show a notification, the switches here, your account, and the room you have open. The test notification covers the rest.</source>
-        <translation type="unfinished"></translation>
+        <translation>检查 Lightning 能够看到的内容：某个程序能否显示通知、此处的开关、你的账号以及你当前打开的房间。测试通知会覆盖其余部分。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Run checks</source>
-        <translation type="unfinished"></translation>
+        <translation>运行检查</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Send a test notification</source>
-        <translation type="unfinished"></translation>
+        <translation>发送测试通知</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>OK</source>
-        <translation type="unfinished"></translation>
+        <translation>好</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Check</source>
-        <translation type="unfinished"></translation>
+        <translation>检查</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Problem</source>
-        <translation type="unfinished"></translation>
+        <translation>有问题</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unknown</source>
-        <translation type="unfinished">未知</translation>
+        <translation>未知</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Turn on</source>
-        <translation type="unfinished"></translation>
+        <translation>开启</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Unmute</source>
-        <translation type="unfinished">取消静音</translation>
+        <translation>取消静音</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Remove this keyword?</source>
-        <translation type="unfinished"></translation>
+        <translation>移除此关键词？</translation>
     </message>
     <message>
         <location line="+41"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Remove keyword</source>
-        <translation type="unfinished"></translation>
+        <translation>移除关键词</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>You will stop being notified when someone says “%1”, on every device signed in to this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>当有人说出“%1”时，你将不再收到通知，此账号上的每台已登录设备都会受到影响。</translation>
     </message>
 </context>
 <context>
@@ -11689,147 +11698,147 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/NotificationTroubleshooter.cpp" line="+70"/>
         <source>A notification service is running</source>
-        <translation type="unfinished"></translation>
+        <translation>通知服务正在运行</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your desktop&apos;s notification service answered.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的桌面通知服务已响应。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Notifications use the tray icon</source>
-        <translation type="unfinished"></translation>
+        <translation>通知使用托盘图标</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning shows notifications as balloons from its tray icon on this system. They need the icon to be visible.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 在此系统上以托盘图标发出的气泡形式显示通知。这些通知需要图标可见。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>No way to show a notification</source>
-        <translation type="unfinished"></translation>
+        <translation>无法显示通知</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Nothing is listening for notifications on the session bus and there is no tray to fall back on. Start a notification service (your desktop&apos;s own, or one such as dunst or mako).</source>
-        <translation type="unfinished"></translation>
+        <translation>会话总线上没有任何程序在监听通知，也没有托盘可以作为替代。请启动通知服务（你的桌面自带的，或 dunst、mako 之类的服务）。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The system tray is not available, so there is nowhere to show a notification from.</source>
-        <translation type="unfinished"></translation>
+        <translation>系统托盘不可用，因此没有可显示通知的位置。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Lightning cannot read whether macOS allows its notifications or whether a Focus mode is on. If the test below does not appear, check System Settings, Notifications and Focus.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法读取 macOS 是否允许其发送通知，也无法读取“专注模式”是否开启。如果下方的测试通知没有出现，请检查“系统设置”中的“通知”和“专注模式”。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Lightning cannot read whether Windows allows its notifications or whether Focus assist is on. If the test below does not appear, check Settings, System, Notifications.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法读取 Windows 是否允许其发送通知，也无法读取“专注助手”是否开启。如果下方的测试通知没有出现，请检查“设置 → 系统 → 通知”。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Lightning cannot read whether your desktop is in Do Not Disturb or has muted Lightning. If the test below does not appear, check your desktop&apos;s notification settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法读取你的桌面是否处于“勿扰”模式，或是否已将 Lightning 静音。如果下方的测试通知没有出现，请检查你的桌面通知设置。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>System permission and Do Not Disturb</source>
-        <translation type="unfinished"></translation>
+        <translation>系统权限和勿扰模式</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Desktop notifications are on</source>
-        <translation type="unfinished"></translation>
+        <translation>桌面通知已开启</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning is allowed to show notifications.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 已获准显示通知。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Desktop notifications are off</source>
-        <translation type="unfinished"></translation>
+        <translation>桌面通知已关闭</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning is set not to show any desktop notification.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 设置为不显示任何桌面通知。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Account notification settings</source>
-        <translation type="unfinished"></translation>
+        <translation>账号通知设置</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>They have not been loaded from your homeserver yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>尚未从你的主服务器加载这些设置。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>All notifications are muted on your account</source>
-        <translation type="unfinished"></translation>
+        <translation>你的账号已全部静音</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The master mute is on, so your homeserver sends no notifications for any room, to any of your devices.</source>
-        <translation type="unfinished"></translation>
+        <translation>总静音已开启，因此你的主服务器不会向你的任何设备发送任何房间的通知。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Your account is not muted</source>
-        <translation type="unfinished"></translation>
+        <translation>你的账号未静音</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The master mute is off.</source>
-        <translation type="unfinished"></translation>
+        <translation>总静音已关闭。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>This room is muted</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间已静音</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>It never notifies. Change it under Room information, Notifications.</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间永远不会发出通知。请在“房间信息 → 通知”中更改。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This room notifies only for mentions</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间仅在被提及时通知</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ordinary messages here stay quiet. Change it under Room information, Notifications.</source>
-        <translation type="unfinished"></translation>
+        <translation>此处的普通消息不会发出通知。请在“房间信息 → 通知”中更改。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This room notifies for every message</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间对每条消息都会通知</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing is overriding it.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有任何设置覆盖它。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This room follows your defaults</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间遵循你的默认设置</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>It has no setting of its own.</source>
-        <translation type="unfinished"></translation>
+        <translation>它没有自己的设置。</translation>
     </message>
 </context>
 <context>
@@ -11926,7 +11935,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+20"/>
         <source>Finishing sign-in</source>
-        <translation type="unfinished"></translation>
+        <translation>正在完成登录</translation>
     </message>
 </context>
 <context>
@@ -11939,7 +11948,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+10"/>
         <source>This message is too far back to open here yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>此消息位于太早的位置，暂时无法在此打开。</translation>
     </message>
 </context>
 <context>
@@ -11947,57 +11956,57 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/PasswordChangeController.cpp" line="+133"/>
         <source>Password changed. Your other devices were signed out.</source>
-        <translation type="unfinished"></translation>
+        <translation>密码已更改。你的其他设备已退出登录。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Password changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>密码已更改。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Enter your current password and a new one.</source>
-        <translation type="unfinished"></translation>
+        <translation>请输入当前密码和新密码。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The new passwords do not match.</source>
-        <translation type="unfinished"></translation>
+        <translation>两次输入的新密码不一致。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Use at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>请至少使用 %1 个字符。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server did not accept your current password.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器不接受你当前的密码。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server refused the new password as too weak. Try a longer or more varied one.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器认为新密码太弱而拒绝。请尝试更长或更多样化的密码。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Too many attempts. Wait a moment and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>尝试次数过多。请稍候再试。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your server does not allow changing the password here.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的服务器不允许在此处更改密码。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Could not reach the server. Try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法连接服务器。请重试。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The password could not be changed. Try again later.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法更改密码。请稍后再试。</translation>
     </message>
 </context>
 <context>
@@ -12005,37 +12014,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/PhotoMetadataSetting.qml" line="+27"/>
         <source>Photo details removed when sending</source>
-        <translation type="unfinished"></translation>
+        <translation>发送时移除照片详情</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Remove location (recommended)</source>
-        <translation type="unfinished"></translation>
+        <translation>移除位置信息（推荐）</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Remove all details</source>
-        <translation type="unfinished"></translation>
+        <translation>移除所有详情</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Keep everything</source>
-        <translation type="unfinished"></translation>
+        <translation>全部保留</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Removes location, camera, time and every other detail stored inside JPEG, PNG, WebP and HEIC photos. The picture itself is not re-encoded and keeps its rotation.</source>
-        <translation type="unfinished"></translation>
+        <translation>移除 JPEG、PNG、WebP 和 HEIC 照片中保存的位置、相机、时间以及其他所有详情。图片本身不会重新编码，并保持其旋转方向。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Photos are sent exactly as they are, including where and when they were taken.</source>
-        <translation type="unfinished"></translation>
+        <translation>照片将原样发送，包括拍摄的地点和时间。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Removes where a JPEG, PNG, WebP or HEIC photo was taken before it is sent: GPS position and any named place (city, country, location) in its details. Camera and time details stay. The picture itself is not re-encoded. TIFF, raw and JPEG XL files cannot be cleaned and are not sent. Your own file is never changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>在发送 JPEG、PNG、WebP 或 HEIC 照片之前，移除其中记录的拍摄地点：GPS 位置以及详情中的任何地名（城市、国家、位置）。相机和时间详情会保留。图片本身不会重新编码。TIFF、原始格式和 JPEG XL 文件无法清理，因此不会发送。你自己的文件永远不会被更改。</translation>
     </message>
 </context>
 <context>
@@ -12071,27 +12080,27 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/PolicyListController.cpp" line="+187"/>
         <source>That room&apos;s rules could not be read.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法读取该房间的规则。</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>You do not have permission to publish rules in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>你没有权限在此房间中发布规则。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That rule could not be published.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法发布该规则。</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>You are already following as many lists as Lightning supports.</source>
-        <translation type="unfinished"></translation>
+        <translation>你关注的名单数量已达到 Lightning 的支持上限。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That list could not be followed.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法关注该名单。</translation>
     </message>
 </context>
 <context>
@@ -12099,131 +12108,131 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/PolicyListDialog.qml" line="+54"/>
         <source>Moderation rules in %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 中的管理规则</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Moderation rules</source>
-        <translation type="unfinished"></translation>
+        <translation>管理规则</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Follow this list</source>
-        <translation type="unfinished"></translation>
+        <translation>关注此名单</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Following a list does not block anyone by itself. Lightning will tell you when someone is covered by a list you follow, and you decide what to do — this is somebody else&apos;s judgement, not a setting.</source>
-        <translation type="unfinished"></translation>
+        <translation>关注名单本身不会屏蔽任何人。当你关注的名单涵盖某人时，Lightning 会通知你，由你决定如何处理——这是他人的判断，而不是一项设置。</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Reading the room&apos;s rules…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在读取房间规则…</translation>
     </message>
     <message numerus="yes">
         <location line="+8"/>
         <source>%n rule(s) — this list is long and only the first were read.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 条规则 — 此名单很长，仅读取了前几条。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n rule(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 条规则。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+50"/>
         <source>everyone on this server</source>
-        <translation type="unfinished"></translation>
+        <translation>此服务器上的所有人</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>this room</source>
-        <translation type="unfinished">此房间</translation>
+        <translation>此房间</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>this user</source>
-        <translation type="unfinished"></translation>
+        <translation>此用户</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>ban</source>
-        <translation type="unfinished"></translation>
+        <translation>封禁</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>other recommendation</source>
-        <translation type="unfinished"></translation>
+        <translation>其他建议</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 · %2 · %3</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · %2 · %3</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 · %2</source>
-        <translation type="unfinished">%1 · %2</translation>
+        <translation>%1 · %2</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Remove</source>
-        <translation type="unfinished"></translation>
+        <translation>移除</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Add a rule</source>
-        <translation type="unfinished"></translation>
+        <translation>添加规则</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>User</source>
-        <translation type="unfinished">用户</translation>
+        <translation>用户</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Server</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Room</source>
-        <translation type="unfinished">房间</translation>
+        <translation>房间</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>@someone:example.org or *.example.org</source>
-        <translation type="unfinished"></translation>
+        <translation>@someone:example.org 或 *.example.org</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Reason (published with the rule)</source>
-        <translation type="unfinished"></translation>
+        <translation>原因（随规则一同发布）</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Publish</source>
-        <translation type="unfinished"></translation>
+        <translation>发布</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>`*` matches any run of characters and `?` matches one. A rule and its reason are public to everyone who can read this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>`*` 匹配任意字符串，`?` 匹配单个字符。规则及其原因对所有能读取此房间的人都是公开的。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>You do not have permission to publish rules in this room, so this is a read-only view of its list.</source>
-        <translation type="unfinished"></translation>
+        <translation>你没有权限在此房间中发布规则，因此这里只能只读查看其名单。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Done</source>
-        <translation type="unfinished">完成</translation>
+        <translation>完成</translation>
     </message>
 </context>
 <context>
@@ -12282,7 +12291,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/profile/ProfileBadges.cpp" line="+16"/>
         <source>idea master — a thank-you badge for helping develop Lightning.</source>
-        <translation type="unfinished"></translation>
+        <translation>创意大师 — 因帮助开发 Lightning 而颁发的感谢徽章。</translation>
     </message>
 </context>
 <context>
@@ -12290,52 +12299,52 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/PushRulesController.cpp" line="+171"/>
         <source>Type a word or phrase.</source>
-        <translation type="unfinished"></translation>
+        <translation>请输入一个词或短语。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Keep a keyword under %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>关键词长度请保持在 %1 个字符以内。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A keyword cannot start with a full stop.</source>
-        <translation type="unfinished"></translation>
+        <translation>关键词不能以句点开头。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A keyword cannot contain a slash.</source>
-        <translation type="unfinished"></translation>
+        <translation>关键词不能包含斜杠。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>A keyword cannot contain control characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>关键词不能包含控制字符。</translation>
     </message>
     <message>
         <location line="+129"/>
         <source>Your homeserver does not have that notification rule.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器没有该通知规则。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That setting was not accepted.</source>
-        <translation type="unfinished"></translation>
+        <translation>该设置未被接受。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your homeserver refused the change.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器拒绝了此更改。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your homeserver is limiting requests. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器正在限制请求。请稍后再试。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The change could not be saved. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法保存更改。请检查网络连接后重试。</translation>
     </message>
 </context>
 <context>
@@ -12343,57 +12352,57 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/settings/SettingsSyncController.cpp" line="+34"/>
         <source>out of range</source>
-        <translation type="unfinished"></translation>
+        <translation>超出范围</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>wrong kind of value</source>
-        <translation type="unfinished"></translation>
+        <translation>值的类型错误</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>too long</source>
-        <translation type="unfinished"></translation>
+        <translation>过长</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>contains control characters</source>
-        <translation type="unfinished"></translation>
+        <translation>包含控制字符</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>not a value this version knows</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本无法识别的值</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>needs a custom theme the file does not contain</source>
-        <translation type="unfinished"></translation>
+        <translation>需要自定义主题，但该文件中不包含它</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>not valid</source>
-        <translation type="unfinished"></translation>
+        <translation>无效</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>That file is empty.</source>
-        <translation type="unfinished">该文件是空的。</translation>
+        <translation>该文件为空。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file is too large to be a settings file.</source>
-        <translation type="unfinished"></translation>
+        <translation>该文件过大，不可能是设置文件。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file is not a settings file (it is not valid JSON).</source>
-        <translation type="unfinished"></translation>
+        <translation>该文件不是设置文件（不是有效的 JSON）。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That file is not a Lightning settings file.</source>
-        <translation type="unfinished"></translation>
+        <translation>该文件不是 Lightning 的设置文件。</translation>
     </message>
 </context>
 <context>
@@ -12401,42 +12410,42 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/crypto/QrLoginController.cpp" line="+79"/>
         <source>That does not look like a sign-in code. Copy the code from the other device exactly.</source>
-        <translation type="unfinished"></translation>
+        <translation>这看起来不像登录代码。请准确复制另一台设备上的代码。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>A confirmation code is two digits.</source>
-        <translation type="unfinished"></translation>
+        <translation>确认码为两位数字。</translation>
     </message>
     <message>
         <location line="+69"/>
         <source>The sign-in took too long and the code expired. Start again to get a new one.</source>
-        <translation type="unfinished"></translation>
+        <translation>登录耗时过长，代码已过期。请重新开始以获取新代码。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The sign-in was cancelled on the other device.</source>
-        <translation type="unfinished"></translation>
+        <translation>登录已在另一台设备上取消。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Those digits did not match. The two devices are not talking to each other — start again rather than retyping.</source>
-        <translation type="unfinished"></translation>
+        <translation>这两位数字不匹配。两台设备并未相互通信——请重新开始，而不要重新输入。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This device has no recovery set up, so it has no keys to send. Set up recovery and backup first, then try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>此设备尚未设置恢复功能，因此没有可发送的密钥。请先设置恢复和备份，然后再试。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your homeserver does not support signing in with a code.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器不支持使用代码登录。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The sign-in could not be completed.</source>
-        <translation type="unfinished">登录未能完成。</translation>
+        <translation>无法完成登录。</translation>
     </message>
 </context>
 <context>
@@ -12444,107 +12453,107 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/QrLoginDialog.qml" line="+53"/>
         <source>Sign in another device</source>
-        <translation type="unfinished"></translation>
+        <translation>登录另一台设备</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>The other device will be signed in AND verified: your cross-signing and message-backup keys are sent to it over an encrypted channel, so it can read your existing conversations straight away.</source>
-        <translation type="unfinished"></translation>
+        <translation>另一台设备将被登录并完成验证：你的交叉签名密钥和消息备份密钥会通过加密通道发送给它，因此它能立即读取你现有的对话。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Show a code for the other device to scan</source>
-        <translation type="unfinished"></translation>
+        <translation>显示一个代码供另一台设备扫描</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>…or paste the code the other device is showing</source>
-        <translation type="unfinished"></translation>
+        <translation>…或粘贴另一台设备显示的代码</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Paste the sign-in code</source>
-        <translation type="unfinished"></translation>
+        <translation>粘贴登录代码</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Continue</source>
-        <translation type="unfinished">继续</translation>
+        <translation>继续</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>This build cannot sign in another device.</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本无法登录另一台设备。</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Scan this with the other device. If it cannot scan, copy the text below into it instead.</source>
-        <translation type="unfinished"></translation>
+        <translation>请用另一台设备扫描此处。如果无法扫描，请将下方的文本复制到其中。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Copy</source>
-        <translation type="unfinished">复制</translation>
+        <translation>复制</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>The other device is showing two digits. Type them here.</source>
-        <translation type="unfinished"></translation>
+        <translation>另一台设备正在显示两位数字。请在此处输入。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This proves the two devices are talking to each other and not to something in between. If the digits do not match, stop.</source>
-        <translation type="unfinished"></translation>
+        <translation>这可以证明两台设备是在直接通信，而不是通过中间的某个东西。如果数字不匹配，请停止。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>00</source>
-        <translation type="unfinished"></translation>
+        <translation>00</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Confirm</source>
-        <translation type="unfinished">确认</translation>
+        <translation>确认</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Type these digits on the other device. If it shows something different, stop.</source>
-        <translation type="unfinished"></translation>
+        <translation>请在另一台设备上输入这些数字。如果它显示的内容不同，请停止。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>One more step: confirm the new sign-in on your account page.</source>
-        <translation type="unfinished"></translation>
+        <translation>还有一步：请在你的账号页面中确认此次新登录。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Open the confirmation page</source>
-        <translation type="unfinished"></translation>
+        <translation>打开确认页面</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Sending your keys to the new device…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在将你的密钥发送到新设备…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Starting…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在开始…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>The other device is signed in and verified.</source>
-        <translation type="unfinished"></translation>
+        <translation>另一台设备已登录并完成验证。</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Close</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
 </context>
 <context>
@@ -12605,32 +12614,32 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+12"/>
         <source>Chat background…</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your own picture behind every room</source>
-        <translation type="unfinished"></translation>
+        <translation>为每个房间设置你自己的图片</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Chat background for this room…</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间的聊天背景…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Only the room you have open</source>
-        <translation type="unfinished"></translation>
+        <translation>仅适用于你当前打开的房间</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Create your own theme…</source>
-        <translation type="unfinished"></translation>
+        <translation>创建你自己的主题…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Colours and gradients, in Appearance</source>
-        <translation type="unfinished"></translation>
+        <translation>颜色和渐变，位于“外观”中</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -12647,7 +12656,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-52"/>
         <source>Keyboard shortcuts</source>
-        <translation type="unfinished">键盘快捷键</translation>
+        <translation>键盘快捷键</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -12657,7 +12666,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Sound &amp; video</source>
-        <translation type="unfinished"></translation>
+        <translation>声音和视频</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -12677,7 +12686,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>Updates</source>
-        <translation type="unfinished">更新</translation>
+        <translation>更新</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -12767,12 +12776,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+19"/>
         <source>Search messages for “%1”</source>
-        <translation type="unfinished"></translation>
+        <translation>在消息中搜索“%1”</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Look for public rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>查找公开房间</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -12797,7 +12806,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+19"/>
         <source>commands</source>
-        <translation type="unfinished"></translation>
+        <translation>命令</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -12842,37 +12851,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RecoveryKeyEntry.qml" line="+23"/>
         <source>Restore keys</source>
-        <translation type="unfinished">恢复密钥</translation>
+        <translation>恢复密钥</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Recovery key or passphrase</source>
-        <translation type="unfinished">恢复密钥或密码短语</translation>
+        <translation>恢复密钥或口令</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Restoring…</source>
-        <translation type="unfinished">正在恢复…</translation>
+        <translation>正在恢复…</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Recovery started</source>
-        <translation type="unfinished">恢复已开始</translation>
+        <translation>已开始恢复</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Recovery complete. This session is now verified. New messages should decrypt as keys arrive; some old messages may still require another verified device to share keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>恢复完成。此会话现已验证。新消息应会随着密钥到达而解密；部分旧消息可能仍需要另一台已验证的设备来共享密钥。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Recovery complete. New messages should decrypt as keys arrive. Some old messages may still require another verified device to share keys. If this session is still not verified, your recovery storage may not hold your cross-signing keys; see Cross-signing under Privacy &amp; security.</source>
-        <translation type="unfinished"></translation>
+        <translation>恢复完成。新消息应会随着密钥到达而解密。部分旧消息可能仍需要另一台已验证的设备来共享密钥。如果此会话仍未验证，你的恢复存储可能没有保存交叉签名密钥；请参见“隐私与安全”下的交叉签名。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Recovery failed: %1</source>
-        <translation type="unfinished">恢复失败：%1</translation>
+        <translation>恢复失败：%1</translation>
     </message>
 </context>
 <context>
@@ -12911,7 +12920,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomActionsMenu</name>
     <message>
-        <location filename="../qml/RoomActionsMenu.qml" line="+49"/>
+        <location filename="../qml/RoomActionsMenu.qml" line="+51"/>
         <source>Remove from favourites</source>
         <translation>从收藏中移除</translation>
     </message>
@@ -12978,6 +12987,11 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+13"/>
         <source>Chat background…</source>
+        <translation>聊天背景…</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Invite people…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -12993,12 +13007,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+8"/>
         <source>Accept invitation</source>
-        <translation type="unfinished"></translation>
+        <translation>接受邀请</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Reject invitation</source>
-        <translation type="unfinished"></translation>
+        <translation>拒绝邀请</translation>
     </message>
 </context>
 <context>
@@ -13072,12 +13086,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>You can&apos;t start or join calls in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>你无法在此房间中发起或加入通话</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available in this build</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间已加密，而此版本不支持加密通话</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -13121,7 +13135,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomChannelsPresenter</name>
     <message>
-        <location filename="../qml/RoomChannelsPresenter.qml" line="+60"/>
+        <location filename="../qml/RoomChannelsPresenter.qml" line="+61"/>
         <source>No conversations yet. Rooms you join, and the spaces they belong to, will show up here.</source>
         <translation>还没有对话。您加入的房间以及它们所属的空间将显示在此处。</translation>
     </message>
@@ -13156,97 +13170,97 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomCloseDialog.qml" line="+89"/>
         <source>Leave once it is closed. If anything is left undone you stay, so you can run it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭后即可退出。如果有任何步骤未完成，你将保留在其中，因此可以再次运行。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Also remove it from %1</source>
-        <translation type="unfinished"></translation>
+        <translation>同时从 %1 中移除</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>It stays listed in %1: you can&apos;t change that space&apos;s rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>它仍会列在 %1 中：你无法更改该空间中的房间。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Reason shown to the people removed (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>向被移除的人显示的原因（可选）</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Stop anyone on this server joining it again</source>
-        <translation type="unfinished"></translation>
+        <translation>阻止此服务器上的任何人再次加入</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>The space itself</source>
-        <translation type="unfinished"></translation>
+        <translation>空间本身</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>The room</source>
-        <translation type="unfinished"></translation>
+        <translation>房间</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>%1 (%2 of %3 selected)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1（已选 %2 / %3）</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>This space has more rooms than Lightning checks at once. Rooms past the limit are not listed and are left unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>此空间的房间数超过了 Lightning 一次检查的上限。超出上限的房间不会列出，并保持不变。</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Type %1 to confirm. Its id, below, works too.</source>
-        <translation type="unfinished"></translation>
+        <translation>输入 %1 以确认。下方的 ID 也可以。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Its name has characters that cannot be typed. Type its id, below, to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>其名称包含无法输入的字符。请在下方输入其 ID 以确认。</translation>
     </message>
     <message>
         <location line="+62"/>
         <source>Hide</source>
-        <translation type="unfinished">隐藏</translation>
+        <translation>隐藏</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Close</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+69"/>
         <source>Working…</source>
-        <translation type="unfinished">处理中…</translation>
+        <translation>处理中…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Waiting</source>
-        <translation type="unfinished"></translation>
+        <translation>等待中</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Skipped</source>
-        <translation type="unfinished"></translation>
+        <translation>已跳过</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>%1 · also in another space</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · 同时位于另一个空间中</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Also in another space</source>
-        <translation type="unfinished"></translation>
+        <translation>同时位于另一个空间中</translation>
     </message>
 </context>
 <context>
@@ -13254,386 +13268,386 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/spaces/RoomClosureController.cpp" line="+213"/>
         <source>your homeserver</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>An earlier close or delete is still running and is shown here. Start the new one when it has finished.</source>
-        <translation type="unfinished"></translation>
+        <translation>之前的关闭或删除操作仍在进行中，已在此显示。请等它完成后再开始新的操作。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>This is how the earlier close or delete ended. Close this to start the new one.</source>
-        <translation type="unfinished"></translation>
+        <translation>这是之前的关闭或删除操作的结束方式。关闭此项即可开始新的操作。</translation>
     </message>
     <message>
         <location line="+463"/>
         <source>The request could not be sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法发送请求。</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Removing members: %1 of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>正在移除成员：%1 / %2</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Working…</source>
-        <translation type="unfinished">处理中…</translation>
+        <translation>处理中…</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>No answer yet. It may still finish on the server: check the room before running this again.</source>
-        <translation type="unfinished"></translation>
+        <translation>尚未收到回复。它仍可能在服务器上完成：请在再次运行此操作前检查该房间。</translation>
     </message>
     <message>
         <location line="+96"/>
         <source> · you stayed: rooms inside it are not fully closed</source>
-        <translation type="unfinished"></translation>
+        <translation> · 你已留下：其中的房间未完全关闭</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Queued on the server</source>
-        <translation type="unfinished"></translation>
+        <translation>已在服务器上排队</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server is deleting it</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器正在删除它</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>The server refused to make it invite-only. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝将其设为仅限邀请。未更改任何内容。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>No answer came back when making it invite-only, so it may or may not have changed. Nothing else was done.</source>
-        <translation type="unfinished"></translation>
+        <translation>设为仅限邀请时没有收到回复，因此它可能已更改，也可能未更改。未执行其他操作。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>It could not be made invite-only. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法将其设为仅限邀请。未更改任何内容。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Invite-only</source>
-        <translation type="unfinished"></translation>
+        <translation>仅限邀请</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 removed</source>
-        <translation type="unfinished"></translation>
+        <translation>已移除 %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 could not be removed</source>
-        <translation type="unfinished"></translation>
+        <translation>无法移除 %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1 not reached; run it again</source>
-        <translation type="unfinished"></translation>
+        <translation>未完成 %1；请再次运行</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>its members could not be read</source>
-        <translation type="unfinished"></translation>
+        <translation>无法读取其成员</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>%1 stay (role not below yours)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 人保留（角色不低于你）</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1 stay (you can&apos;t remove members here)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 人保留（你无法在此移除成员）</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>may still be in the room directory</source>
-        <translation type="unfinished"></translation>
+        <translation>可能仍在房间目录中</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>still listed in %1 space(s)</source>
-        <translation type="unfinished"></translation>
+        <translation>仍列在 %1 个空间中</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>you left</source>
-        <translation type="unfinished"></translation>
+        <translation>你已离开</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>you stayed so you can run it again</source>
-        <translation type="unfinished"></translation>
+        <translation>你已留下，以便可以再次运行</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>leaving failed</source>
-        <translation type="unfinished"></translation>
+        <translation>离开失败</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Deleted from the server · %1 removed · %2 could not be removed</source>
-        <translation type="unfinished"></translation>
+        <translation>已从服务器删除 · 已移除 %1 · 无法移除 %2</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Deleted from the server · %1 removed</source>
-        <translation type="unfinished"></translation>
+        <translation>已从服务器删除 · 已移除 %1</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server is still deleting it. Check again later.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器仍在删除它。请稍后再检查。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Whether the server deleted it is not known: no clear answer came back. Check the room before trying again.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法确定服务器是否已删除它：没有收到明确的回复。请在再次尝试前检查该房间。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server refused the request. A delete of this room may already be running.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了请求。该房间的删除操作可能已在进行中。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The server did not accept this session. Sign in again.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器未接受此会话。请重新登录。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server refused. This account may no longer be an administrator.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了请求。此账号可能已不再是管理员。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This server does not offer the delete it was asked for.</source>
-        <translation type="unfinished"></translation>
+        <translation>此服务器不支持所请求的删除操作。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server reported that the delete failed.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器报告删除失败。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server is rate limiting. Try again shortly.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器正在限制请求。请稍后再试。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Failed. Check your connection and retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>失败。请检查网络连接后重试。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>You are not in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>你不在此房间中</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You can&apos;t change who may join</source>
-        <translation type="unfinished"></translation>
+        <translation>你无法更改谁可以加入</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Its members could not be checked</source>
-        <translation type="unfinished"></translation>
+        <translation>无法检查其成员</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not checked in time; left unchanged</source>
-        <translation type="unfinished"></translation>
+        <translation>未能及时检查；保持不变</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not available here</source>
-        <translation type="unfinished"></translation>
+        <translation>此处不可用</translation>
     </message>
     <message>
         <location line="+12"/>
         <source> · its history stays readable by anyone</source>
-        <translation type="unfinished"></translation>
+        <translation> · 其历史记录仍可被任何人读取</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Only you are here</source>
-        <translation type="unfinished"></translation>
+        <translation>只有你在此</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You can&apos;t remove members here: all %1 stay</source>
-        <translation type="unfinished"></translation>
+        <translation>你无法在此移除成员：全部 %1 人保留</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Removes %1</source>
-        <translation type="unfinished"></translation>
+        <translation>将移除 %1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Removes nobody</source>
-        <translation type="unfinished"></translation>
+        <translation>不会移除任何人</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>%1 and %2 more</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 以及另外 %2 人</translation>
     </message>
     <message>
         <location line="+3"/>
         <source> · %1 stay</source>
-        <translation type="unfinished"></translation>
+        <translation> · %1 人保留</translation>
     </message>
     <message>
         <location line="+1"/>
         <source> · %1 stay: %2</source>
-        <translation type="unfinished"></translation>
+        <translation> · %1 人保留：%2</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>this space</source>
-        <translation type="unfinished"></translation>
+        <translation>此空间</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>this room</source>
-        <translation type="unfinished">此房间</translation>
+        <translation>此房间</translation>
     </message>
     <message numerus="yes">
         <location line="+6"/>
         <source>Delete %1 and %n room(s) from %2?</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>要从 %2 中删除 %1 和 %n 个房间吗？</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+18"/>
         <source>the space and the %n room(s) selected below</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>下方所选的空间和 %n 个房间</numerusform>
         </translation>
     </message>
     <message>
         <location line="-15"/>
         <source>Delete %1 from %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>要从 %2 中删除 %1 吗？</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Close %1 and its rooms?</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭 %1 及其房间？</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Close %1?</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭 %1？</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>it</source>
-        <translation type="unfinished"></translation>
+        <translation>它</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>This deletes %2 from %1, your homeserver: everyone on %1 is removed and %1&apos;s copy of the history is purged. It cannot be undone. Members on other servers keep the rooms and their history; for them they carry on without %1&apos;s users.</source>
-        <translation type="unfinished"></translation>
+        <translation>这将从你的主服务器 %1 中删除 %2：%1 上的所有人都会被移除，%1 中保存的该历史记录副本也会被清除。此操作无法撤销。其他服务器上的成员仍会保留这些房间及其历史记录；对他们而言，房间会在没有 %1 用户的情况下继续运行。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>the space and each room you select</source>
-        <translation type="unfinished"></translation>
+        <translation>该空间以及你选择的每个房间</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>the room</source>
-        <translation type="unfinished"></translation>
+        <translation>该房间</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Closing makes %1 invite-only, takes it out of the public room directory, removes the members you are allowed to remove (where you may remove people, everyone whose role is below yours), and then you leave.</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭会将 %1 设为仅限邀请，将其从公共房间目录中移除，移除你有权移除的成员（你有权移除他人时，即角色低于你的所有人），然后你将离开。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Closing makes %1 invite-only, takes it out of the public room directory and removes the members you are allowed to remove (where you may remove people, everyone whose role is below yours). You stay.</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭会将 %1 设为仅限邀请，将其从公共房间目录中移除，并移除你有权移除的成员（你有权移除他人时，即角色低于你的所有人）。你会留下。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>This does not delete anything: the history stays on every server that took part, people keep whatever their apps already downloaded, and a room whose history anyone can read stays readable. Everyone you cannot remove stays, and anyone whose role is not below yours can open it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>这不会删除任何内容：历史记录仍保留在每个参与的服务器上，人们已下载到各自应用中的内容也会保留，任何人都能读取历史记录的房间仍可读取。你无法移除的人会留下，角色不低于你的人则可以再次打开它。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Also delete rooms in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>同时删除此空间中的房间</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Also close rooms in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>同时关闭此空间中的房间</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Delete from server</source>
-        <translation type="unfinished"></translation>
+        <translation>从服务器删除</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Close space</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭空间</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Close room</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭房间</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Checking what closing would do… This takes at most half a minute.</source>
-        <translation type="unfinished"></translation>
+        <translation>正在检查关闭操作的影响…… 最多需要半分钟。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning could not check these rooms. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法检查这些房间。未更改任何内容。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>There is nothing here you can close: see the reasons below.</source>
-        <translation type="unfinished"></translation>
+        <translation>这里没有可以关闭的内容：请参见下方的原因。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 of the rooms could not be checked in time. They are not offered and will be left unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 个房间未能及时检查。它们不会提供此操作，并将保持不变。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Working: %1 of %2. You can hide this; it keeps going.</source>
-        <translation type="unfinished"></translation>
+        <translation>正在处理：%1 / %2。你可以隐藏此窗口；操作会继续进行。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Done: %1 deleted, %2 still being deleted by the server, %3 failed, %4 not known yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>已完成：%1 个已删除，%2 个仍在由服务器删除，%3 个失败，%4 个尚未确定。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Done: %1 closed.</source>
-        <translation type="unfinished"></translation>
+        <translation>已完成：%1 个已关闭。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Done: %1 closed, %2 partly closed, %3 failed, %4 not known yet. The rows below say what is left.</source>
-        <translation type="unfinished"></translation>
+        <translation>已完成：%1 个已关闭，%2 个部分关闭，%3 个失败，%4 个尚未确定。下方各行显示剩余的内容。</translation>
     </message>
 </context>
 <context>
@@ -13647,13 +13661,13 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <source>%1, mention in a thread</source>
         <comment>room row</comment>
-        <translation type="unfinished"></translation>
+        <translation>%1，话题中有提及</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>%1, unread in a thread</source>
         <comment>room row</comment>
-        <translation type="unfinished"></translation>
+        <translation>%1，话题中有未读消息</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -13666,7 +13680,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1，已静音</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+89"/>
         <source>Yesterday</source>
         <translation>昨天</translation>
     </message>
@@ -13779,7 +13793,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/RoomInfoController.cpp" line="+50"/>
         <source>The server did not accept the change.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器未接受此更改。</translation>
     </message>
     <message>
         <location line="+325"/>
@@ -13829,7 +13843,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-401"/>
         <source>Creator</source>
-        <translation type="unfinished"></translation>
+        <translation>创建者</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -13884,7 +13898,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+43"/>
         <source>Choose at least one space whose members may join.</source>
-        <translation type="unfinished"></translation>
+        <translation>请至少选择一个成员可以加入的空间。</translation>
     </message>
     <message>
         <location line="+72"/>
@@ -14020,73 +14034,73 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-582"/>
         <source>Widgets</source>
-        <translation type="unfinished"></translation>
+        <translation>小组件</translation>
     </message>
     <message>
         <location line="+2113"/>
         <source>Open</source>
-        <translation type="unfinished">打开</translation>
+        <translation>打开</translation>
     </message>
     <message>
         <location line="-1478"/>
         <source>Export room…</source>
-        <translation type="unfinished"></translation>
+        <translation>导出房间…</translation>
     </message>
     <message>
         <location line="-499"/>
         <source>View profile</source>
-        <translation type="unfinished">查看个人资料</translation>
+        <translation>查看个人资料</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Remove from room…</source>
-        <translation type="unfinished"></translation>
+        <translation>从房间移除…</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Ban from room…</source>
-        <translation type="unfinished"></translation>
+        <translation>从房间封禁…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Unban…</source>
-        <translation type="unfinished"></translation>
+        <translation>解除封禁…</translation>
     </message>
     <message>
         <location line="+49"/>
         <location line="+12"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>Choose your avatar for this room</source>
-        <translation type="unfinished"></translation>
+        <translation>为此房间选择你的头像</translation>
     </message>
     <message>
         <location line="+267"/>
         <source>This room has no override — your account&apos;s notification settings apply.</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间没有覆盖设置，因此适用你账号的通知设置。</translation>
     </message>
     <message>
         <location line="+119"/>
         <source>Bridged via %1</source>
-        <translation type="unfinished"></translation>
+        <translation>经由 %1 桥接</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Moderation rules…</source>
-        <translation type="unfinished"></translation>
+        <translation>管理规则…</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Ban lists this room publishes</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间发布的封禁名单</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Save this room&apos;s loaded messages to a file</source>
-        <translation type="unfinished"></translation>
+        <translation>将此房间已加载的消息保存到文件</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -14096,7 +14110,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+51"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景</translation>
     </message>
     <message>
         <location line="+38"/>
@@ -14134,27 +14148,27 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+60"/>
         <source>Your profile in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>你在此房间中的个人资料</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Only affects this room. Everyone here sees it; other rooms keep your usual name and picture.</source>
-        <translation type="unfinished"></translation>
+        <translation>仅影响此房间。此处所有人都会看到；其他房间仍使用你平常的名称和头像。</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Your name in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>你在此房间中的名称</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Change picture…</source>
-        <translation type="unfinished"></translation>
+        <translation>更换图片…</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Reset to global</source>
-        <translation type="unfinished"></translation>
+        <translation>恢复为全局设置</translation>
     </message>
     <message>
         <location line="+48"/>
@@ -14194,24 +14208,24 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+48"/>
         <source>Alternative addresses</source>
-        <translation type="unfinished"></translation>
+        <translation>其他地址</translation>
     </message>
     <message>
         <location line="+22"/>
         <location line="+734"/>
         <location line="+85"/>
         <source>Remove</source>
-        <translation type="unfinished"></translation>
+        <translation>移除</translation>
     </message>
     <message>
         <location line="-799"/>
         <source>#another-name</source>
-        <translation type="unfinished"></translation>
+        <translation>#another-name</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Add</source>
-        <translation type="unfinished">添加</translation>
+        <translation>添加</translation>
     </message>
     <message>
         <location line="+18"/>
@@ -14227,12 +14241,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-795"/>
         <source>Close room…</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭房间…</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Delete from server…</source>
-        <translation type="unfinished"></translation>
+        <translation>从服务器删除…</translation>
     </message>
     <message>
         <location line="+38"/>
@@ -14399,82 +14413,82 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-781"/>
         <source>Members of selected spaces can join</source>
-        <translation type="unfinished"></translation>
+        <translation>所选空间的成员可以加入</translation>
     </message>
     <message>
         <location line="+50"/>
         <source>Spaces whose members may join</source>
-        <translation type="unfinished"></translation>
+        <translation>其成员可以加入的空间</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>Join a space first; only spaces you are in can be chosen.</source>
-        <translation type="unfinished"></translation>
+        <translation>请先加入一个空间；只能选择你已加入的空间。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>This room also allows joins by a rule Lightning can&apos;t show. It is kept when you save.</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间还允许通过 Lightning 无法显示的规则加入。保存时会保留该规则。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Others may ask to join (knock)</source>
-        <translation type="unfinished"></translation>
+        <translation>其他人可以请求加入（敲门）</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Restrict to these spaces</source>
-        <translation type="unfinished"></translation>
+        <translation>仅限这些空间</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Who can read history</source>
-        <translation type="unfinished"></translation>
+        <translation>谁可以阅读历史记录</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Members, from when they were invited</source>
-        <translation type="unfinished"></translation>
+        <translation>成员，自被邀请时起</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Members, from when they joined</source>
-        <translation type="unfinished"></translation>
+        <translation>成员，自加入时起</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Members, everything</source>
-        <translation type="unfinished"></translation>
+        <translation>成员，全部内容</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Anyone, even without joining</source>
-        <translation type="unfinished"></translation>
+        <translation>任何人，即使未加入</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Guests can join</source>
-        <translation type="unfinished"></translation>
+        <translation>访客可以加入</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Listed in the room directory (checking…)</source>
-        <translation type="unfinished"></translation>
+        <translation>已列在房间目录中（正在检查…）</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Listed in the room directory</source>
-        <translation type="unfinished"></translation>
+        <translation>已列在房间目录中</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Room version %1</source>
-        <translation type="unfinished"></translation>
+        <translation>房间版本 %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Upgrade room…</source>
-        <translation type="unfinished"></translation>
+        <translation>升级房间…</translation>
     </message>
     <message>
         <location line="+531"/>
@@ -14504,37 +14518,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+38"/>
         <source>No widgets in this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间中没有小组件。</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>You do not have permission to change widgets here.</source>
-        <translation type="unfinished"></translation>
+        <translation>你没有权限在此处更改小组件。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Could not change the widgets (%1).</source>
-        <translation type="unfinished"></translation>
+        <translation>无法更改小组件（%1）。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Add widget…</source>
-        <translation type="unfinished"></translation>
+        <translation>添加小组件…</translation>
     </message>
     <message>
         <location line="+108"/>
         <source>Remove widget?</source>
-        <translation type="unfinished"></translation>
+        <translation>移除小组件？</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Remove &quot;%1&quot; from this room? Everyone here loses it, and it cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>要从此房间中移除“%1”吗？此处所有人都将失去它，且无法撤销。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Remove this widget from the room? Everyone here loses it, and it cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>要从此房间中移除此小组件吗？此处所有人都将失去它，且无法撤销。</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -14558,84 +14572,84 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/RoomKeyExportController.cpp" line="+172"/>
         <source>Export finished, but this session holds no room keys yet, so the file contains none.</source>
-        <translation type="unfinished"></translation>
+        <translation>导出已完成，但此会话尚未持有任何房间密钥，因此文件中不包含密钥。</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>Exported %n room key(s). Keep the file and its passphrase safe, and apart from each other.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已导出 %n 个房间密钥。请妥善保管该文件及其口令，并将二者分开存放。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Enter a passphrase to protect the file.</source>
-        <translation type="unfinished"></translation>
+        <translation>请输入口令以保护该文件。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The passphrases do not match.</source>
-        <translation type="unfinished"></translation>
+        <translation>两次输入的口令不一致。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Use at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>请至少使用 %1 个字符。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This passphrase is too weak to protect your keys. Use at least 12 characters, or 10 that mix upper and lower case, digits or symbols.</source>
-        <translation type="unfinished"></translation>
+        <translation>此口令太弱，无法保护你的密钥。请至少使用 12 个字符，或使用 10 个字符并混合大小写字母、数字或符号。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning cannot save to that location. Choose another folder or file name.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法保存到该位置。请选择其他文件夹或文件名。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning is not allowed to write to that location. Choose another folder.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无权写入该位置。请选择其他文件夹。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>There is not enough space to save the file. Nothing was saved. Free some space or choose another location.</source>
-        <translation type="unfinished"></translation>
+        <translation>空间不足，无法保存该文件。未保存任何内容。请释放一些空间或选择其他位置。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Writing the file failed. Nothing was saved. Try again or choose another location.</source>
-        <translation type="unfinished"></translation>
+        <translation>写入文件失败。未保存任何内容。请重试或选择其他位置。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Writing the file failed part-way. The file at that location may be incomplete: delete it and export again.</source>
-        <translation type="unfinished"></translation>
+        <translation>写入文件时中途失败。该位置的文件可能不完整：请删除它并重新导出。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>An export is already running.</source>
-        <translation type="unfinished"></translation>
+        <translation>已有一个导出正在进行。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sign in to export room keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>请登录以导出房间密钥。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Encryption is not ready on this session yet. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>此会话的加密功能尚未就绪。请稍后再试。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Exporting room keys needs the Matrix SDK backend.</source>
-        <translation type="unfinished"></translation>
+        <translation>导出房间密钥需要 Matrix SDK 后端。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The export failed. Nothing was saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>导出失败。未保存任何内容。</translation>
     </message>
 </context>
 <context>
@@ -14643,107 +14657,107 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomKeyExportSection.qml" line="+73"/>
         <source>Export room keys</source>
-        <translation type="unfinished"></translation>
+        <translation>导出房间密钥</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Save the keys that decrypt your encrypted messages to a file, locked with a passphrase you choose. Another session, or another Matrix app such as Element, can import it to read your message history. The file covers messages received up to now, and importing it does not verify a session.</source>
-        <translation type="unfinished"></translation>
+        <translation>将用于解密你加密消息的密钥保存到一个文件中，并用你选择的口令加密。另一个会话或 Element 等其他 Matrix 应用可以导入它，以读取你的消息历史。该文件涵盖截至目前收到的消息，导入它不会验证会话。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Anyone with this file and its passphrase can read your encrypted messages. Keep the file somewhere private, never send it in a chat, and store the passphrase separately from it.</source>
-        <translation type="unfinished"></translation>
+        <translation>任何拥有此文件及其口令的人都可以读取你的加密消息。请将文件保存在私密位置，切勿通过聊天发送，并将口令与文件分开保存。</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+1"/>
         <source>Passphrase for the file</source>
-        <translation type="unfinished"></translation>
+        <translation>文件口令</translation>
     </message>
     <message>
         <location line="+38"/>
         <source>Too short to export: use at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>太短，无法导出：请至少使用 %1 个字符。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Too weak to export: use at least 12 characters, or 10 that mix upper and lower case, digits or symbols, and avoid repeating a few characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>太弱，无法导出：请至少使用 12 个字符，或使用 10 个字符并混合大小写字母、数字或符号，且避免重复使用少数几个字符。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Fair</source>
-        <translation type="unfinished"></translation>
+        <translation>一般</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Strong</source>
-        <translation type="unfinished"></translation>
+        <translation>强</translation>
     </message>
     <message>
         <location line="+11"/>
         <location line="+1"/>
         <source>Confirm the passphrase</source>
-        <translation type="unfinished"></translation>
+        <translation>确认口令</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The passphrases do not match.</source>
-        <translation type="unfinished"></translation>
+        <translation>两次输入的口令不一致。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Exporting…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在导出…</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Export keys…</source>
-        <translation type="unfinished"></translation>
+        <translation>导出密钥…</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Disabled: the passphrase is too weak.</source>
-        <translation type="unfinished"></translation>
+        <translation>已禁用：口令太弱。</translation>
     </message>
     <message numerus="yes">
         <location line="+20"/>
         <source>Exporting room keys… %n gathered so far.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>正在导出房间密钥… 目前已收集 %n 个。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Exporting room keys… This can take a while on an account with a long history.</source>
-        <translation type="unfinished"></translation>
+        <translation>正在导出房间密钥… 对于历史记录很长的账号，这可能需要一些时间。</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Save room-key export</source>
-        <translation type="unfinished"></translation>
+        <translation>保存房间密钥导出文件</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Room-key export (*.txt)</source>
-        <translation type="unfinished"></translation>
+        <translation>房间密钥导出 (*.txt)</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>All files (*)</source>
-        <translation type="unfinished">所有文件 (*)</translation>
+        <translation>所有文件 (*)</translation>
     </message>
 </context>
 <context>
     <name>RoomListClassicPresenter</name>
     <message>
-        <location filename="../qml/RoomListClassicPresenter.qml" line="+98"/>
+        <location filename="../qml/RoomListClassicPresenter.qml" line="+99"/>
         <source>Invites</source>
         <translation>邀请</translation>
     </message>
     <message>
-        <location line="-62"/>
+        <location line="-63"/>
         <source>People</source>
         <translation>人</translation>
     </message>
@@ -14763,12 +14777,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>对话</translation>
     </message>
     <message>
-        <location line="+61"/>
+        <location line="+62"/>
         <source>Favourites</source>
-        <translation type="unfinished"></translation>
+        <translation>收藏</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+74"/>
         <source>Sign in to see rooms</source>
         <translation>登录后查看房间</translation>
     </message>
@@ -14897,27 +14911,27 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomListSortMenu.qml" line="+27"/>
         <source>Sort rooms by</source>
-        <translation type="unfinished"></translation>
+        <translation>排序方式</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Activity</source>
-        <translation type="unfinished"></translation>
+        <translation>活动</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>A–Z</source>
-        <translation type="unfinished"></translation>
+        <translation>A–Z</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Space order</source>
-        <translation type="unfinished"></translation>
+        <translation>空间顺序</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Unread first</source>
-        <translation type="unfinished"></translation>
+        <translation>未读优先</translation>
     </message>
 </context>
 <context>
@@ -14936,33 +14950,33 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+60"/>
         <source>The room to upgrade is not known.</source>
-        <translation type="unfinished"></translation>
+        <translation>未知要升级的房间。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Pick a room version the server supports.</source>
-        <translation type="unfinished"></translation>
+        <translation>请选择服务器支持的房间版本。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The upgrade could not be requested.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法发出升级请求。</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>The server refused the upgrade: you are not allowed to upgrade this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了升级：你无权升级此房间。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The room was upgraded, but the server did not say which room replaced it. Look for the new room in your room list.</source>
-        <translation type="unfinished"></translation>
+        <translation>房间已升级，但服务器未说明哪个房间取代了它。请在房间列表中查找新房间。</translation>
     </message>
     <message>
         <location line="-22"/>
         <location line="+13"/>
         <source>The upgrade did not complete. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>升级未完成。未更改任何内容。</translation>
     </message>
 </context>
 <context>
@@ -14970,67 +14984,67 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/RoomUpgradeDialog.qml" line="+72"/>
         <source>Upgrade this space</source>
-        <translation type="unfinished"></translation>
+        <translation>升级此空间</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Upgrade this room</source>
-        <translation type="unfinished"></translation>
+        <translation>升级此房间</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Upgrading creates a NEW space on a newer room version and marks this one as replaced. Members have to join the new space; the old one stays readable but closed. The server carries the settings, permissions and addresses across. This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>升级会在较新的房间版本上创建一个新空间，并将此空间标记为已被取代。成员需要加入新空间；旧空间仍可阅读，但已关闭。服务器会将设置、权限和地址转移过去。此操作无法撤销。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Upgrading creates a NEW room on a newer room version and marks this one as replaced. Members have to join the new room; the old one stays readable but closed. The server carries the settings, permissions and addresses across. This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>升级会在较新的房间版本上创建一个新房间，并将此房间标记为已被取代。成员需要加入新房间；旧房间仍可阅读，但已关闭。服务器会将设置、权限和地址转移过去。此操作无法撤销。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Current version: %1</source>
-        <translation type="unfinished">当前版本：%1</translation>
+        <translation>当前版本：%1</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>New version</source>
-        <translation type="unfinished"></translation>
+        <translation>新版本</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>recommended</source>
-        <translation type="unfinished"></translation>
+        <translation>推荐</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>unstable</source>
-        <translation type="unfinished"></translation>
+        <translation>不稳定</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Asking the server which room versions it supports…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在向服务器查询其支持的房间版本…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Also add the new room to the spaces this one is in</source>
-        <translation type="unfinished"></translation>
+        <translation>同时将新房间添加到此房间所在的空间</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Upgrading…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在升级…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Upgrade</source>
-        <translation type="unfinished"></translation>
+        <translation>升级</translation>
     </message>
 </context>
 <context>
@@ -15076,20 +15090,20 @@ Signing out and signing in again is the only fix.</source>
         <location line="+48"/>
         <location line="+1"/>
         <source>Room list options</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表选项</translation>
     </message>
     <message numerus="yes">
         <location line="+91"/>
         <source>Activity, %n unseen</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>活动，%n 条未查看</numerusform>
         </translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+1"/>
         <source>Activity</source>
-        <translation type="unfinished"></translation>
+        <translation>活动</translation>
     </message>
     <message>
         <location line="+82"/>
@@ -15119,40 +15133,40 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-155"/>
         <source>Start or join a conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>开始或加入对话</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>New message, room or Space</source>
-        <translation type="unfinished"></translation>
+        <translation>新消息、房间或空间</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>New message</source>
-        <translation type="unfinished">新建消息</translation>
+        <translation>新消息</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>New room</source>
-        <translation type="unfinished">新建房间</translation>
+        <translation>新房间</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>New Space</source>
-        <translation type="unfinished"></translation>
+        <translation>新空间</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Explore public rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>探索公开房间</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Join by address…</source>
-        <translation type="unfinished"></translation>
+        <translation>通过地址加入…</translation>
     </message>
     <message>
-        <location line="+186"/>
+        <location line="+194"/>
         <source>Leave room?</source>
         <translation>离开房间？</translation>
     </message>
@@ -15262,72 +15276,72 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-1348"/>
         <source>Wrong username or password.</source>
-        <translation type="unfinished"></translation>
+        <translation>用户名或密码错误。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Too many attempts. Wait a minute and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>尝试次数过多。请等待一分钟后再试。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This account has been deactivated.</source>
-        <translation type="unfinished"></translation>
+        <translation>此账号已被停用。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Can&apos;t reach the server. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法连接服务器。请检查网络连接后重试。</translation>
     </message>
     <message>
         <location line="+759"/>
         <source>Enter a server, for example matrix.org.</source>
-        <translation type="unfinished"></translation>
+        <translation>请输入服务器，例如 matrix.org。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>That is not a server address. Enter one like matrix.org.</source>
-        <translation type="unfinished"></translation>
+        <translation>这不是服务器地址。请输入类似 matrix.org 的地址。</translation>
     </message>
     <message>
         <location line="+893"/>
         <source>The server finished the sign-in but did not say which account or device it was for. Nothing was saved on this device.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器已完成登录，但未说明此登录属于哪个账号或设备。此设备上未保存任何内容。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The server signed you in as %1, an account name Lightning can&apos;t store on this device. Nothing was saved here.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器以 %1 的身份为你登录，但 Lightning 无法在此设备上保存该账号名称。此处未保存任何内容。</translation>
     </message>
     <message>
         <location line="+55"/>
         <source>Another account saved on this device, with the same name in different upper and lower case, uses this account&apos;s storage. Remove that account first if you want to sign in with this one.</source>
-        <translation type="unfinished"></translation>
+        <translation>此设备上保存的另一个账号与此账号名称相同（仅大小写不同），它正在使用此账号的存储。如果要使用此账号登录，请先移除该账号。</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>You signed in, but Lightning could not open this account&apos;s storage on this device. Nothing was saved here.</source>
-        <translation type="unfinished"></translation>
+        <translation>你已登录，但 Lightning 无法在此设备上打开该账号的存储。此处未保存任何内容。</translation>
     </message>
     <message>
         <location line="+39"/>
         <source>You signed in, but Lightning could not save this account on this device, so it did not open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>你已登录，但 Lightning 无法在此设备上保存该账号，因此没有打开它。</translation>
     </message>
     <message>
         <location line="+115"/>
         <source>This account&apos;s old local data could not be moved aside because it is still in use. Close any other Lightning window (check the system tray) or program using it, wait a moment, and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>该账号的旧本地数据无法移开，因为它仍在使用中。请关闭其他 Lightning 窗口（请检查系统托盘）或正在使用它的程序，稍等片刻后重试。</translation>
     </message>
     <message>
         <location line="+42"/>
         <source>You signed in, but Lightning could not open this account on this device, so nothing was kept. You can try again. (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>你已登录，但 Lightning 无法在此设备上打开该账号，因此没有保留任何内容。你可以重试。（%1）</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>You signed in, but Lightning could not open this account on this device, and could not remove all of what it had started to save here. Check the log before trying again. (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>你已登录，但 Lightning 无法在此设备上打开该账号，并且无法移除它已开始在此保存的全部内容。请先查看日志再重试。（%1）</translation>
     </message>
     <message>
         <location line="+346"/>
@@ -15389,12 +15403,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-1155"/>
         <source>Lightning cannot send that yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 目前无法发送该内容。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>This room is still loading. Try that again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间仍在加载。请稍后再试。</translation>
     </message>
     <message>
         <location line="+217"/>
@@ -15414,7 +15428,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+20"/>
         <source>Signing in again as this device did not work. Nothing on this device was changed. Try again, or remove this account below.</source>
-        <translation type="unfinished"></translation>
+        <translation>以此设备重新登录失败。此设备上的任何内容都未被更改。请重试，或在下方移除此账号。</translation>
     </message>
     <message>
         <location line="+138"/>
@@ -15430,7 +15444,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+297"/>
         <location line="+26"/>
         <source>The reaction could not be applied.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法应用该表情回应。</translation>
     </message>
     <message>
         <location line="-15"/>
@@ -15440,48 +15454,48 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+19"/>
         <source>The message could not be deleted.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法删除该消息。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>That message had already been sent, so it could not be cancelled.</source>
-        <translation type="unfinished"></translation>
+        <translation>该消息已发送，因此无法取消。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>That message could not be cancelled.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法取消该消息。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>That message is no longer available to retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>该消息已无法重试。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The edit could not be applied.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法应用该编辑。</translation>
     </message>
     <message>
         <location line="-46"/>
         <location line="+54"/>
         <source>The poll action could not be completed.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法完成投票操作。</translation>
     </message>
     <message>
         <location line="-5193"/>
         <source>Enter your username.</source>
-        <translation type="unfinished"></translation>
+        <translation>请输入你的用户名。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>That username is not a valid Matrix id. Use your username, or the full @you:server form.</source>
-        <translation type="unfinished"></translation>
+        <translation>该用户名不是有效的 Matrix ID。请使用你的用户名，或完整的 @you:server 格式。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Enter your password.</source>
-        <translation type="unfinished"></translation>
+        <translation>请输入你的密码。</translation>
     </message>
     <message>
         <location line="+5185"/>
@@ -15583,12 +15597,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/app/SaveNaming.cpp" line="+460"/>
         <source>%1 file (*.%2)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 文件 (*.%2)</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>All files (*)</source>
-        <translation type="unfinished">所有文件 (*)</translation>
+        <translation>所有文件 (*)</translation>
     </message>
 </context>
 <context>
@@ -15596,57 +15610,57 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/models/ScheduledSendController.cpp" line="+70"/>
         <source>Kept in Lightning instead: the server cannot hold an encrypted message.</source>
-        <translation type="unfinished"></translation>
+        <translation>改为保存在 Lightning 中：服务器无法保存加密消息。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The server refused to schedule this message.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝定时发送此消息。</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>The server no longer holds this message; it may already have been sent. Check the room before scheduling it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器已不再保存此消息；它可能已经发送。请在再次定时发送前检查该房间。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The server did not cancel this message.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器未取消此消息。</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>The server did not send this message.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器未发送此消息。</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>The room did not accept this message. It was not sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>房间未接受此消息。消息未发送。</translation>
     </message>
     <message>
         <location line="+195"/>
         <source>Lightning closed before the server confirmed this message. Check the room before scheduling it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>在服务器确认此消息之前，Lightning 已关闭。请在再次定时发送前检查该房间。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Lightning closed while sending this. Check the room before sending it again.</source>
-        <translation type="unfinished"></translation>
+        <translation>发送此消息时 Lightning 已关闭。请在再次发送前检查该房间。</translation>
     </message>
     <message>
         <location line="+87"/>
         <source>The server could not be asked to cancel this message.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法请求服务器取消此消息。</translation>
     </message>
     <message>
         <location line="+75"/>
         <source>Lightning could not reach the server to send this now. It is still scheduled.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法连接服务器以立即发送此消息。它仍处于定时状态。</translation>
     </message>
     <message>
         <location line="+151"/>
         <source>Waiting for the connection.</source>
-        <translation type="unfinished"></translation>
+        <translation>正在等待连接。</translation>
     </message>
 </context>
 <context>
@@ -15714,44 +15728,44 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+23"/>
         <source>Sound</source>
-        <translation type="unfinished"></translation>
+        <translation>声音</translation>
     </message>
     <message>
         <location line="+13"/>
         <location line="+5"/>
         <source>No sound</source>
-        <translation type="unfinished"></translation>
+        <translation>无声音</translation>
     </message>
     <message>
         <location line="-4"/>
         <location line="+5"/>
         <source>Entire system</source>
-        <translation type="unfinished"></translation>
+        <translation>整个系统</translation>
     </message>
     <message>
         <location line="-4"/>
         <source>Only chosen apps</source>
-        <translation type="unfinished"></translation>
+        <translation>仅所选应用</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Screen share sound</source>
-        <translation type="unfinished"></translation>
+        <translation>屏幕共享声音</translation>
     </message>
     <message>
         <location line="+51"/>
         <source>Lightning runs inside this window&apos;s app, so its sound can&apos;t be shared on its own without sending the call back. Its sound isn&apos;t chosen automatically.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 运行于此窗口所属的应用中，因此如果不把通话重新发送回去，就无法单独共享其声音。其声音不会被自动选择。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Lightning can&apos;t tell which app this window belongs to, so its sound isn&apos;t chosen automatically. Choose the app below.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法判断此窗口属于哪个应用，因此不会自动选择其声音。请在下方选择该应用。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This window&apos;s app isn&apos;t playing any sound right now, so its sound isn&apos;t chosen automatically.</source>
-        <translation type="unfinished"></translation>
+        <translation>此窗口所属的应用当前没有播放任何声音，因此不会自动选择其声音。</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -15762,7 +15776,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+12"/>
         <location line="+31"/>
         <source>Auto</source>
-        <translation type="unfinished"></translation>
+        <translation>自动</translation>
     </message>
     <message>
         <location line="-30"/>
@@ -15944,17 +15958,17 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>Type at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>请至少输入 %1 个字符。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Nothing is indexed yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>尚未建立索引。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>No matching messages. Try a less common word, or search the local index.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有匹配的消息。请尝试不太常见的词，或搜索本地索引。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -15964,37 +15978,37 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+108"/>
         <source>Indexed</source>
-        <translation type="unfinished"></translation>
+        <translation>本地索引</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning&apos;s own index. Works in encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 自带的索引。可在加密房间中使用。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Server</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your homeserver&apos;s search. Covers history this device has never seen, and cannot read encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器自带的搜索。涵盖本设备从未见过的历史记录，但无法读取加密房间。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Searching Lightning&apos;s own index. Works in encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>正在搜索 Lightning 自带的索引。可在加密房间中使用。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Searching your homeserver. It cannot read encrypted rooms and ignores very common words. Additional filters are applied to a bounded result window.</source>
-        <translation type="unfinished"></translation>
+        <translation>正在搜索你的主服务器。它无法读取加密房间，并会忽略非常常见的词。附加筛选条件只应用于有限的结果范围。</translation>
     </message>
     <message>
         <location line="+141"/>
         <source>Index encrypted rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>为加密房间建立索引</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -16093,133 +16107,133 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/SendLaterDialog.qml" line="+117"/>
         <source>Send later</source>
-        <translation type="unfinished"></translation>
+        <translation>稍后发送</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Scheduled messages</source>
-        <translation type="unfinished"></translation>
+        <translation>定时消息</translation>
     </message>
     <message>
         <location line="+29"/>
         <source>In 30 minutes</source>
-        <translation type="unfinished"></translation>
+        <translation>30 分钟后</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Tonight</source>
-        <translation type="unfinished"></translation>
+        <translation>今晚</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Tomorrow morning</source>
-        <translation type="unfinished"></translation>
+        <translation>明天早上</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Pick date &amp; time</source>
-        <translation type="unfinished"></translation>
+        <translation>选择日期和时间</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>yyyy-mm-dd</source>
-        <translation type="unfinished"></translation>
+        <translation>yyyy-mm-dd</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>hh:mm</source>
-        <translation type="unfinished"></translation>
+        <translation>hh:mm</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Pick a date and time in the future.</source>
-        <translation type="unfinished"></translation>
+        <translation>请选择一个未来的日期和时间。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Sends %1 (your local time).</source>
-        <translation type="unfinished"></translation>
+        <translation>将于 %1 发送（你的本地时间）。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Your homeserver will hold this message and send it at that time, even if Lightning is closed.</source>
-        <translation type="unfinished"></translation>
+        <translation>即使 Lightning 已关闭，你的主服务器也会保存此消息，并在该时间发送。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning will keep this message and send it at that time. Lightning must be running and connected then — and because this room is encrypted, the message is kept only in memory: closing Lightning discards it.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 将保存此消息并在该时间发送。届时 Lightning 必须正在运行并已连接——由于此房间已加密，该消息仅保存在内存中：关闭 Lightning 会将其丢弃。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning will keep this message and send it at that time. Lightning must be running and connected then.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 将保存此消息并在该时间发送。届时 Lightning 必须正在运行并已连接。</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+156"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="-150"/>
         <source>Schedule</source>
-        <translation type="unfinished"></translation>
+        <translation>定时</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Pending in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间中待发送的消息</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Nothing is scheduled for this room.</source>
-        <translation type="unfinished"></translation>
+        <translation>此房间没有定时消息。</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Server</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Lightning</source>
-        <translation type="unfinished">Lightning</translation>
+        <translation>Lightning</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Failed</source>
-        <translation type="unfinished">失败</translation>
+        <translation>失败</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Memory only</source>
-        <translation type="unfinished"></translation>
+        <translation>仅保存在内存中</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Send now</source>
-        <translation type="unfinished"></translation>
+        <translation>立即发送</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Done</source>
-        <translation type="unfinished">完成</translation>
+        <translation>完成</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Edit text</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑文字</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>+1 hour</source>
-        <translation type="unfinished"></translation>
+        <translation>+1 小时</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Close</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
 </context>
 <context>
@@ -16227,288 +16241,288 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/SettingsBackupSection.qml" line="+26"/>
         <source>Appearance</source>
-        <translation type="unfinished">外观</translation>
+        <translation>外观</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Layout</source>
-        <translation type="unfinished"></translation>
+        <translation>布局</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Window</source>
-        <translation type="unfinished"></translation>
+        <translation>窗口</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Notifications and sounds</source>
-        <translation type="unfinished"></translation>
+        <translation>通知和声音</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>隐私</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Media and previews</source>
-        <translation type="unfinished"></translation>
+        <translation>媒体和预览</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Calls</source>
-        <translation type="unfinished"></translation>
+        <translation>通话</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Timeline</source>
-        <translation type="unfinished">时间线</translation>
+        <translation>时间线</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Composer</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑框</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>on</source>
-        <translation type="unfinished"></translation>
+        <translation>开</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>off</source>
-        <translation type="unfinished"></translation>
+        <translation>关</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>not set</source>
-        <translation type="unfinished"></translation>
+        <translation>未设置</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+2"/>
         <source>none</source>
-        <translation type="unfinished"></translation>
+        <translation>无</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Settings file</source>
-        <translation type="unfinished"></translation>
+        <translation>设置文件</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Save your preferences to a file, or load them from one. It holds how Lightning looks and behaves: appearance, layout, notifications, sounds, shortcuts and your custom themes. It never holds your sign-in, keys, devices, accounts or where files are kept on this computer.</source>
-        <translation type="unfinished"></translation>
+        <translation>将你的偏好设置保存到文件，或从文件加载。它包含 Lightning 的外观和行为：外观、布局、通知、声音、快捷键以及你的自定义主题。它从不包含你的登录信息、密钥、设备、账号，也不包含此电脑上文件的保存位置。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Export settings…</source>
-        <translation type="unfinished"></translation>
+        <translation>导出设置…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Import settings…</source>
-        <translation type="unfinished"></translation>
+        <translation>导入设置…</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Sync across your devices</source>
-        <translation type="unfinished"></translation>
+        <translation>在你的设备之间同步</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Sync settings across your devices</source>
-        <translation type="unfinished"></translation>
+        <translation>在你的设备之间同步设置</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Keeps the same preferences on every device signed in to this account, and brings them back when you sign in on a new one. They are stored in your account data on your homeserver, which its administrator can read; they hold no keys or passwords. Things that belong to one computer (window size, zoom, volumes, microphone and camera, privacy and security switches, custom themes) stay on that computer.</source>
-        <translation type="unfinished"></translation>
+        <translation>在此账号上登录的每台设备都会保持相同的偏好设置，并在你于新设备上登录时将其恢复。这些设置保存在你主服务器上的账号数据中，其管理员可以读取；它们不包含任何密钥或密码。属于单台电脑的内容（窗口大小、缩放、音量、麦克风和摄像头、隐私和安全开关、自定义主题）则保留在该电脑上。</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Checking your homeserver…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在检查你的主服务器…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Syncing…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在同步…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your account&apos;s settings were saved by a newer Lightning. This version reads what it knows and writes nothing.</source>
-        <translation type="unfinished"></translation>
+        <translation>你账号的设置由较新版本的 Lightning 保存。此版本只读取它所识别的内容，不写入任何内容。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Settings could not be synced (%1). Trying again shortly.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法同步设置（%1）。将很快重试。</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n change(s) waiting to sync.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 项更改等待同步。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Up to date. Last synced %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>已是最新。上次同步时间：%1。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Up to date.</source>
-        <translation type="unfinished"></translation>
+        <translation>已是最新。</translation>
     </message>
     <message numerus="yes">
         <location line="+19"/>
         <source>Your account already has synced settings, and %n setting(s) you chose on this device differ. Nothing has been changed yet.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>你的账号已有同步的设置，而你在此设备上选择的 %n 项设置与之不同。尚未更改任何内容。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Use my account&apos;s settings</source>
-        <translation type="unfinished"></translation>
+        <translation>使用我账号的设置</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Upload this device&apos;s settings</source>
-        <translation type="unfinished"></translation>
+        <translation>上传此设备的设置</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Changed on another device since you edited them here, so the newer value was kept: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>自你在此处编辑后，它在另一台设备上已被更改，因此保留了较新的值：%1。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>OK</source>
-        <translation type="unfinished"></translation>
+        <translation>好</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Turn off and remove from my homeserver</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭并从我的主服务器移除</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Export settings</source>
-        <translation type="unfinished"></translation>
+        <translation>导出设置</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+15"/>
         <source>Settings (*.json)</source>
-        <translation type="unfinished"></translation>
+        <translation>设置 (*.json)</translation>
     </message>
     <message>
         <location line="-15"/>
         <location line="+15"/>
         <source>All files (*)</source>
-        <translation type="unfinished">所有文件 (*)</translation>
+        <translation>所有文件 (*)</translation>
     </message>
     <message>
         <location line="-10"/>
         <source>Settings exported.</source>
-        <translation type="unfinished"></translation>
+        <translation>设置已导出。</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+19"/>
         <source>Import settings</source>
-        <translation type="unfinished"></translation>
+        <translation>导入设置</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>This file changes nothing: every setting in it already has that value.</source>
-        <translation type="unfinished"></translation>
+        <translation>此文件不会更改任何内容：其中的每项设置都已是该值。</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>Importing will change %n setting(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>导入将更改 %n 项设置。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This file was made by a newer Lightning. The settings this version knows are read; the rest are ignored.</source>
-        <translation type="unfinished"></translation>
+        <translation>此文件由较新版本的 Lightning 创建。此版本会读取它所识别的设置，其余的将被忽略。</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>%1: %2 → %3</source>
-        <translation type="unfinished"></translation>
+        <translation>%1：%2 → %3</translation>
     </message>
     <message numerus="yes">
         <location line="+16"/>
         <source>%n shortcut(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个快捷键</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n custom theme(s) added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已添加 %n 个自定义主题</numerusform>
         </translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Skipped because the value is not valid: %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>因值无效而跳过：%1。</translation>
     </message>
     <message numerus="yes">
         <location line="+11"/>
         <source>%n entry(ies) this version does not know were ignored.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>此版本不识别的 %n 项内容已被忽略。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+52"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="-45"/>
         <source>Import</source>
-        <translation type="unfinished">导入</translation>
+        <translation>导入</translation>
     </message>
     <message numerus="yes">
         <location line="+7"/>
         <source>Imported %n setting(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已导入 %n 项设置。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n shortcut(s) could not be used and were skipped.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个快捷键无法使用，已跳过。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Remove synced settings?</source>
-        <translation type="unfinished"></translation>
+        <translation>移除同步的设置？</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>This turns settings sync off for every device on this account and empties the copy on your homeserver. Every device keeps the settings it has now.</source>
-        <translation type="unfinished"></translation>
+        <translation>这将为此账号上的每台设备关闭设置同步，并清空你主服务器上的副本。每台设备将保留其当前的设置。</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Turn off and remove</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭并移除</translation>
     </message>
 </context>
 <context>
@@ -16517,7 +16531,7 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/SettingsNavOutline.qml" line="+32"/>
         <location line="+22"/>
         <source>On this page</source>
-        <translation type="unfinished"></translation>
+        <translation>本页内容</translation>
     </message>
 </context>
 <context>
@@ -16526,7 +16540,7 @@ Signing out and signing in again is the only fix.</source>
         <location filename="../qml/SettingsNeedsBadge.qml" line="+36"/>
         <location line="+5"/>
         <source>Needs “%1”</source>
-        <translation type="unfinished"></translation>
+        <translation>需要“%1”</translation>
     </message>
 </context>
 <context>
@@ -16534,12 +16548,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../qml/SettingsPercentBox.qml" line="+52"/>
         <source>%1, percent</source>
-        <translation type="unfinished"></translation>
+        <translation>%1，百分比</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Percent</source>
-        <translation type="unfinished"></translation>
+        <translation>百分比</translation>
     </message>
 </context>
 <context>
@@ -16889,35 +16903,35 @@ Signing out and signing in again is the only fix.</source>
         <location line="+16"/>
         <location line="+4073"/>
         <source>Message box buttons</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑框按钮</translation>
     </message>
     <message>
         <location line="-4072"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑框 按钮 显示 隐藏 表情 GIF 贴纸 语音 麦克风 格式 定时 稍后发送 精简 简化</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+3925"/>
         <source>Check spelling as you type</source>
-        <translation type="unfinished"></translation>
+        <translation>输入时检查拼写</translation>
     </message>
     <message>
         <location line="-3924"/>
         <source>spell spelling checker dictionary typo underline language</source>
-        <translation type="unfinished"></translation>
+        <translation>拼写 拼写检查 字典 错别字 下划线 语言</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+3931"/>
         <location line="+13"/>
         <source>Spelling language</source>
-        <translation type="unfinished"></translation>
+        <translation>拼写语言</translation>
     </message>
     <message>
         <location line="-3943"/>
         <source>spell spelling language dictionary automatic system</source>
-        <translation type="unfinished"></translation>
+        <translation>拼写 语言 字典 自动 系统</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -17014,46 +17028,46 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1602"/>
         <location line="+2296"/>
         <source>Keep the room list still while I use it</source>
-        <translation type="unfinished"></translation>
+        <translation>使用时保持房间列表不动</translation>
     </message>
     <message>
         <location line="-3897"/>
         <source>room list order sort reorder jump move still hold freeze stable recent activity conversation list sidebar channels new message</source>
-        <translation type="unfinished"></translation>
+        <translation>房间列表 顺序 排序 重新排列 跳动 移动 保持 固定 冻结 稳定 最近 活动 对话列表 侧边栏 频道 新消息</translation>
     </message>
     <message>
         <location line="+6"/>
         <location line="+3358"/>
         <source>Keep running in the tray</source>
-        <translation type="unfinished"></translation>
+        <translation>在托盘中保持运行</translation>
     </message>
     <message>
         <location line="-3357"/>
         <source>tray system tray minimize close background icon taskbar quit close to tray</source>
-        <translation type="unfinished"></translation>
+        <translation>托盘 系统托盘 最小化 关闭 后台 图标 任务栏 退出 关闭到托盘</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+4"/>
         <source>Appearance · System tray</source>
-        <translation type="unfinished"></translation>
+        <translation>外观 · 系统托盘</translation>
     </message>
     <message>
         <location line="-1"/>
         <source>tray start startup minimized background icon</source>
-        <translation type="unfinished"></translation>
+        <translation>托盘 启动 开机 最小化 后台 图标</translation>
     </message>
     <message>
         <location line="+23"/>
         <location line="+1591"/>
         <location line="+2459"/>
         <source>Convert :shortcode: to emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>将 :短代码: 转换为表情</translation>
     </message>
     <message>
         <location line="-4049"/>
         <source>emoji shortcode colon convert autoconvert auto-convert thumbsup smiley slack discord</source>
-        <translation type="unfinished"></translation>
+        <translation>表情 短代码 冒号 转换 自动转换 点赞 笑脸 slack discord</translation>
     </message>
     <message>
         <location line="+100"/>
@@ -17069,12 +17083,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+4"/>
         <source>Notification preview in encrypted rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>加密房间中的通知预览</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>notification preview encrypted body privacy hide message text</source>
-        <translation type="unfinished"></translation>
+        <translation>通知 预览 加密 正文 隐私 隐藏 消息文字</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -17091,61 +17105,61 @@ Signing out and signing in again is the only fix.</source>
         <location line="+9"/>
         <location line="+4217"/>
         <source>Only exchange messages with verified devices</source>
-        <translation type="unfinished"></translation>
+        <translation>仅与已验证的设备交换消息</translation>
     </message>
     <message>
         <location line="-4216"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
-        <translation type="unfinished"></translation>
+        <translation>隐形 加密 交叉签名 已验证 设备 信任 不安全 排除 加密 msc4153</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Privacy &amp; security · Device trust</source>
-        <translation type="unfinished"></translation>
+        <translation>隐私与安全 · 设备信任</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+5164"/>
         <source>Keep downloaded media on this device</source>
-        <translation type="unfinished"></translation>
+        <translation>在此设备上保留已下载的媒体</translation>
     </message>
     <message>
         <location line="-5163"/>
         <source>media cache video image picture file download offline storage disk keep clear</source>
-        <translation type="unfinished"></translation>
+        <translation>媒体缓存 视频 图片 文件 下载 离线 存储 磁盘 保留 清除</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Privacy &amp; security · Media kept on this device</source>
-        <translation type="unfinished"></translation>
+        <translation>隐私与安全 · 保存在此设备上的媒体</translation>
     </message>
     <message>
         <location line="+16"/>
         <location line="+4245"/>
         <source>Read receipts</source>
-        <translation type="unfinished"></translation>
+        <translation>已读回执</translation>
     </message>
     <message>
         <location line="-4244"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>已读 回执 私密 已看 对勾 蓝色 隐私</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+7"/>
         <source>Privacy &amp; security · Reading and typing</source>
-        <translation type="unfinished"></translation>
+        <translation>隐私与安全 · 阅读和输入</translation>
     </message>
     <message>
         <location line="-4"/>
         <location line="+4281"/>
         <source>Let others see when I am typing</source>
-        <translation type="unfinished"></translation>
+        <translation>让其他人看到我正在输入</translation>
     </message>
     <message>
         <location line="-4280"/>
         <source>typing notice notification composing indicator privacy</source>
-        <translation type="unfinished"></translation>
+        <translation>输入提示 通知 编辑中 指示 隐私</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -17183,12 +17197,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+3"/>
         <source>message search index all rooms history local encrypted older messages backfill</source>
-        <translation type="unfinished"></translation>
+        <translation>消息 搜索 索引 所有房间 历史 本地 加密 较早的消息 回填</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Privacy &amp; security · Message search index</source>
-        <translation type="unfinished"></translation>
+        <translation>隐私与安全 · 消息搜索索引</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -17385,12 +17399,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+7339"/>
         <source>Sign in another device</source>
-        <translation type="unfinished"></translation>
+        <translation>登录另一台设备</translation>
     </message>
     <message>
         <location line="-7338"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
-        <translation type="unfinished"></translation>
+        <translation>二维码 扫描 登录 另一台设备 手机 链接 msc4108</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -17520,18 +17534,18 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+173"/>
         <source>Clear the search index?</source>
-        <translation type="unfinished"></translation>
+        <translation>清除搜索索引？</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+3563"/>
         <source>Clear index</source>
-        <translation type="unfinished"></translation>
+        <translation>清除索引</translation>
     </message>
     <message>
         <location line="-3552"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
-        <translation type="unfinished"></translation>
+        <translation>在 Lightning 再次为历史记录建立索引之前，历史搜索将无法使用；Lightning 会自行完成此操作。不会删除任何消息——索引只是 Lightning 为搜索而建立的副本。</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -17674,275 +17688,275 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+820"/>
         <source>Scales message and list text, and the Spaces rail with it, so its nesting levels stay readable at any size. Other chrome keeps its size — Interface zoom below scales the whole window.</source>
-        <translation type="unfinished"></translation>
+        <translation>同时缩放消息和列表文字，以及空间栏，使其嵌套层级在任何大小下都清晰可读。其他界面元素保持大小不变——下方的界面缩放会缩放整个窗口。</translation>
     </message>
     <message>
         <location line="+1290"/>
         <source>Typing a shortcode like &quot;:thumbsup:&quot; turns it into the emoji as soon as it is complete. Custom pack shortcodes are unaffected.</source>
-        <translation type="unfinished"></translation>
+        <translation>输入“:thumbsup:”之类的短代码时，一旦完整就会立即转换为表情。自定义表情包的短代码不受影响。</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Turn off what you do not use. Attach stays: in a narrow window it is where the other actions move to.</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭你不使用的项目。附件保留：在窗口较窄时，其他操作会移到这里。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Formatting</source>
-        <translation type="unfinished">格式</translation>
+        <translation>格式</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Emoji</source>
-        <translation type="unfinished">表情</translation>
+        <translation>表情</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>GIFs and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>GIF 和贴纸</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Voice message</source>
-        <translation type="unfinished">语音消息</translation>
+        <translation>语音消息</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send options</source>
-        <translation type="unfinished"></translation>
+        <translation>发送选项</translation>
     </message>
     <message>
         <location line="-3642"/>
         <location line="+3857"/>
         <source>Device trust</source>
-        <translation type="unfinished"></translation>
+        <translation>设备信任</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Room keys are not shared with devices their owner has not cross-signed, and messages from such devices are not decrypted. This is stricter and it has a cost: anyone who has not verified their own devices becomes unreadable to you, and you to them. Messages you can already read stay readable.</source>
-        <translation type="unfinished"></translation>
+        <translation>房间密钥不会共享给其所有者未进行交叉签名的设备，来自此类设备的消息也不会被解密。这更严格，但也有代价：任何尚未验证其自身设备的人，对你来说都将无法读取，你对他们来说也是如此。你已能读取的消息仍然可以读取。</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Takes effect the next time Lightning starts.</source>
-        <translation type="unfinished"></translation>
+        <translation>将在 Lightning 下次启动时生效。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Reading and typing</source>
-        <translation type="unfinished"></translation>
+        <translation>阅读和输入</translation>
     </message>
     <message>
         <location line="+22"/>
         <source>Send read receipts</source>
-        <translation type="unfinished"></translation>
+        <translation>发送已读回执</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Private — only my own devices</source>
-        <translation type="unfinished"></translation>
+        <translation>私密 — 仅我自己的设备</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Do not send read receipts</source>
-        <translation type="unfinished"></translation>
+        <translation>不发送已读回执</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Typing notices are the most frequent thing a chat client discloses — every few keystrokes, to everyone in the room. Turning this off does not hide other people&apos;s.</source>
-        <translation type="unfinished"></translation>
+        <translation>输入提示是聊天客户端最频繁披露的信息之一——每隔几次按键就会发送给房间中的所有人。关闭此项不会隐藏其他人的输入提示。</translation>
     </message>
     <message>
         <location line="+171"/>
         <source>Message search index</source>
-        <translation type="unfinished"></translation>
+        <translation>消息搜索索引</translation>
     </message>
     <message numerus="yes">
         <location line="+47"/>
         <source>%n message(s) indexed</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已建立索引 %n 条消息</numerusform>
         </translation>
     </message>
     <message>
         <location line="+63"/>
         <source>%1 of %2 rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 / %2 个房间</translation>
     </message>
     <message numerus="yes">
         <location line="+7"/>
         <location line="+34"/>
         <source>%n message(s) added</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已添加 %n 条消息</numerusform>
         </translation>
     </message>
     <message>
         <location line="-31"/>
         <source>Waiting while a call is active or a timeline is scrolling</source>
-        <translation type="unfinished"></translation>
+        <translation>正在等待：通话进行中或时间线正在滚动</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The server asked Lightning to slow down; trying again shortly</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器要求 Lightning 放慢速度；将很快重试</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Paused</source>
-        <translation type="unfinished"></translation>
+        <translation>已暂停</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Continues once this account is connected</source>
-        <translation type="unfinished"></translation>
+        <translation>此账号连接后继续</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>About %n minute(s) left</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>约剩 %n 分钟</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Finished: each room was indexed back to its start or to the per-room limit</source>
-        <translation type="unfinished"></translation>
+        <translation>已完成：每个房间都已回溯到起点或每个房间的上限</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Nothing new to do: an earlier run already covered every room</source>
-        <translation type="unfinished"></translation>
+        <translation>无需新操作：之前的运行已涵盖所有房间</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Stopped. Rooms already indexed stay indexed.</source>
-        <translation type="unfinished"></translation>
+        <translation>已停止。已建立索引的房间仍保持已索引。</translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n message(s) could not be decrypted yet and were skipped</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>有 %n 条消息暂时无法解密，已跳过</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n room(s) could not be fetched and will be tried next time</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>有 %n 个房间无法获取，将在下次尝试</numerusform>
         </translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Pause</source>
-        <translation type="unfinished"></translation>
+        <translation>暂停</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Resume</source>
-        <translation type="unfinished"></translation>
+        <translation>继续</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Stop</source>
-        <translation type="unfinished"></translation>
+        <translation>停止</translation>
     </message>
     <message>
         <location line="+459"/>
         <source>Media kept on this device</source>
-        <translation type="unfinished"></translation>
+        <translation>保存在此设备上的媒体</translation>
     </message>
     <message>
         <location line="+118"/>
         <source>Clear kept media</source>
-        <translation type="unfinished"></translation>
+        <translation>清除已保存的媒体</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Nothing was cleared: no account is signed in.</source>
-        <translation type="unfinished"></translation>
+        <translation>未清除任何内容：没有已登录的账号。</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Some kept media could not be removed. Try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>部分已保存的媒体无法移除。请重试。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Kept media removed, including %1 of large files.</source>
-        <translation type="unfinished"></translation>
+        <translation>已移除已保存的媒体，其中包括 %1 的大文件。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Kept media removed. It downloads again when you open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>已移除已保存的媒体。打开时将重新下载。</translation>
     </message>
     <message>
         <location line="+144"/>
         <source>Sender and message is the default: a notification carries the message text. Sender only shows who wrote and never what they wrote, and Private withholds the sender and the room as well. Encrypted messages that cannot be decrypted always show a generic notification. Notifications are suppressed while the room is open, focused, and at the latest message.</source>
-        <translation type="unfinished"></translation>
+        <translation>“发送者和消息”是默认设置：通知会包含消息正文。“仅发送者”只显示谁写的，从不显示内容；“私密”还会隐藏发送者和房间。无法解密的加密消息始终显示通用通知。当房间已打开、获得焦点且位于最新消息处时，不会显示通知。</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>In encrypted rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>在加密房间中</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Same as other rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>与其他房间相同</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Notification sound style</source>
-        <translation type="unfinished"></translation>
+        <translation>通知音效风格</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Lightning</source>
-        <translation type="unfinished">Lightning</translation>
+        <translation>Lightning</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>System default</source>
-        <translation type="unfinished">跟随系统</translation>
+        <translation>系统默认</translation>
     </message>
     <message>
         <location line="+12"/>
         <location line="+42"/>
         <source>Notification volume</source>
-        <translation type="unfinished"></translation>
+        <translation>通知音量</translation>
     </message>
     <message>
         <location line="-26"/>
         <source>Play the message sound</source>
-        <translation type="unfinished"></translation>
+        <translation>播放消息提示音</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Test mention</source>
-        <translation type="unfinished"></translation>
+        <translation>测试提及</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Play the mention sound</source>
-        <translation type="unfinished"></translation>
+        <translation>播放提及提示音</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>Lightning plays its own chime, and mentions get a slightly more urgent one; the desktop&apos;s notification sound is turned off. It stays quiet during calls. Choose System default to let the desktop play its own.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 播放自己的提示音，提及则使用稍微更为醒目的提示音；桌面的通知声音已关闭。通话期间保持安静。选择“系统默认”可让桌面播放其自己的声音。</translation>
     </message>
     <message>
         <location line="+153"/>
         <source>Media playback</source>
-        <translation type="unfinished"></translation>
+        <translation>媒体播放</translation>
     </message>
     <message>
         <location line="+62"/>
         <source>The level voice messages, audio files and videos start at. Changing the volume on a player remembers it here too.</source>
-        <translation type="unfinished"></translation>
+        <translation>语音消息、音频文件和视频开始播放时的音量。在播放器上更改音量也会记住此处的设置。</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -17950,161 +17964,161 @@ Signing out and signing in again is the only fix.</source>
         <location line="+11"/>
         <location line="+11"/>
         <source>Play sounds during calls</source>
-        <translation type="unfinished"></translation>
+        <translation>通话期间播放声音</translation>
     </message>
     <message>
         <location line="-36"/>
         <source>Short sounds when you join or leave a call, when others do, and when you mute or share your screen.</source>
-        <translation type="unfinished"></translation>
+        <translation>你加入或离开通话、其他人加入或离开通话，以及你静音或共享屏幕时播放的短促声音。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>People joining and leaving</source>
-        <translation type="unfinished"></translation>
+        <translation>成员加入和离开</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Muting and deafening</source>
-        <translation type="unfinished"></translation>
+        <translation>静音和拒听</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Screen shares and raised hands</source>
-        <translation type="unfinished"></translation>
+        <translation>屏幕共享和举手</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+29"/>
         <source>Call sound volume</source>
-        <translation type="unfinished"></translation>
+        <translation>通话提示音音量</translation>
     </message>
     <message>
         <location line="-354"/>
         <location line="+339"/>
         <location line="+40"/>
         <source>Test</source>
-        <translation type="unfinished"></translation>
+        <translation>测试</translation>
     </message>
     <message>
         <location line="-38"/>
         <source>Play a call sound</source>
-        <translation type="unfinished"></translation>
+        <translation>播放通话提示音</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Play the ringer</source>
-        <translation type="unfinished"></translation>
+        <translation>播放铃声</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>These sounds play only on this computer; nobody else in the call hears them. While you are deafened, only your own actions make a sound. Whether a call rings at all is set under Notifications.</source>
-        <translation type="unfinished"></translation>
+        <translation>这些声音只在此电脑上播放；通话中的其他人听不到。在你被拒听时，只有你自己的操作会发出声音。通话是否响铃在“通知”中设置。</translation>
     </message>
     <message>
         <location line="+332"/>
         <source>Name colour</source>
-        <translation type="unfinished"></translation>
+        <translation>名称颜色</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Other Lightning users see this colour on your name. It is adjusted to stay readable on whatever theme they use.</source>
-        <translation type="unfinished"></translation>
+        <translation>其他 Lightning 用户会在你的名称上看到此颜色。它会自动调整，以便在他们使用的任何主题上都保持可读。</translation>
     </message>
     <message>
         <location line="+71"/>
         <source>Custom colour</source>
-        <translation type="unfinished"></translation>
+        <translation>自定义颜色</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Custom colour…</source>
-        <translation type="unfinished"></translation>
+        <translation>自定义颜色…</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Use theme colour</source>
-        <translation type="unfinished"></translation>
+        <translation>使用主题颜色</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Custom name colour</source>
-        <translation type="unfinished"></translation>
+        <translation>自定义名称颜色</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Any colour. Other people see it adjusted to stay readable on their theme.</source>
-        <translation type="unfinished"></translation>
+        <translation>任意颜色。其他人会看到它被调整，以便在他们的主题上保持可读。</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Apply</source>
-        <translation type="unfinished"></translation>
+        <translation>应用</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Your homeserver cannot store a name colour.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器无法保存名称颜色。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That colour could not be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法保存该颜色。</translation>
     </message>
     <message>
         <location line="+89"/>
         <location line="+329"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>图片 (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)</translation>
     </message>
     <message>
         <location line="+115"/>
         <source>Access tokens are stored in the system credential store: %1. Logout clears them.</source>
-        <translation type="unfinished"></translation>
+        <translation>访问令牌保存在系统凭据存储中：%1。退出登录会将其清除。</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Insecure fallback active: access tokens are stored in the application&apos;s settings file (plaintext) because the system credential store could not be used. Restart to try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>已启用不安全的备用方案：由于无法使用系统凭据存储，访问令牌以明文形式保存在应用的设置文件中。重启以再次尝试。</translation>
     </message>
     <message>
         <location line="+208"/>
         <source>Key backup: checking…</source>
-        <translation type="unfinished"></translation>
+        <translation>密钥备份：正在检查…</translation>
     </message>
     <message>
         <location line="+216"/>
         <source>Use a code instead of a password. The new device is signed in and verified in one step, so it can read your existing encrypted conversations immediately.</source>
-        <translation type="unfinished"></translation>
+        <translation>使用代码代替密码。新设备将一步完成登录和验证，因此可以立即读取你现有的加密对话。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Sign in another device…</source>
-        <translation type="unfinished"></translation>
+        <translation>登录另一台设备…</translation>
     </message>
     <message>
         <location line="+105"/>
         <source>Lightning could not check whether this account has a key backup. Nothing has been ruled out.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法确认此账号是否有密钥备份。尚未排除任何可能性。</translation>
     </message>
     <message>
         <location line="+96"/>
         <source>Resetting creates a NEW recovery key and the old one stops working — anything currently recoverable only with the old key is gone. Press again to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>重置会创建一个新的恢复密钥，旧密钥将失效——目前只能用旧密钥恢复的内容将永久丢失。再次按下即可确认。</translation>
     </message>
     <message>
         <location line="+659"/>
         <source>Verify this session using another session already signed in to this Matrix account, or with your recovery key. Verifying with another session does not import room keys — key import is a separate action below.</source>
-        <translation type="unfinished"></translation>
+        <translation>使用已登录此 Matrix 账号的其他会话，或使用你的恢复密钥验证此会话。与其他会话验证不会导入房间密钥——密钥导入是下方的单独操作。</translation>
     </message>
     <message>
         <location line="+175"/>
         <source>Entering your recovery key or passphrase restores your message keys and verifies this session, with no second device needed, when your account&apos;s cross-signing keys are stored with them. Without it, some old messages may show &quot;[unable to decrypt yet]&quot; until another verified device shares the room keys.</source>
-        <translation type="unfinished"></translation>
+        <translation>当你账号的交叉签名密钥与其一同保存时，输入恢复密钥或口令即可恢复你的消息密钥并验证此会话，无需第二台设备。否则，一些旧消息可能会显示“[暂时无法解密]”，直到另一台已验证的设备共享房间密钥。</translation>
     </message>
     <message>
         <location line="+281"/>
         <source>Reset deletes only Lightning&apos;s local Rust SDK store for this account (also available from a terminal: lightning-matrix --reset-crypto-store). It does not touch server messages or Element data. You will need to sign in again afterwards.</source>
-        <translation type="unfinished"></translation>
+        <translation>重置只会删除此账号在 Lightning 本地的 Rust SDK 存储（也可以从终端执行：lightning-matrix --reset-crypto-store）。它不会影响服务器上的消息或 Element 的数据。之后你需要重新登录。</translation>
     </message>
     <message>
         <location line="-6975"/>
@@ -18114,40 +18128,40 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-2137"/>
         <source>Change password</source>
-        <translation type="unfinished"></translation>
+        <translation>更改密码</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>password change account security</source>
-        <translation type="unfinished"></translation>
+        <translation>密码 更改 账号 安全</translation>
     </message>
     <message>
         <location line="+54"/>
         <location line="+3386"/>
         <source>Spaces rail depth</source>
-        <translation type="unfinished"></translation>
+        <translation>空间栏深度</translation>
     </message>
     <message>
         <location line="-3385"/>
         <source>spaces rail depth space bar sidebar nesting regions classic old style flat tint indent</source>
-        <translation type="unfinished"></translation>
+        <translation>空间栏 深度 空格 侧边栏 嵌套 区域 经典 旧式 平面 色调 缩进</translation>
     </message>
     <message>
         <location line="+46"/>
         <location line="+1619"/>
         <location line="+1875"/>
         <source>Collapse media and link embeds</source>
-        <translation type="unfinished"></translation>
+        <translation>折叠媒体和链接嵌入</translation>
     </message>
     <message>
         <location line="-3493"/>
         <source>embed embeds collapse collapsed compact single line clutter declutter media image picture gif sticker video audio voice file attachment link preview expand arrow</source>
-        <translation type="unfinished"></translation>
+        <translation>嵌入 折叠 收起 紧凑 单行 杂乱 精简 媒体 图片 图像 GIF 贴纸 视频 音频 语音 文件 附件 链接预览 展开 箭头</translation>
     </message>
     <message>
         <location line="+120"/>
         <source>microphone mic input device voice call audio sound</source>
-        <translation type="unfinished"></translation>
+        <translation>麦克风 输入 输入设备 语音 通话 音频 声音</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -18155,123 +18169,123 @@ Signing out and signing in again is the only fix.</source>
         <location line="+6"/>
         <location line="+8"/>
         <source>Sound &amp; video · Microphone</source>
-        <translation type="unfinished"></translation>
+        <translation>声音和视频 · 麦克风</translation>
     </message>
     <message>
         <location line="-17"/>
         <source>Microphone volume</source>
-        <translation type="unfinished">麦克风音量</translation>
+        <translation>麦克风音量</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>microphone volume gain mic input level loud quiet boost amplify sound</source>
-        <translation type="unfinished"></translation>
+        <translation>麦克风音量 增益 输入音量 大声 小声 提升 放大 声音</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>speaker output headphones headset device voice call audio sound</source>
-        <translation type="unfinished"></translation>
+        <translation>扬声器 输出 耳机 头戴式耳机 设备 语音 通话 音频 声音</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sound &amp; video · Output</source>
-        <translation type="unfinished"></translation>
+        <translation>声音和视频 · 输出</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+5848"/>
         <location line="+24"/>
         <source>Media playback volume</source>
-        <translation type="unfinished"></translation>
+        <translation>媒体播放音量</translation>
     </message>
     <message>
         <location line="-5871"/>
         <source>volume sound audio video voice message playback level media loud</source>
-        <translation type="unfinished"></translation>
+        <translation>音量 声音 音频 视频 语音消息 播放 音量级别 媒体 大声</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sound &amp; video · Media</source>
-        <translation type="unfinished"></translation>
+        <translation>声音和视频 · 媒体</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Sound &amp; video · Camera</source>
-        <translation type="unfinished"></translation>
+        <translation>声音和视频 · 摄像头</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+387"/>
         <location line="+5495"/>
         <source>Call sounds</source>
-        <translation type="unfinished"></translation>
+        <translation>通话提示音</translation>
     </message>
     <message>
         <location line="-5881"/>
         <source>call sounds join leave mute deafen unmute screen share hand chime beep effects</source>
-        <translation type="unfinished"></translation>
+        <translation>通话 提示音 加入 离开 静音 拒听 取消静音 屏幕共享 举手 声音 提示 效果</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <source>Sound &amp; video · Call sounds</source>
-        <translation type="unfinished"></translation>
+        <translation>声音和视频 · 通话提示音</translation>
     </message>
     <message>
         <location line="-3"/>
         <location line="+5980"/>
         <location line="+28"/>
         <source>Ringer volume</source>
-        <translation type="unfinished"></translation>
+        <translation>铃声音量</translation>
     </message>
     <message>
         <location line="-6007"/>
         <source>ringer ringtone ring volume incoming call loud</source>
-        <translation type="unfinished"></translation>
+        <translation>铃声 铃音 响铃 音量 来电 大声</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Float the call when Lightning is minimised</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 最小化时让通话浮动显示</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>float picture in picture pip call window minimised</source>
-        <translation type="unfinished"></translation>
+        <translation>浮动 画中画 小窗 通话窗口 最小化</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sound &amp; video · Calls</source>
-        <translation type="unfinished"></translation>
+        <translation>声音和视频 · 通话</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>ring ringer ringtone sound incoming call alert</source>
-        <translation type="unfinished"></translation>
+        <translation>响铃 铃声 铃音 声音 来电 提醒</translation>
     </message>
     <message>
         <location line="+100"/>
         <location line="+4691"/>
         <source>Show images and videos from links inline</source>
-        <translation type="unfinished"></translation>
+        <translation>在行内显示链接中的图片和视频</translation>
     </message>
     <message>
         <location line="-4690"/>
         <source>link preview image video embed inline media player viewer</source>
-        <translation type="unfinished"></translation>
+        <translation>链接预览 图片 视频 嵌入 行内 媒体播放器 查看器</translation>
     </message>
     <message>
         <location line="+781"/>
         <location line="+734"/>
         <location line="+4096"/>
         <source>Sound &amp; video</source>
-        <translation type="unfinished"></translation>
+        <translation>声音和视频</translation>
     </message>
     <message>
         <location line="-4359"/>
         <location line="+1827"/>
         <source>Regions</source>
-        <translation type="unfinished"></translation>
+        <translation>区域</translation>
     </message>
     <message>
         <location line="-1324"/>
@@ -18286,7 +18300,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+53"/>
         <source>%1 (in effect)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1（当前生效）</translation>
     </message>
     <message>
         <location line="+176"/>
@@ -18367,7 +18381,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+29"/>
         <source>“%1” has no letters to draw text with — it is an emoji or icon face — so Lightning is using %2. Pick another font above.</source>
-        <translation type="unfinished"></translation>
+        <translation>“%1”没有可用于绘制文字的字母——它是表情符号或图标字形——因此 Lightning 改用 %2。请在上方选择其他字体。</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -18382,7 +18396,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+25"/>
         <source>“%1” cannot draw letters and digits — it is an emoji or icon face — so code is drawn in %2. Pick another font above.</source>
-        <translation type="unfinished"></translation>
+        <translation>“%1”无法绘制字母和数字——它是表情符号或图标字形——因此代码改用 %2 绘制。请在上方选择其他字体。</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -18507,12 +18521,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+36"/>
         <source>Choose how the Spaces rail shows which Space contains which</source>
-        <translation type="unfinished"></translation>
+        <translation>选择空间栏如何显示哪个空间包含哪些空间</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Regions tint the rail behind a Space and everything inside it. Classic is the flat rail from earlier versions, where a nested Space steps in instead. Both show the same Spaces.</source>
-        <translation type="unfinished"></translation>
+        <translation>区域会为某个空间及其中的所有内容着色。经典模式是早期版本中的平面空间栏，嵌套的空间会改为缩进显示。两者显示的空间相同。</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -18533,63 +18547,63 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="-3484"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Depth</source>
-        <translation type="unfinished"></translation>
+        <translation>景深</translation>
     </message>
     <message>
         <location line="+253"/>
         <source>Notification sound style and volume</source>
-        <translation type="unfinished"></translation>
+        <translation>通知音效风格和音量</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>notification sound chime lightning system default volume mention test</source>
-        <translation type="unfinished"></translation>
+        <translation>通知 提示音 Lightning 系统默认 音量 提及 测试</translation>
     </message>
     <message>
         <location line="+25"/>
         <location line="+5351"/>
         <source>Always ask where to save files</source>
-        <translation type="unfinished"></translation>
+        <translation>每次都询问保存文件的位置</translation>
     </message>
     <message>
         <location line="-5350"/>
         <source>download downloads save folder location directory ask where file</source>
-        <translation type="unfinished"></translation>
+        <translation>下载 下载内容 保存 文件夹 位置 目录 询问 文件</translation>
     </message>
     <message>
         <location line="-3"/>
         <location line="+6"/>
         <source>Privacy &amp; security · Downloads</source>
-        <translation type="unfinished"></translation>
+        <translation>隐私与安全 · 下载</translation>
     </message>
     <message>
         <location line="+57"/>
         <location line="+4799"/>
         <location line="+3"/>
         <source>Preload short videos</source>
-        <translation type="unfinished"></translation>
+        <translation>预加载短视频</translation>
     </message>
     <message>
         <location line="-4801"/>
         <source>video preload prefetch download size megabytes data disk instant play</source>
-        <translation type="unfinished"></translation>
+        <translation>视频 预加载 预取 下载 大小 兆字节 数据 磁盘 即时播放</translation>
     </message>
     <message>
         <location line="+60"/>
         <location line="+5594"/>
         <location line="+3157"/>
         <source>Microphone noise suppression</source>
-        <translation type="unfinished"></translation>
+        <translation>麦克风降噪</translation>
     </message>
     <message>
         <location line="-8750"/>
         <source>noise suppression cancellation microphone background webrtc rnnoise deepfilternet denoise</source>
-        <translation type="unfinished"></translation>
+        <translation>降噪 消除 麦克风 背景 webrtc rnnoise deepfilternet 去噪</translation>
     </message>
     <message>
         <location line="+3075"/>
@@ -18625,12 +18639,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+14"/>
         <source>Show attachments and link previews as one line with an arrow that expands them</source>
-        <translation type="unfinished"></translation>
+        <translation>将附件和链接预览显示为一行，点击箭头即可展开</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Pictures, GIFs, stickers, video, audio, voice messages, files and loaded link previews each become one line naming what they are. Click the arrow, or focus the line and press Enter, to show one. Reply quotes, thread cards, polls and shared places are not affected. A collapsed attachment is not downloaded until you expand it.</source>
-        <translation type="unfinished"></translation>
+        <translation>图片、GIF、贴纸、视频、音频、语音消息、文件以及已加载的链接预览，都会各自折叠为一行，并注明其类型。点击箭头，或将焦点移到该行并按 Enter，即可显示。回复引用、话题卡片、投票和共享地点不受影响。折叠的附件在你展开之前不会下载。</translation>
     </message>
     <message>
         <location line="+26"/>
@@ -18772,7 +18786,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+35"/>
         <source>New messages still update a room&apos;s preview and badge at once, but it only moves up when you open another room, switch Space, tab or search, or come back to the window.</source>
-        <translation type="unfinished"></translation>
+        <translation>新消息仍会立即更新房间的预览和标记，但房间只有在你打开其他房间、切换空间、切换标签页或搜索，或者回到窗口时才会上移。</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -18798,62 +18812,62 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+66"/>
         <source>Windows spell checker</source>
-        <translation type="unfinished"></translation>
+        <translation>Windows 拼写检查器</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>macOS spell checker</source>
-        <translation type="unfinished"></translation>
+        <translation>macOS 拼写检查器</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Enchant (system dictionaries)</source>
-        <translation type="unfinished"></translation>
+        <translation>Enchant（系统词典）</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Dictionary: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>词典：%1</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Spell checking is not available in this build for this operating system.</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本在此操作系统上不提供拼写检查。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Spell checking is unavailable: the Windows spell-checking service could not be started.</source>
-        <translation type="unfinished"></translation>
+        <translation>拼写检查不可用：无法启动 Windows 拼写检查服务。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Spell checking is unavailable because the enchant-2 spelling library is not installed on this system.</source>
-        <translation type="unfinished"></translation>
+        <translation>拼写检查不可用，因为此系统上未安装 enchant-2 拼写库。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>your system language</source>
-        <translation type="unfinished"></translation>
+        <translation>你的系统语言</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Add the language under Windows Settings › Time &amp; language › Language to install its spelling.</source>
-        <translation type="unfinished"></translation>
+        <translation>请在“Windows 设置 › 时间和语言 › 语言”中添加该语言，以安装其拼写检查。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Add the language under System Settings › Keyboard › Text Input.</source>
-        <translation type="unfinished"></translation>
+        <translation>请在“系统设置 › 键盘 › 文本输入”中添加该语言。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Install your distribution&apos;s spelling dictionary for that language (usually a hunspell package). Inside Flatpak or Snap only the runtime&apos;s own dictionaries are visible.</source>
-        <translation type="unfinished"></translation>
+        <translation>请安装你发行版中该语言的拼写词典（通常是 hunspell 软件包）。在 Flatpak 或 Snap 中，只能看到运行时自带的词典。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Spell checking is unavailable because no system dictionary is installed for %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>拼写检查不可用，因为 %1 未安装任何系统词典。</translation>
     </message>
     <message>
         <location line="+22"/>
@@ -18891,7 +18905,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+108"/>
         <source>Private receipts still clear the unread badge on your own other devices; nobody else sees them. Not sending them at all means your other devices stop clearing it too, though your place in a conversation is still saved. Either way, receipts you have already sent cannot be taken back, and other people&apos;s receipts are still shown to you.</source>
-        <translation type="unfinished"></translation>
+        <translation>私密回执仍会清除你自己其他设备上的未读标记；其他人看不到它们。完全不发送回执，则你的其他设备也将不再清除未读标记，不过你在对话中的阅读位置仍会保存。无论哪种方式，你已发送的回执都无法撤回，而他人的回执仍会显示给你。</translation>
     </message>
     <message>
         <location line="+42"/>
@@ -18926,7 +18940,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+35"/>
         <source>Lightning keeps its own index of the messages it has seen, so you can search rooms your homeserver cannot — encrypted ones included. It stores the message text on this device only, in this account&apos;s own folder, and it is deleted when the account is removed. It is not encrypted on disk — nor is the Matrix SDK&apos;s own message store beside it — so your device&apos;s disk encryption is what protects both.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 会保存它见过的消息的索引，因此你可以搜索你的主服务器无法搜索的房间，包括加密房间。消息文字仅保存在此设备上，位于此账号自己的文件夹中，并在移除该账号时删除。它在磁盘上并未加密——它旁边的 Matrix SDK 自身的消息存储也是如此——因此保护二者的是你设备的磁盘加密。</translation>
     </message>
     <message>
         <location line="+201"/>
@@ -18936,7 +18950,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+55"/>
         <source>A picture opens in Lightning&apos;s viewer and a video plays here. A video, or a picture too large to preview, is downloaded from the link&apos;s site only when you press Play or open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>图片会在 Lightning 的查看器中打开，视频则在此处播放。视频，或过大而无法预览的图片，只有在你按下“播放”或打开它时才会从链接所在站点下载。</translation>
     </message>
     <message>
         <location line="+55"/>
@@ -18966,23 +18980,23 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+25"/>
         <source>Downloads videos up to the size below when a room opens, so Play starts at once. This uses data and disk space even for videos you never watch. When off, a video is downloaded only when you press Play.</source>
-        <translation type="unfinished"></translation>
+        <translation>房间打开时，会下载不超过下方大小的视频，以便点击“播放”后立即开始。即使是你从不观看的视频，也会占用流量和磁盘空间。关闭时，视频只会在你按下“播放”后才下载。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Up to %1 MB</source>
-        <translation type="unfinished"></translation>
+        <translation>最多 %1 MB</translation>
     </message>
     <message>
         <location line="+15"/>
         <location line="+11"/>
         <source>Largest video to preload, in megabytes</source>
-        <translation type="unfinished"></translation>
+        <translation>预加载的最大视频大小（兆字节）</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>MB</source>
-        <translation type="unfinished"></translation>
+        <translation>MB</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -19084,68 +19098,68 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+45"/>
         <source>Kept on this device, including media from encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>保存在此设备上，包括加密房间中的媒体。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Kept, except media from encrypted rooms: no secure system keyring holds the key.</source>
-        <translation type="unfinished"></translation>
+        <translation>已保存，但加密房间中的媒体除外：没有安全的系统密钥环保存密钥。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Kept this session, except media from encrypted rooms, while an attachment from an earlier session finishes uploading.</source>
-        <translation type="unfinished"></translation>
+        <translation>本次会话已保存，但加密房间中的媒体除外，同时较早会话中的附件仍在上传。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Not kept this session: this account was just signed in. Media is kept from the next start.</source>
-        <translation type="unfinished"></translation>
+        <translation>本次会话未保存：此账号刚刚登录。媒体将从下次启动时开始保存。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Not kept this session: the system keyring is locked or unavailable, or its key could not be read.</source>
-        <translation type="unfinished"></translation>
+        <translation>本次会话未保存：系统密钥环已锁定或不可用，或无法读取其密钥。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Not kept this session: the media store on this device could not be opened.</source>
-        <translation type="unfinished"></translation>
+        <translation>本次会话未保存：无法打开此设备上的媒体存储。</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Pictures, videos and files you open are kept in this account&apos;s folder, so they open again without downloading: up to about 2 GB, for 60 days after you last open them, and removed when you sign out. They are kept encrypted, and the key is kept in your system keyring. Media you open in encrypted rooms is kept only then; on macOS, in a portable install and on a desktop with no system keyring the key is kept on this disk instead, and media you open in encrypted rooms is not kept. While the keyring is locked, and in an account&apos;s first session, nothing is kept. Files over 100 MB from unencrypted rooms are kept unencrypted; files over 100 MB from encrypted rooms are downloaded again each session. Attachments you send, from any room, are kept the same way until they are uploaded and then for up to 60 days, whatever this setting says. Turning it off stops keeping media you open; Clear removes what is already kept.</source>
-        <translation type="unfinished"></translation>
+        <translation>你打开的图片、视频和文件会保存在此账号的文件夹中，因此无需重新下载即可再次打开：最多约 2 GB，自你上次打开后保留 60 天，并在退出登录时删除。它们以加密形式保存，密钥则保存在系统密钥环中。只有这样，你在加密房间中打开的媒体才会被保存；在 macOS、便携安装以及没有系统密钥环的桌面上，密钥改为保存在此磁盘上，而你在加密房间中打开的媒体则不会被保存。密钥环被锁定时，以及账号的首次会话中，不保存任何内容。来自未加密房间、超过 100 MB 的文件以未加密形式保存；来自加密房间、超过 100 MB 的文件则在每次会话中重新下载。无论此设置如何，你从任何房间发送的附件都会以同样方式保存，直到上传完成，之后最多保留 60 天。关闭此项会停止保存你打开的媒体；“清除”会移除已保存的内容。</translation>
     </message>
     <message>
         <location line="+84"/>
         <source>Downloads</source>
-        <translation type="unfinished"></translation>
+        <translation>下载</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Save files to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>将文件保存到 %1</translation>
     </message>
     <message>
         <location line="+8"/>
         <location line="+406"/>
         <source>Change…</source>
-        <translation type="unfinished"></translation>
+        <translation>更改…</translation>
     </message>
     <message>
         <location line="-395"/>
         <source>Use the Downloads folder</source>
-        <translation type="unfinished"></translation>
+        <translation>使用“下载”文件夹</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>This copy of Lightning runs in a sandbox that cannot write to your Downloads folder, so it asks where to save each file.</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本的 Lightning 运行在沙盒中，无法写入你的“下载”文件夹，因此每次保存文件时都会询问保存位置。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Download saves a file here without asking and never replaces one that is already there: a second copy is saved as &quot;name (1)&quot;. Save as… always asks. Lightning never opens a downloaded file by itself.</source>
-        <translation type="unfinished"></translation>
+        <translation>“下载”会直接将文件保存在此处，不会询问，也不会替换已存在的文件：第二个副本会保存为“名称 (1)”。“另存为…”则总是会询问。Lightning 从不会自行打开已下载的文件。</translation>
     </message>
     <message>
         <location line="+49"/>
@@ -19189,12 +19203,12 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+3353"/>
         <source>Experimental features, and diagnostics.</source>
-        <translation type="unfinished"></translation>
+        <translation>实验性功能和诊断。</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Filters background noise out of your microphone in calls. One method runs at a time, and a change applies to a call in progress.</source>
-        <translation type="unfinished"></translation>
+        <translation>在通话中从你的麦克风中滤除背景噪声。同一时间只运行一种方法，更改会应用于正在进行的通话。</translation>
     </message>
     <message>
         <location line="-8931"/>
@@ -19403,44 +19417,44 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="-7131"/>
         <source>chat background wallpaper picture image photo backdrop room conversation own set custom others shared hide</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景 壁纸 图片 图像 照片 背景 房间 对话 自己 设置 自定义 他人 共享 隐藏</translation>
     </message>
     <message>
         <location line="+3"/>
         <location line="+20"/>
         <source>Appearance · Background and depth</source>
-        <translation type="unfinished"></translation>
+        <translation>外观 · 背景和景深</translation>
     </message>
     <message>
         <location line="-16"/>
         <source>Gradients</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>gradient gradients linear radial fade glow two-tone colour color custom theme background room list rail surface</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变 线性 径向 渐隐 光晕 双色 颜色 自定义主题 背景 房间列表 栏 表面</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+6"/>
         <source>Appearance · Custom colours and gradients</source>
-        <translation type="unfinished"></translation>
+        <translation>外观 · 自定义颜色和渐变</translation>
     </message>
     <message>
         <location line="-3"/>
         <source>custom theme own colours colors palette editor create make build accent</source>
-        <translation type="unfinished"></translation>
+        <translation>自定义主题 自己的颜色 调色板 编辑器 创建 制作 构建 强调色</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>depth gradient shading shadow flat surfaces 3d</source>
-        <translation type="unfinished"></translation>
+        <translation>景深 渐变 阴影 投影 平面 表面 立体</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Appearance · Spaces rail and room list</source>
-        <translation type="unfinished"></translation>
+        <translation>外观 · 空间栏和房间列表</translation>
     </message>
     <message>
         <location line="+85"/>
@@ -19448,435 +19462,435 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <location line="+6"/>
         <location line="+14"/>
         <source>Appearance · Banners and panel widths</source>
-        <translation type="unfinished"></translation>
+        <translation>外观 · 横幅和面板宽度</translation>
     </message>
     <message>
         <location line="+64"/>
         <source>Microphone test</source>
-        <translation type="unfinished"></translation>
+        <translation>麦克风测试</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>microphone mic test check try level meter hear myself yourself echo loopback working</source>
-        <translation type="unfinished"></translation>
+        <translation>麦克风 测试 检查 尝试 音量表 听到自己 回声 回放 是否正常</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Noise suppression</source>
-        <translation type="unfinished"></translation>
+        <translation>降噪</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>noise suppression cancellation denoise background microphone mic fan keyboard</source>
-        <translation type="unfinished"></translation>
+        <translation>降噪 消除 去噪 背景 麦克风 风扇 键盘</translation>
     </message>
     <message>
         <location line="+80"/>
         <source>Download folder</source>
-        <translation type="unfinished"></translation>
+        <translation>下载文件夹</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>download downloads folder save saved files location directory where</source>
-        <translation type="unfinished"></translation>
+        <translation>下载 下载内容 文件夹 保存 已保存的文件 位置 目录 哪里</translation>
     </message>
     <message>
         <location line="+36"/>
         <location line="+4640"/>
         <source>Index encrypted rooms</source>
-        <translation type="unfinished"></translation>
+        <translation>为加密房间建立索引</translation>
     </message>
     <message>
         <location line="-3202"/>
         <source>background</source>
-        <translation type="unfinished"></translation>
+        <translation>背景</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>microphone</source>
-        <translation type="unfinished"></translation>
+        <translation>麦克风</translation>
     </message>
     <message>
         <location line="+304"/>
         <source>Theme, colours and gradients, chat background, layout, text and fonts — per account.</source>
-        <translation type="unfinished"></translation>
+        <translation>主题、颜色和渐变、聊天背景、布局、文字和字体——每个账号独立设置。</translation>
     </message>
     <message>
         <location line="-1479"/>
         <location line="+1831"/>
         <source>Custom colours and gradients</source>
-        <translation type="unfinished"></translation>
+        <translation>自定义颜色和渐变</translation>
     </message>
     <message>
         <location line="-1829"/>
         <source>Chat background and depth</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景和景深</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Layout</source>
-        <translation type="unfinished"></translation>
+        <translation>布局</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Text and fonts</source>
-        <translation type="unfinished"></translation>
+        <translation>文字和字体</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+2770"/>
         <source>Spaces rail and room list</source>
-        <translation type="unfinished"></translation>
+        <translation>空间栏和房间列表</translation>
     </message>
     <message>
         <location line="-857"/>
         <source>Pick a colour for any part of the window, or a gradient for its large areas, and watch a sample room repaint.</source>
-        <translation type="unfinished"></translation>
+        <translation>为窗口的任何部分选择颜色，或为其大面积区域选择渐变，并观察示例房间的重新着色。</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Gradients: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变：%1</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Edit colours</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑颜色</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Create a theme</source>
-        <translation type="unfinished"></translation>
+        <translation>创建主题</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Add a gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>添加渐变</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Opens the theme editor on the conversation background, where you can choose a gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>在对话背景上打开主题编辑器，在那里可以选择渐变</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Use this theme</source>
-        <translation type="unfinished">使用此主题</translation>
+        <translation>使用此主题</translation>
     </message>
     <message>
         <location line="+1379"/>
         <source>Banners and panel widths</source>
-        <translation type="unfinished"></translation>
+        <translation>横幅和面板宽度</translation>
     </message>
     <message>
         <location line="-3345"/>
         <source>Receipts and typing</source>
-        <translation type="unfinished"></translation>
+        <translation>回执和输入提示</translation>
     </message>
     <message>
         <location line="-631"/>
         <location line="+2817"/>
         <source>Message spacing</source>
-        <translation type="unfinished"></translation>
+        <translation>消息间距</translation>
     </message>
     <message>
         <location line="-2816"/>
         <source>message spacing density compact cozy roomy gap padding</source>
-        <translation type="unfinished"></translation>
+        <translation>消息 间距 密度 紧凑 舒适 宽松 间隔 内边距</translation>
     </message>
     <message>
         <location line="+91"/>
         <location line="+3742"/>
         <source>Increase contrast</source>
-        <translation type="unfinished"></translation>
+        <translation>增加对比度</translation>
     </message>
     <message>
         <location line="-3741"/>
         <source>high contrast accessibility borders text readable vision</source>
-        <translation type="unfinished"></translation>
+        <translation>高对比度 无障碍 边框 文字 可读 视力</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+5"/>
         <location line="+5"/>
         <source>Appearance · Accessibility</source>
-        <translation type="unfinished"></translation>
+        <translation>外观 · 无障碍</translation>
     </message>
     <message>
         <location line="-8"/>
         <location line="+3750"/>
         <source>Always underline links</source>
-        <translation type="unfinished"></translation>
+        <translation>始终为链接加下划线</translation>
     </message>
     <message>
         <location line="-3749"/>
         <source>underline links mentions accessibility colour blind</source>
-        <translation type="unfinished"></translation>
+        <translation>下划线 链接 提及 无障碍 色盲</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+3758"/>
         <source>Name colour readability</source>
-        <translation type="unfinished"></translation>
+        <translation>名称颜色可读性</translation>
     </message>
     <message>
         <location line="-3757"/>
         <source>name color colour contrast sender readable strong weak off</source>
-        <translation type="unfinished"></translation>
+        <translation>名称 颜色 对比度 发送者 可读 强 弱 关闭</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Emoji and sticker packs</source>
-        <translation type="unfinished"></translation>
+        <translation>表情和贴纸包</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>emoji sticker pack custom emote use everywhere room space export import zip share</source>
-        <translation type="unfinished"></translation>
+        <translation>表情 贴纸 包 自定义 表情符号 使用 所有地方 房间 空间 导出 导入 zip 分享</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Appearance · Emoji and sticker packs</source>
-        <translation type="unfinished"></translation>
+        <translation>外观 · 表情和贴纸包</translation>
     </message>
     <message>
         <location line="+208"/>
         <location line="+4877"/>
         <source>Photo details when sending</source>
-        <translation type="unfinished"></translation>
+        <translation>发送时的照片详情</translation>
     </message>
     <message>
         <location line="-4876"/>
         <source>photo image exif gps location metadata strip remove privacy upload picture camera</source>
-        <translation type="unfinished"></translation>
+        <translation>照片 图片 exif gps 位置 元数据 去除 移除 隐私 上传 相机</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Export room keys</source>
-        <translation type="unfinished"></translation>
+        <translation>导出房间密钥</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>export room keys backup file passphrase element</source>
-        <translation type="unfinished"></translation>
+        <translation>导出 房间密钥 备份 文件 口令 element</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Export and import settings</source>
-        <translation type="unfinished"></translation>
+        <translation>导出和导入设置</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>export import backup settings file restore</source>
-        <translation type="unfinished"></translation>
+        <translation>导出 导入 备份 设置 文件 恢复</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Account · Settings file</source>
-        <translation type="unfinished"></translation>
+        <translation>账号 · 设置文件</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sync settings across your devices</source>
-        <translation type="unfinished"></translation>
+        <translation>在你的设备之间同步设置</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>sync settings devices account data backup</source>
-        <translation type="unfinished"></translation>
+        <translation>同步 设置 设备 账号数据 备份</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Account · Sync</source>
-        <translation type="unfinished"></translation>
+        <translation>账号 · 同步</translation>
     </message>
     <message>
         <location line="+143"/>
         <source>Profile</source>
-        <translation type="unfinished">公司简介</translation>
+        <translation>个人资料</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Password</source>
-        <translation type="unfinished">密码</translation>
+        <translation>密码</translation>
     </message>
     <message>
         <location line="+14"/>
         <location line="+3217"/>
         <source>Accessibility</source>
-        <translation type="unfinished"></translation>
+        <translation>无障碍</translation>
     </message>
     <message>
         <location line="-3209"/>
         <source>Previews</source>
-        <translation type="unfinished"></translation>
+        <translation>预览</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sound</source>
-        <translation type="unfinished"></translation>
+        <translation>声音</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Calls</source>
-        <translation type="unfinished"></translation>
+        <translation>通话</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Speaker</source>
-        <translation type="unfinished"></translation>
+        <translation>扬声器</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Media volume</source>
-        <translation type="unfinished"></translation>
+        <translation>媒体音量</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Message search</source>
-        <translation type="unfinished"></translation>
+        <translation>消息搜索</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Link previews and GIFs</source>
-        <translation type="unfinished"></translation>
+        <translation>链接预览和 GIF</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Media and downloads</source>
-        <translation type="unfinished"></translation>
+        <translation>媒体和下载</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Encryption</source>
-        <translation type="unfinished">加密</translation>
+        <translation>加密</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>恢复密钥</translation>
     </message>
     <message>
         <location line="+983"/>
         <location line="+1"/>
         <location line="+383"/>
         <source>Copy link to this setting</source>
-        <translation type="unfinished"></translation>
+        <translation>复制此设置的链接</translation>
     </message>
     <message>
         <location line="-191"/>
         <source>User</source>
-        <translation type="unfinished">用户</translation>
+        <translation>用户</translation>
     </message>
     <message>
         <location line="+26"/>
         <source>Interface</source>
-        <translation type="unfinished"></translation>
+        <translation>界面</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Behavior</source>
-        <translation type="unfinished"></translation>
+        <translation>行为</translation>
     </message>
     <message>
         <location line="+963"/>
         <source>Cozy</source>
-        <translation type="unfinished"></translation>
+        <translation>舒适</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Roomy</source>
-        <translation type="unfinished"></translation>
+        <translation>宽松</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Space between messages and between senders</source>
-        <translation type="unfinished"></translation>
+        <translation>消息之间以及发送者之间的间距</translation>
     </message>
     <message>
         <location line="+617"/>
         <source>Show the Spaces rail</source>
-        <translation type="unfinished"></translation>
+        <translation>显示空间栏</translation>
     </message>
     <message>
         <location line="+391"/>
         <source>Make secondary text and borders stronger</source>
-        <translation type="unfinished"></translation>
+        <translation>加强次要文字和边框</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Pulls secondary text toward the main text colour and strengthens borders, on any theme.</source>
-        <translation type="unfinished"></translation>
+        <translation>无论使用哪种主题，都会使次要文字更接近主文字颜色，并加强边框。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Underline mentions and in-app links as well</source>
-        <translation type="unfinished"></translation>
+        <translation>同时为提及和应用内链接加下划线</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Web links in messages are always underlined. This adds mentions and the link texts in cards and previews.</source>
-        <translation type="unfinished"></translation>
+        <translation>消息中的网页链接始终带下划线。此项还会为提及以及卡片和预览中的链接文字加下划线。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Strong</source>
-        <translation type="unfinished"></translation>
+        <translation>强</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Weak</source>
-        <translation type="unfinished"></translation>
+        <translation>弱</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>How strongly sender name colours are adjusted to stay readable</source>
-        <translation type="unfinished"></translation>
+        <translation>发送者名称颜色为保持可读而进行调整的强度</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Sender names are lightened or darkened until they read against the background: Strong aims for 4.5:1, Weak for 3:1, Off keeps the colour exactly as chosen.</source>
-        <translation type="unfinished"></translation>
+        <translation>发送者名称会被调亮或调暗，直到能在背景上清晰辨认：“强”的目标是 4.5:1，“弱”为 3:1，“关闭”则完全保持你选择的颜色。</translation>
     </message>
     <message>
         <location line="+976"/>
         <source>Index encrypted rooms fetches older history for every encrypted room you are in, one room at a time and up to the same per-room limit as Index this room, so you can search it here. It can take a long time and uses bandwidth, and like the rest of the index it stores the decrypted message text on this device. Messages that cannot be decrypted yet are skipped until their keys arrive — run it again then and they are added. It pauses during calls and continues after a restart.</source>
-        <translation type="unfinished"></translation>
+        <translation>为加密房间建立索引会为你所在的每个加密房间获取较早的历史记录，一次一个房间，且上限与“为此房间建立索引”相同，以便你在此处搜索。这可能需要很长时间并占用流量，而且与索引的其余部分一样，它会将解密后的消息文字保存在此设备上。尚无法解密的消息会被跳过，直到其密钥到达——届时再次运行即可将其加入。通话期间会暂停，重启后继续。</translation>
     </message>
     <message>
         <location line="+169"/>
         <source>If your homeserver cannot build the preview, Lightning fetches the link itself and the site sees your IP address.</source>
-        <translation type="unfinished"></translation>
+        <translation>如果你的主服务器无法生成预览，Lightning 会自行获取该链接，此时该网站会看到你的 IP 地址。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Asking for a preview tells your homeserver which link was in an encrypted message.</source>
-        <translation type="unfinished"></translation>
+        <translation>请求预览会告诉你的主服务器加密消息中包含哪个链接。</translation>
     </message>
     <message>
         <location line="+265"/>
         <source>Only the words you search for go to the provider. Your Matrix ID, rooms and messages never do.</source>
-        <translation type="unfinished"></translation>
+        <translation>只有你搜索的词语会发送给服务提供方。你的 Matrix ID、房间和消息绝不会发送。</translation>
     </message>
     <message>
         <location line="+641"/>
         <source>Lightning does not register for push, so its notifications arrive only while it is running, in the window or the tray.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 未注册推送通知，因此只有在它运行时（窗口中或托盘中），通知才会送达。</translation>
     </message>
     <message>
         <location line="+85"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · 一项实验性功能，可在“实验室”或通话的麦克风菜单中设置</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Change noise suppression in Labs</source>
-        <translation type="unfinished"></translation>
+        <translation>在“实验室”中更改降噪</translation>
     </message>
     <message>
         <location line="+1118"/>
@@ -19926,7 +19940,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+23"/>
         <source>Portable mode: access tokens are encrypted inside this portable folder, with the key stored beside them, so anyone who copies the folder can use your session. Keep the folder private.</source>
-        <translation type="unfinished"></translation>
+        <translation>便携模式：访问令牌加密保存在此便携文件夹中，密钥保存在旁边，因此任何复制该文件夹的人都可以使用你的会话。请妥善保管此文件夹。</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -19968,14 +19982,14 @@ Escape, and the single letters the message menu uses while it is open, are reser
         <location line="+18"/>
         <location line="+1174"/>
         <source>Use recovery key instead</source>
-        <translation type="unfinished"></translation>
+        <translation>改用恢复密钥</translation>
     </message>
     <message>
         <location line="-1163"/>
         <location line="+696"/>
         <location line="+493"/>
         <source>Use recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>使用恢复密钥</translation>
     </message>
     <message>
         <location line="-1178"/>
@@ -20180,122 +20194,122 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+65"/>
         <source>Cross-signing</source>
-        <translation type="unfinished"></translation>
+        <translation>交叉签名</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Master key</source>
-        <translation type="unfinished"></translation>
+        <translation>主密钥</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Self-signing key</source>
-        <translation type="unfinished"></translation>
+        <translation>自签名密钥</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>User-signing key</source>
-        <translation type="unfinished"></translation>
+        <translation>用户签名密钥</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This session verified</source>
-        <translation type="unfinished"></translation>
+        <translation>此会话已验证</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Secrets recoverable (secret storage)</source>
-        <translation type="unfinished"></translation>
+        <translation>可恢复的机密（秘密存储）</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Available</source>
-        <translation type="unfinished"></translation>
+        <translation>可用</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Missing</source>
-        <translation type="unfinished"></translation>
+        <translation>缺失</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Key backup</source>
-        <translation type="unfinished"></translation>
+        <translation>密钥备份</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>No key backup exists for this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>此账号不存在密钥备份。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Backup active — this session can use it (%1).</source>
-        <translation type="unfinished"></translation>
+        <translation>备份已启用 — 此会话可以使用它（%1）。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A backup exists but this session cannot use it yet (%1). Restore with your recovery key first.</source>
-        <translation type="unfinished"></translation>
+        <translation>备份存在，但此会话暂时无法使用（%1）。请先使用你的恢复密钥进行恢复。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Uploading room keys: %1 of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>正在上传房间密钥：%1 / %2</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Upload: %1 · backup: %2</source>
-        <translation type="unfinished"></translation>
+        <translation>上传：%1 · 备份：%2</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Your new recovery key. Write it down now: Lightning does not keep it, and it will not be shown again once you leave this card.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的新恢复密钥。请立即记下：Lightning 不会保存它，离开此卡片后也不会再次显示。</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>I have saved it</source>
-        <translation type="unfinished"></translation>
+        <translation>我已保存</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Deleting the backup removes every room key stored on the server. Keys only in this session stay here; keys only in the backup are gone. Press again to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>删除备份会移除服务器上存储的所有房间密钥。仅存在于此会话中的密钥仍会保留在此处；仅存在于备份中的密钥将会丢失。再次按下即可确认。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Disabling recovery removes secret storage and the backup from the server. Press again to confirm.</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭恢复功能会从服务器移除秘密存储和备份。再次按下即可确认。</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Setting up…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在设置…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Set up cross-signing and recovery…</source>
-        <translation type="unfinished"></translation>
+        <translation>设置交叉签名和恢复…</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Set up recovery and backup</source>
-        <translation type="unfinished"></translation>
+        <translation>设置恢复和备份</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Create backup</source>
-        <translation type="unfinished"></translation>
+        <translation>创建备份</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>New recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>新的恢复密钥</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Delete backup</source>
-        <translation type="unfinished"></translation>
+        <translation>删除备份</translation>
     </message>
     <message>
         <location line="+65"/>
@@ -20320,7 +20334,7 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+28"/>
         <source>Enter your recovery key or passphrase. It restores your message keys, and if your account&apos;s cross-signing keys are stored with it, this session becomes verified without another device.</source>
-        <translation type="unfinished"></translation>
+        <translation>请输入你的恢复密钥或口令。它会恢复你的消息密钥；如果你账号的交叉签名密钥与其一同保存，此会话将无需其他设备即可完成验证。</translation>
     </message>
     <message>
         <location line="+73"/>
@@ -20345,17 +20359,17 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+12"/>
         <source>All</source>
-        <translation type="unfinished">全部</translation>
+        <translation>全部</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Current</source>
-        <translation type="unfinished"></translation>
+        <translation>当前</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unverified</source>
-        <translation type="unfinished"></translation>
+        <translation>未验证</translation>
     </message>
     <message>
         <location line="+95"/>
@@ -20386,17 +20400,17 @@ Escape, and the single letters the message menu uses while it is open, are reser
     <message>
         <location line="+25"/>
         <source>Rename</source>
-        <translation type="unfinished">重命名</translation>
+        <translation>重命名</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Rename session %1</source>
-        <translation type="unfinished"></translation>
+        <translation>重命名会话 %1</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Session name</source>
-        <translation type="unfinished"></translation>
+        <translation>会话名称</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -20611,33 +20625,33 @@ Note: importing keys does not verify this session.</source>
         <location filename="../src/settings/SettingsSyncController.cpp" line="+549"/>
         <location line="+50"/>
         <source>Settings are not available.</source>
-        <translation type="unfinished"></translation>
+        <translation>设置不可用。</translation>
     </message>
     <message>
         <location line="-47"/>
         <source>Choose a file to save to.</source>
-        <translation type="unfinished"></translation>
+        <translation>请选择要保存到的文件。</translation>
     </message>
     <message>
         <location line="+32"/>
         <location line="+5"/>
         <source>Could not write that file.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法写入该文件。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Could not read that file.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法读取该文件。</translation>
     </message>
     <message>
         <location line="+79"/>
         <source>Choose a file first.</source>
-        <translation type="unfinished"></translation>
+        <translation>请先选择一个文件。</translation>
     </message>
     <message>
         <location line="+45"/>
         <source>Could not apply %1. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法应用 %1。未更改任何内容。</translation>
     </message>
 </context>
 <context>
@@ -20694,7 +20708,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+195"/>
         <source>The calling service refused to connect you to this call.</source>
-        <translation type="unfinished"></translation>
+        <translation>通话服务拒绝将你连接到此通话。</translation>
     </message>
     <message>
         <location line="+574"/>
@@ -20709,112 +20723,112 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-707"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera. If the camera works in other apps, allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
-        <translation type="unfinished"></translation>
+        <translation>你桌面的摄像头门户没有向 Lightning 提供摄像头。如果其他应用中摄像头可以工作，请允许 Lightning 使用所有设备（在 Flatseal 中：“All devices”），然后重新开启摄像头。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your desktop&apos;s camera portal offered Lightning no camera.</source>
-        <translation type="unfinished"></translation>
+        <translation>你桌面的摄像头门户没有向 Lightning 提供摄像头。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Your desktop&apos;s camera portal sent no picture. To let Lightning open the camera itself, allow it to use all devices (in Flatseal: &quot;All devices&quot;), then turn the camera on again.</source>
-        <translation type="unfinished"></translation>
+        <translation>你桌面的摄像头门户没有传来画面。要让 Lightning 自行打开摄像头，请允许它使用所有设备（在 Flatseal 中：“All devices”），然后重新开启摄像头。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your desktop&apos;s camera portal sent no picture from the camera.</source>
-        <translation type="unfinished"></translation>
+        <translation>你桌面的摄像头门户没有从摄像头传来画面。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This desktop has no camera portal. Install xdg-desktop-portal, or allow Lightning to use all devices (in Flatseal: &quot;All devices&quot;).</source>
-        <translation type="unfinished"></translation>
+        <translation>此桌面没有摄像头门户。请安装 xdg-desktop-portal，或允许 Lightning 使用所有设备（在 Flatseal 中：“All devices”）。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This desktop has no camera portal, so the camera can&apos;t be used.</source>
-        <translation type="unfinished"></translation>
+        <translation>此桌面没有摄像头门户，因此无法使用摄像头。</translation>
     </message>
     <message>
         <location line="+109"/>
         <source>Screen sharing isn&apos;t available in this sandboxed (Flatpak or Snap) build on an X11 session: it can only share through the desktop&apos;s screen-sharing portal, and none is available, and GStreamer plugins installed on your system cannot be used from the sandbox. To share your screen, use the AppImage or a distribution package of Lightning, which capture an X11 screen directly, or log into a Wayland session, where your desktop&apos;s portal provides screen sharing. If your desktop&apos;s xdg-desktop-portal supports screen casting on X11, make sure it is installed and running.</source>
-        <translation type="unfinished"></translation>
+        <translation>在 X11 会话中，此沙盒版本（Flatpak 或 Snap）无法进行屏幕共享：它只能通过桌面的屏幕共享门户进行共享，而该门户不可用，并且系统上安装的 GStreamer 插件无法从沙盒内使用。要共享屏幕，请使用 Lightning 的 AppImage 或发行版软件包（它们可直接捕获 X11 屏幕），或登录 Wayland 会话，此时桌面门户可提供屏幕共享。如果你桌面的 xdg-desktop-portal 支持在 X11 上进行屏幕投射，请确保它已安装并正在运行。</translation>
     </message>
     <message>
         <location line="+555"/>
         <source>You don&apos;t have permission to join calls in this room. A room admin can raise your power level in it; Lightning can&apos;t change what call membership itself requires.</source>
-        <translation type="unfinished"></translation>
+        <translation>你无权加入此房间中的通话。房间管理员可以提高你在其中的权限级别；Lightning 无法更改通话成员资格本身的要求。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>The calling service this call uses didn&apos;t answer. It&apos;s chosen by whoever started the call, not by your homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>此通话所使用的通话服务没有响应。该服务由发起通话的人选择，而不是由你的主服务器选择。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Your homeserver doesn&apos;t support Matrix calls.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器不支持 Matrix 通话。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Your screen is being shared without its sound — the audio capture couldn&apos;t be started.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的屏幕正在共享，但没有声音——无法开始捕获音频。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Your screen is being shared without its sound — this system has no way to capture what it is playing.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的屏幕正在共享，但没有声音——此系统无法捕获其播放的内容。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Your screen is being shared without its sound — the apps you chose can&apos;t be captured on this system.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的屏幕正在共享，但没有声音——此系统无法捕获你所选的应用。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>This call&apos;s service is on a private network address, which Lightning won&apos;t connect to. Whoever set up the call needs to give it an address reachable from the internet.</source>
-        <translation type="unfinished"></translation>
+        <translation>此通话的服务位于私有网络地址，Lightning 不会连接到该地址。设置通话的人需要为其提供可从互联网访问的地址。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Lightning couldn&apos;t look up this call&apos;s service. Its name doesn&apos;t resolve, or this network&apos;s DNS isn&apos;t answering.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法解析此通话服务的地址。其名称无法解析，或此网络的 DNS 没有响应。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>This call&apos;s service is advertised under a name that only means &quot;this computer&quot;, so Lightning won&apos;t connect to it. Whoever set up the call needs to give it a real address.</source>
-        <translation type="unfinished"></translation>
+        <translation>此通话服务使用的名称仅表示“本机”，因此 Lightning 不会连接到它。设置通话的人需要为其提供真实地址。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>This network has no route to the call&apos;s service. If you&apos;re on a VPN or a restricted network, that&apos;s the first thing to check.</source>
-        <translation type="unfinished"></translation>
+        <translation>此网络无法到达通话服务。如果你正在使用 VPN 或受限网络，请首先检查这一点。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>The call&apos;s service refused the connection — nothing is listening at the address it published.</source>
-        <translation type="unfinished"></translation>
+        <translation>通话服务拒绝了连接——其公布的地址上没有任何程序在监听。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Something on this computer blocked the connection to the call&apos;s service — a firewall or a security policy.</source>
-        <translation type="unfinished"></translation>
+        <translation>此电脑上的某些程序（防火墙或安全策略）阻止了与通话服务的连接。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The call&apos;s service didn&apos;t answer in time.</source>
-        <translation type="unfinished"></translation>
+        <translation>通话服务未能及时响应。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Lightning couldn&apos;t open a secure connection to the call&apos;s service. Its certificate or its TLS setup was refused.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法与通话服务建立安全连接。其证书或 TLS 设置被拒绝。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The call&apos;s service answered, but not as a call service. Something between you and it — a proxy or a sign-in portal — may be intercepting the connection.</source>
-        <translation type="unfinished"></translation>
+        <translation>通话服务有响应，但它不是通话服务。你与它之间的某个环节——代理或登录门户——可能正在拦截连接。</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -20831,7 +20845,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+9"/>
         <source>This call&apos;s service isn&apos;t set up correctly, so Lightning couldn&apos;t connect to it.</source>
-        <translation type="unfinished"></translation>
+        <translation>此通话服务设置不正确，因此 Lightning 无法连接到它。</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -20846,7 +20860,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+6"/>
         <source>Your camera isn&apos;t available. Lightning is a snap: run snap connect lightning:camera</source>
-        <translation type="unfinished"></translation>
+        <translation>无法使用你的摄像头。Lightning 是一个 snap：请运行 snap connect lightning:camera</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -20856,22 +20870,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+4"/>
         <source>The camera sent no picture. If it&apos;s a virtual camera, make sure something is feeding it.</source>
-        <translation type="unfinished"></translation>
+        <translation>摄像头没有传来画面。如果它是虚拟摄像头，请确保有程序向它提供画面。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Camera access is turned off in your system settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>系统设置中已关闭摄像头访问权限。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>The camera you chose isn&apos;t available, so no camera was turned on. Choose a camera in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>你所选的摄像头不可用，因此没有开启任何摄像头。请在“设置”中选择摄像头。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Lightning couldn&apos;t read the list of cameras, so no camera was turned on. Restart Lightning, or choose the system default camera in Settings.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法读取摄像头列表，因此没有开启任何摄像头。请重启 Lightning，或在“设置”中选择系统默认摄像头。</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -20892,22 +20906,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-79"/>
         <source>Still checking whether calling is available here. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>仍在检查此处是否可以通话。请稍后再试。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>There&apos;s no Matrix calling service on this homeserver.</source>
-        <translation type="unfinished"></translation>
+        <translation>此主服务器上没有 Matrix 通话服务。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Lightning couldn&apos;t check whether calling is available here.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法检查此处是否可以通话。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This call has ended.</source>
-        <translation type="unfinished">本次通话结束。</translation>
+        <translation>此通话已结束。</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -20919,12 +20933,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-71"/>
         <source>You don&apos;t have permission to start or join calls in this room. A room admin can raise your power level in it.</source>
-        <translation type="unfinished"></translation>
+        <translation>你无权在此房间中发起或加入通话。房间管理员可以提高你在其中的权限级别。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This call can&apos;t be joined right now.</source>
-        <translation type="unfinished"></translation>
+        <translation>目前无法加入此通话。</translation>
     </message>
     <message>
         <location line="+74"/>
@@ -20934,67 +20948,67 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+427"/>
         <source>You can share your screen once the call has reconnected.</source>
-        <translation type="unfinished"></translation>
+        <translation>通话重新连接后，你即可共享屏幕。</translation>
     </message>
     <message>
         <location line="+788"/>
         <source>Call audio stopped: this computer&apos;s sound output disconnected. It resumes when an output is available again; if it does not, leave and rejoin the call.</source>
-        <translation type="unfinished"></translation>
+        <translation>通话声音已停止：此电脑的声音输出已断开。当有可用输出时将恢复；如果没有恢复，请离开并重新加入通话。</translation>
     </message>
     <message>
         <location line="+2114"/>
         <source>This system can&apos;t capture the sound it plays.</source>
-        <translation type="unfinished"></translation>
+        <translation>此系统无法捕获其播放的声音。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Sound: everything this computer plays, except Lightning.</source>
-        <translation type="unfinished"></translation>
+        <translation>声音：此电脑播放的所有内容，Lightning 除外。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sound: everything this computer plays, including this call, so others may hear themselves.</source>
-        <translation type="unfinished"></translation>
+        <translation>声音：此电脑播放的所有内容，包括本次通话，因此其他人可能会听到自己。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>No apps chosen, so the share has no sound.</source>
-        <translation type="unfinished"></translation>
+        <translation>未选择任何应用，因此共享没有声音。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sound: only %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>声音：仅 %1。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>The share has no sound.</source>
-        <translation type="unfinished"></translation>
+        <translation>此共享没有声音。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>%1 couldn&apos;t be captured.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法捕获 %1。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Too many apps to capture at once; some are left out.</source>
-        <translation type="unfinished"></translation>
+        <translation>同时捕获的应用过多；部分应用未包含在内。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>None of them is playing right now.</source>
-        <translation type="unfinished"></translation>
+        <translation>它们当前都没有播放声音。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>No app is playing right now.</source>
-        <translation type="unfinished"></translation>
+        <translation>当前没有应用在播放声音。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Nothing is being heard right now.</source>
-        <translation type="unfinished"></translation>
+        <translation>当前没有听到任何声音。</translation>
     </message>
     <message>
         <location line="-3443"/>
@@ -21017,42 +21031,42 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/ShareAudioAppList.qml" line="+47"/>
         <source>Single apps can&apos;t be chosen on this system. It needs PipeWire on Linux, or Windows 10 version 2004 or newer.</source>
-        <translation type="unfinished"></translation>
+        <translation>此系统无法选择单个应用。需要 Linux 上的 PipeWire，或 Windows 10 2004 版或更高版本。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>No app is playing sound right now. Start one and it appears here.</source>
-        <translation type="unfinished"></translation>
+        <translation>当前没有应用在播放声音。开始播放后即会在此显示。</translation>
     </message>
     <message>
         <location line="+94"/>
         <source>Includes Lightning</source>
-        <translation type="unfinished"></translation>
+        <translation>包含 Lightning</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Couldn&apos;t capture</source>
-        <translation type="unfinished"></translation>
+        <translation>无法捕获</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>In the share</source>
-        <translation type="unfinished"></translation>
+        <translation>在共享中</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Playing</source>
-        <translation type="unfinished"></translation>
+        <translation>正在播放</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not playing</source>
-        <translation type="unfinished"></translation>
+        <translation>未在播放</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Lightning runs inside this app, so capturing it would send the call back to everyone.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 运行于此应用中，因此捕获它会将通话回送给所有人。</translation>
     </message>
 </context>
 <context>
@@ -21060,22 +21074,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/ShareAudioAppsDialog.qml" line="+15"/>
         <source>Share sound from apps</source>
-        <translation type="unfinished"></translation>
+        <translation>共享应用的声音</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Only the apps you tick are heard in your screen share. Lightning itself is never included, so nobody hears the call back.</source>
-        <translation type="unfinished"></translation>
+        <translation>只有你勾选的应用的声音会在你的屏幕共享中被听到。Lightning 本身始终不包括在内，因此没有人会听到通话被回送。</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Use the entire system</source>
-        <translation type="unfinished"></translation>
+        <translation>使用整个系统</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Done</source>
-        <translation type="unfinished">完成</translation>
+        <translation>完成</translation>
     </message>
 </context>
 <context>
@@ -21103,7 +21117,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+1"/>
         <source>Message box</source>
-        <translation type="unfinished">留言框</translation>
+        <translation>消息输入框</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -21113,7 +21127,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+1"/>
         <source>Calls</source>
-        <translation type="unfinished"></translation>
+        <translation>通话</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -21123,12 +21137,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+8"/>
         <source>Open Settings, or focus its search field</source>
-        <translation type="unfinished"></translation>
+        <translation>打开“设置”，或将焦点移到其搜索框</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Show the keyboard shortcuts</source>
-        <translation type="unfinished"></translation>
+        <translation>显示键盘快捷键</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -21153,12 +21167,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+4"/>
         <source>Start a direct message</source>
-        <translation type="unfinished"></translation>
+        <translation>发起私聊</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Open the Activity Center</source>
-        <translation type="unfinished"></translation>
+        <translation>打开动态中心</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -21198,72 +21212,72 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+10"/>
         <source>Mark every conversation as read</source>
-        <translation type="unfinished"></translation>
+        <translation>将所有对话标记为已读</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Mark the open conversation as unread</source>
-        <translation type="unfinished"></translation>
+        <translation>将当前对话标记为未读</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Show or hide the people in this conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>显示或隐藏此对话中的成员</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Show or hide pinned messages</source>
-        <translation type="unfinished"></translation>
+        <translation>显示或隐藏置顶消息</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Mute or unmute the microphone</source>
-        <translation type="unfinished"></translation>
+        <translation>开启或关闭麦克风静音</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Deafen or undeafen</source>
-        <translation type="unfinished"></translation>
+        <translation>拒听或取消拒听</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Turn the camera on or off</source>
-        <translation type="unfinished"></translation>
+        <translation>开启或关闭摄像头</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Return to the active call</source>
-        <translation type="unfinished"></translation>
+        <translation>返回当前通话</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Start a call in this conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>在此对话中发起通话</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Leave the call</source>
-        <translation type="unfinished"></translation>
+        <translation>离开通话</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Share your screen, or stop sharing</source>
-        <translation type="unfinished"></translation>
+        <translation>共享屏幕，或停止共享</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Open the emoji picker</source>
-        <translation type="unfinished"></translation>
+        <translation>打开表情选择器</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Open the GIF and sticker picker</source>
-        <translation type="unfinished"></translation>
+        <translation>打开 GIF 和贴纸选择器</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Attach files</source>
-        <translation type="unfinished">添加附件</translation>
+        <translation>附加文件</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -21298,17 +21312,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+4"/>
         <source>Underline</source>
-        <translation type="unfinished"></translation>
+        <translation>下划线</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Link</source>
-        <translation type="unfinished">链接</translation>
+        <translation>链接</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>closing the find bar, room information, a thread, Settings or the open conversation</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭查找栏、房间信息、话题、设置或当前对话</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -21461,12 +21475,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SlashCommandPopup.qml" line="+106"/>
         <source>Commands</source>
-        <translation type="unfinished"></translation>
+        <translation>命令</translation>
     </message>
     <message>
         <location line="+89"/>
         <source>%1 · you lack the required power level</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · 你的权限级别不足</translation>
     </message>
 </context>
 <context>
@@ -21474,93 +21488,93 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/models/SlashCommands.cpp" line="+28"/>
         <source>Send an action message</source>
-        <translation type="unfinished"></translation>
+        <translation>发送动作消息</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Append ¯\_(ツ)_/¯ to a message</source>
-        <translation type="unfinished"></translation>
+        <translation>在消息末尾附加 ¯\_(ツ)_/¯</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Send the message as a click-to-reveal spoiler</source>
-        <translation type="unfinished"></translation>
+        <translation>以点击显示的剧透形式发送消息</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Join a room</source>
-        <translation type="unfinished"></translation>
+        <translation>加入房间</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Invite a user to this room</source>
-        <translation type="unfinished"></translation>
+        <translation>邀请用户加入此房间</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Remove a user from this room</source>
-        <translation type="unfinished"></translation>
+        <translation>将用户移出此房间</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ban a user from this room</source>
-        <translation type="unfinished"></translation>
+        <translation>封禁此房间中的用户</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unban a user from this room</source>
-        <translation type="unfinished"></translation>
+        <translation>解除此房间中用户的封禁</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Change this room&apos;s topic</source>
-        <translation type="unfinished"></translation>
+        <translation>更改此房间的主题</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Change this room&apos;s name</source>
-        <translation type="unfinished"></translation>
+        <translation>更改此房间的名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Change your display name</source>
-        <translation type="unfinished"></translation>
+        <translation>更改你的显示名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Switch between Markdown and rich-text composing</source>
-        <translation type="unfinished"></translation>
+        <translation>在 Markdown 和富文本编辑之间切换</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Clear the message box and queued attachments</source>
-        <translation type="unfinished"></translation>
+        <translation>清空消息输入框和待发送的附件</translation>
     </message>
     <message>
         <location line="+100"/>
         <location line="+140"/>
         <source>Unknown command.</source>
-        <translation type="unfinished"></translation>
+        <translation>未知命令。</translation>
     </message>
     <message>
         <location line="-138"/>
         <source>/%1 needs arguments: /%1 %2</source>
-        <translation type="unfinished"></translation>
+        <translation>/%1 需要参数：/%1 %2</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>/%1 is not available from here.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法在此处使用 /%1。</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>/join needs a room address (#room:server) or room id.</source>
-        <translation type="unfinished"></translation>
+        <translation>/join 需要房间地址（#room:server）或房间 ID。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>/%1 needs a user id (@user:server).</source>
-        <translation type="unfinished"></translation>
+        <translation>/%1 需要用户 ID（@user:server）。</translation>
     </message>
 </context>
 <context>
@@ -21600,7 +21614,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+7"/>
         <source>Direct Messages</source>
-        <translation type="unfinished">直接消息</translation>
+        <translation>私聊</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -21628,27 +21642,27 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-198"/>
         <source>Rooms</source>
-        <translation type="unfinished">房间</translation>
+        <translation>房间</translation>
     </message>
     <message>
         <location line="+145"/>
         <source>More actions for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 的更多操作</translation>
     </message>
     <message>
         <location line="+134"/>
         <source>%1, not joined</source>
-        <translation type="unfinished"></translation>
+        <translation>%1，未加入</translation>
     </message>
     <message>
         <location line="+203"/>
         <source>Open space</source>
-        <translation type="unfinished"></translation>
+        <translation>打开空间</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Remove from this Space</source>
-        <translation type="unfinished"></translation>
+        <translation>从此空间中移除</translation>
     </message>
 </context>
 <context>
@@ -21674,57 +21688,57 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/SpaceMemberActionDialog.qml" line="+94"/>
         <source>Reason (optional)</source>
-        <translation type="unfinished"></translation>
+        <translation>原因（可选）</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The reason is recorded in each room it applies to, where its members can read it.</source>
-        <translation type="unfinished"></translation>
+        <translation>原因会记录在其适用的每个房间中，房间成员可以看到。</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>The space itself</source>
-        <translation type="unfinished"></translation>
+        <translation>空间本身</translation>
     </message>
     <message>
         <location line="+27"/>
         <source>%1 (%2 of %3 selected)</source>
-        <translation type="unfinished"></translation>
+        <translation>%1（已选 %2 / %3）</translation>
     </message>
     <message>
         <location line="+81"/>
         <source>This space has more rooms than Lightning checks at once. Rooms past the limit are not listed and are left unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>此空间的房间数超过了 Lightning 一次检查的上限。超出上限的房间不会列出，并保持不变。</translation>
     </message>
     <message>
         <location line="+38"/>
         <source>Close</source>
-        <translation type="unfinished">关闭</translation>
+        <translation>关闭</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Done</source>
-        <translation type="unfinished">完成</translation>
+        <translation>完成</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Working…</source>
-        <translation type="unfinished">处理中…</translation>
+        <translation>处理中…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Waiting</source>
-        <translation type="unfinished"></translation>
+        <translation>等待中</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Skipped</source>
-        <translation type="unfinished"></translation>
+        <translation>已跳过</translation>
     </message>
 </context>
 <context>
@@ -21732,202 +21746,202 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/spaces/SpaceModerationController.cpp" line="+53"/>
         <source>No answer. It may still have happened: check before retrying.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有回复。它可能已经发生：请在重试前检查。</translation>
     </message>
     <message>
         <location line="+73"/>
         <source>An earlier action is still running and is shown here. Start the new one when it has finished.</source>
-        <translation type="unfinished"></translation>
+        <translation>之前的操作仍在进行中，已在此显示。请等它完成后再开始新的操作。</translation>
     </message>
     <message>
         <location line="+282"/>
         <source>The request could not be sent.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法发送请求。</translation>
     </message>
     <message>
         <location line="+47"/>
         <source>Not a member here</source>
-        <translation type="unfinished"></translation>
+        <translation>此处不是成员</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Already banned here</source>
-        <translation type="unfinished"></translation>
+        <translation>此处已被封禁</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not banned here</source>
-        <translation type="unfinished"></translation>
+        <translation>此处未被封禁</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You don&apos;t have permission here</source>
-        <translation type="unfinished"></translation>
+        <translation>你在此处没有权限</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Their role here is not below yours</source>
-        <translation type="unfinished"></translation>
+        <translation>其在此处的角色不低于你</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You are not in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>你不在此房间中</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Their membership here could not be checked</source>
-        <translation type="unfinished"></translation>
+        <translation>无法检查其在此处的成员身份</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Not checked in time; left unchanged</source>
-        <translation type="unfinished"></translation>
+        <translation>未能及时检查；保持不变</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Not available here</source>
-        <translation type="unfinished"></translation>
+        <translation>此处不可用</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The server refused. You may not have permission here.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了请求。你在此处可能没有权限。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>The server is rate limiting. Try again shortly.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器正在限制请求。请稍后再试。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Failed. Check your connection and retry.</source>
-        <translation type="unfinished"></translation>
+        <translation>失败。请检查网络连接后重试。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>this space</source>
-        <translation type="unfinished"></translation>
+        <translation>此空间</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Kick %1 from rooms in %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>要将 %1 从 %2 中的房间踢出吗？</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ban %1 from rooms in %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>要将 %1 从 %2 中的房间封禁吗？</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unban %1 in rooms of %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>要在 %2 的房间中解除 %1 的封禁吗？</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Kick %1 from %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>要将 %1 从 %2 中踢出吗？</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ban %1 from %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>要将 %1 从 %2 中封禁吗？</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unban %1 in %2?</source>
-        <translation type="unfinished"></translation>
+        <translation>要在 %2 中解除 %1 的封禁吗？</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>The space itself is unchanged (%1). Only the rooms selected below are affected.</source>
-        <translation type="unfinished"></translation>
+        <translation>空间本身不会更改（%1）。只影响下方所选的房间。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>They are removed from the space and can join again if invited, or if the space is public. Kicking from the space alone does not remove them from its rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>他们会被移出空间，如果受到邀请或空间是公开的，仍可再次加入。仅从空间中踢出，并不会将他们从空间的房间中移除。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>They are removed from the space and cannot join it again until someone unbans them. Banning from the space alone does not remove them from its rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>他们会被移出空间，在有人解除其封禁之前无法再次加入。仅从空间中封禁，并不会将他们从空间的房间中移除。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>They can join the space again if invited, or if the space is public. They are not invited back.</source>
-        <translation type="unfinished"></translation>
+        <translation>如果受到邀请或空间是公开的，他们可以再次加入空间。他们不会被重新邀请。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Also kick them from rooms in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>同时将他们从此空间的房间中踢出</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Also ban them from rooms in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>同时将他们从此空间的房间中封禁</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Also unban them in rooms in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>同时解除他们在此空间房间中的封禁</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Kick</source>
-        <translation type="unfinished">踢</translation>
+        <translation>踢出</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Ban</source>
-        <translation type="unfinished">封禁</translation>
+        <translation>封禁</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unban</source>
-        <translation type="unfinished">解除封禁</translation>
+        <translation>解除封禁</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Checking where you can do this… This takes at most half a minute.</source>
-        <translation type="unfinished"></translation>
+        <translation>正在检查你可以在哪里执行此操作…… 最多需要半分钟。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Lightning could not check this space&apos;s rooms. Nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法检查此空间中的房间。未更改任何内容。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>There is nowhere you can do this: see the reasons below.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有可以执行此操作的地方：请参见下方的原因。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 of the rooms could not be checked in time. They are not offered and will be left unchanged.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 个房间未能及时检查。它们不会提供此操作，并将保持不变。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Working: %1 of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>正在处理：%1 / %2</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Done: %1 succeeded, %2 failed, %3 not known. The rooms are marked below.</source>
-        <translation type="unfinished"></translation>
+        <translation>已完成：%1 个成功，%2 个失败，%3 个未知。失败的房间已在下方标记。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Done: %1 succeeded.</source>
-        <translation type="unfinished"></translation>
+        <translation>已完成：%1 个成功。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Done with errors: %1 succeeded, %2 failed. The failed rooms are marked below.</source>
-        <translation type="unfinished"></translation>
+        <translation>已完成但有错误：%1 个成功，%2 个失败。失败的房间已在下方标记。</translation>
     </message>
 </context>
 <context>
@@ -22093,12 +22107,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-16"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -22169,7 +22183,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+11"/>
         <source>Chat background</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -22235,42 +22249,42 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+16"/>
         <source>Upgrading is irreversible: it creates a new space and marks this one as replaced. The rooms this space lists stay listed by the OLD space; re-add them to the new one afterwards.</source>
-        <translation type="unfinished"></translation>
+        <translation>升级不可逆：它会创建一个新空间，并将此空间标记为已被取代。此空间列出的房间仍由旧空间列出；之后请将它们重新添加到新空间中。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Only someone allowed to send m.room.tombstone can upgrade this space.</source>
-        <translation type="unfinished"></translation>
+        <translation>只有有权发送 m.room.tombstone 的人才能升级此空间。</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Upgrade space…</source>
-        <translation type="unfinished"></translation>
+        <translation>升级空间…</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>Close or delete</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭或删除</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Closing makes the space and the rooms you choose invite-only and removes the members you are allowed to remove. Nothing is deleted: history stays on every server that took part.</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭会使空间和你选择的房间变为仅限邀请，并移除你有权移除的成员。不会删除任何内容：历史记录仍保留在每个参与的服务器上。</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Close space…</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭空间…</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Delete from server…</source>
-        <translation type="unfinished"></translation>
+        <translation>从服务器删除…</translation>
     </message>
     <message numerus="yes">
         <location line="+35"/>
         <source>%n member(s)</source>
-        <translation type="unfinished">
+        <translation>
             <numerusform>%n 位成员</numerusform>
         </translation>
     </message>
@@ -22339,7 +22353,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+135"/>
         <source>Actions for %1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 的操作</translation>
     </message>
     <message>
         <location line="+30"/>
@@ -22474,57 +22488,57 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+80"/>
         <source>Role in this space</source>
-        <translation type="unfinished"></translation>
+        <translation>此空间中的角色</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>Kick from space…</source>
-        <translation type="unfinished"></translation>
+        <translation>从空间中踢出…</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Ban from space…</source>
-        <translation type="unfinished"></translation>
+        <translation>从空间中封禁…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Unban…</source>
-        <translation type="unfinished"></translation>
+        <translation>解除封禁…</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>You can&apos;t change this member</source>
-        <translation type="unfinished"></translation>
+        <translation>你无法更改此成员</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Lower your own role?</source>
-        <translation type="unfinished"></translation>
+        <translation>降低你自己的角色？</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Change role?</source>
-        <translation type="unfinished"></translation>
+        <translation>更改角色？</translation>
     </message>
     <message>
         <location line="+43"/>
         <source>Set %1 to %2 in this space? Roles in the space&apos;s rooms are set in each room.</source>
-        <translation type="unfinished"></translation>
+        <translation>在此空间中将 %1 设为 %2？空间房间中的角色需要在各个房间中分别设置。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>This gives them your own level or higher. You will not be able to change it back.</source>
-        <translation type="unfinished"></translation>
+        <translation>这会将其设为你自己的级别或更高。你将无法将其改回。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>You are lowering your own role. You will not be able to raise it back yourself: only someone whose role is above your new one can, and if nobody else holds a role as high as yours, nobody can.</source>
-        <translation type="unfinished"></translation>
+        <translation>你正在降低自己的角色。你将无法自行将其提回：只有角色高于你新角色的人才能提升，如果没有其他人持有与你原来相同的角色，则任何人都无法提升。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>You will also no longer be able to change roles or permissions in this space.</source>
-        <translation type="unfinished"></translation>
+        <translation>你也将无法再更改此空间中的角色或权限。</translation>
     </message>
 </context>
 <context>
@@ -22591,12 +22605,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+4"/>
         <source>Mentions: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>提及：%1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unread messages</source>
-        <translation type="unfinished"></translation>
+        <translation>未读消息</translation>
     </message>
     <message>
         <location line="+290"/>
@@ -22679,7 +22693,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+14"/>
         <source>Mark all rooms read</source>
-        <translation type="unfinished"></translation>
+        <translation>将所有房间标记为已读</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -22735,22 +22749,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+7"/>
         <source>Order Spaces by</source>
-        <translation type="unfinished"></translation>
+        <translation>空间排序方式</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Manual</source>
-        <translation type="unfinished"></translation>
+        <translation>手动</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>A–Z</source>
-        <translation type="unfinished"></translation>
+        <translation>A–Z</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Recent activity</source>
-        <translation type="unfinished"></translation>
+        <translation>最近活动</translation>
     </message>
     <message>
         <location line="+53"/>
@@ -22798,7 +22812,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/text/SpellChecker.cpp" line="+337"/>
         <source>Automatic (system language)</source>
-        <translation type="unfinished"></translation>
+        <translation>自动（系统语言）</translation>
     </message>
 </context>
 <context>
@@ -22806,92 +22820,92 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/StatusDialog.qml" line="+82"/>
         <source>Set a status</source>
-        <translation type="unfinished"></translation>
+        <translation>设置状态</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Status emoji</source>
-        <translation type="unfinished"></translation>
+        <translation>状态表情</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Working from home</source>
-        <translation type="unfinished"></translation>
+        <translation>在家办公</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Status text</source>
-        <translation type="unfinished"></translation>
+        <translation>状态文字</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Clear after (your local time)</source>
-        <translation type="unfinished"></translation>
+        <translation>清除时间（你的本地时间）</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Never</source>
-        <translation type="unfinished">从不</translation>
+        <translation>从不</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>30 min</source>
-        <translation type="unfinished"></translation>
+        <translation>30 分钟</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>1 hour</source>
-        <translation type="unfinished"></translation>
+        <translation>1 小时</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>4 hours</source>
-        <translation type="unfinished"></translation>
+        <translation>4 小时</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Today</source>
-        <translation type="unfinished">今天</translation>
+        <translation>今天</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Custom</source>
-        <translation type="unfinished"></translation>
+        <translation>自定义</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>yyyy-mm-dd</source>
-        <translation type="unfinished"></translation>
+        <translation>yyyy-mm-dd</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>hh:mm</source>
-        <translation type="unfinished"></translation>
+        <translation>hh:mm</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Pick a date and time in the future.</source>
-        <translation type="unfinished"></translation>
+        <translation>请选择一个未来的日期和时间。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Everyone on Matrix sees the emoji and text as your presence status. The clear-after time is handled by Lightning on this account.</source>
-        <translation type="unfinished"></translation>
+        <translation>Matrix 上的所有人都会将表情和文字视为你的在线状态。清除时间由 Lightning 在此账号上处理。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Clear status</source>
-        <translation type="unfinished"></translation>
+        <translation>清除状态</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Set status</source>
-        <translation type="unfinished"></translation>
+        <translation>设置状态</translation>
     </message>
 </context>
 <context>
@@ -22899,124 +22913,124 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/StickerPackEditor.qml" line="+79"/>
         <source>Export pack</source>
-        <translation type="unfinished"></translation>
+        <translation>导出表情包</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+9"/>
         <source>Sticker pack (*.zip)</source>
-        <translation type="unfinished"></translation>
+        <translation>表情包 (*.zip)</translation>
     </message>
     <message>
         <location line="-2"/>
         <source>Import a sticker pack</source>
-        <translation type="unfinished"></translation>
+        <translation>导入表情包</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Saved.</source>
-        <translation type="unfinished">已保存。</translation>
+        <translation>已保存。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>That name is already used in this pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>此表情包中已使用该名称。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That name cannot be used.</source>
-        <translation type="unfinished"></translation>
+        <translation>该名称不可用。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That is no longer in the pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>该项已不在表情包中。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>You do not have permission to change this room&apos;s pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>你没有权限更改此房间的表情包。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That change could not be saved.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法保存该更改。</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Manage pack</source>
-        <translation type="unfinished"></translation>
+        <translation>管理表情包</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Pack name</source>
-        <translation type="unfinished"></translation>
+        <translation>表情包名称</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+154"/>
         <source>Rename</source>
-        <translation type="unfinished">重命名</translation>
+        <translation>重命名</translation>
     </message>
     <message>
         <location line="-142"/>
         <source>Leave the name empty to use the default — for a room&apos;s pack that is the room&apos;s own name.</source>
-        <translation type="unfinished"></translation>
+        <translation>留空则使用默认名称——对于房间的表情包，即房间自身的名称。</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>This pack belongs to a room, and you do not have permission to change it here.</source>
-        <translation type="unfinished"></translation>
+        <translation>此表情包属于一个房间，而你在此处没有权限更改它。</translation>
     </message>
     <message>
         <location line="+131"/>
         <source>Save</source>
-        <translation type="unfinished">保存</translation>
+        <translation>保存</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Remove</source>
-        <translation type="unfinished"></translation>
+        <translation>移除</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>This pack has no images.</source>
-        <translation type="unfinished"></translation>
+        <translation>此表情包没有图片。</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Delete everything in this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>删除此表情包中的所有内容</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Delete pack</source>
-        <translation type="unfinished"></translation>
+        <translation>删除表情包</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Export…</source>
-        <translation type="unfinished"></translation>
+        <translation>导出…</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>sticker-pack</source>
-        <translation type="unfinished"></translation>
+        <translation>sticker-pack</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Import…</source>
-        <translation type="unfinished"></translation>
+        <translation>导入…</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Done</source>
-        <translation type="unfinished">完成</translation>
+        <translation>完成</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>This removes every image and the pack&apos;s name. It cannot be undone, and for a room&apos;s pack everyone in the room loses it.</source>
-        <translation type="unfinished"></translation>
+        <translation>这将移除所有图片以及表情包的名称。此操作无法撤销；对于房间的表情包，房间中的所有人都会失去它。</translation>
     </message>
 </context>
 <context>
@@ -23024,145 +23038,145 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/stickers/StickerPackManager.cpp" line="+744"/>
         <source>Enter a name.</source>
-        <translation type="unfinished"></translation>
+        <translation>请输入名称。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Names can be at most 64 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>名称最多 64 个字符。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Use only letters, numbers, - and _ (no spaces, colons or accents).</source>
-        <translation type="unfinished"></translation>
+        <translation>只能使用字母、数字、- 和 _（不能包含空格、冒号或重音符号）。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>A name cannot start or end with - or _, or contain __.</source>
-        <translation type="unfinished"></translation>
+        <translation>名称不能以 - 或 _ 开头或结尾，也不能包含 __。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Another image in this pack already uses that name.</source>
-        <translation type="unfinished"></translation>
+        <translation>此表情包中的另一张图片已使用该名称。</translation>
     </message>
     <message>
         <location line="+241"/>
         <source>This pack has no images to export.</source>
-        <translation type="unfinished"></translation>
+        <translation>此表情包没有可导出的图片。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That pack has no usable images. SVG files are not accepted.</source>
-        <translation type="unfinished"></translation>
+        <translation>该表情包没有可用的图片。不接受 SVG 文件。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>None of the images could be downloaded, so nothing was exported.</source>
-        <translation type="unfinished"></translation>
+        <translation>所有图片都无法下载，因此未导出任何内容。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>The file could not be written.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法写入该文件。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That file is not a readable sticker pack.</source>
-        <translation type="unfinished"></translation>
+        <translation>该文件不是可读取的表情包。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>That ZIP is not a Lightning sticker pack (it has no pack.json).</source>
-        <translation type="unfinished"></translation>
+        <translation>该 ZIP 不是 Lightning 的表情包（缺少 pack.json）。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That pack file is damaged, or was made by a newer version of Lightning.</source>
-        <translation type="unfinished"></translation>
+        <translation>该表情包文件已损坏，或由较新版本的 Lightning 创建。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Your pack is full. Remove some images in another client to add more.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的表情包已满。请先在其他客户端中移除一些图片再添加。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That pack is no longer available.</source>
-        <translation type="unfinished"></translation>
+        <translation>该表情包已不可用。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The pack could not be exported.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法导出该表情包。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The emoji could not be added.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法添加该表情。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>The pack could not be imported.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法导入该表情包。</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>Exported %n image(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已导出 %n 张图片。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Already in your custom emoji.</source>
-        <translation type="unfinished"></translation>
+        <translation>已在你的自定义表情中。</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>Added %n custom emoji to your pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已将 %n 个自定义表情添加到你的表情包。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Everything in that pack is already in yours.</source>
-        <translation type="unfinished"></translation>
+        <translation>该表情包中的内容已全部在你的表情包中。</translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>Added %n image(s) to your pack.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已将 %n 张图片添加到你的表情包。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+5"/>
         <source>%n could not be included.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 项无法包含在内。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n already there or not usable.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 项已存在或不可用。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
         <source>%n could not be downloaded.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 项无法下载。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+1"/>
         <source>%n failed.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 项失败。</numerusform>
         </translation>
     </message>
 </context>
@@ -23171,86 +23185,86 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/StickerPacksSettings.qml" line="+35"/>
         <source>Emoji and sticker packs</source>
-        <translation type="unfinished"></translation>
+        <translation>表情和贴纸包</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>A room&apos;s packs work inside that room. Turn on Use everywhere to use a pack in every room. Packs from the room you have open and the ones you turned on are listed here.</source>
-        <translation type="unfinished"></translation>
+        <translation>房间的表情包仅在该房间内有效。开启“在所有地方使用”即可在每个房间中使用某个表情包。你当前打开的房间的表情包，以及你开启的表情包，都会列在此处。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Packs are not available with this connection.</source>
-        <translation type="unfinished"></translation>
+        <translation>当前连接不支持表情包。</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Room pack</source>
-        <translation type="unfinished"></translation>
+        <translation>房间表情包</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your pack</source>
-        <translation type="unfinished">你的包</translation>
+        <translation>你的表情包</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n sticker(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个贴纸</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>%n emoji</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个表情</numerusform>
         </translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Use %1 in every room</source>
-        <translation type="unfinished"></translation>
+        <translation>在每个房间中使用 %1</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Use everywhere</source>
-        <translation type="unfinished">随处使用</translation>
+        <translation>在所有地方使用</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Manage</source>
-        <translation type="unfinished">管理</translation>
+        <translation>管理</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>No packs yet. Import one, or add a sticker from the sticker picker to start your own.</source>
-        <translation type="unfinished"></translation>
+        <translation>还没有表情包。导入一个，或从贴纸选择器中添加贴纸，即可创建你自己的表情包。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Import a sticker pack</source>
-        <translation type="unfinished"></translation>
+        <translation>导入贴纸包</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Sticker pack (*.zip)</source>
-        <translation type="unfinished"></translation>
+        <translation>贴纸包 (*.zip)</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Import a pack…</source>
-        <translation type="unfinished"></translation>
+        <translation>导入表情包…</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>%1 of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 / %2</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>That could not be changed. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法更改。请稍后再试。</translation>
     </message>
 </context>
 <context>
@@ -23258,7 +23272,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/StickerPicker.qml" line="+135"/>
         <source>GIFs</source>
-        <translation type="unfinished">GIF</translation>
+        <translation>GIF</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -23274,7 +23288,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+2"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>图片 (*.png *.jpg *.jpeg *.webp *.gif *.svg)</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -23289,12 +23303,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+17"/>
         <source>Manage this pack</source>
-        <translation type="unfinished"></translation>
+        <translation>管理此表情包</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Manage pack</source>
-        <translation type="unfinished"></translation>
+        <translation>管理表情包</translation>
     </message>
     <message>
         <location line="+19"/>
@@ -23387,42 +23401,42 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/media/SvgRaster.h" line="+478"/>
         <source>That SVG is too large to convert (the limit is 2 MB).</source>
-        <translation type="unfinished"></translation>
+        <translation>该 SVG 过大，无法转换（上限为 2 MB）。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Compressed SVG (.svgz) can&apos;t be converted. Save it as a plain .svg and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法转换压缩的 SVG（.svgz）。请将其另存为普通的 .svg 后重试。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>That SVG is too complex to convert.</source>
-        <translation type="unfinished"></translation>
+        <translation>该 SVG 过于复杂，无法转换。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That SVG links to other files or images, which Lightning won&apos;t load. Embed or remove them and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>该 SVG 链接了其他文件或图片，而 Lightning 不会加载它们。请将其嵌入或移除后重试。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>That SVG contains text, which can&apos;t be converted on this platform. Convert the text to outlines and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>该 SVG 包含文字，而此平台无法转换文字。请将文字转换为轮廓后重试。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This build of Lightning can&apos;t convert SVG pictures.</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本的 Lightning 无法转换 SVG 图片。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>That file isn&apos;t a valid SVG.</source>
-        <translation type="unfinished"></translation>
+        <translation>该文件不是有效的 SVG。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>That SVG uses features Lightning can&apos;t convert.</source>
-        <translation type="unfinished"></translation>
+        <translation>该 SVG 使用了 Lightning 无法转换的功能。</translation>
     </message>
 </context>
 <context>
@@ -23446,200 +23460,200 @@ Note: importing keys does not verify this session.</source>
         <location line="-976"/>
         <source>Theme imported. %n thing(s) in it will be hard to read.</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>主题已导入。其中 %n 项内容会难以阅读。</numerusform>
         </translation>
     </message>
     <message>
         <location line="-156"/>
         <source>Replace with %1</source>
-        <translation type="unfinished"></translation>
+        <translation>替换为 %1</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Start from %1</source>
-        <translation type="unfinished"></translation>
+        <translation>从 %1 开始</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Started over from %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>已从 %1 重新开始。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Now based on %1; your changes are kept.</source>
-        <translation type="unfinished"></translation>
+        <translation>现在基于 %1；你的更改已保留。</translation>
     </message>
     <message>
         <location line="+106"/>
         <source>Copied. Paste it to share it.</source>
-        <translation type="unfinished"></translation>
+        <translation>已复制。粘贴即可分享。</translation>
     </message>
     <message>
         <location line="+50"/>
         <source>That is not a theme file Lightning can read.</source>
-        <translation type="unfinished"></translation>
+        <translation>这不是 Lightning 可以读取的主题文件。</translation>
     </message>
     <message>
         <location line="+210"/>
         <location line="+7"/>
         <source>Undo: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>撤销：%1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing to undo</source>
-        <translation type="unfinished"></translation>
+        <translation>没有可撤销的内容</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Redo: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>重做：%1</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing to redo</source>
-        <translation type="unfinished"></translation>
+        <translation>没有可重做的内容</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>Reset %1 to its group</source>
-        <translation type="unfinished"></translation>
+        <translation>将 %1 恢复为其所在分组的颜色</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>%1 follows %2 again.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 已重新跟随 %2。</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>%1 now gives its colour to all of %2.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 现在将其颜色提供给 %2 的全部内容。</translation>
     </message>
     <message>
         <location line="+41"/>
         <source>Include the elements of %1</source>
-        <translation type="unfinished"></translation>
+        <translation>包括 %1 的元素</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Every element of %1 follows it now.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 的每个元素现在都跟随它。</translation>
     </message>
     <message>
         <location line="+25"/>
         <source>Unlink %1</source>
-        <translation type="unfinished"></translation>
+        <translation>取消关联 %1</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>%1 is no longer linked to %2.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 已不再与 %2 关联。</translation>
     </message>
     <message>
         <location line="+42"/>
         <source>No lightness of %1 clears the bar. Try changing the colour beside it.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 的任何亮度都无法达到标准。请尝试更改其旁边的颜色。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Make %1 readable</source>
-        <translation type="unfinished"></translation>
+        <translation>使 %1 可读</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>%1 is easier to read now.</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 现在更易于阅读。</translation>
     </message>
     <message>
         <location line="+70"/>
         <source>Own colour</source>
-        <translation type="unfinished"></translation>
+        <translation>自有颜色</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Linked to %1</source>
-        <translation type="unfinished"></translation>
+        <translation>与 %1 关联</translation>
     </message>
     <message>
         <location line="+30"/>
         <source>gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>changed</source>
-        <translation type="unfinished"></translation>
+        <translation>已更改</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>unreadable</source>
-        <translation type="unfinished"></translation>
+        <translation>无法阅读</translation>
     </message>
     <message>
         <location line="+348"/>
         <source>Theme: %1. Open the theme menu</source>
-        <translation type="unfinished"></translation>
+        <translation>主题：%1。打开主题菜单</translation>
     </message>
     <message>
         <location line="+84"/>
         <source>Preview only: choose Use this theme to see it everywhere.</source>
-        <translation type="unfinished"></translation>
+        <translation>仅预览：选择“使用此主题”即可在各处查看。</translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>%n colour(s) changed.</source>
         <comment>custom theme, count of edited roles</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已更改 %n 种颜色。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+38"/>
         <source>Open the readability report</source>
-        <translation type="unfinished"></translation>
+        <translation>打开可读性报告</translation>
     </message>
     <message numerus="yes">
         <location line="+23"/>
         <source>%n thing(s) hard to read</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 项内容难以阅读</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+6"/>
         <source>Readable, %n not checked</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>可读，%n 项未检查</numerusform>
         </translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Readable</source>
-        <translation type="unfinished"></translation>
+        <translation>可读</translation>
     </message>
     <message>
         <location line="+1470"/>
         <source>Click a part of the sample window in the middle, or find a colour in the list on the left, and its colour opens here.</source>
-        <translation type="unfinished"></translation>
+        <translation>点击中间示例窗口的某个部分，或在左侧列表中找到一种颜色，其颜色将在此处打开。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>See what is hard to read</source>
-        <translation type="unfinished"></translation>
+        <translation>查看哪些内容难以阅读</translation>
     </message>
     <message>
         <location line="-2302"/>
         <location line="+863"/>
         <source>Undo</source>
-        <translation type="unfinished"></translation>
+        <translation>撤销</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Redo</source>
-        <translation type="unfinished"></translation>
+        <translation>重做</translation>
     </message>
     <message>
         <location line="+21"/>
@@ -23680,45 +23694,45 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+22"/>
         <source>Base theme: %1. Change</source>
-        <translation type="unfinished"></translation>
+        <translation>基础主题：%1。更改</translation>
     </message>
     <message>
         <location line="+194"/>
         <location line="+19"/>
         <source>Find a colour</source>
-        <translation type="unfinished"></translation>
+        <translation>查找颜色</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Nothing matches that.</source>
-        <translation type="unfinished"></translation>
+        <translation>没有与之匹配的内容。</translation>
     </message>
     <message>
         <location line="+297"/>
         <source>Radial gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>径向渐变</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Linear gradient</source>
-        <translation type="unfinished"></translation>
+        <translation>线性渐变</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>%1 · see-through</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · 半透明</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>follows %1</source>
-        <translation type="unfinished"></translation>
+        <translation>跟随 %1</translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
         <source>%n element(s)</source>
         <comment>custom theme, size of a group</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个元素</numerusform>
         </translation>
     </message>
     <message>
@@ -23734,83 +23748,83 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+58"/>
         <source>Themes</source>
-        <translation type="unfinished"></translation>
+        <translation>主题</translation>
     </message>
     <message>
         <location line="+46"/>
         <source>Share or import a theme</source>
-        <translation type="unfinished"></translation>
+        <translation>分享或导入主题</translation>
     </message>
     <message>
         <location line="+34"/>
         <location line="+452"/>
         <source>Readability report</source>
-        <translation type="unfinished"></translation>
+        <translation>可读性报告</translation>
     </message>
     <message>
         <location line="-413"/>
         <source>Drop a theme file to see what it would do</source>
-        <translation type="unfinished"></translation>
+        <translation>拖入一个主题文件，即可查看它会产生的效果</translation>
     </message>
     <message>
         <location line="+97"/>
         <source>Under the pointer</source>
-        <translation type="unfinished"></translation>
+        <translation>指针所在处</translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Reset: follow %1 again</source>
-        <translation type="unfinished"></translation>
+        <translation>重置：重新跟随 %1</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Reset to the base theme</source>
-        <translation type="unfinished">重置为基础主题</translation>
+        <translation>恢复为基础主题</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Gradient colour: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变颜色：%1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Solid colour underneath the gradient, also used by what follows this one</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变底层的纯色，也由跟随此项的内容使用</translation>
     </message>
     <message>
         <location line="+133"/>
         <source>Readability</source>
-        <translation type="unfinished"></translation>
+        <translation>可读性</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Make readable</source>
-        <translation type="unfinished"></translation>
+        <translation>使其可读</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Move this colour to the nearest one that is easy to read against its neighbours</source>
-        <translation type="unfinished"></translation>
+        <translation>将此颜色调整为与其相邻颜色最容易阅读的颜色</translation>
     </message>
     <message>
         <location line="+58"/>
         <source>see-through</source>
-        <translation type="unfinished"></translation>
+        <translation>半透明</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>%1:1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1:1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>ΔL* %1</source>
-        <translation type="unfinished"></translation>
+        <translation>ΔL* %1</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>/ %1</source>
-        <translation type="unfinished"></translation>
+        <translation>/ %1</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -23823,37 +23837,37 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/ThemeLevelSwitch.qml" line="+19"/>
         <source>Simple</source>
-        <translation type="unfinished"></translation>
+        <translation>简单</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Groups</source>
-        <translation type="unfinished"></translation>
+        <translation>分组</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Elements</source>
-        <translation type="unfinished"></translation>
+        <translation>元素</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A few base colours; everything else follows them</source>
-        <translation type="unfinished"></translation>
+        <translation>少数基础颜色；其他一切都跟随它们</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Each group of colours, such as panels or text</source>
-        <translation type="unfinished"></translation>
+        <translation>每组颜色，例如面板或文字</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Every part of the window on its own</source>
-        <translation type="unfinished"></translation>
+        <translation>窗口的每个部分单独设置</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Detail level</source>
-        <translation type="unfinished"></translation>
+        <translation>详细程度</translation>
     </message>
 </context>
 <context>
@@ -23861,93 +23875,93 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/ThemeLinkRow.qml" line="+127"/>
         <source>Linked to %1. It changes when that does.</source>
-        <translation type="unfinished"></translation>
+        <translation>与 %1 关联。它会随之变化。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Own colour. Part of %1.</source>
-        <translation type="unfinished"></translation>
+        <translation>自有颜色。属于 %1。</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Edit %1</source>
-        <translation type="unfinished"></translation>
+        <translation>编辑 %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Open %1, so a change recolours everything linked to it</source>
-        <translation type="unfinished"></translation>
+        <translation>打开 %1，这样更改它会重新着色所有与之关联的内容</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Unlink</source>
-        <translation type="unfinished"></translation>
+        <translation>取消关联</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Keep the colour it has now, and stop it following %1</source>
-        <translation type="unfinished"></translation>
+        <translation>保留它现在的颜色，并停止它跟随 %1</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Reset to group</source>
-        <translation type="unfinished"></translation>
+        <translation>恢复为分组颜色</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Take the colour of %1 again</source>
-        <translation type="unfinished"></translation>
+        <translation>重新采用 %1 的颜色</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Apply to all %1</source>
-        <translation type="unfinished"></translation>
+        <translation>应用于全部 %1</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Give this colour to %1 and everything in it</source>
-        <translation type="unfinished"></translation>
+        <translation>将此颜色提供给 %1 及其中的全部内容</translation>
     </message>
     <message numerus="yes">
         <location line="+17"/>
         <source>Also changes %n element(s)</source>
         <comment>custom theme, count of linked elements</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>同时更改 %n 个元素</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Hide</source>
-        <translation type="unfinished">隐藏</translation>
+        <translation>隐藏</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Show</source>
-        <translation type="unfinished">显示</translation>
+        <translation>显示</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>List the elements that follow this colour</source>
-        <translation type="unfinished"></translation>
+        <translation>列出跟随此颜色的元素</translation>
     </message>
     <message numerus="yes">
         <location line="+14"/>
         <source>%n keep their own colour</source>
         <comment>custom theme, count of elements that do not follow</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个保留各自的颜色</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Include them</source>
-        <translation type="unfinished"></translation>
+        <translation>一并包括</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Give them this colour too, dropping their own</source>
-        <translation type="unfinished"></translation>
+        <translation>同时将此颜色也给予它们，取代它们自己的颜色</translation>
     </message>
 </context>
 <context>
@@ -23955,73 +23969,73 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/ThemeMenuPanel.qml" line="+100"/>
         <source>Your themes</source>
-        <translation type="unfinished">你的主题</translation>
+        <translation>你的主题</translation>
     </message>
     <message>
         <location line="+55"/>
         <location line="+41"/>
         <location line="+144"/>
         <source>Untitled</source>
-        <translation type="unfinished">未命名</translation>
+        <translation>未命名</translation>
     </message>
     <message numerus="yes">
         <location line="-133"/>
         <source>%n changed</source>
         <comment>custom theme, edited colours</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已更改 %n 项</numerusform>
         </translation>
     </message>
     <message>
         <location line="+34"/>
         <source>Name</source>
-        <translation type="unfinished">名称</translation>
+        <translation>名称</translation>
     </message>
     <message>
         <location line="+31"/>
         <source>Theme name</source>
-        <translation type="unfinished">主题名称</translation>
+        <translation>主题名称</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Name this theme</source>
-        <translation type="unfinished">为此主题命名</translation>
+        <translation>为此主题命名</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>New</source>
-        <translation type="unfinished">新建</translation>
+        <translation>新建</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Duplicate</source>
-        <translation type="unfinished">复制</translation>
+        <translation>复制</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Share…</source>
-        <translation type="unfinished"></translation>
+        <translation>分享…</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Import…</source>
-        <translation type="unfinished"></translation>
+        <translation>导入…</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+29"/>
         <source>Delete</source>
-        <translation type="unfinished">删除</translation>
+        <translation>删除</translation>
     </message>
     <message>
         <location line="-12"/>
         <source>Delete “%1”? This cannot be undone.</source>
-        <translation type="unfinished"></translation>
+        <translation>要删除“%1”吗？此操作无法撤销。</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Keep</source>
-        <translation type="unfinished">保留</translation>
+        <translation>保留</translation>
     </message>
 </context>
 <context>
@@ -24030,35 +24044,35 @@ Note: importing keys does not verify this session.</source>
         <location filename="../qml/ThemePresetPrompt.qml" line="+33"/>
         <location line="+76"/>
         <source>Start from %1?</source>
-        <translation type="unfinished"></translation>
+        <translation>从 %1 开始？</translation>
     </message>
     <message numerus="yes">
         <location line="+10"/>
         <source>This theme has %n colour(s) of its own.</source>
         <comment>custom theme, count of edited roles</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>此主题有 %n 种自有颜色。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Keep them on top of the new preset, or start over from it?</source>
-        <translation type="unfinished"></translation>
+        <translation>要将它们保留在新预设之上，还是从该预设重新开始？</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Keep my changes</source>
-        <translation type="unfinished"></translation>
+        <translation>保留我的更改</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Replace</source>
-        <translation type="unfinished"></translation>
+        <translation>替换</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
 </context>
 <context>
@@ -24134,22 +24148,22 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-140"/>
         <source>Sample window. Tab or the arrow keys move between its parts, Enter edits one, Escape goes back to the list.</source>
-        <translation type="unfinished"></translation>
+        <translation>示例窗口。使用 Tab 或方向键在其各部分之间移动，Enter 编辑某一部分，Escape 返回列表。</translation>
     </message>
     <message>
         <location line="+131"/>
         <source>New release is out</source>
-        <translation type="unfinished"></translation>
+        <translation>新版本已发布</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Support</source>
-        <translation type="unfinished"></translation>
+        <translation>支持</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Open, pointer on it</source>
-        <translation type="unfinished"></translation>
+        <translation>打开，指针悬停其上</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -24170,17 +24184,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="-884"/>
         <source>Favourites</source>
-        <translation type="unfinished"></translation>
+        <translation>收藏</translation>
     </message>
     <message>
         <location line="+277"/>
         <source>Call in progress</source>
-        <translation type="unfinished"></translation>
+        <translation>通话进行中</translation>
     </message>
     <message>
         <location line="+53"/>
         <source>12:41</source>
-        <translation type="unfinished"></translation>
+        <translation>12:41</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -24225,17 +24239,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+24"/>
         <source>+1</source>
-        <translation type="unfinished"></translation>
+        <translation>+1</translation>
     </message>
     <message>
         <location line="+37"/>
         <source>Typing </source>
-        <translation type="unfinished"></translation>
+        <translation>正在输入 </translation>
     </message>
     <message>
         <location line="+14"/>
         <source>this</source>
-        <translation type="unfinished"></translation>
+        <translation>这个</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -24245,82 +24259,82 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+57"/>
         <source>Reply</source>
-        <translation type="unfinished">回复</translation>
+        <translation>回复</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Forward</source>
-        <translation type="unfinished">转发</translation>
+        <translation>转发</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Delete</source>
-        <translation type="unfinished">删除</translation>
+        <translation>删除</translation>
     </message>
     <message>
         <location line="+54"/>
         <source>Admins</source>
-        <translation type="unfinished"></translation>
+        <translation>管理员</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>Invited</source>
-        <translation type="unfinished">已邀请</translation>
+        <translation>已邀请</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Banned</source>
-        <translation type="unfinished">已封禁</translation>
+        <translation>已封禁</translation>
     </message>
     <message>
         <location line="+82"/>
         <source>Open room</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的房间</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Room, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>房间，悬停</translation>
     </message>
     <message>
         <location line="-92"/>
         <source>Verified</source>
-        <translation type="unfinished">已验证</translation>
+        <translation>已验证</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>Open channel</source>
-        <translation type="unfinished"></translation>
+        <translation>打开的频道</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Channel, hovered</source>
-        <translation type="unfinished"></translation>
+        <translation>频道，悬停</translation>
     </message>
     <message>
         <location line="+55"/>
         <source>Quiet button</source>
-        <translation type="unfinished"></translation>
+        <translation>普通按钮</translation>
     </message>
     <message>
         <location line="+57"/>
         <source>Settings</source>
-        <translation type="unfinished">设置</translation>
+        <translation>设置</translation>
     </message>
     <message>
         <location line="+40"/>
         <source>Rest</source>
-        <translation type="unfinished"></translation>
+        <translation>静止</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Hover</source>
-        <translation type="unfinished"></translation>
+        <translation>悬停</translation>
     </message>
     <message>
         <location line="+15"/>
         <source>Held</source>
-        <translation type="unfinished"></translation>
+        <translation>按住</translation>
     </message>
     <message>
         <location line="+20"/>
@@ -24333,84 +24347,84 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/ThemeReadabilityPanel.qml" line="+46"/>
         <source>Hard to read</source>
-        <translation type="unfinished"></translation>
+        <translation>难以阅读</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing hard to read</source>
-        <translation type="unfinished"></translation>
+        <translation>没有难以阅读的内容</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Readable</source>
-        <translation type="unfinished"></translation>
+        <translation>可读</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Close the readability report</source>
-        <translation type="unfinished"></translation>
+        <translation>关闭可读性报告</translation>
     </message>
     <message>
         <location line="+36"/>
         <source>These are measured against the same rules the built-in themes meet. Click one to open it, or fix it here.</source>
-        <translation type="unfinished"></translation>
+        <translation>这些内容依据内置主题所满足的同一套规则进行测量。点击其中一项即可打开它，或直接在此修复。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Every text and edge this theme paints clears the bar the built-in themes clear.</source>
-        <translation type="unfinished"></translation>
+        <translation>此主题绘制的每一段文字和每一条边缘都达到了内置主题所达到的标准。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Nothing has been changed yet, so this is the starting preset as it ships.</source>
-        <translation type="unfinished"></translation>
+        <translation>尚未进行任何更改，因此这是原样发布的起始预设。</translation>
     </message>
     <message numerus="yes">
         <location line="+16"/>
         <source>%n colour(s) could not be checked: a see-through colour reads differently depending on what is behind it.</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>有 %n 种颜色无法检查：半透明颜色的显示效果取决于其背后的内容。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+15"/>
         <source>%n check(s) could not be made: this build has no colour by that name.</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>有 %n 项检查无法进行：此版本没有该名称的颜色。</numerusform>
         </translation>
     </message>
     <message>
         <location line="+129"/>
         <source>Aa</source>
         <extracomment>A two-letter type specimen shown on a colour pair to demonstrate its readability. Translate to whichever letters best show this locale&apos;s script — a Latin &quot;Aa&quot; says nothing about legibility in Cyrillic, Greek or CJK.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>文字</translation>
     </message>
     <message>
         <location line="+33"/>
         <source>%1:1 — needs %2:1</source>
-        <translation type="unfinished"></translation>
+        <translation>%1:1 — 需要 %2:1</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>ΔL* %1 — needs %2</source>
-        <translation type="unfinished"></translation>
+        <translation>ΔL* %1 — 需要 %2</translation>
     </message>
     <message>
         <location line="+24"/>
         <source>Make this readable</source>
-        <translation type="unfinished"></translation>
+        <translation>使此项可读</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Move the colour to the nearest one that is easy to read against its neighbours</source>
-        <translation type="unfinished"></translation>
+        <translation>将颜色调整为与其相邻颜色最容易阅读的颜色</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>Fix</source>
-        <translation type="unfinished"></translation>
+        <translation>修复</translation>
     </message>
 </context>
 <context>
@@ -24418,35 +24432,35 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/ThemeSharePanel.qml" line="+121"/>
         <source>Share or import</source>
-        <translation type="unfinished"></translation>
+        <translation>分享或导入</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Share</source>
-        <translation type="unfinished">分享</translation>
+        <translation>分享</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Import</source>
-        <translation type="unfinished">导入</translation>
+        <translation>导入</translation>
     </message>
     <message>
         <location line="+65"/>
         <source>“%1” as a code you can paste to anyone. It holds colours and gradients only, nothing about you or your rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>“%1”，以可粘贴给任何人的代码形式提供。它只包含颜色和渐变，不包含你或你房间的任何信息。</translation>
     </message>
     <message>
         <location line="+2"/>
         <location line="+312"/>
         <source>Untitled</source>
-        <translation type="unfinished">未命名</translation>
+        <translation>未命名</translation>
     </message>
     <message numerus="yes">
         <location line="-301"/>
         <source>%1 · %2 · %n thing(s) in it are hard to read</source>
         <comment>custom theme share summary</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%1 · %2 · 其中 %n 项难以阅读</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -24455,8 +24469,8 @@ Note: importing keys does not verify this session.</source>
         <location line="+220"/>
         <source>%n colour(s)</source>
         <comment>custom theme, edited colours</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 种颜色</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -24465,87 +24479,87 @@ Note: importing keys does not verify this session.</source>
         <location line="+220"/>
         <source>%n gradient(s)</source>
         <comment>custom theme, gradients</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>%n 个渐变</numerusform>
         </translation>
     </message>
     <message>
         <location line="-223"/>
         <source>%1 · %2 · readable</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 · %2 · 可读</translation>
     </message>
     <message>
         <location line="+16"/>
         <source>Copy code</source>
-        <translation type="unfinished">复制代码</translation>
+        <translation>复制代码</translation>
     </message>
     <message>
         <location line="+51"/>
         <source>Paste a shared theme</source>
-        <translation type="unfinished">粘贴分享的主题</translation>
+        <translation>粘贴分享的主题</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>Paste a shared theme, or drop its file on the editor</source>
-        <translation type="unfinished"></translation>
+        <translation>粘贴分享的主题，或将其文件拖到编辑器上</translation>
     </message>
     <message>
         <location line="+56"/>
         <source>A small preview of the theme</source>
-        <translation type="unfinished"></translation>
+        <translation>主题的小预览</translation>
     </message>
     <message>
         <location line="+77"/>
         <source>Based on %1</source>
-        <translation type="unfinished"></translation>
+        <translation>基于 %1</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>%1 · %2</source>
-        <translation type="unfinished">%1 · %2</translation>
+        <translation>%1 · %2</translation>
     </message>
     <message numerus="yes">
         <location line="+18"/>
         <source>%n thing(s) in it would be hard to read (estimated)</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>其中 %n 项内容可能难以阅读（估计）</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Readable (estimated)</source>
-        <translation type="unfinished"></translation>
+        <translation>可读（估计）</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>You already have the most themes there is room for. Replace the current one, or delete another first.</source>
-        <translation type="unfinished"></translation>
+        <translation>你已拥有可容纳的最多主题数。请替换当前主题，或先删除另一个主题。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Import as new theme</source>
-        <translation type="unfinished"></translation>
+        <translation>导入为新主题</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>Replace current</source>
-        <translation type="unfinished"></translation>
+        <translation>替换当前主题</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Replace the colours of “%1” with these. Its name stays, and Undo brings the old colours back.</source>
-        <translation type="unfinished"></translation>
+        <translation>用这些颜色替换“%1”的颜色。其名称保持不变，撤销即可恢复旧颜色。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Clear</source>
-        <translation type="unfinished">清除</translation>
+        <translation>清除</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Replace keeps the name “%1” and changes only its colours and gradients.</source>
-        <translation type="unfinished"></translation>
+        <translation>替换会保留名称“%1”，只更改其颜色和渐变。</translation>
     </message>
 </context>
 <context>
@@ -24553,53 +24567,53 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/ThemeSimplePanel.qml" line="+69"/>
         <source>Start from</source>
-        <translation type="unfinished">起始主题</translation>
+        <translation>从…开始</translation>
     </message>
     <message>
         <location line="+87"/>
         <source>Base colours</source>
-        <translation type="unfinished"></translation>
+        <translation>基础颜色</translation>
     </message>
     <message>
         <location line="+72"/>
         <source>A dark theme. Everything else is worked out from these colours; switch to Groups to refine it.</source>
-        <translation type="unfinished"></translation>
+        <translation>深色主题。其他一切都由这些颜色推算得出；切换到“分组”即可进一步调整。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>A light theme. Everything else is worked out from these colours; switch to Groups to refine it.</source>
-        <translation type="unfinished"></translation>
+        <translation>浅色主题。其他一切都由这些颜色推算得出；切换到“分组”即可进一步调整。</translation>
     </message>
     <message numerus="yes">
         <location line="+47"/>
         <source>%n spot(s) hard to read. Review</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>有 %n 处难以阅读。查看</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+3"/>
         <source>Readable, %n not checked</source>
         <comment>custom theme readability</comment>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>可读，%n 项未检查</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Readable everywhere</source>
-        <translation type="unfinished"></translation>
+        <translation>处处可读</translation>
     </message>
     <message>
         <location line="+20"/>
         <source>Gradients</source>
-        <translation type="unfinished"></translation>
+        <translation>渐变</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The large areas can be a gradient instead of one colour. Open one, then choose Linear or Radial under Fill.</source>
-        <translation type="unfinished"></translation>
+        <translation>大面积区域可以使用渐变，而不是单一颜色。打开其中一个，然后在“填充”下选择“线性”或“径向”。</translation>
     </message>
 </context>
 <context>
@@ -24617,7 +24631,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+57"/>
         <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法从此图片中移除照片详情，因此未发送。你可以在“设置 → 隐私”中更改此项。</translation>
     </message>
     <message>
         <location line="+28"/>
@@ -24842,7 +24856,7 @@ Note: importing keys does not verify this session.</source>
         <location line="+21"/>
         <location line="+128"/>
         <source>Press Enter again to send it as a message.</source>
-        <translation type="unfinished"></translation>
+        <translation>再次按下 Enter 即可将其作为消息发送。</translation>
     </message>
     <message>
         <location line="-89"/>
@@ -24888,17 +24902,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+23"/>
         <source>Insert a GIF or sticker</source>
-        <translation type="unfinished"></translation>
+        <translation>插入 GIF 或贴纸</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>GIFs and stickers are unavailable on this backend</source>
-        <translation type="unfinished"></translation>
+        <translation>此后端不提供 GIF 和贴纸</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>GIFs and stickers</source>
-        <translation type="unfinished"></translation>
+        <translation>GIF 和贴纸</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -25068,12 +25082,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/ThreadUnreadBadge.qml" line="+25"/>
         <source>Mention in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>话题中有提及</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Unread in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>话题中有未读消息</translation>
     </message>
 </context>
 <context>
@@ -25196,12 +25210,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+20"/>
         <source>Threads, mention in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>话题，话题中有提及</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Threads, unread in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>话题，话题中有未读消息</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -25211,12 +25225,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Mention in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>话题中有提及</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Unread in a thread</source>
-        <translation type="unfinished"></translation>
+        <translation>话题中有未读消息</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -25254,17 +25268,17 @@ Note: importing keys does not verify this session.</source>
         <location line="-3663"/>
         <location line="+1"/>
         <source>More room actions</source>
-        <translation type="unfinished"></translation>
+        <translation>更多房间操作</translation>
     </message>
     <message>
         <location line="+70"/>
         <source>Chat background…</source>
-        <translation type="unfinished"></translation>
+        <translation>聊天背景…</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Room settings</source>
-        <translation type="unfinished"></translation>
+        <translation>房间设置</translation>
     </message>
     <message>
         <location line="+161"/>
@@ -25314,12 +25328,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+39"/>
         <source>Jump to date</source>
-        <translation type="unfinished"></translation>
+        <translation>跳转到日期</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Jump to a date in this room</source>
-        <translation type="unfinished"></translation>
+        <translation>跳转到此房间中的某个日期</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -25369,62 +25383,62 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+23"/>
         <source>No matches in loaded messages</source>
-        <translation type="unfinished"></translation>
+        <translation>已加载的消息中没有匹配项</translation>
     </message>
     <message>
         <location line="+11"/>
         <source>Search all rooms for &apos;%1&apos;</source>
-        <translation type="unfinished"></translation>
+        <translation>在所有房间中搜索“%1”</translation>
     </message>
     <message>
         <location line="+32"/>
         <source>Indexing this room&apos;s history…</source>
-        <translation type="unfinished"></translation>
+        <translation>正在为此房间的历史记录建立索引…</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Type at least %1 characters.</source>
-        <translation type="unfinished"></translation>
+        <translation>请至少输入 %1 个字符。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Nothing is indexed yet.</source>
-        <translation type="unfinished"></translation>
+        <translation>尚未建立索引。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Searching %1 messages Lightning has indexed, including encrypted ones.</source>
-        <translation type="unfinished"></translation>
+        <translation>正在搜索 Lightning 已索引的 %1 条消息，包括加密消息。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Index this room</source>
-        <translation type="unfinished"></translation>
+        <translation>为此房间建立索引</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Fetch this room&apos;s older messages so they can be searched</source>
-        <translation type="unfinished"></translation>
+        <translation>获取此房间较早的消息，以便可以搜索</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>Indexed</source>
-        <translation type="unfinished"></translation>
+        <translation>本地索引</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning&apos;s own index. Works in encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 自带的索引。可在加密房间中使用。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Server</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Your homeserver&apos;s search. Covers history this device has never seen, and cannot read encrypted rooms.</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器自带的搜索。涵盖本设备从未见过的历史记录，但无法读取加密房间。</translation>
     </message>
     <message>
         <location line="+44"/>
@@ -25505,17 +25519,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+37"/>
         <source>Jump to first unread message</source>
-        <translation type="unfinished"></translation>
+        <translation>跳转到第一条未读消息</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Go to where you stopped reading</source>
-        <translation type="unfinished"></translation>
+        <translation>前往你上次停止阅读的位置</translation>
     </message>
     <message>
         <location line="+28"/>
         <source>First unread</source>
-        <translation type="unfinished"></translation>
+        <translation>第一条未读</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -25530,19 +25544,19 @@ Note: importing keys does not verify this session.</source>
     <message numerus="yes">
         <location line="+224"/>
         <source>%n message(s) selected</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
+        <translation>
+            <numerusform>已选中 %n 条消息</numerusform>
         </translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Tap messages to select them</source>
-        <translation type="unfinished"></translation>
+        <translation>点击消息以选择</translation>
     </message>
     <message>
         <location line="+19"/>
         <source>Forward…</source>
-        <translation type="unfinished"></translation>
+        <translation>转发…</translation>
     </message>
     <message>
         <location line="+396"/>
@@ -25881,17 +25895,17 @@ Note: importing keys does not verify this session.</source>
         <location line="-5626"/>
         <location line="+91"/>
         <source>View profile</source>
-        <translation type="unfinished">查看个人资料</translation>
+        <translation>查看个人资料</translation>
     </message>
     <message>
         <location line="+4857"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.svg)</translation>
     </message>
     <message>
         <location line="+375"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</source>
-        <translation type="unfinished"></translation>
+        <translation>图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.svg)</translation>
     </message>
     <message>
         <location line="+284"/>
@@ -25960,12 +25974,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/app/TrayIcon.cpp" line="+254"/>
         <source>Show Lightning</source>
-        <translation type="unfinished"></translation>
+        <translation>显示 Lightning</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Quit Lightning</source>
-        <translation type="unfinished">退出Lightning</translation>
+        <translation>退出 Lightning</translation>
     </message>
     <message numerus="yes">
         <location line="+104"/>
@@ -26002,7 +26016,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+43"/>
         <source>Use recovery key instead</source>
-        <translation type="unfinished"></translation>
+        <translation>改用恢复密钥</translation>
     </message>
 </context>
 <context>
@@ -26150,12 +26164,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Updates for this installation are managed by zypper.</source>
-        <translation type="unfinished"></translation>
+        <translation>此安装的更新由 zypper 管理。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Updates for this installation are managed by dnf.</source>
-        <translation type="unfinished"></translation>
+        <translation>此安装的更新由 dnf 管理。</translation>
     </message>
     <message>
         <location line="+36"/>
@@ -26290,7 +26304,7 @@ Note: importing keys does not verify this session.</source>
         <location line="-401"/>
         <source>No check has run since Lightning started.</source>
         <extracomment>Shown under Status when no update check has run since the application started, but one has run before -- the date is on the &quot;Last checked&quot; row above.</extracomment>
-        <translation type="unfinished"></translation>
+        <translation>自 Lightning 启动以来尚未运行过检查。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -26335,12 +26349,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+3"/>
         <source>Updates for this installation are managed by zypper.</source>
-        <translation type="unfinished"></translation>
+        <translation>此安装的更新由 zypper 管理。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Updates for this installation are managed by dnf.</source>
-        <translation type="unfinished"></translation>
+        <translation>此安装的更新由 dnf 管理。</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -26420,12 +26434,12 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+8"/>
         <source>The last update could not be installed, and nothing was changed.</source>
-        <translation type="unfinished"></translation>
+        <translation>上次更新未能安装，未更改任何内容。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Code: %1</source>
-        <translation type="unfinished"></translation>
+        <translation>代码：%1</translation>
     </message>
     <message>
         <location line="+40"/>
@@ -26663,17 +26677,17 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+15"/>
         <source>Hide recovery key</source>
-        <translation type="unfinished"></translation>
+        <translation>隐藏恢复密钥</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Use recovery key instead</source>
-        <translation type="unfinished"></translation>
+        <translation>改用恢复密钥</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>Use key</source>
-        <translation type="unfinished"></translation>
+        <translation>使用密钥</translation>
     </message>
 </context>
 <context>
@@ -26732,7 +26746,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/VoiceConnectedBar.qml" line="+49"/>
         <source>Reconnecting…</source>
-        <translation type="unfinished">正在重新连接...</translation>
+        <translation>正在重新连接…</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -26780,47 +26794,47 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/VoiceMiniPlayer.qml" line="+308"/>
         <source>Now playing: %1 in %2. Go to the message</source>
-        <translation type="unfinished"></translation>
+        <translation>正在播放：%2 中的 %1。前往该消息</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Now playing: %1. Go to the message</source>
-        <translation type="unfinished"></translation>
+        <translation>正在播放：%1。前往该消息</translation>
     </message>
     <message>
         <location line="+84"/>
         <source>This audio cannot be played</source>
-        <translation type="unfinished">无法播放此音频</translation>
+        <translation>无法播放此音频</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Voice message</source>
-        <translation type="unfinished">语音消息</translation>
+        <translation>语音消息</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Audio</source>
-        <translation type="unfinished">音频</translation>
+        <translation>音频</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>%1 of %2</source>
-        <translation type="unfinished"></translation>
+        <translation>%1 / %2</translation>
     </message>
     <message>
         <location line="+17"/>
         <source>Pause playback</source>
-        <translation type="unfinished"></translation>
+        <translation>暂停播放</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Resume playback</source>
-        <translation type="unfinished"></translation>
+        <translation>继续播放</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Stop playback</source>
-        <translation type="unfinished"></translation>
+        <translation>停止播放</translation>
     </message>
 </context>
 <context>
@@ -26838,7 +26852,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+72"/>
         <source>Recording waveform</source>
-        <translation type="unfinished"></translation>
+        <translation>录音波形</translation>
     </message>
     <message>
         <location line="+23"/>
@@ -26904,82 +26918,82 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/models/WidgetController.cpp" line="+308"/>
         <source>Your full Matrix ID</source>
-        <translation type="unfinished"></translation>
+        <translation>你的完整 Matrix ID</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your display name</source>
-        <translation type="unfinished">你的显示名称</translation>
+        <translation>你的显示名称</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>A link to your profile picture</source>
-        <translation type="unfinished"></translation>
+        <translation>你头像图片的链接</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This device&apos;s ID</source>
-        <translation type="unfinished"></translation>
+        <translation>此设备的 ID</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Which room you opened it from</source>
-        <translation type="unfinished"></translation>
+        <translation>你从哪个房间打开它</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Which theme you use</source>
-        <translation type="unfinished"></translation>
+        <translation>你使用的主题</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Which language you use</source>
-        <translation type="unfinished"></translation>
+        <translation>你使用的语言</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your homeserver&apos;s address</source>
-        <translation type="unfinished"></translation>
+        <translation>你的主服务器地址</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>Your IP address, and anything your browser normally sends</source>
-        <translation type="unfinished"></translation>
+        <translation>你的 IP 地址，以及你的浏览器通常发送的任何信息</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Something this build does not recognise (%1)</source>
-        <translation type="unfinished"></translation>
+        <translation>此版本无法识别的内容（%1）</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>This widget&apos;s address is not HTTPS, so Lightning will not open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>此小组件的地址不是 HTTPS，因此 Lightning 不会打开它。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This widget&apos;s address hides its real site behind a name before the @, so Lightning will not open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>此小组件的地址在 @ 之前用一个名称掩盖了其真实站点，因此 Lightning 不会打开它。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>This widget builds its own address out of your profile, which could send your details anywhere. Lightning will not open it.</source>
-        <translation type="unfinished"></translation>
+        <translation>此小组件利用你的个人资料构建其自身的地址，这可能会将你的信息发送到任何地方。Lightning 不会打开它。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>This widget&apos;s address names no site.</source>
-        <translation type="unfinished"></translation>
+        <translation>此小组件的地址未指向任何站点。</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>This widget&apos;s address is not a valid web address.</source>
-        <translation type="unfinished"></translation>
+        <translation>此小组件的地址不是有效的网址。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Lightning cannot open this widget.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法打开此小组件。</translation>
     </message>
 </context>
 <context>
@@ -26987,32 +27001,32 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../qml/WidgetOpenSheet.qml" line="+46"/>
         <source>Open this widget?</source>
-        <translation type="unfinished"></translation>
+        <translation>要打开此小组件吗？</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>Lightning opens widgets in your browser rather than inside the app, so the page cannot reach your account, your keys, or your messages.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 在你的浏览器中打开小组件，而不是在应用内打开，因此该页面无法访问你的账号、密钥或消息。</translation>
     </message>
     <message>
         <location line="+44"/>
         <source>Added by %1</source>
-        <translation type="unfinished"></translation>
+        <translation>由 %1 添加</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The site will receive:</source>
-        <translation type="unfinished"></translation>
+        <translation>该站点将收到：</translation>
     </message>
     <message>
         <location line="+23"/>
         <source>Cancel</source>
-        <translation type="unfinished">取消</translation>
+        <translation>取消</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>Open in browser</source>
-        <translation type="unfinished">在浏览器中打开</translation>
+        <translation>在浏览器中打开</translation>
     </message>
 </context>
 <context>
@@ -27020,57 +27034,57 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/update/UpdateManager.cpp" line="+1053"/>
         <source>Lightning is installed for all users of this computer, so installing an update needs administrator approval, and Windows did not get it. Nothing was changed. Approve the prompt next time, or ask an administrator to install the update.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 为此电脑的所有用户安装，因此安装更新需要管理员批准，而 Windows 未获得该批准。未更改任何内容。下次请批准提示，或请管理员安装更新。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The Windows installer refused the update (code %1). Installing the new version over the old one by hand usually works, and the code is worth reporting.</source>
-        <translation type="unfinished"></translation>
+        <translation>Windows 安装程序拒绝了此更新（代码 %1）。手动将新版本覆盖安装到旧版本上通常可行，此代码值得报告。</translation>
     </message>
     <message>
         <location line="+10"/>
         <source>The downloaded update did not match the signed release, so it was discarded and nothing was changed. This is usually a corrupted download. Checking again is safe.</source>
-        <translation type="unfinished"></translation>
+        <translation>下载的更新与已签名的发布版本不匹配，因此已丢弃，未更改任何内容。这通常是下载损坏所致。再次检查是安全的。</translation>
     </message>
     <message>
         <location line="+18"/>
         <source>The downloaded update could not be read and nothing was changed. Checking for the update again is safe.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法读取下载的更新，未更改任何内容。再次检查更新是安全的。</translation>
     </message>
     <message>
         <location line="+13"/>
         <source>Lightning could not write to its own installation folder, so nothing was changed. This usually means another program is holding files open, or the folder needs administrator rights. Closing Lightning fully and installing the new version by hand will work.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 无法写入其自身的安装文件夹，因此未更改任何内容。这通常意味着其他程序正占用着文件，或该文件夹需要管理员权限。完全关闭 Lightning 并手动安装新版本即可解决。</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Lightning did not finish closing, so the update was cancelled and nothing was changed. If Lightning is set to keep running in the tray, quit it from the tray first, then install the update.</source>
-        <translation type="unfinished"></translation>
+        <translation>Lightning 未能完全关闭，因此更新已取消，未更改任何内容。如果 Lightning 设置为在托盘中保持运行，请先从托盘将其退出，然后再安装更新。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The new version could not be put in place, so the previous one was restored. Nothing was lost.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法放置新版本，因此已恢复为之前的版本。没有任何内容丢失。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The update failed and the previous version could not be fully restored. Please reinstall Lightning from the downloads page. Your messages and account are on the server and are not affected.</source>
-        <translation type="unfinished"></translation>
+        <translation>更新失败，且无法完全恢复之前的版本。请从下载页面重新安装 Lightning。你的消息和账号保存在服务器上，不受影响。</translation>
     </message>
     <message>
         <location line="+7"/>
         <source>The Windows installer could not be started, so nothing was changed. Installing the new version by hand will work.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法启动 Windows 安装程序，因此未更改任何内容。手动安装新版本即可。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>This installation cannot update itself, so nothing was changed. Install the new version the same way this copy was installed.</source>
-        <translation type="unfinished"></translation>
+        <translation>此安装无法自行更新，因此未更改任何内容。请以安装此副本的相同方式安装新版本。</translation>
     </message>
     <message>
         <location line="+21"/>
         <source>The update was stopped by one of Lightning&apos;s own safety checks and nothing was changed. This is a fault in Lightning rather than anything you did. Please report it with the code below.</source>
-        <translation type="unfinished"></translation>
+        <translation>更新被 Lightning 自身的一项安全检查停止，未更改任何内容。这是 Lightning 的故障，而非你的操作所致。请连同下方的代码一并报告。</translation>
     </message>
 </context>
 <context>
@@ -27121,37 +27135,37 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location filename="../src/matrix/RoomActionError.cpp" line="+10"/>
         <source>Could not change this room&apos;s favourite status.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法更改此房间的收藏状态。</translation>
     </message>
     <message>
         <location line="+5"/>
         <source>Could not mark this room as read.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法将此房间标记为已读。</translation>
     </message>
     <message>
         <location line="+4"/>
         <source>Could not change this room&apos;s unread mark.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法更改此房间的未读标记。</translation>
     </message>
     <message>
         <location line="+12"/>
         <source>The server could not be reached. Check your connection and try again.</source>
-        <translation type="unfinished"></translation>
+        <translation>无法连接服务器。请检查网络连接后重试。</translation>
     </message>
     <message>
         <location line="+8"/>
         <source>The server is busy or having trouble. Try again in a moment.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器繁忙或出现问题。请稍后再试。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The server did not accept this session. Try again, and sign in again if it keeps happening.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器未接受此会话。请重试；如果问题持续，请重新登录。</translation>
     </message>
     <message>
         <location line="+6"/>
         <source>The server refused the change.</source>
-        <translation type="unfinished"></translation>
+        <translation>服务器拒绝了此更改。</translation>
     </message>
 </context>
 </TS>
