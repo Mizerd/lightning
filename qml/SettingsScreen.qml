@@ -2073,6 +2073,8 @@ Item {
                     height: contentFlick.contentHeight
                     TapHandler {
                         acceptedButtons: Qt.RightButton
+                        // Touch has no buttons, so a tap would fire this too.
+                        acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                         onTapped: (point) => {
                             // This layer scrolls with the content, so the
                             // point is already in content coordinates.
