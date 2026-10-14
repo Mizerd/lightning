@@ -1081,6 +1081,9 @@ public:
     /// credentials). Answers on eventCacheCleared. 0 means this backend has
     /// none.
     virtual quint64 clearEventCache() { return 0; }
+    /// True when a successful clearStoredMedia()/clearEventCache() is followed
+    /// by a cacheCompacted report for the same op id.
+    virtual bool reportsCacheCompaction() const { return false; }
     /// What the homeserver says about itself (About page). Answers on
     /// homeserverInfoReceived. 0 means this backend cannot ask.
     virtual quint64 requestHomeserverInfo() { return 0; }
@@ -2255,6 +2258,15 @@ Q_SIGNALS:
     // cut}], category }.
     void accountDataListed(quint64 opId, const QVariantMap &listing);
     void eventCacheCleared(quint64 opId, bool ok);
+    /// A cache reset step's compaction finished, reported after (never
+    /// instead of) that step's own completion signal, and only after a clear
+    /// that succeeded. `store` is "event_cache" or "media_store"; `outcome` is
+    /// "compacted", "unchanged", "not_applicable" (no SQLite store: absent is
+    /// not failed), "failed" or "timed_out" (still running; `bytesAfter` is
+    /// then unknown). The sizes are the database's footprint on disk.
+    void cacheCompacted(quint64 opId, const QString &store,
+                        const QString &outcome, qint64 bytesBefore,
+                        qint64 bytesAfter);
     // `detail`: "" (admin), "not_admin" or "unavailable".
     void serverAdminStatusReceived(quint64 opId, bool admin,
                                    const QString &detail);

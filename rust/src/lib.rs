@@ -10242,16 +10242,32 @@ pub unsafe extern "C" fn mx_rust_media_cache_clear(
             cachelayout::kept_files_dir(&bridge.store_path)
         };
         let events = Arc::clone(&bridge.events);
+        let store_path = bridge.store_path.clone();
         bridge.spawn_room_action(async move {
+            let store_before = {
+                let path = store_path.clone();
+                tokio::task::spawn_blocking(move || aboutinfo::media_store_disk_bytes(&path))
+                    .await
+                    .unwrap_or(0)
+            };
             let outcome = rooms::clear_kept_media(&client, kept_dir).await;
             let (ok, files, bytes) = match outcome {
                 Some((files, bytes)) => (true, files, bytes),
                 None => (false, 0, 0),
             };
+            // The clear's result goes out at once; compaction never delays it.
             enqueue(&events, json!({
                 "type": "media_cache_cleared", "op_id": op_id,
                 "ok": ok, "files": files, "bytes": bytes,
             }));
+            // The SDK media store deletes rows and leaves its file as big as
+            // it was; compact it so the space is really returned, as its own
+            // later report. Only after a clean that succeeded.
+            if ok {
+                let result =
+                    aboutinfo::compact_media_store(&client, &store_path, store_before).await;
+                aboutinfo::report_compaction(&events, op_id, "media_store", result);
+            }
         });
         Ok(String::new())
     })

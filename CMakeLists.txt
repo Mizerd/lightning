@@ -6141,6 +6141,9 @@ if(BUILD_TESTING)
         src/app/TrayIcon.cpp
     )
     target_include_directories(tray-menu-test PRIVATE src)
+    # The macOS close-handling contract reads Main.qml and AppController.cpp.
+    target_compile_definitions(tray-menu-test PRIVATE
+        REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
     target_link_libraries(tray-menu-test PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test)
     add_test(NAME tray-menu COMMAND tray-menu-test)
     set_tests_properties(tray-menu PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

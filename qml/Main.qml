@@ -286,6 +286,18 @@ ApplicationWindow {
             Qt.quit()
         }
     }
+    // Cmd+W closes the window, which on macOS hides it and leaves Lightning
+    // running in the Dock (see onClosing and app/CloseBehavior.h). The app has
+    // no native menu bar to carry a Close item, so without this only the red
+    // button worked. Window-scoped, and macOS only: elsewhere Ctrl+W means
+    // nothing here and a close quits or goes to the tray.
+    Shortcut {
+        objectName: "macCloseWindowShortcut"
+        sequence: StandardKey.Close
+        context: Qt.WindowShortcut
+        enabled: Qt.platform.os === "osx"
+        onActivated: window.close()
+    }
 
     // Security, application-wide: Qt Quick Controls shares one ToolTip instance
     // for every attached ToolTip.text, and the Basic style's Text uses

@@ -3401,7 +3401,8 @@ Item {
                                       src.width / 2, src.height / 2)
                 root.timelineView.openReceiptList(
                     model.readReceipts || [],
-                    readReceiptStrip.totalOthers, Qt.point(p.x, p.y))
+                    readReceiptStrip.totalOthers, Qt.point(p.x, p.y),
+                    model.eventId || "")
             }
             // A face opens that reader's profile beside the face.
             function openProfileFor(item, reader) {

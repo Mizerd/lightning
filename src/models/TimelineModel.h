@@ -379,6 +379,15 @@ public:
     Q_INVOKABLE int stateActivityRowCount() const;
     Q_INVOKABLE int stateGroupCount() const;
     Q_INVOKABLE QVariantMap messageDetails(const QString &eventId) const;
+    /// The "Seen by" list for the receipt pill on `eventId`, Sable-style and
+    /// cumulative: every reader (the local user excluded) whose newest receipt
+    /// is on this row or any later one, each with the time of that receipt,
+    /// newest first. Answered on demand from the cached per-reader position
+    /// index, O(readers + rows after this one), never per row. Returns
+    /// {readers: [{userId, displayName, avatarMxc, tsMs}], total}; `readers`
+    /// is capped (names resolve through the member lookup) and `total` is the
+    /// truthful count, undelivered readers included. Empty on an unknown id.
+    Q_INVOKABLE QVariantMap cumulativeReadersForEvent(const QString &eventId) const;
     // Edit history and event source for this timeline's room, answered on the
     // signals below. Display data held by the open dialog; never cached.
     Q_INVOKABLE void requestEditHistory(const QString &eventId);

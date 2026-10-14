@@ -24,6 +24,8 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QStringList>
 #include <QUrl>
 #include <QVariantList>
@@ -233,6 +235,35 @@ private Q_SLOTS:
         QCOMPARE(client.writes.last().value, QStringLiteral("notify"));
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QCOMPARE(ctl.eventReactions(), 1);
+    }
+
+    // A default alert level changing is announced once the server has it, so
+    // the per-room notification state can be re-read; other writes and refused
+    // writes announce nothing.
+    void changingAnAccountDefaultIsAnnouncedOnlyWhenTheServerTookIt()
+    {
+        RecordingClient client;
+        QVERIFY(login(client));
+        client.mockPushRules = serverRules();
+        PushRulesController ctl;
+        ctl.setClient(&client);
+        QVERIFY(loadRules(ctl));
+        QSignalSpy changed(&ctl, &PushRulesController::accountDefaultChanged);
+
+        ctl.setMention(QStringLiteral("displayName"), 1);
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
+        QCOMPARE(changed.count(), 0);
+
+        ctl.setDefaultAll(false, false);
+        QCOMPARE(changed.count(), 0); // not before the server answers
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
+        QCOMPARE(changed.count(), 1);
+
+        client.mockPushRuleFailCategory = QStringLiteral("forbidden");
+        QSignalSpy failed(&ctl, &PushRulesController::writeFailed);
+        ctl.setDefaultAll(true, false);
+        QVERIFY(failed.wait(kWaitMs));
+        QCOMPARE(changed.count(), 1);
     }
 
     void aRefusedWritePutsTheServersStateBack()
@@ -473,6 +504,13 @@ Item {
         QVERIFY(owner != nullptr);
         auto *section = owner->property("section").value<QObject *>();
         QVERIFY(section != nullptr);
+        // A confirmation popup needs a window to open into (offscreen).
+        QQuickWindow window;
+        window.resize(700, 700);
+        auto *ownerItem = qobject_cast<QQuickItem *>(owner.get());
+        QVERIFY(ownerItem != nullptr);
+        ownerItem->setParentItem(window.contentItem());
+        window.show();
         QTRY_VERIFY_WITH_TIMEOUT(ctl.loaded(), kWaitMs);
 
         auto find = [&](const char *name) {
@@ -543,6 +581,41 @@ Item {
         auto *err = find("pushRulesError");
         QVERIFY(err != nullptr);
         QVERIFY(err->property("visible").toBool());
+
+        // Removing a keyword asks first: the button opens a confirmation and
+        // writes nothing; Cancel keeps the keyword; Remove sends the rule
+        // removal.
+        {
+            QCOMPARE(ctl.keywords().size(), 1);
+            auto *removeButton = find("pushKeywordRemoveButton");
+            QVERIFY(removeButton != nullptr);
+            auto *confirm = find("pushKeywordRemoveConfirm");
+            QVERIFY(confirm != nullptr);
+            const int writesBefore = static_cast<int>(client.writes.size());
+            QVERIFY(QMetaObject::invokeMethod(removeButton, "clicked"));
+            QTRY_VERIFY_WITH_TIMEOUT(confirm->property("visible").toBool(),
+                                     kWaitMs);
+            QCOMPARE(confirm->property("keyword").toString(),
+                     QStringLiteral("lightning"));
+            QCOMPARE(static_cast<int>(client.writes.size()), writesBefore);
+            QCOMPARE(ctl.keywords().size(), 1);
+
+            QVERIFY(QMetaObject::invokeMethod(confirm, "reject"));
+            QTRY_VERIFY_WITH_TIMEOUT(!confirm->property("visible").toBool(),
+                                     kWaitMs);
+            QCOMPARE(static_cast<int>(client.writes.size()), writesBefore);
+            QCOMPARE(ctl.keywords().size(), 1);
+
+            QVERIFY(QMetaObject::invokeMethod(removeButton, "clicked"));
+            QTRY_VERIFY_WITH_TIMEOUT(confirm->property("visible").toBool(),
+                                     kWaitMs);
+            QVERIFY(QMetaObject::invokeMethod(confirm, "accept"));
+            QCOMPARE(client.writes.last().kind,
+                     QStringLiteral("keyword_remove"));
+            QCOMPARE(client.writes.last().key, QStringLiteral("lightning"));
+            QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
+            QCOMPARE(ctl.keywords().size(), 0);
+        }
 
         // The troubleshooter lists its checks and offers the app switch.
         QVERIFY(QMetaObject::invokeMethod(find("troubleshooterRunButton"), "clicked"));

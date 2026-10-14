@@ -14,11 +14,16 @@
 //!   position. Secret-bearing types (secret storage, cross-signing keys, the
 //!   backup key) are REDACTED here, in Rust, to their type name: their content
 //!   never reaches C++ or QML (CLAUDE.md §6).
-//! * Clearing the event cache calls the SDK's `clear_all_rooms`. It never
-//!   touches the crypto store, the state store or the credentials.
+//! * Clearing the event cache calls the SDK's `clear_all_rooms`, then compacts
+//!   the event cache (and, for the media reset, the media store) through the
+//!   SDK's typed store locks and `optimize()` (a SQLite VACUUM) so the files
+//!   shrink. The compaction is reported as its own later `cache_compacted`
+//!   event; it never delays the clear's result. It never touches the crypto
+//!   store, the state store or the credentials.
 
 use std::ffi::c_void;
 use std::os::raw::c_char;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -305,14 +310,230 @@ pub(crate) fn account_data_listing(
     Ok(())
 }
 
-/// Result event `event_cache_cleared { op_id, ok }`. The SDK clears the
-/// storage and tells live observers; the crypto store is not involved.
+/// How long compacting a cache database may take before the reset reports it
+/// as not done. VACUUM rewrites the file, so it scales with what is left.
+const COMPACT_BUDGET: Duration = Duration::from_secs(90);
+
+/// Bytes a path occupies on disk: the file itself, or every regular file under
+/// a directory. Symlinks are neither followed nor counted. A missing path is 0.
+pub(crate) fn tree_bytes(path: &Path) -> u64 {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if meta.is_file() {
+        return meta.len();
+    }
+    if !meta.is_dir() {
+        return 0;
+    }
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries.flatten().map(|entry| tree_bytes(&entry.path())).sum()
+}
+
+/// A SQLite database's footprint: the file and its `-wal`, `-shm` and
+/// `-journal` siblings. After a clear most of that can still be free pages
+/// (and a long WAL), which is what a VACUUM gives back.
+pub(crate) fn sqlite_family_bytes(db: &Path) -> u64 {
+    let mut total = tree_bytes(db);
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut name = db.as_os_str().to_owned();
+        name.push(suffix);
+        total += tree_bytes(Path::new(&name));
+    }
+    total
+}
+
+/// The event cache database's on-disk size, where this session opened it.
+pub(crate) fn event_cache_disk_bytes(store_path: &Path) -> u64 {
+    if store_path.as_os_str().is_empty() {
+        return 0;
+    }
+    let placement = crate::cachelayout::placement_of(store_path);
+    sqlite_family_bytes(&placement.event_cache.join(crate::cachelayout::EVENT_CACHE_DB))
+}
+
+/// The in-use SQLite media store's on-disk size, 0 while media is held in
+/// memory. The store in use is the one mediastore opened: the old plaintext
+/// `<store>/matrix-sdk-media.sqlite3` while it is still active (Legacy), else
+/// the encrypted store's directory in the cache directory, so the figures
+/// match the store that was vacuumed.
+pub(crate) fn media_store_disk_bytes(store_path: &Path) -> u64 {
+    if store_path.as_os_str().is_empty() {
+        return 0;
+    }
+    if matches!(crate::mediastore::active(store_path), crate::mediastore::Active::Legacy) {
+        return sqlite_family_bytes(&store_path.join(crate::mediastore::MEDIA_DB));
+    }
+    let placement = crate::cachelayout::placement_of(store_path);
+    tree_bytes(&placement.media_store.join(crate::mediastore::DIR_NAME))
+}
+
+/// How one cache database's compaction ended. Absent is not failed
+/// (CLAUDE.md section 6): `NotApplicable` means there was no SQLite store to
+/// compact, and only `Failed` and `TimedOut` may be worded as a problem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Outcome {
+    /// The VACUUM ran and the file is smaller.
+    Compacted,
+    /// The VACUUM ran and the file did not get smaller (nothing to give back,
+    /// or a release build of the SDK swallowed a failed VACUUM; the SDK logs
+    /// it and returns Ok). Reported as figures only, never as success.
+    Unchanged,
+    /// No SQLite store exists for this cache (media held in memory, no media
+    /// key, no store directory). Not a failure.
+    NotApplicable,
+    /// The store could not be reached or the VACUUM returned an error.
+    Failed,
+    /// The budget ran out. The VACUUM is not cancelled by this (the query
+    /// keeps running on its pool connection), so the file may still shrink and
+    /// no "after" figure is reported.
+    TimedOut,
+}
+
+impl Outcome {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Outcome::Compacted => "compacted",
+            Outcome::Unchanged => "unchanged",
+            Outcome::NotApplicable => "not_applicable",
+            Outcome::Failed => "failed",
+            Outcome::TimedOut => "timed_out",
+        }
+    }
+}
+
+/// One store's compaction: the outcome and its measured on-disk sizes. `after`
+/// is 0 (unknown) for `NotApplicable` and `TimedOut`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Compaction {
+    pub outcome: Outcome,
+    pub before: u64,
+    pub after: u64,
+}
+
+/// Run one store's `vacuum` future under `budget` and classify the result by
+/// the file's measured size, not by the return value alone. `vacuum` is not
+/// polled at all when the store is not `applicable`.
+pub(crate) async fn compact<E, F, M>(
+    applicable: bool,
+    budget: Duration,
+    before: u64,
+    vacuum: F,
+    measure_after: M,
+) -> Compaction
+where
+    F: std::future::Future<Output = Result<(), E>>,
+    M: FnOnce() -> u64 + Send + 'static,
+{
+    if !applicable {
+        return Compaction { outcome: Outcome::NotApplicable, before: 0, after: 0 };
+    }
+    match tokio::time::timeout(budget, vacuum).await {
+        Err(_) => Compaction { outcome: Outcome::TimedOut, before, after: 0 },
+        Ok(result) => {
+            let after = tokio::task::spawn_blocking(measure_after).await.unwrap_or(before);
+            let outcome = if result.is_err() {
+                Outcome::Failed
+            } else if after < before {
+                Outcome::Compacted
+            } else {
+                Outcome::Unchanged
+            };
+            Compaction { outcome, before, after }
+        }
+    }
+}
+
+/// Give a cleared event cache's free pages back to the filesystem, through the
+/// SDK's own typed path: the event cache store's lock, then its `optimize()`
+/// (which is `vacuum()` for SQLite). That is the path
+/// `Client::optimize_stores` takes minus the state store, so the crypto and
+/// state stores are not reachable from here, and the store's cross-process
+/// lock is respected (a store another process holds is skipped, reported as
+/// `Failed`).
+pub(crate) async fn compact_event_cache(
+    client: &matrix_sdk::Client,
+    store_path: &Path,
+    before: u64,
+) -> Compaction {
+    let path = store_path.to_path_buf();
+    let vacuum = async {
+        let state = client.event_cache_store().lock().await.map_err(|_| ())?;
+        match state.as_clean() {
+            Some(clean) => clean.optimize().await.map_err(|_| ()),
+            None => Err(()),
+        }
+    };
+    compact(
+        !store_path.as_os_str().is_empty(),
+        COMPACT_BUDGET,
+        before,
+        vacuum,
+        move || event_cache_disk_bytes(&path),
+    )
+    .await
+}
+
+/// The same for the media store, after its entries were cleaned. Only an
+/// on-disk SQLite media store is applicable.
+pub(crate) async fn compact_media_store(
+    client: &matrix_sdk::Client,
+    store_path: &Path,
+    before: u64,
+) -> Compaction {
+    let path = store_path.to_path_buf();
+    let on_disk = !store_path.as_os_str().is_empty()
+        && crate::mediastore::active(store_path).persists();
+    let vacuum = async {
+        let guard = client.media_store().lock().await.map_err(|_| ())?;
+        guard.optimize().await.map_err(|_| ())
+    };
+    compact(on_disk, COMPACT_BUDGET, before, vacuum, move || media_store_disk_bytes(&path)).await
+}
+
+/// Enqueue the later `cache_compacted` event for one store.
+pub(crate) fn report_compaction(
+    events: &crate::EventQueueRef,
+    op_id: u64,
+    store: &str,
+    result: Compaction,
+) {
+    enqueue(
+        events,
+        json!({
+            "type": "cache_compacted", "op_id": op_id, "store": store,
+            "outcome": result.outcome.as_str(),
+            "bytes_before": result.before, "bytes_after": result.after,
+        }),
+    );
+}
+
+/// Result events: `event_cache_cleared { op_id, ok }` as soon as the SDK has
+/// cleared the storage (the crypto store is not involved), then, only after a
+/// successful clear, a separate `cache_compacted` event for this op carrying
+/// the compaction's outcome and measured sizes. Compaction never delays or
+/// colours the clear's own result.
 pub(crate) fn clear_event_cache(bridge: &RustClient, op_id: u64) -> Result<(), String> {
     let client = require_client(bridge)?;
     let events = Arc::clone(&bridge.events);
+    let store_path = bridge.store_path.clone();
     bridge.spawn_room_action(async move {
+        let before = {
+            let path = store_path.clone();
+            tokio::task::spawn_blocking(move || event_cache_disk_bytes(&path))
+                .await
+                .unwrap_or(0)
+        };
         let ok = client.event_cache().clear_all_rooms().await.is_ok();
         enqueue(&events, json!({ "type": "event_cache_cleared", "op_id": op_id, "ok": ok }));
+        // Only a cleared cache is compacted: after a failed clear the file
+        // holds live data and a rewrite buys nothing.
+        if ok {
+            let result = compact_event_cache(&client, &store_path, before).await;
+            report_compaction(&events, op_id, "event_cache", result);
+        }
     });
     Ok(())
 }
@@ -445,6 +666,129 @@ mod tests {
         assert_eq!(sync_filter("!r:b")["room"]["not_rooms"], json!([]));
         assert_eq!(f["room"]["timeline"]["limit"], 0);
         assert_eq!(sync_filter("!r:b")["room"]["rooms"], json!(["!r:b"]));
+    }
+
+    #[test]
+    fn disk_sizes_count_a_database_with_its_sidecars_and_ignore_the_rest() {
+        let dir = std::env::temp_dir().join(format!("lightning-sizes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("a.sqlite3"), vec![0u8; 1000]).unwrap();
+        std::fs::write(dir.join("a.sqlite3-wal"), vec![0u8; 200]).unwrap();
+        std::fs::write(dir.join("a.sqlite3-shm"), vec![0u8; 30]).unwrap();
+        std::fs::write(dir.join("b.sqlite3"), vec![0u8; 7]).unwrap();
+        std::fs::write(dir.join("sub").join("c"), vec![0u8; 5]).unwrap();
+        assert_eq!(sqlite_family_bytes(&dir.join("a.sqlite3")), 1230);
+        assert_eq!(tree_bytes(&dir), 1242);
+        assert_eq!(tree_bytes(&dir.join("missing")), 0);
+        assert_eq!(sqlite_family_bytes(&dir.join("missing.sqlite3")), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // The point of the compaction: clearing rows leaves the file as big as it
+    // was, and the SDK store's own vacuum() is what gives the space back.
+    #[tokio::test]
+    async fn vacuuming_the_sdk_store_shrinks_its_file_after_a_clear() {
+        use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
+        use matrix_sdk::ruma::events::room::MediaSource;
+        use matrix_sdk::ruma::OwnedMxcUri;
+        use matrix_sdk::{SqliteMediaStore, SqliteStoreConfig};
+        use matrix_sdk_base::media::store::{IgnoreMediaRetentionPolicy, MediaStore};
+
+        let dir = std::env::temp_dir().join(format!("lightning-vacuum-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = SqliteMediaStore::open_with_config(&SqliteStoreConfig::new(&dir))
+            .await
+            .unwrap();
+        let request = MediaRequestParameters {
+            source: MediaSource::Plain(OwnedMxcUri::from("mxc://example.org/Big")),
+            format: MediaFormat::File,
+        };
+        let payload: Vec<u8> = (0..6 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+        store
+            .add_media_content(&request, payload, IgnoreMediaRetentionPolicy::Yes)
+            .await
+            .unwrap();
+        let full = tree_bytes(&dir);
+        store.remove_media_content(&request).await.unwrap();
+        let cleared = tree_bytes(&dir);
+        // Through the same classifier the reset uses, not the bare vacuum().
+        let measured = dir.clone();
+        let result = compact(
+            true,
+            Duration::from_secs(60),
+            cleared,
+            store.vacuum(),
+            move || tree_bytes(&measured),
+        )
+        .await;
+        assert!(full > 5 * 1024 * 1024, "the payload was not stored: {full}");
+        assert_eq!(result.outcome, Outcome::Compacted, "{result:?}");
+        assert!(
+            result.after < full / 2,
+            "vacuum did not return the space: full {full}, cleared {cleared}, after {}",
+            result.after
+        );
+        drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // The classifier: the verdict follows the measured size, an absent store is
+    // not a failure, a timeout reports no "after", and a store that is not
+    // applicable is never asked to vacuum.
+    #[tokio::test]
+    async fn compaction_outcomes_follow_the_measured_size_and_absence_is_not_failure() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let budget = Duration::from_secs(5);
+
+        let shrank = compact(true, budget, 1000, async { Ok::<(), ()>(()) }, || 100).await;
+        assert_eq!(shrank, Compaction { outcome: Outcome::Compacted, before: 1000, after: 100 });
+
+        // Ok from the SDK but the file did not shrink (a release build logs a
+        // failed VACUUM and returns Ok): never "compacted".
+        let same = compact(true, budget, 1000, async { Ok::<(), ()>(()) }, || 1000).await;
+        assert_eq!(same.outcome, Outcome::Unchanged);
+
+        let failed = compact(true, budget, 1000, async { Err::<(), ()>(()) }, || 1000).await;
+        assert_eq!(failed.outcome, Outcome::Failed);
+
+        // No SQLite store (in-memory media, no key): not applicable, no figures,
+        // and the vacuum future is never polled.
+        let polled = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&polled);
+        let none = compact(
+            false,
+            budget,
+            0,
+            async move {
+                flag.store(true, Ordering::SeqCst);
+                Ok::<(), ()>(())
+            },
+            || 7,
+        )
+        .await;
+        assert_eq!(none, Compaction { outcome: Outcome::NotApplicable, before: 0, after: 0 });
+        assert!(!polled.load(Ordering::SeqCst));
+        assert_ne!(none.outcome.as_str(), "failed");
+
+        // A vacuum that outlives the budget: timed out, no "after" figure.
+        let slow = compact(
+            true,
+            Duration::from_millis(20),
+            1000,
+            std::future::pending::<Result<(), ()>>(),
+            || 1,
+        )
+        .await;
+        assert_eq!(slow, Compaction { outcome: Outcome::TimedOut, before: 1000, after: 0 });
+    }
+
+    // The compaction budget stays below the C++ side's wait for a compaction
+    // report (kCompactionWaitMs in AboutController.h, 100 s).
+    #[test]
+    fn the_compaction_budget_is_inside_the_uis_wait() {
+        assert!(COMPACT_BUDGET < Duration::from_secs(100));
     }
 
     #[test]

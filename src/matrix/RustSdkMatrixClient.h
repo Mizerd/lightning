@@ -534,6 +534,7 @@ public:
                         int limit, int offset) override;
     quint64 clearStoredMedia() override;
     quint64 clearEventCache() override;
+    bool reportsCacheCompaction() const override { return true; }
     quint64 requestHomeserverInfo() override;
     quint64 requestAccountDataListing(const QString &roomId) override;
     QString mediaKeepState() const override { return m_mediaKeepState; }

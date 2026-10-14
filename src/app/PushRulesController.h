@@ -91,6 +91,10 @@ Q_SIGNALS:
     void stateChanged();
     // A write was refused or failed; the snapshot was put back.
     void writeFailed(const QString &message);
+    // A change to an account-wide default alert level (direct messages or
+    // rooms) reached the homeserver. Rooms that follow the account default now
+    // behave differently, so the per-room notification state is stale.
+    void accountDefaultChanged();
 
 private Q_SLOTS:
     void onSnapshot(quint64 opId, bool ok, const QVariantMap &snapshot,

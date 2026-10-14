@@ -3097,10 +3097,24 @@ Rectangle {
                 // Must live on this Flickable: delegates reach the pane only
                 // through `timelineView`, and a pane-root function is
                 // unreachable.
+                // `eventId` (optional) asks the model for the cumulative
+                // "Seen by" set: everyone who read that message or any later
+                // one. Without it, or when the model cannot answer, the
+                // caller's own list is shown as given.
                 property var openReceiptList: function(readers, totalOthers,
-                                                       point) {
-                    receiptListPopover.readers = readers || []
-                    receiptListPopover.totalOthers = totalOthers
+                                                       point, eventId) {
+                    var list = readers || []
+                    var total = totalOthers
+                    if (eventId && timelineModel
+                            && timelineModel.cumulativeReadersForEvent) {
+                        var c = timelineModel.cumulativeReadersForEvent(eventId)
+                        if (c && c.readers && c.readers.length >= list.length) {
+                            list = c.readers
+                            total = Math.max(c.total, c.readers.length)
+                        }
+                    }
+                    receiptListPopover.readers = list
+                    receiptListPopover.totalOthers = total
                     receiptListPopover.anchorPoint = point
                     receiptListPopover.open()
                 }

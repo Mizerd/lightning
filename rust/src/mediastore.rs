@@ -60,7 +60,7 @@ pub(crate) const DIR_NAME: &str = "lightning-media-store";
 /// The one-way identifier of the key the store in DIR_NAME belongs to.
 const KEY_ID_FILE: &str = "lightning-key-id";
 /// SqliteMediaStore's file name, the same in the old location and the new.
-const MEDIA_DB: &str = "matrix-sdk-media.sqlite3";
+pub(crate) const MEDIA_DB: &str = "matrix-sdk-media.sqlite3";
 const LEGACY_SIDECARS: [&str; 2] = ["matrix-sdk-media.sqlite3-wal", "matrix-sdk-media.sqlite3-shm"];
 /// A pinned attachment in the old store not read or written for this long is
 /// taken as abandoned (an upload that wedged and was never cancelled), so the

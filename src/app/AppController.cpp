@@ -287,6 +287,15 @@ AppController::AppController(Backend backend, bool screenshotDemo,
 #ifdef Q_OS_MACOS
     if (QCoreApplication::instance())
         QCoreApplication::instance()->installEventFilter(this);
+    // Like Element Desktop: closing the window (red button, Cmd+W) hides it
+    // and Lightning keeps running in the Dock, whether or not the menu-bar
+    // item is enabled; the Dock icon brings the window back. Qt would
+    // otherwise treat the hidden last window as "closed" and quit when there
+    // is no tray icon to keep it alive. Every real quit is explicit (Cmd+Q,
+    // the app or Dock menu's Quit and the tray Quit all end in
+    // QCoreApplication::quit() or a spontaneous QEvent::Quit), so nothing
+    // relies on this default.
+    QGuiApplication::setQuitOnLastWindowClosed(false);
 #endif
     // Qt has no signal for a StatusNotifierWatcher (or, on Windows, the
     // shell's tray host) appearing or leaving the session — the only way to
@@ -389,6 +398,16 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_roomKeyExport = std::make_unique<RoomKeyExportController>(this);
     m_moderation = std::make_unique<ModerationController>(this);
     m_pushRules = std::make_unique<PushRulesController>(this);
+    // An account-wide default alert level changed. Rooms that follow it now
+    // behave differently, so re-read the per-room modes at once (every room
+    // with a rule of its own, plus the open room, which may have none) instead
+    // of leaving them stale until the next open. The refresh announces itself
+    // on roomNotificationModesRefreshed, which the room pickers listen to.
+    connect(m_pushRules.get(), &PushRulesController::accountDefaultChanged,
+            this, [this] {
+        refreshStoredNotificationModes();
+        requestRoomNotificationMode(m_currentRoomId);
+    });
     m_notificationTroubleshooter =
         std::make_unique<NotificationTroubleshooter>(this);
     m_notificationTroubleshooter->setInputsProvider(

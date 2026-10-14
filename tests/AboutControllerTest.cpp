@@ -26,6 +26,26 @@ public:
     quint64 clearStoredMedia() override { return mediaOp = 4242; }
 };
 
+/// A mock whose event-cache and media clears both answer when the test says so.
+class ManualClient final : public MockMatrixClient
+{
+    Q_OBJECT
+public:
+    quint64 eventOp = 0;
+    quint64 mediaOp = 0;
+    quint64 clearStoredMedia() override { return mediaOp = 4242; }
+    quint64 clearEventCache() override { return eventOp = 5151; }
+    bool reportsCacheCompaction() const override { return true; }
+};
+
+/// A reset whose two clears both succeeded, with 10 MiB of kept files removed.
+void clearBoth(ManualClient &client, AboutController &about)
+{
+    about.resetLocalCache();
+    Q_EMIT client.eventCacheCleared(client.eventOp, true);
+    Q_EMIT client.storedMediaCleared(client.mediaOp, true, 3, 10LL << 20);
+}
+
 /// A backend that refuses every clear.
 class RefusingClient final : public MockMatrixClient
 {
@@ -164,6 +184,187 @@ private Q_SLOTS:
         QCOMPARE(about.resetState(), QStringLiteral("running"));
         Q_EMIT client.storedMediaCleared(client.mediaOp, true, 3, 1024);
         QCOMPARE(about.resetState(), QStringLiteral("done"));
+    }
+
+    // A slow compaction must not turn a successful clear into "did not
+    // finish": the reset watchdog (shortened here) fires while compaction is
+    // still due, and the state stays done.
+    void aSlowCompactionNeverMakesASuccessfulClearReadAsUnfinished()
+    {
+        ManualClient client;
+        MessageSearchController search;
+        search.setClient(&client);
+        AboutController about;
+        about.setClient(&client);
+        about.setSearch(&search);
+        about.setWaitsForTest(30, 5000);
+
+        clearBoth(client, about);
+        QCOMPARE(about.resetState(), QStringLiteral("done"));
+        QTest::qWait(150); // well past the reset wait
+        QCOMPARE(about.resetState(), QStringLiteral("done"));
+        QVERIFY2(!about.resetSummary().contains(QStringLiteral("did not finish")),
+                 qPrintable(about.resetSummary()));
+        QVERIFY2(about.resetSummary().contains(
+                     QStringLiteral("Still being compacted: event cache, media cache")),
+                 qPrintable(about.resetSummary()));
+
+        // The reports arrive later and complete the sentence.
+        QSignalSpy changed(&about, &AboutController::resetChanged);
+        Q_EMIT client.cacheCompacted(client.eventOp, QStringLiteral("event_cache"),
+                                     QStringLiteral("compacted"), 300LL << 20, 12LL << 20);
+        Q_EMIT client.cacheCompacted(client.mediaOp, QStringLiteral("media_store"),
+                                     QStringLiteral("compacted"), 50LL << 20, 40LL << 20);
+        QVERIFY(changed.count() >= 1);
+        QCOMPARE(about.resetState(), QStringLiteral("done"));
+        const QLocale locale;
+        const QString summary = about.resetSummary();
+        QVERIFY2(summary.contains(locale.formattedDataSize(360LL << 20)), qPrintable(summary));
+        QVERIFY2(summary.contains(locale.formattedDataSize(52LL << 20)), qPrintable(summary));
+        QVERIFY(!summary.contains(QStringLiteral("Still being compacted")));
+        QVERIFY(!summary.contains(QStringLiteral("Could not be compacted")));
+    }
+
+    // Only a failure is worded as one: a store that does not exist (in-memory
+    // media, no media key) is "not applicable" and says nothing; a timeout is
+    // "still being compacted" with no after figure; a failed VACUUM is named.
+    void onlyAFailedCompactionIsWordedAsAFailure()
+    {
+        const QLocale locale;
+        {
+            ManualClient client;
+            MessageSearchController search;
+            search.setClient(&client);
+            AboutController about;
+            about.setClient(&client);
+            about.setSearch(&search);
+            clearBoth(client, about);
+            Q_EMIT client.cacheCompacted(client.eventOp, QStringLiteral("event_cache"),
+                                         QStringLiteral("compacted"), 300LL << 20, 12LL << 20);
+            Q_EMIT client.cacheCompacted(client.mediaOp, QStringLiteral("media_store"),
+                                         QStringLiteral("not_applicable"), 0, 0);
+            const QString s = about.resetSummary();
+            QVERIFY2(!s.contains(QStringLiteral("Could not be compacted")), qPrintable(s));
+            QVERIFY2(!s.contains(QStringLiteral("Still being")), qPrintable(s));
+            // 300 MiB + 10 MiB of kept files before, 12 MiB after.
+            QVERIFY2(s.contains(locale.formattedDataSize(310LL << 20)), qPrintable(s));
+            QVERIFY2(s.contains(locale.formattedDataSize(12LL << 20)), qPrintable(s));
+        }
+        {
+            ManualClient client;
+            MessageSearchController search;
+            search.setClient(&client);
+            AboutController about;
+            about.setClient(&client);
+            about.setSearch(&search);
+            clearBoth(client, about);
+            Q_EMIT client.cacheCompacted(client.eventOp, QStringLiteral("event_cache"),
+                                         QStringLiteral("compacted"), 300LL << 20, 12LL << 20);
+            Q_EMIT client.cacheCompacted(client.mediaOp, QStringLiteral("media_store"),
+                                         QStringLiteral("timed_out"), 50LL << 20, 0);
+            const QString s = about.resetSummary();
+            QVERIFY2(s.contains(QStringLiteral("Still being compacted: media cache")),
+                     qPrintable(s));
+            QVERIFY(!s.contains(QStringLiteral("Could not be compacted")));
+            // The timed-out store contributes no figure at all.
+            QVERIFY2(s.contains(locale.formattedDataSize(310LL << 20)), qPrintable(s));
+            QVERIFY2(s.contains(locale.formattedDataSize(12LL << 20)), qPrintable(s));
+            QVERIFY(!s.contains(locale.formattedDataSize(360LL << 20)));
+        }
+        {
+            ManualClient client;
+            MessageSearchController search;
+            search.setClient(&client);
+            AboutController about;
+            about.setClient(&client);
+            about.setSearch(&search);
+            clearBoth(client, about);
+            Q_EMIT client.cacheCompacted(client.eventOp, QStringLiteral("event_cache"),
+                                         QStringLiteral("unchanged"), 5LL << 20, 5LL << 20);
+            Q_EMIT client.cacheCompacted(client.mediaOp, QStringLiteral("media_store"),
+                                         QStringLiteral("failed"), 50LL << 20, 50LL << 20);
+            const QString s = about.resetSummary();
+            QVERIFY2(s.contains(QStringLiteral("Could not be compacted: media cache")),
+                     qPrintable(s));
+            QVERIFY(!s.contains(QStringLiteral("Could not be compacted: event cache")));
+        }
+    }
+
+    // A compaction report that never comes (the backend task died and sends
+    // nothing) must not read "still being compacted" for ever: when the wait
+    // runs out it is worded as silent, with no figures for that store.
+    void aCompactionThatNeverReportsIsWordedAsSilentWhenTheWaitRunsOut()
+    {
+        ManualClient client;
+        MessageSearchController search;
+        search.setClient(&client);
+        AboutController about;
+        about.setClient(&client);
+        about.setSearch(&search);
+        about.setWaitsForTest(5000, 40);
+        clearBoth(client, about);
+        Q_EMIT client.cacheCompacted(client.eventOp, QStringLiteral("event_cache"),
+                                     QStringLiteral("compacted"), 300LL << 20, 12LL << 20);
+        QVERIFY(about.resetSummary().contains(
+            QStringLiteral("Still being compacted: media cache")));
+        QTRY_VERIFY_WITH_TIMEOUT(
+            about.resetSummary().contains(
+                QStringLiteral("Compaction did not report back: media cache")), 3000);
+        const QString s = about.resetSummary();
+        QVERIFY2(!s.contains(QStringLiteral("Still being compacted")), qPrintable(s));
+        QCOMPARE(about.resetState(), QStringLiteral("done"));
+        // Only the store that reported contributes figures: 300 MiB + 10 MiB
+        // of kept files before, 12 MiB after.
+        const QLocale locale;
+        QVERIFY2(s.contains(locale.formattedDataSize(310LL << 20)), qPrintable(s));
+        QVERIFY2(s.contains(locale.formattedDataSize(12LL << 20)), qPrintable(s));
+    }
+
+    // A report that does not belong to this reset (another op, a store never
+    // asked about) changes nothing.
+    void aStrayCompactionReportIsIgnored()
+    {
+        ManualClient client;
+        MessageSearchController search;
+        search.setClient(&client);
+        AboutController about;
+        about.setClient(&client);
+        about.setSearch(&search);
+        clearBoth(client, about);
+        const QString before = about.resetSummary();
+        Q_EMIT client.cacheCompacted(client.eventOp + 1, QStringLiteral("event_cache"),
+                                     QStringLiteral("compacted"), 300LL << 20, 1LL << 20);
+        Q_EMIT client.cacheCompacted(client.mediaOp, QStringLiteral("elsewhere"),
+                                     QStringLiteral("compacted"), 300LL << 20, 1LL << 20);
+        QCOMPARE(about.resetSummary(), before);
+    }
+
+    // The UI outwaits the Rust compaction budget (90 s), so the budget runs
+    // out first and reports timed_out instead of the UI giving up silently;
+    // and the clear's own wait is a separate, shorter clock.
+    void theCompactionWaitOutlastsTheRustBudgetAndIsSeparateFromTheResetWait()
+    {
+        QVERIFY(AboutController::kCompactionWaitMs > 90 * 1000);
+        QVERIFY(AboutController::kResetWaitMs < AboutController::kCompactionWaitMs);
+        QFile rust(QStringLiteral(REPO_ROOT "/rust/src/aboutinfo.rs"));
+        QVERIFY(rust.open(QIODevice::ReadOnly | QIODevice::Text));
+        QVERIFY2(QString::fromUtf8(rust.readAll()).contains(QStringLiteral(
+                     "COMPACT_BUDGET: Duration = Duration::from_secs(90)")),
+                 "the Rust budget changed: re-pin kCompactionWaitMs above it");
+    }
+
+    // Nothing measured (the mock, or in-memory caches): no invented figure.
+    void aResetWithNothingMeasuredAddsNoDiskSentence()
+    {
+        MockMatrixClient client;
+        MessageSearchController search;
+        search.setClient(&client);
+        AboutController about;
+        about.setClient(&client);
+        about.setSearch(&search);
+        about.resetLocalCache();
+        QTRY_COMPARE(about.resetState(), QStringLiteral("done"));
+        QVERIFY(!about.resetSummary().contains(QStringLiteral("Disk use")));
     }
 
     void aPartialFailureNamesWhatFailedAndStillSaysKeysAreSafe()

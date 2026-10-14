@@ -11566,6 +11566,16 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                                  event.value(QStringLiteral("ok")).toBool());
         return true;
     }
+    if (type == QLatin1String("cache_compacted")) {
+        Q_EMIT cacheCompacted(
+            opId(), event.value(QStringLiteral("store")).toString(),
+            event.value(QStringLiteral("outcome")).toString(),
+            static_cast<qint64>(
+                event.value(QStringLiteral("bytes_before")).toDouble()),
+            static_cast<qint64>(
+                event.value(QStringLiteral("bytes_after")).toDouble()));
+        return true;
+    }
     if (type == QLatin1String("homeserver_info")) {
         QVariantMap info;
         info.insert(QStringLiteral("ok"), event.value(QStringLiteral("ok")).toBool());

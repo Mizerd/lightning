@@ -4,6 +4,7 @@
 #include "models/MessageSearchController.h"
 
 #include <QGuiApplication>
+#include <QLocale>
 #include <QClipboard>
 #include <QSysInfo>
 
@@ -33,9 +34,29 @@ AboutController::AboutController(QObject *parent)
 {
     // A reset step that never answers must not leave the button spinning.
     m_resetWatchdog.setSingleShot(true);
-    m_resetWatchdog.setInterval(60 * 1000);
+    m_resetWatchdog.setInterval(kResetWaitMs);
     connect(&m_resetWatchdog, &QTimer::timeout, this,
             [this] { finishReset(true); });
+    // Compaction is reported after the clear and has its own, longer wait. It
+    // never feeds the reset watchdog above.
+    m_compactionWatchdog.setSingleShot(true);
+    m_compactionWatchdog.setInterval(kCompactionWaitMs);
+    connect(&m_compactionWatchdog, &QTimer::timeout, this, [this] {
+        // Nothing more is waited for. A store that has not reported by now
+        // will not (the backend task that would have sent it is gone), so it
+        // is worded as silent, not as still working, and shows no figures.
+        for (Compaction *c : {&m_eventCompaction, &m_mediaCompaction}) {
+            if (c->expected && !c->got)
+                c->gaveUp = true;
+        }
+        refreshSummary();
+    });
+}
+
+void AboutController::setWaitsForTest(int resetMs, int compactionMs)
+{
+    m_resetWatchdog.setInterval(resetMs);
+    m_compactionWatchdog.setInterval(compactionMs);
 }
 
 void AboutController::setClient(MatrixClient *client)
@@ -51,9 +72,14 @@ void AboutController::setClient(MatrixClient *client)
         connect(m_client, &MatrixClient::accountDataListed, this,
                 &AboutController::onAccountData);
         connect(m_client, &MatrixClient::storedMediaCleared, this,
-                [this](quint64 opId, bool ok, qint64, qint64) {
+                [this](quint64 opId, bool ok, qint64, qint64 keptBytes) {
+                    if (opId != 0 && opId == m_mediaOp && ok)
+                        m_keptFilesFreed += keptBytes;
                     onMediaCleared(opId, ok);
                 });
+        // After the step's own completion signal, on its own schedule.
+        connect(m_client, &MatrixClient::cacheCompacted, this,
+                &AboutController::onCacheCompacted);
         connect(m_client, &MatrixClient::eventCacheCleared, this,
                 &AboutController::onEventCacheCleared);
         // Another account's server, listing and reset must not carry over.
@@ -123,6 +149,11 @@ void AboutController::resetLocalCache()
     m_resetFailed.clear();
     m_resetDone.clear();
     m_resetSummary.clear();
+    m_eventCompaction = {};
+    m_mediaCompaction = {};
+    m_keptFilesFreed = 0;
+    m_clearSummary.clear();
+    m_compactionWatchdog.stop();
     if (!m_client) {
         m_resetState = QStringLiteral("failed");
         m_resetSummary = tr("Nothing was cleared: you are not signed in.");
@@ -160,14 +191,108 @@ void AboutController::onMediaCleared(quint64 opId, bool ok)
 {
     if (opId == 0 || opId != m_mediaOp)
         return;
+    if (ok && m_client && m_client->reportsCacheCompaction())
+        m_mediaCompaction = {m_mediaOp, true, false, {}, 0, 0};
     m_mediaOp = 0;
     stepFinished(tr("media cache"), ok);
+}
+
+void AboutController::onCacheCompacted(quint64 opId, const QString &store,
+                                       const QString &outcome,
+                                       qint64 bytesBefore, qint64 bytesAfter)
+{
+    Compaction *c = store == QLatin1String("event_cache") ? &m_eventCompaction
+        : store == QLatin1String("media_store")           ? &m_mediaCompaction
+                                                           : nullptr;
+    // Matched to the clear that asked for it: a late report from an earlier
+    // reset or another account lands nowhere.
+    if (!c || opId == 0 || !c->expected || c->got || c->op != opId)
+        return;
+    c->got = true;
+    c->outcome = outcome;
+    c->before = qMax<qint64>(0, bytesBefore);
+    c->after = qMax<qint64>(0, bytesAfter);
+    refreshSummary();
+}
+
+QString AboutController::reclaimSummary() const
+{
+    // The sizes are the databases' footprint on disk, measured by the backend.
+    // Only a store that finished contributes: an unfinished compaction has no
+    // "after" yet (the VACUUM keeps running after a timeout), and "not
+    // applicable" (no SQLite store: in-memory media, no media key) is neither
+    // a figure nor a failure (CLAUDE.md section 6: absent is not failed).
+    qint64 before = m_keptFilesFreed;
+    qint64 after = 0;
+    bool measured = m_keptFilesFreed > 0;
+    QStringList failed;
+    QStringList unfinished;
+    QStringList silent;
+    const struct { const Compaction &c; QString name; } stores[] = {
+        {m_eventCompaction, tr("event cache")},
+        {m_mediaCompaction, tr("media cache")},
+    };
+    for (const auto &entry : stores) {
+        const Compaction &c = entry.c;
+        if (!c.expected)
+            continue;
+        if (!c.got && c.gaveUp) {
+            silent.append(entry.name);
+        } else if (!c.got || c.outcome == QLatin1String("timed_out")) {
+            unfinished.append(entry.name);
+        } else if (c.outcome == QLatin1String("compacted")
+                   || c.outcome == QLatin1String("unchanged")
+                   || c.outcome == QLatin1String("failed")) {
+            before += c.before;
+            after += c.after;
+            measured = true;
+            if (c.outcome == QLatin1String("failed"))
+                failed.append(entry.name);
+        }
+    }
+    QStringList sentences;
+    const QLocale locale;
+    if (measured && (before > 0 || after > 0))
+        sentences.append(tr("Disk use of those caches went from %1 to %2.")
+                             .arg(locale.formattedDataSize(before),
+                                  locale.formattedDataSize(after)));
+    if (!failed.isEmpty())
+        sentences.append(tr("Could not be compacted: %1.")
+                             .arg(failed.join(QStringLiteral(", "))));
+    if (!unfinished.isEmpty())
+        sentences.append(tr("Still being compacted: %1. The space is returned "
+                            "when that finishes.")
+                             .arg(unfinished.join(QStringLiteral(", "))));
+    if (!silent.isEmpty())
+        sentences.append(tr("Compaction did not report back: %1.")
+                             .arg(silent.join(QStringLiteral(", "))));
+    return sentences.join(QLatin1Char(' '));
+}
+
+void AboutController::refreshSummary()
+{
+    // Only a fully successful clear carries a disk sentence.
+    if (m_resetState != QLatin1String("done"))
+        return;
+    QString text = m_clearSummary;
+    const QString reclaimed = reclaimSummary();
+    if (!reclaimed.isEmpty())
+        text += QLatin1Char(' ') + reclaimed;
+    if (text == m_resetSummary)
+        return;
+    m_resetSummary = text;
+    Q_EMIT resetChanged();
 }
 
 void AboutController::onEventCacheCleared(quint64 opId, bool ok)
 {
     if (opId == 0 || opId != m_eventCacheOp)
         return;
+    // A compaction report is due for a clear that succeeded, from a backend
+    // that reports it. Opened before the step is counted finished so the
+    // summary composed on the last step already waits for it.
+    if (ok && m_client && m_client->reportsCacheCompaction())
+        m_eventCompaction = {m_eventCacheOp, true, false, {}, 0, 0};
     m_eventCacheOp = 0;
     stepFinished(tr("event cache"), ok);
 }
@@ -195,9 +320,18 @@ void AboutController::finishReset(bool timedOut)
                             "still be on disk; you can try again.");
     } else if (m_resetFailed.isEmpty() && !m_resetDone.isEmpty()) {
         m_resetState = QStringLiteral("done");
-        m_resetSummary = tr("Cleared the event cache, the media cache and "
+        m_clearSummary = tr("Cleared the event cache, the media cache and "
                             "the search index. Your sign-in and encryption "
                             "keys were not touched.");
+        m_resetSummary = m_clearSummary;
+        const QString reclaimed = reclaimSummary();
+        if (!reclaimed.isEmpty())
+            m_resetSummary += QLatin1Char(' ') + reclaimed;
+        // A compaction still due is waited for on its own clock; the clear
+        // itself is finished and stays "done".
+        if ((m_eventCompaction.expected && !m_eventCompaction.got)
+            || (m_mediaCompaction.expected && !m_mediaCompaction.got))
+            m_compactionWatchdog.start();
     } else if (m_resetDone.isEmpty()) {
         m_resetState = QStringLiteral("failed");
         m_resetSummary = tr("Nothing was cleared (%1). Your sign-in and "
@@ -260,6 +394,9 @@ void AboutController::onLoggedOut()
     m_homeserver.clear();
     m_homeserverState = QStringLiteral("idle");
     m_resetWatchdog.stop();
+    m_compactionWatchdog.stop();
+    m_eventCompaction = {};
+    m_mediaCompaction = {};
     m_mediaOp = 0;
     m_eventCacheOp = 0;
     m_resetState = QStringLiteral("idle");

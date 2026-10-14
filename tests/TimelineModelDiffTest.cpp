@@ -206,6 +206,7 @@ private Q_SLOTS:
     void readReceiptsUpdateViaSetDiffAndMemberHydration();
     void memberHydrationRerendersOnlyRowsWhoseMentionsChanged();
     void aReaderShowsOnOneHostOnlyAndTheOldHostIsReannounced();
+    void theSeenByListIsCumulativeFromTheClickedMessage();
     void removingTheNewestReceiptRowHandsTheReaderBackToTheOlderHost();
     void receiptOnlySetKeepsThreadIndexWithoutRebuild();
     void readMarkerRowsStayReceiptFreeWithoutIndexDrift();
@@ -1051,6 +1052,49 @@ void TimelineModelDiffTest::aReaderKnownNowhereGetsTheirGlobalProfileAndTheChipR
     QCOMPARE(reader.value(QStringLiteral("avatarMxc")).toString(),
              QStringLiteral("mxc://example.org/bob"));
     m_model->setProfileResolver(nullptr);
+}
+
+// "Seen by" on a message is cumulative: everyone whose newest receipt is on
+// that message or a later one, each with the time of that receipt; the local
+// user is never listed and an unknown id answers empty.
+void TimelineModelDiffTest::theSeenByListIsCumulativeFromTheClickedMessage()
+{
+    auto a = makeEvent(QStringLiteral("$a"), QStringLiteral("one"));
+    a.readBy = { { QStringLiteral("@bob:example.org"), Q_INT64_C(1700000001000) } };
+    auto b = makeEvent(QStringLiteral("$b"), QStringLiteral("two"));
+    b.readBy = { { QStringLiteral("@carol:example.org"), Q_INT64_C(1700000002000) },
+                 { QStringLiteral("@me:example.org"),    Q_INT64_C(1700000002500) } };
+    auto c = makeEvent(QStringLiteral("$c"), QStringLiteral("three"));
+    c.readBy = { { QStringLiteral("@dave:example.org"), Q_INT64_C(1700000003000) } };
+    m_client->mirror = { a, b, c };
+    Q_EMIT m_client->timelineReset(kRoom);
+
+    auto ids = [this](const QString &eventId) {
+        QStringList out;
+        const QVariantMap m = m_model->cumulativeReadersForEvent(eventId);
+        for (const QVariant &v : m.value(QStringLiteral("readers")).toList())
+            out << v.toMap().value(QStringLiteral("userId")).toString();
+        return out;
+    };
+    // The newest message: only the reader on it.
+    QCOMPARE(ids(QStringLiteral("$c")),
+             QStringList{ QStringLiteral("@dave:example.org") });
+    // The middle one: Carol and Dave (Bob stopped before it; self excluded),
+    // newest first.
+    QCOMPARE(ids(QStringLiteral("$b")),
+             (QStringList{ QStringLiteral("@dave:example.org"),
+                           QStringLiteral("@carol:example.org") }));
+    // The oldest: everybody, with each reader's own receipt time.
+    QCOMPARE(ids(QStringLiteral("$a")),
+             (QStringList{ QStringLiteral("@dave:example.org"),
+                           QStringLiteral("@carol:example.org"),
+                           QStringLiteral("@bob:example.org") }));
+    const QVariantMap all = m_model->cumulativeReadersForEvent(QStringLiteral("$a"));
+    QCOMPARE(all.value(QStringLiteral("total")).toInt(), 3);
+    QCOMPARE(all.value(QStringLiteral("readers")).toList().at(2).toMap()
+                 .value(QStringLiteral("tsMs")).toLongLong(),
+             Q_INT64_C(1700000001000));
+    QVERIFY(ids(QStringLiteral("$missing")).isEmpty());
 }
 
 // A reader has one position: the newest row carrying them hosts their

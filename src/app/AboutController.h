@@ -55,7 +55,19 @@ class AboutController : public QObject
                    NOTIFY accountDataChanged)
 
 public:
+    /// How long a clear step may stay silent before the reset reads as not
+    /// finished.
+    static constexpr int kResetWaitMs = 60 * 1000;
+    /// How long a compaction report is waited for after the clear. Longer than
+    /// the Rust side's own compaction budget (COMPACT_BUDGET, 90 s in
+    /// rust/src/aboutinfo.rs), so the budget runs out first and says so.
+    static constexpr int kCompactionWaitMs = 100 * 1000;
+    static_assert(kCompactionWaitMs > 90 * 1000,
+                  "the UI must outwait the compaction budget");
+
     explicit AboutController(QObject *parent = nullptr);
+    /// Test seam: shorter waits.
+    void setWaitsForTest(int resetMs, int compactionMs);
 
     void setClient(MatrixClient *client);
     /// The search index is cleared through its own controller so the
@@ -99,6 +111,11 @@ private:
     void onAccountData(quint64 opId, const QVariantMap &listing);
     void onMediaCleared(quint64 opId, bool ok);
     void onEventCacheCleared(quint64 opId, bool ok);
+    void onCacheCompacted(quint64 opId, const QString &store,
+                          const QString &outcome, qint64 bytesBefore,
+                          qint64 bytesAfter);
+    QString reclaimSummary() const;
+    void refreshSummary();
     void onLoggedOut();
     void stepFinished(const QString &what, bool ok);
     void finishReset(bool timedOut);
@@ -116,6 +133,26 @@ private:
     quint64 m_mediaOp = 0;
     quint64 m_eventCacheOp = 0;
     QStringList m_resetFailed;
+    // Compaction is its own, later report per store (a clear that succeeded is
+    // never made to look unfinished by a slow VACUUM). `expected`: a clear
+    // succeeded on a backend that reports compaction, so a report is due.
+    struct Compaction {
+        quint64 op = 0;
+        bool expected = false;
+        bool got = false;
+        // The wait ran out with no report (a backend task that died sends none).
+        bool gaveUp = false;
+        QString outcome;
+        qint64 before = 0;
+        qint64 after = 0;
+    };
+    Compaction m_eventCompaction;
+    Compaction m_mediaCompaction;
+    qint64 m_keptFilesFreed = 0;
+    // The summary without the disk sentence, which is recomposed as
+    // compaction reports arrive.
+    QString m_clearSummary;
+    QTimer m_compactionWatchdog;
     QStringList m_resetDone;
     int m_resetPending = 0;
     QTimer m_resetWatchdog;

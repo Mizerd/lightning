@@ -267,13 +267,16 @@ void PushRulesController::onSnapshot(quint64 opId, bool ok,
 void PushRulesController::onWriteFinished(quint64 opId, const QString &kind,
                                           bool ok, const QString &category)
 {
-    Q_UNUSED(kind);
     if (!m_pending.contains(opId))
         return;
-    m_pending.remove(opId);
+    // The kind this controller sent, not the echoed argument.
+    const QString sentKind = m_pending.take(opId);
+    Q_UNUSED(kind);
     if (ok) {
         // The fresh snapshot follows; keep the optimistic state until then.
         Q_EMIT stateChanged();
+        if (sentKind == QLatin1String("default_level"))
+            Q_EMIT accountDefaultChanged();
         return;
     }
     // Put the last server state back, but keep the choices of writes that are

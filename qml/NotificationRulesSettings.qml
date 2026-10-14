@@ -308,7 +308,11 @@ ColumnLayout {
                         text: qsTr("Remove")
                         Accessible.name:
                             qsTr("Remove keyword %1").arg(modelData.keyword)
-                        onClicked: root.rules.removeKeyword(modelData.keyword)
+                        objectName: "pushKeywordRemoveButton"
+                        onClicked: {
+                            removeKeywordConfirm.keyword = modelData.keyword
+                            removeKeywordConfirm.open()
+                        }
                     }
                 }
             }
@@ -465,6 +469,79 @@ ColumnLayout {
                     }
                 }
             }
+        }
+    }
+
+    // Removing a keyword stops its notifications on every device at once, so
+    // it asks first. Themed like the About page's reset confirmation and
+    // parented to the overlay so it centres on the window.
+    Dialog {
+        id: removeKeywordConfirm
+        objectName: "pushKeywordRemoveConfirm"
+        property string keyword: ""
+        title: qsTr("Remove this keyword?")
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        width: 360
+        padding: AppTheme.spacing20
+        closePolicy: Popup.CloseOnEscape
+        onAccepted: {
+            if (root.rules && removeKeywordConfirm.keyword.length > 0)
+                root.rules.removeKeyword(removeKeywordConfirm.keyword)
+        }
+        background: Rectangle {
+            color: AppTheme.stormPanel
+            border.color: AppTheme.stormBorderStrong
+            border.width: 1
+            radius: AppTheme.radiusLg
+        }
+        header: Label {
+            text: removeKeywordConfirm.title
+            color: AppTheme.stormText
+            font.family: AppTheme.menuFont
+            font.pixelSize: AppTheme.textTitle
+            font.weight: AppTheme.weightBold
+            elide: Label.ElideRight
+            leftPadding: AppTheme.spacing20
+            rightPadding: AppTheme.spacing20
+            topPadding: AppTheme.spacing16
+            bottomPadding: AppTheme.spacing8
+        }
+        footer: Item {
+            implicitHeight: removeKeywordFooter.implicitHeight
+                            + AppTheme.spacing20 * 2
+            RowLayout {
+                id: removeKeywordFooter
+                anchors.right: parent.right
+                anchors.rightMargin: AppTheme.spacing20
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: AppTheme.spacing8
+                AppButton {
+                    objectName: "pushKeywordRemoveCancel"
+                    storm: true
+                    text: qsTr("Cancel")
+                    onClicked: removeKeywordConfirm.reject()
+                }
+                AppButton {
+                    objectName: "pushKeywordRemoveConfirmButton"
+                    storm: true
+                    kind: "dangerPrimary"
+                    text: qsTr("Remove keyword")
+                    onClicked: removeKeywordConfirm.accept()
+                }
+            }
+        }
+        Label {
+            width: 300
+            wrapMode: Text.WordWrap
+            color: AppTheme.stormTextSecondary
+            font.pixelSize: AppTheme.textBody
+            lineHeight: AppTheme.lineHeightBody
+            lineHeightMode: Text.ProportionalHeight
+            text: qsTr("You will stop being notified when someone says "
+                       + "“%1”, on every device signed in to this "
+                       + "account.").arg(removeKeywordConfirm.keyword)
         }
     }
 }

@@ -841,6 +841,27 @@ private Q_SLOTS:
 #endif
     }
 
+    // Changing an account default must re-read the per-room modes at once
+    // (the same refresh the first sync and a remote rule change run), not wait
+    // for the next time a room is opened.
+    void anAccountDefaultChangeRefreshesTheRoomModes()
+    {
+#ifndef ENABLE_RUST_SDK_BACKEND
+        QSKIP("server notification modes require the Rust backend");
+#else
+        AppController app(AppController::RustBackend);
+        auto *rust = rustClient(app);
+        QVERIFY(rust);
+        rust->handleRustEventForTest(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("initial_sync_done")}});
+        QSignalSpy refreshed(&app,
+                             &AppController::roomNotificationModesRefreshed);
+        QVERIFY(app.pushRules() != nullptr);
+        Q_EMIT app.pushRules()->accountDefaultChanged();
+        QCOMPARE(refreshed.count(), 1);
+#endif
+    }
+
 private:
     QTemporaryDir m_configHome;
     QTemporaryDir m_dataHome;

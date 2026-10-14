@@ -4,6 +4,7 @@
 // QApplication (QTEST_MAIN) rather than composer-spell-test's guiless main.
 
 #include <QAction>
+#include <QFile>
 #include <QImage>
 #include <QMenu>
 #include <QPixmap>
@@ -210,6 +211,42 @@ private slots:
         QVERIFY(!activationRestoresWindow(true, false, true)); // start in tray
         QVERIFY(!activationRestoresWindow(true, true, false)); // already shown
         QVERIFY(!activationRestoresWindow(false, true, true));
+    }
+
+    // Element-style macOS close, independent of the tray setting. The platform
+    // code cannot run here, so the pieces that make it work are pinned in
+    // source: Cmd+W (the app has no native menu bar to carry a Close item), a
+    // hidden last window not counting as a quit, and both guarded to macOS so
+    // Linux and Windows keep their behaviour.
+    void theMacCloseContractIsInSourceAndGuardedToMacOs()
+    {
+        auto read = [](const QString &relative) {
+            QFile file(QStringLiteral(REPO_ROOT "/") + relative);
+            return file.open(QIODevice::ReadOnly | QIODevice::Text)
+                       ? QString::fromUtf8(file.readAll())
+                       : QString();
+        };
+        const QString main = read(QStringLiteral("qml/Main.qml"));
+        QVERIFY(!main.isEmpty());
+        const int shortcut = main.indexOf(QStringLiteral("macCloseWindowShortcut"));
+        QVERIFY2(shortcut >= 0, "Cmd+W must close (hide) the window on macOS");
+        const QString block = main.mid(shortcut, 400);
+        QVERIFY(block.contains(QStringLiteral("StandardKey.Close")));
+        QVERIFY(block.contains(QStringLiteral("Qt.WindowShortcut")));
+        QVERIFY(block.contains(QStringLiteral("Qt.platform.os === \"osx\"")));
+        QVERIFY(block.contains(QStringLiteral("window.close()")));
+
+        const QString controller = read(QStringLiteral("src/app/AppController.cpp"));
+        QVERIFY(!controller.isEmpty());
+        const int quitOnLast = controller.indexOf(
+            QStringLiteral("QGuiApplication::setQuitOnLastWindowClosed(false)"));
+        QVERIFY2(quitOnLast >= 0, "a hidden last window must not quit on macOS");
+        // Inside an #ifdef Q_OS_MACOS block, not unconditional.
+        const int guardOpen = controller.lastIndexOf(
+            QStringLiteral("#ifdef Q_OS_MACOS"), quitOnLast);
+        const int guardClose = controller.indexOf(QStringLiteral("#endif"), guardOpen);
+        QVERIFY(guardOpen >= 0 && guardClose > quitOnLast);
+        QCOMPARE(controller.count(QStringLiteral("setQuitOnLastWindowClosed")), 1);
     }
 };
 

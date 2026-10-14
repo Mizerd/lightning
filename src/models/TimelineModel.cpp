@@ -988,6 +988,70 @@ QList<ReadReceipt> TimelineModel::hostedReceipts(int row,
     return out;
 }
 
+QVariantMap TimelineModel::cumulativeReadersForEvent(const QString &eventId) const
+{
+    // Cap on resolved names. Each one goes through the member lookup and may
+    // ask for a profile; the truthful total still reaches the list's footer.
+    constexpr int kMaxCumulativeReaders = 100;
+    QVariantMap result;
+    result.insert(QStringLiteral("readers"), QVariantList{});
+    result.insert(QStringLiteral("total"), 0);
+    const int row = rowForEventId(eventId);
+    if (row < 0 || row >= m_events.size())
+        return result;
+
+    // A reader has read this message when their NEWEST receipt is here or
+    // below it. latestReceiptRows() is the cached userId -> newest row map, so
+    // this never walks the rows' receipt lists per reader.
+    QList<ReadReceipt> readers;
+    const QHash<QString, int> &latest = latestReceiptRows();
+    for (auto it = latest.constBegin(); it != latest.constEnd(); ++it) {
+        if (it.value() < row || it.value() >= m_events.size()
+            || it.key() == m_selfUserId)
+            continue;
+        ReadReceipt entry;
+        entry.userId = it.key();
+        for (const auto &r : m_events.at(it.value()).readBy) {
+            if (r.userId == it.key()) {
+                entry.tsMs = r.tsMs;
+                break;
+            }
+        }
+        readers.append(entry);
+    }
+    // Readers past a row's delivered window have no names or positions here;
+    // count them so the list never claims fewer people than read.
+    int undelivered = 0;
+    for (int r = row; r < m_events.size(); ++r) {
+        const auto &e = m_events.at(r);
+        undelivered += qMax(0, e.readByTotal - static_cast<int>(e.readBy.size()));
+    }
+    std::stable_sort(readers.begin(), readers.end(),
+                     [](const ReadReceipt &a, const ReadReceipt &b) {
+                         if (a.tsMs != b.tsMs)
+                             return a.tsMs > b.tsMs;
+                         return a.userId < b.userId;
+                     });
+    const int total = static_cast<int>(readers.size()) + undelivered;
+    if (readers.size() > kMaxCumulativeReaders)
+        readers.erase(readers.begin() + kMaxCumulativeReaders, readers.end());
+
+    const QString lookupRoom = memberLookupRoomId(m_events.at(row).roomId);
+    QVariantList out;
+    out.reserve(readers.size());
+    for (const auto &r : std::as_const(readers)) {
+        QVariantMap m;
+        m.insert(QStringLiteral("userId"),      r.userId);
+        m.insert(QStringLiteral("displayName"), readerDisplayName(lookupRoom, r.userId));
+        m.insert(QStringLiteral("avatarMxc"),   readerAvatarMxc(lookupRoom, r.userId));
+        m.insert(QStringLiteral("tsMs"),        r.tsMs);
+        out.append(m);
+    }
+    result.insert(QStringLiteral("readers"), out);
+    result.insert(QStringLiteral("total"), total);
+    return result;
+}
+
 QHash<QString, QString> TimelineModel::receiptPositionsByEvent() const
 {
     QHash<QString, QString> out;
