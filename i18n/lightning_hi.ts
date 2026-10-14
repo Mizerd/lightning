@@ -21955,7 +21955,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+0"/>
         <source>Change</source>
-        <translation>परिवर्तन</translation>
+        <translation>बदलें</translation>
     </message>
     <message>
         <location line="+3"/>

@@ -21897,7 +21897,7 @@ Catatan: mengimpor kunci tidak memverifikasi sesi ini.</translation>
     <message>
         <location line="+0"/>
         <source>Change</source>
-        <translation>Perubahan</translation>
+        <translation>Ubah</translation>
     </message>
     <message>
         <location line="+3"/>

@@ -21897,7 +21897,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+0"/>
         <source>Change</source>
-        <translation>改变</translation>
+        <translation>更改</translation>
     </message>
     <message>
         <location line="+3"/>

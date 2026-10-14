@@ -21955,7 +21955,7 @@ Nota: importar chaves não verifica esta sessão.</translation>
     <message>
         <location line="+0"/>
         <source>Change</source>
-        <translation>Mudança</translation>
+        <translation>Alterar</translation>
     </message>
     <message>
         <location line="+3"/>

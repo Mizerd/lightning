@@ -21946,7 +21946,7 @@ Note: importing keys does not verify this session.</source>
     <message>
         <location line="+0"/>
         <source>Change</source>
-        <translation>পরিবর্তন</translation>
+        <translation>বদলান</translation>
     </message>
     <message>
         <location line="+3"/>
