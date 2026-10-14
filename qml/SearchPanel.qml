@@ -556,6 +556,8 @@ Rectangle {
                     title: qsTr("Mentions")
                     description: qsTr("Mentions any selected user")
                     sectionKey: "mentions"
+                    enabled: !root.filterUnsupported("mentions")
+                    opacity: enabled ? 1 : 0.45
                     selectedValues: root.draftMentions
                     expanded: root.memberSection === sectionKey
                     needle: expanded ? root.memberNeedle : ""
@@ -569,8 +571,6 @@ Rectangle {
                     onNeedleChangedByUser: (value) => root.memberNeedle = value
                     onUserToggled: (userId) => root.toggleValue("draftMentions", userId)
                 }
-                    enabled: !root.filterUnsupported("mentions")
-                    opacity: enabled ? 1 : 0.45
 
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -612,6 +612,15 @@ Rectangle {
                     spacing: AppTheme.spacing6
                     Label { text: qsTr("Has"); color: AppTheme.textPrimary; font.weight: AppTheme.weightBold }
                     Label { text: qsTr("Contains any selected content type"); color: AppTheme.textMuted; font.pixelSize: AppTheme.textMeta }
+                    Label {
+                        objectName: "searchUnsupportedFiltersHint"
+                        visible: root.filterUnsupported("sticker")
+                        Layout.fillWidth: true
+                        text: qsTr("Sticker and Mentions need Server search; the local index does not store them.")
+                        color: AppTheme.textMuted
+                        font.pixelSize: AppTheme.textMeta
+                        wrapMode: Text.Wrap
+                    }
                     Flow {
                         Layout.fillWidth: true
                         spacing: AppTheme.spacing6
@@ -624,16 +633,8 @@ Rectangle {
                                 // renders in the OS default.
                                 palette.windowText: AppTheme.textPrimary
                                 text: root.typeLabel(modelData)
+                                enabled: !root.filterUnsupported(modelData)
                                 checked: root.contains(root.draftTypes, modelData)
-                    Label {
-                        objectName: "searchUnsupportedFiltersHint"
-                        visible: root.filterUnsupported("sticker")
-                        Layout.fillWidth: true
-                        text: qsTr("Sticker and Mentions need Server search; the local index does not store them.")
-                        color: AppTheme.textMuted
-                        font.pixelSize: AppTheme.textMeta
-                        wrapMode: Text.Wrap
-                    }
                                 onClicked: root.toggleValue("draftTypes", modelData)
                             }
                         }
@@ -646,7 +647,6 @@ Rectangle {
                     Layout.rightMargin: AppTheme.spacing12
                     Layout.bottomMargin: AppTheme.spacing12
                     spacing: AppTheme.spacing6
-                                enabled: !root.filterUnsupported(modelData)
                     Label { text: qsTr("Pinned"); color: AppTheme.textPrimary; font.weight: AppTheme.weightBold }
                     Label { text: qsTr("Whether the message is pinned"); color: AppTheme.textMuted; font.pixelSize: AppTheme.textMeta }
                     AppComboBox {

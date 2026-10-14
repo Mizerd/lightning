@@ -687,12 +687,12 @@ void MessageSearchController::onSearchFinished(quint64 opId, bool ok,
         requestPage(/*append=*/true);
         return;
     }
-    setState(m_rows.isEmpty() ? QStringLiteral("no_results")
-                              : QStringLiteral("results"));
     // The budget ran out with history left and the filters still unsatisfied:
     // the reader must not be told there are no matches.
     m_scanLimited = hasClientFilters && m_rows.size() < m_scanTarget
         && !m_nextBatch.isEmpty();
+    setState(m_rows.isEmpty() ? QStringLiteral("no_results")
+                              : QStringLiteral("results"));
 }
 
 void MessageSearchController::setState(const QString &state)
@@ -711,9 +711,9 @@ void MessageSearchController::invalidatePending()
     m_pendingIsNextPage = false;
     m_pendingLocalLimit = 0;
     m_lastLocalRawCount = 0;
+    m_scanLimited = false;
     m_nextBatch.clear();
 }
-    m_scanLimited = false;
 
 void MessageSearchController::rebuildFilterSets()
 {
