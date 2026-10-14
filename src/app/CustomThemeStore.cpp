@@ -5,6 +5,8 @@
 #include <QColor>
 #include <QHash>
 #include <QJsonArray>
+#include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPair>
@@ -1685,21 +1687,22 @@ QString CustomThemeStore::exportTheme(const QString &id) const
     return {};
 }
 
-QString CustomThemeStore::importTheme(const QString &payload)
+bool CustomThemeStore::parseShared(const QString &payload, Theme *out,
+                                   QString *error)
 {
-    QList<Theme> themes = load();
-    if (themes.size() >= kMaxThemes)
-        return tr("You already have the maximum number of themes.");
     const QJsonDocument doc =
         QJsonDocument::fromJson(payload.trimmed().toUtf8());
-    if (!doc.isObject())
-        return tr("That does not look like a shared theme.");
+    if (!doc.isObject()) {
+        *error = tr("That does not look like a shared theme.");
+        return false;
+    }
     const QJsonObject object = doc.object();
-    if (object.value(QLatin1String(kShareKey)).toInt(0) != kShareFormat)
-        return tr("That does not look like a shared theme.");
+    if (object.value(QLatin1String(kShareKey)).toInt(0) != kShareFormat) {
+        *error = tr("That does not look like a shared theme.");
+        return false;
+    }
 
     Theme theme;
-    theme.id = makeId(themes);
     theme.name = object.value(QStringLiteral("name")).toString()
                      .trimmed().left(kMaxNameLength);
     if (theme.name.isEmpty())
@@ -1716,12 +1719,89 @@ QString CustomThemeStore::importTheme(const QString &payload)
     // Same gate as a loaded file: unknown roles and bad stops are dropped.
     theme.gradients = sanitizeGradients(
         object.value(QStringLiteral("gradients")).toObject().toVariantMap());
-    if (theme.colors.isEmpty() && theme.gradients.isEmpty())
-        return tr("That theme has no colours in it.");
+    if (theme.colors.isEmpty() && theme.gradients.isEmpty()) {
+        *error = tr("That theme has no colours in it.");
+        return false;
+    }
+    *out = theme;
+    return true;
+}
+
+QString CustomThemeStore::importTheme(const QString &payload)
+{
+    QList<Theme> themes = load();
+    if (themes.size() >= kMaxThemes)
+        return tr("You already have the maximum number of themes.");
+    Theme theme;
+    QString error;
+    if (!parseShared(payload, &theme, &error))
+        return error;
+    theme.id = makeId(themes);
     themes.append(theme);
     clearHistory();
     save(themes, theme.id);
     return {};
+}
+
+QVariantMap CustomThemeStore::previewImport(const QString &payload) const
+{
+    QVariantMap out;
+    Theme theme;
+    QString error;
+    if (!parseShared(payload, &theme, &error)) {
+        out.insert(QStringLiteral("ok"), false);
+        out.insert(QStringLiteral("error"), error);
+        return out;
+    }
+    out.insert(QStringLiteral("ok"), true);
+    out.insert(QStringLiteral("error"), QString());
+    out.insert(QStringLiteral("name"), theme.name);
+    out.insert(QStringLiteral("base"), theme.baseTheme);
+    out.insert(QStringLiteral("colors"), theme.colors);
+    out.insert(QStringLiteral("gradients"), theme.gradients);
+    out.insert(QStringLiteral("colourCount"), int(theme.colors.size()));
+    out.insert(QStringLiteral("gradientCount"), int(theme.gradients.size()));
+    out.insert(QStringLiteral("atLimit"), load().size() >= kMaxThemes);
+    return out;
+}
+
+QString CustomThemeStore::replaceActiveTheme(const QString &payload)
+{
+    if (activeIndex() < 0)
+        return importTheme(payload);
+    Theme incoming;
+    QString error;
+    if (!parseShared(payload, &incoming, &error))
+        return error;
+    const QString idBefore = activeThemeId();
+    const int baseBefore = baseTheme();
+    const QVariantMap colorsBefore = colors();
+    const QVariantMap gradientsBefore = gradients();
+    QList<Theme> themes = load();
+    const int index = activeIndex();
+    themes[index].baseTheme = incoming.baseTheme;
+    themes[index].colors = incoming.colors;
+    themes[index].gradients = incoming.gradients;
+    save(themes, themes.at(index).id);
+    // One step, named; the name is not replaced, so nothing outside the
+    // history changes.
+    m_undoSealed = true;
+    recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore, QString(),
+               tr("Replace with the imported theme"));
+    return {};
+}
+
+QString CustomThemeStore::readThemeFile(const QUrl &url) const
+{
+    if (!url.isLocalFile())
+        return {};
+    const QFileInfo info(url.toLocalFile());
+    if (!info.isFile() || info.size() <= 0 || info.size() > kMaxShareFileBytes)
+        return {};
+    QFile file(info.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return QString::fromUtf8(file.read(kMaxShareFileBytes));
 }
 
 QVariantMap CustomThemeStore::colors() const
@@ -1776,9 +1856,11 @@ void CustomThemeStore::setBaseTheme(int themeId)
     const QString idBefore = m_activeId;
     const int baseBefore = themes.at(index).baseTheme;
     const QVariantMap colorsBefore = themes.at(index).colors;
+    const QVariantMap gradientsBefore = themes.at(index).gradients;
     themes[index].baseTheme = themeId;
     save(themes, themes.at(index).id);
-    recordStep(idBefore, baseBefore, colorsBefore, QString());
+    recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore, QString(),
+               tr("Change the starting point"));
 }
 
 QString CustomThemeStore::name() const
@@ -1818,12 +1900,14 @@ bool CustomThemeStore::setColor(const QString &role, const QString &hex)
     const QString idBefore = activeThemeId();
     const int baseBefore = baseTheme();
     const QVariantMap before = colors();
+    const QVariantMap gradientsBefore = gradients();
     QVariantMap next = before;
     next.insert(role, hex.toUpper());
     store(next);
     // Successive samples of one role (a drag) are one step until the editor
     // seals it; see sealUndoStep().
-    recordStep(idBefore, baseBefore, before, role);
+    recordStep(idBefore, baseBefore, before, gradientsBefore, role,
+               tr("Change %1 colour").arg(roleLabel(role)));
     return true;
 }
 
@@ -1832,10 +1916,12 @@ void CustomThemeStore::resetColor(const QString &role)
     const QString idBefore = activeThemeId();
     const int baseBefore = baseTheme();
     const QVariantMap before = colors();
+    const QVariantMap gradientsBefore = gradients();
     QVariantMap next = before;
     if (next.remove(role) > 0) {
         store(next);
-        recordStep(idBefore, baseBefore, before, QString());
+        recordStep(idBefore, baseBefore, before, gradientsBefore, QString(),
+                   tr("Reset %1").arg(roleLabel(role)));
     }
 }
 
@@ -1859,7 +1945,7 @@ bool CustomThemeStore::applyToGroup(const QString &role, const QString &hex)
         return false;
     const QStringList members = groupMembers(group);
 
-    // The gradient half first (it is not in the undo history): the role's own
+    // The gradient half first: the role's own
     // gradient becomes the group's when the group can carry one, and every
     // member's own gradient goes, so they all show the group's.
     const QVariantMap gradientsBefore = gradients();
@@ -1887,7 +1973,8 @@ bool CustomThemeStore::applyToGroup(const QString &role, const QString &hex)
         }
     }
     store(next);
-    recordStep(idBefore, baseBefore, before, QString());
+    recordStep(idBefore, baseBefore, before, gradientsBefore, QString(),
+               tr("Apply %1 to all of %2").arg(roleLabel(role), roleLabel(group)));
     return true;
 }
 
@@ -1899,8 +1986,8 @@ void CustomThemeStore::resetAll()
         return;
     const QString idBefore = activeThemeId();
     const int baseBefore = baseTheme();
-    // Gradients go with "Reset all" too. They are not in the undo history
-    // (it records colours and base), so only the colour half can be undone.
+    const QVariantMap gradientsBefore = gradients();
+    // Gradients go with "Reset all" too, and are in the undo history.
     if (hadGradients) {
         QList<Theme> themes = load();
         const int index = activeIndex();
@@ -1911,7 +1998,8 @@ void CustomThemeStore::resetAll()
     }
     if (!before.isEmpty())
         store({});
-    recordStep(idBefore, baseBefore, before, QString());
+    recordStep(idBefore, baseBefore, before, gradientsBefore, QString(),
+               tr("Reset every colour"));
 }
 
 QVariantMap CustomThemeStore::gradients() const
@@ -1927,6 +2015,10 @@ bool CustomThemeStore::setGradient(const QString &role, const QVariantMap &spec)
     const QVariantMap clean = sanitizeGradient(spec);
     if (clean.isEmpty())
         return false;
+    const QString idBefore = activeThemeId();
+    const int baseBefore = baseTheme();
+    const QVariantMap colorsBefore = colors();
+    const QVariantMap gradientsBefore = gradients();
     QList<Theme> themes = load();
     int index = activeIndex();
     if (index < 0) {
@@ -1942,6 +2034,11 @@ bool CustomThemeStore::setGradient(const QString &role, const QVariantMap &spec)
         return true;
     themes[index].gradients.insert(role, clean);
     save(themes, themes.at(index).id);
+    // Stops dragged in the bar or the picker are one step per role until the
+    // editor seals it, as for a colour.
+    recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore,
+               QStringLiteral("gradient:") + role,
+               tr("Change %1 gradient").arg(roleLabel(role)));
     return true;
 }
 
@@ -1949,9 +2046,16 @@ void CustomThemeStore::resetGradient(const QString &role)
 {
     QList<Theme> themes = load();
     const int index = activeIndex();
-    if (index < 0 || themes[index].gradients.remove(role) == 0)
+    if (index < 0 || !themes.at(index).gradients.contains(role))
         return;
+    const QString idBefore = activeThemeId();
+    const int baseBefore = baseTheme();
+    const QVariantMap colorsBefore = colors();
+    const QVariantMap gradientsBefore = gradients();
+    themes[index].gradients.remove(role);
     save(themes, themes.at(index).id);
+    recordStep(idBefore, baseBefore, colorsBefore, gradientsBefore, QString(),
+               tr("Remove %1 gradient").arg(roleLabel(role)));
 }
 
 bool CustomThemeStore::isGradientRole(const QString &role) const
@@ -1976,11 +2080,50 @@ void CustomThemeStore::sealUndoStep()
     m_undoSealed = true;
 }
 
+QString CustomThemeStore::undoLabel() const
+{
+    return m_undo.isEmpty() ? QString() : m_undo.last().label;
+}
+
+QString CustomThemeStore::redoLabel() const
+{
+    return m_redo.isEmpty() ? QString() : m_redo.last().label;
+}
+
+void CustomThemeStore::nameNextStep(const QString &label)
+{
+    m_pendingLabel = label.left(120);
+}
+
+void CustomThemeStore::beginUndoGroup(const QString &label)
+{
+    if (m_groupDepth == 0) {
+        // A group is a step of its own, never a continuation of a drag.
+        m_undoSealed = true;
+        m_groupLabel = label.left(120);
+    }
+    ++m_groupDepth;
+}
+
+void CustomThemeStore::endUndoGroup()
+{
+    if (m_groupDepth == 0)
+        return;
+    if (--m_groupDepth == 0) {
+        m_undoSealed = true;
+        m_groupLabel.clear();
+    }
+}
+
 void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
                                   const QVariantMap &colorsBefore,
-                                  const QString &coalesce)
+                                  const QVariantMap &gradientsBefore,
+                                  const QString &coalesceKey,
+                                  const QString &defaultLabel)
 {
     const QString id = activeThemeId();
+    const QString pending = m_pendingLabel;
+    m_pendingLabel.clear();
     // An edit that had to create the theme first, or that landed on another
     // theme, has no "before" on this theme to return to.
     if (themeIdBefore.isEmpty() || id != themeIdBefore) {
@@ -1989,8 +2132,16 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
     }
     const int baseAfter = baseTheme();
     const QVariantMap colorsAfter = colors();
-    if (baseAfter == baseBefore && colorsAfter == colorsBefore)
+    const QVariantMap gradientsAfter = gradients();
+    if (baseAfter == baseBefore && colorsAfter == colorsBefore
+        && gradientsAfter == gradientsBefore)
         return;
+
+    // Inside a group every edit merges into the group's one step.
+    const bool grouped = m_groupDepth > 0;
+    const QString coalesce = grouped ? QStringLiteral("@group") : coalesceKey;
+    const QString label = grouped ? m_groupLabel
+                        : !pending.isEmpty() ? pending : defaultLabel;
 
     const bool merge = !m_undoSealed && !coalesce.isEmpty()
                        && !m_undo.isEmpty()
@@ -2000,9 +2151,11 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
         UndoStep &last = m_undo.last();
         last.baseAfter = baseAfter;
         last.colorsAfter = colorsAfter;
+        last.gradientsAfter = gradientsAfter;
         // A drag that came back to where it started is no step at all.
         if (last.baseAfter == last.baseBefore
-            && last.colorsAfter == last.colorsBefore)
+            && last.colorsAfter == last.colorsBefore
+            && last.gradientsAfter == last.gradientsBefore)
             m_undo.removeLast();
     } else {
         UndoStep step;
@@ -2011,7 +2164,10 @@ void CustomThemeStore::recordStep(const QString &themeIdBefore, int baseBefore,
         step.baseAfter = baseAfter;
         step.colorsBefore = colorsBefore;
         step.colorsAfter = colorsAfter;
+        step.gradientsBefore = gradientsBefore;
+        step.gradientsAfter = gradientsAfter;
         step.coalesce = coalesce;
+        step.label = label;
         m_undo.append(step);
         while (m_undo.size() > kMaxUndoSteps)
             m_undo.removeFirst();
@@ -2032,7 +2188,8 @@ void CustomThemeStore::clearHistory()
     Q_EMIT historyChanged();
 }
 
-void CustomThemeStore::applyHistoryState(int base, const QVariantMap &colors)
+void CustomThemeStore::applyHistoryState(int base, const QVariantMap &colors,
+                                         const QVariantMap &gradients)
 {
     QList<Theme> themes = load();
     const int index = activeIndex();
@@ -2040,6 +2197,7 @@ void CustomThemeStore::applyHistoryState(int base, const QVariantMap &colors)
         return;
     themes[index].baseTheme = base;
     themes[index].colors = sanitize(colors);
+    themes[index].gradients = sanitizeGradients(gradients);
     save(themes, themes.at(index).id);
 }
 
@@ -2053,7 +2211,7 @@ bool CustomThemeStore::undo()
         return false;
     }
     const UndoStep step = m_undo.takeLast();
-    applyHistoryState(step.baseBefore, step.colorsBefore);
+    applyHistoryState(step.baseBefore, step.colorsBefore, step.gradientsBefore);
     m_redo.append(step);
     m_undoSealed = true;
     Q_EMIT historyChanged();
@@ -2069,7 +2227,7 @@ bool CustomThemeStore::redo()
         return false;
     }
     const UndoStep step = m_redo.takeLast();
-    applyHistoryState(step.baseAfter, step.colorsAfter);
+    applyHistoryState(step.baseAfter, step.colorsAfter, step.gradientsAfter);
     m_undo.append(step);
     m_undoSealed = true;
     Q_EMIT historyChanged();

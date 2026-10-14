@@ -3992,6 +3992,447 @@ private slots:
         QVERIFY2(hardFinds, "\"unreadable\" does not list a flagged role");
     }
 
+    // ---- theme editor UX, second pass (2026-10-14) --------------------------
+
+    // Choosing a preset while the theme has edits asks Keep / Replace / Cancel;
+    // with nothing changed it just applies. Keep leaves the edits on the new
+    // base, Replace drops them as one undoable step, Cancel changes nothing.
+    // Fails on the old tree: the preset applied at once and nothing asked.
+    void choosingAPresetWithEditsAsksKeepOrReplace()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        const int other = restoreBase == 10 ? 9 : 10;
+
+        // Nothing of the user's own: no question.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "requestBase", Q_ARG(QVariant, other)));
+        QCoreApplication::processEvents();
+        const bool appliedAtOnce = store->baseTheme() == other
+                                   && dialog->property("pendingBase").toInt() < 0;
+
+        // With an edit it asks, and changes nothing yet.
+        QVERIFY(store->setColor(QStringLiteral("accent"), QStringLiteral("#FF3366")));
+        store->sealUndoStep();
+        QVERIFY(QMetaObject::invokeMethod(dialog, "requestBase", Q_ARG(QVariant, 11)));
+        QCoreApplication::processEvents();
+        const bool asked = shown(item("themePresetPrompt"))
+                           && dialog->property("pendingBase").toInt() == 11;
+        const bool unchangedWhileAsking = store->baseTheme() == other;
+
+        // Escape peels the question before anything else.
+        QVERIFY(dialog->property("hasTransientState").toBool());
+        QVERIFY(QMetaObject::invokeMethod(dialog, "dismissTransient"));
+        QCoreApplication::processEvents();
+        const bool cancelled = dialog->property("pendingBase").toInt() < 0
+                               && store->baseTheme() == other
+                               && !shown(item("themePresetPrompt"));
+
+        // Keep my changes: the base moves, the edit stays.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "requestBase", Q_ARG(QVariant, 11)));
+        QCoreApplication::processEvents();
+        clickItem(item("themePresetKeepButton"));
+        const bool kept = store->baseTheme() == 11
+                          && store->colors().contains(QStringLiteral("accent"));
+
+        // Replace: the edit goes, and one Undo brings back both halves.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "requestBase", Q_ARG(QVariant, other)));
+        QCoreApplication::processEvents();
+        clickItem(item("themePresetReplaceButton"));
+        const bool replaced = store->baseTheme() == other
+                              && !store->colors().contains(QStringLiteral("accent"));
+        QVERIFY(QMetaObject::invokeMethod(dialog, "undoEdit"));
+        const bool undoneAsOne = store->baseTheme() == 11
+                                 && store->colors().contains(QStringLiteral("accent"));
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QVERIFY2(appliedAtOnce, "a preset on an untouched theme asked a question");
+        QVERIFY2(asked, "a preset on an edited theme did not ask");
+        QVERIFY2(unchangedWhileAsking, "the preset applied before it was answered");
+        QVERIFY2(cancelled, "Cancel / Escape did not leave the theme alone");
+        QVERIFY2(kept, "Keep my changes lost the edit or did not move the base");
+        QVERIFY2(replaced, "Replace kept the edit or did not move the base");
+        QVERIFY2(undoneAsOne, "Replace is not one undoable step");
+    }
+
+
+    // The readability report is a popover under the header's pill, not a
+    // permanent column: closed it takes no room, open it lists every finding,
+    // a finding's Fix moves that colour, a finding's row opens the element and
+    // closes the popover, and Escape closes it before anything else.
+    // Fails on the old tree: the report filled the right-hand column whenever
+    // nothing was open and there was no popover to click open.
+    void theReadabilityReportIsAPopoverUnderThePill()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QVERIFY(store->setColor(QStringLiteral("background"), QStringLiteral("#202020")));
+        QVERIFY(store->setColor(QStringLiteral("textPrimary"), QStringLiteral("#262626")));
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        QTRY_VERIFY(dialog->property("readabilityProblems").toInt() > 0);
+
+        const bool pillShown = shown(item("themeReadabilityBadge"));
+        const bool closedAtFirst = !shown(item("themeReadabilityScroll"));
+        const bool hintInColumn = shown(item("themeInspectorEmpty"));
+
+        clickItem(item("themeReadabilityBadge"));
+        QTRY_VERIFY(dialog->property("reportOpen").toBool());
+        const bool panelShown = shown(item("themePopoverPanel"));
+        int rows = 0;
+        for (QQuickItem *row : items("themeReadabilityRow")) {
+            if (shown(row))
+                ++rows;
+        }
+
+        // Fix moves the colour of the first finding's element, popover stays.
+        const int problemsBefore = dialog->property("readabilityProblems").toInt();
+        const QString before = store->colors().value(QStringLiteral("textPrimary")).toString();
+        QQuickItem *fix = nullptr;
+        for (QQuickItem *f : items("themeReadabilityFix")) {
+            if (shown(f)) {
+                fix = f;
+                break;
+            }
+        }
+        QVERIFY2(fix, "no finding offers Fix");
+        clickItem(fix);
+        QTRY_VERIFY(dialog->property("readabilityProblems").toInt() < problemsBefore);
+        const bool fixMoved =
+            store->colors().value(QStringLiteral("textPrimary")).toString() != before
+            || store->colors().value(QStringLiteral("background")).toString()
+                   != QStringLiteral("#202020");
+        const bool stillOpenAfterFix = dialog->property("reportOpen").toBool();
+
+        // Escape closes the popover first.
+        QVERIFY(QMetaObject::invokeMethod(
+            dialog, "beginEdit", Q_ARG(QVariant, QStringLiteral("rail")),
+            Q_ARG(QVariant, QStringLiteral("Rail"))));
+        dialog->setProperty("reportOpen", true);
+        QCoreApplication::processEvents();
+        QVERIFY(QMetaObject::invokeMethod(dialog, "peelEscape"));
+        QCoreApplication::processEvents();
+        const bool escapeClosedPopover = !dialog->property("reportOpen").toBool()
+            && dialog->property("editingRole").toString() == QStringLiteral("rail");
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QVERIFY2(pillShown, "the readability pill is not in the header");
+        QVERIFY2(closedAtFirst, "the report is on screen without being asked for");
+        QVERIFY2(hintInColumn, "the right-hand column lost its empty state");
+        QVERIFY2(panelShown, "clicking the pill opened nothing");
+        QVERIFY2(rows >= 1, "the popover lists no finding");
+        QVERIFY2(fixMoved, "Fix changed no colour");
+        QVERIFY2(stillOpenAfterFix, "Fix closed the popover");
+        QVERIFY2(escapeClosedPopover, "Escape did not close the popover first");
+    }
+
+
+    // Puts the theme collection back after a test that created or imported
+    // themes: deletes every theme that was not there before and reselects the
+    // one that was active.
+    static void restoreThemes(CustomThemeStore *store, const QStringList &ids,
+                              const QString &active)
+    {
+        const QVariantList now = store->themes();
+        for (const QVariant &t : now) {
+            const QString id = t.toMap().value(QStringLiteral("id")).toString();
+            if (!ids.contains(id))
+                store->deleteTheme(id);
+        }
+        if (!active.isEmpty())
+            store->setActiveThemeId(active);
+    }
+    static QStringList themeIds(CustomThemeStore *store)
+    {
+        QStringList out;
+        for (const QVariant &t : store->themes())
+            out << t.toMap().value(QStringLiteral("id")).toString();
+        return out;
+    }
+
+    // The themes (chips, name, New / Duplicate / Share / Import / Delete) are
+    // one button and a menu in the top bar, and the left column no longer
+    // carries them. Fails on the old tree: the chips, the name field and the
+    // Manage drawer were in the left column and there was no menu button.
+    void theThemeMenuLivesInTheTopBar()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        const QStringList idsBefore = themeIds(store);
+        const QString activeBefore = store->activeThemeId();
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+
+        QQuickItem *button = item("themeMenuButton");
+        const bool buttonShown = shown(button);
+        // Closed: nothing of it takes room, and the old column has none of it.
+        const bool menuHidden = !shown(item("themeMenuPanel"))
+                                && !shown(item("customThemeNameField"));
+        const bool manageGone = item("themeManageToggleButton") == nullptr;
+
+        clickItem(button);
+        QTRY_VERIFY(dialog->property("menuOpen").toBool());
+        QTRY_VERIFY(shown(item("themeMenuPanel")));
+        const bool chipShown = shown(item(qPrintable(QStringLiteral("customThemeChip_") + activeBefore)));
+        const bool actionsShown = shown(item("customThemeNewButton"))
+            && shown(item("customThemeDuplicateButton"))
+            && shown(item("customThemeShareButton"))
+            && shown(item("customThemeImportButton"))
+            && shown(item("customThemeDeleteButton"));
+
+        // New adds a theme and selects it; the button shows its name.
+        clickItem(item("customThemeNewButton"));
+        const bool added = store->themes().size() == idsBefore.size() + 1
+                           && store->activeThemeId() != activeBefore;
+        // Switching back is a click on its row.
+        const QString created = store->activeThemeId();
+        clickItem(item(qPrintable(QStringLiteral("customThemeChip_") + activeBefore)));
+        const bool switched = store->activeThemeId() == activeBefore;
+
+        // Delete asks first, then removes the theme that is active.
+        store->setActiveThemeId(created);
+        QCoreApplication::processEvents();
+        clickItem(item("customThemeDeleteButton"));
+        const bool asked = dialog->property("confirmingDelete").toBool()
+                           && shown(item("customThemeDeleteConfirmButton"))
+                           && store->themes().size() == idsBefore.size() + 1;
+        clickItem(item("customThemeDeleteConfirmButton"));
+        const bool deleted = store->themes().size() == idsBefore.size();
+
+        // Escape closes the menu before anything else.
+        const bool openBeforeEscape = dialog->property("menuOpen").toBool();
+        QVERIFY(QMetaObject::invokeMethod(dialog, "peelEscape"));
+        QCoreApplication::processEvents();
+        const bool escapeClosed = !dialog->property("menuOpen").toBool()
+                                  && dialog->property("opened").toBool();
+
+        closeThemeEditor();
+        restoreThemes(store, idsBefore, activeBefore);
+        resetThemeFixture(restoreBase);
+
+        QVERIFY2(buttonShown, "the top bar has no theme menu button");
+        QVERIFY2(menuHidden, "the theme menu is on screen without being asked for");
+        QVERIFY2(manageGone, "the old Manage toggle is still in the left column");
+        QVERIFY2(chipShown, "the menu does not list the current theme");
+        QVERIFY2(actionsShown, "the menu is missing one of New / Duplicate / Share / Import / Delete");
+        QVERIFY2(added, "New did not add and select a theme");
+        QVERIFY2(switched, "a theme row did not switch themes");
+        QVERIFY2(asked, "Delete did not ask first");
+        QVERIFY2(deleted, "Delete did not remove the theme");
+        QVERIFY(openBeforeEscape);
+        QVERIFY2(escapeClosed, "Escape did not close the menu first");
+    }
+
+    // Share / Import is a popover that PREVIEWS before it applies, offers
+    // "Import as new" and "Replace current", and a dropped file or code lands
+    // in the same preview. Fails on the old tree: a pasted code was imported at
+    // once from a hidden field in the left column.
+    void importShowsAPreviewBeforeAnythingIsApplied()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        const QStringList idsBefore = themeIds(store);
+        const QString activeBefore = store->activeThemeId();
+        const QString nameBefore = store->name();
+        QVERIFY(store->setColor(QStringLiteral("sidebar"), QStringLiteral("#123456")));
+        QVERIFY(store->setColor(QStringLiteral("accent"), QStringLiteral("#FF8800")));
+        const QString code = store->exportTheme(activeBefore);
+        QVERIFY(!code.isEmpty());
+        store->resetAll();
+        store->sealUndoStep();
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+
+        // A dropped code opens the Import tab with the preview, applying nothing.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "receiveThemeText",
+                                          Q_ARG(QVariant, code)));
+        QTRY_VERIFY(shown(item("themeImportPreview")));
+        const bool openedOnImport = dialog->property("shareOpen").toBool()
+            && dialog->property("shareMode").toString() == QStringLiteral("import");
+        const QVariantMap preview = dialog->property("importPreview").toMap();
+        const bool previewRight = preview.value(QStringLiteral("ok")).toBool()
+            && preview.value(QStringLiteral("colourCount")).toInt() == 2
+            && preview.value(QStringLiteral("swatch")).toMap()
+                   .value(QStringLiteral("sidebar")).value<QColor>()
+                   == QColor(QStringLiteral("#123456"));
+        const bool swatchShown = shown(item("themeImportSwatch"));
+        const bool readabilityLine = shown(item("themeImportReadability"));
+        const bool nothingApplied = store->themes().size() == idsBefore.size()
+                                    && store->overrideCount() == 0;
+
+        // Not a theme: the store's reason, no card, no buttons.
+        dialog->setProperty("importText", QStringLiteral("not a theme"));
+        QCoreApplication::processEvents();
+        const bool errorShown = shown(item("themeImportError"))
+                                && !shown(item("themeImportPreview"))
+                                && !shown(item("themeImportAsNewButton"));
+        dialog->setProperty("importText", code);
+        QCoreApplication::processEvents();
+
+        // Replace current: the colours come, the name stays, Undo puts it back.
+        QTRY_VERIFY(shown(item("themeImportReplaceButton")));
+        clickItem(item("themeImportReplaceButton"));
+        QTRY_VERIFY(!dialog->property("shareOpen").toBool());
+        const bool replaced =
+            store->colors().value(QStringLiteral("sidebar")).toString() == QStringLiteral("#123456")
+            && store->name() == nameBefore
+            && store->themes().size() == idsBefore.size();
+        QVERIFY(QMetaObject::invokeMethod(dialog, "undoEdit"));
+        const bool undone = store->overrideCount() == 0;
+
+        // Import as new: a second theme appears and is selected.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "receiveThemeText",
+                                          Q_ARG(QVariant, code)));
+        QTRY_VERIFY(shown(item("themeImportAsNewButton")));
+        clickItem(item("themeImportAsNewButton"));
+        QTRY_VERIFY(store->themes().size() == idsBefore.size() + 1);
+        const bool importedNew = store->activeThemeId() != activeBefore
+            && store->colors().value(QStringLiteral("accent")).toString() == QStringLiteral("#FF8800");
+
+        closeThemeEditor();
+        restoreThemes(store, idsBefore, activeBefore);
+        resetThemeFixture(restoreBase);
+
+        QVERIFY2(openedOnImport, "a dropped code did not open the Import tab");
+        QVERIFY2(previewRight, "the preview does not describe the incoming theme");
+        QVERIFY2(swatchShown, "no small rendered preview of the incoming theme");
+        QVERIFY2(readabilityLine, "the preview says nothing about readability");
+        QVERIFY2(nothingApplied, "previewing changed the collection or the theme");
+        QVERIFY2(errorShown, "a bad paste is not refused in the popover");
+        QVERIFY2(replaced, "Replace current did not replace the colours and keep the name");
+        QVERIFY2(undone, "Replace current is not one undo step");
+        QVERIFY2(importedNew, "Import as new did not add and select the theme");
+    }
+
+
+    // The sample window can be driven from the keyboard: one Tab stop, then
+    // Tab or the arrows walk the regions in reading order with a visible ring,
+    // Enter opens the element in the inspector, Escape hands focus back to the
+    // list; every region has an accessible name. Fails on the old tree: a
+    // region was a MouseArea and nothing in the preview took focus.
+    void thePreviewCanBeWalkedAndOpenedFromTheKeyboard()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QVERIFY(store->setColor(QStringLiteral("roomHeader"), QStringLiteral("#334455")));
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        QQuickItem *preview = item("themePreviewDemo");
+        QQuickItem *entry = item("themePreviewKeyboardEntry");
+        QVERIFY(preview && entry);
+        const auto role = [&] { return preview->property("keyboardRole").toString(); };
+
+        // The regions come in reading order: top to bottom in bands, a
+        // container before what it holds.
+        QVariant ordered;
+        QVERIFY(QMetaObject::invokeMethod(preview, "orderedRegions",
+                                          Q_RETURN_ARG(QVariant, ordered)));
+        const QVariantList regions = ordered.toList();
+        QVERIFY2(regions.size() > 40, "the keyboard order holds almost no regions");
+        qreal lastBand = -1;
+        bool inOrder = true;
+        for (const QVariant &v : regions) {
+            auto *r = qobject_cast<QQuickItem *>(v.value<QObject *>());
+            if (!r) {
+                inOrder = false;
+                break;
+            }
+            const qreal band = qRound(r->mapToItem(preview, QPointF(0, 0)).y() / 10.0);
+            if (band < lastBand)
+                inOrder = false;
+            lastBand = band;
+        }
+
+        // The one Tab stop hands focus to a region.
+        entry->forceActiveFocus();
+        QTRY_VERIFY(!role().isEmpty());
+        const QString first = role();
+        const bool ringShown = !items("themeKeyboardRing").isEmpty();
+
+        // Arrow keys move on and back; Home and End reach the ends.
+        QTest::keyClick(m_window, Qt::Key_Right);
+        const QString second = role();
+        QTest::keyClick(m_window, Qt::Key_Left);
+        const QString backAgain = role();
+        QTest::keyClick(m_window, Qt::Key_End);
+        const QString last = role();
+        QTest::keyClick(m_window, Qt::Key_Down);
+        const QString stoppedAtEnd = role();
+        QTest::keyClick(m_window, Qt::Key_Home);
+        const QString home = role();
+        QTest::keyClick(m_window, Qt::Key_Tab);
+        const QString tabbed = role();
+
+        // Enter opens the element in the inspector.
+        dialog->setProperty("editingRole", QString());
+        QTest::keyClick(m_window, Qt::Key_Return);
+        QCoreApplication::processEvents();
+        const QString opened = dialog->property("editingRole").toString();
+
+        // Escape hands focus back to the list's search field.
+        QTest::keyClick(m_window, Qt::Key_Escape);
+        QCoreApplication::processEvents();
+        QQuickItem *filter = item("themeRoleFilterField");
+        const bool focusInList = filter && filter->property("activeFocus").toBool();
+        const bool editorStillOpen = dialog->property("opened").toBool();
+
+        // Every region names itself and says where its colour comes from.
+        QFile src(QStringLiteral(QML_DIR) + QStringLiteral("/ThemePreviewDemo.qml"));
+        QVERIFY(src.open(QIODevice::ReadOnly));
+        const QString text = QString::fromUtf8(src.readAll());
+        const int regionAt = text.indexOf(QStringLiteral("component Region: MouseArea"));
+        const int regionEnd = text.indexOf(QStringLiteral("component GradientLayer"));
+        const QString regionSrc = text.mid(regionAt, regionEnd - regionAt);
+        QString stateText;
+        QVERIFY(QMetaObject::invokeMethod(dialog, "describeRoleState",
+                                          Q_RETURN_ARG(QString, stateText),
+                                          Q_ARG(QVariant, QStringLiteral("roomHeader"))));
+        QString linkedText;
+        QVERIFY(QMetaObject::invokeMethod(dialog, "describeRoleState",
+                                          Q_RETURN_ARG(QString, linkedText),
+                                          Q_ARG(QVariant, QStringLiteral("roomList"))));
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QVERIFY2(inOrder, "the keyboard order is not top to bottom");
+        QVERIFY2(!first.isEmpty(), "the Tab stop did not land on a region");
+        QVERIFY2(ringShown, "the focused region draws no keyboard ring");
+        QVERIFY2(second != first, "Right did not move to the next region");
+        QCOMPARE(backAgain, first);
+        QVERIFY(!last.isEmpty() && last != first);
+        QCOMPARE(stoppedAtEnd, last);
+        QCOMPARE(home, first);
+        QVERIFY2(tabbed != first, "Tab did not move to the next region");
+        QVERIFY2(!opened.isEmpty() && opened == tabbed,
+                 "Enter did not open the focused element in the inspector");
+        QVERIFY2(focusInList, "Escape did not return focus to the list");
+        QVERIFY2(editorStillOpen, "Escape from the preview closed the editor");
+        QVERIFY2(regionSrc.contains(QStringLiteral("Accessible.name"))
+                     && regionSrc.contains(QStringLiteral("Accessible.role"))
+                     && regionSrc.contains(QStringLiteral("Accessible.description")),
+                 "a Region does not name itself for assistive technology");
+        QVERIFY2(!stateText.isEmpty(), "an own colour is not described as such");
+        QVERIFY2(!linkedText.isEmpty() && linkedText != stateText,
+                 "a linked element does not say what it follows");
+    }
+
+
     // Giving one element a colour changes that element and nothing else: in
     // the resolved palette (every other key keeps its colour), in the live
     // token the app reads, and in the preview (no Region of another role

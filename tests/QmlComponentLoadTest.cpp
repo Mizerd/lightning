@@ -148,6 +148,13 @@ constexpr const char *kComponents[] = {
     "ThemeToast",
     "ThemeLinkRow",
     "ThemeSimplePanel",
+    // Theme editor, second pass (2026-10-14): the preset Keep / Replace
+    // question. Empty defaults, reads no `app`.
+    "ThemePresetPrompt",
+    "ThemePopover",
+    "ThemeMenuPanel",
+    "ThemeSharePanel",
+    "ThemeReadabilityPanel",
     // The "Chat background…" dialog the room header, the room menu and Home
     // open; hosts ChatBackgroundEditor behind a Loader.
     "ChatBackgroundDialog",

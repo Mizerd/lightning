@@ -65,7 +65,8 @@ Popup {
     readonly property bool hasTransientState:
         root.confirmingReset || root.confirmingDelete
         || root.editingRole.length > 0
-        || (root.compact && root.reportOpen) || root.importing
+        || root.reportOpen || root.menuOpen || root.shareOpen
+        || root.pendingBase >= 0
 
     function peelEscape() {
         if (root.hasTransientState) {
@@ -79,18 +80,21 @@ Popup {
     }
 
     function dismissTransient() {
-        if (root.confirmingReset)
+        // The topmost layer first: a popover, then the preset question.
+        if (root.reportOpen)
+            root.reportOpen = false
+        else if (root.shareOpen)
+            root.shareOpen = false
+        else if (root.menuOpen)
+            root.menuOpen = false
+        else if (root.pendingBase >= 0)
+            root.pendingBase = -1
+        else if (root.confirmingReset)
             root.confirmingReset = false
         else if (root.confirmingDelete)
             root.confirmingDelete = false
         else if (root.editingRole.length > 0)
             root.editingRole = ""
-        else if (root.reportOpen)
-            root.reportOpen = false
-        else if (root.importing) {
-            root.importing = false
-            root.importError = ""
-        }
     }
 
     // ---- undo ----
@@ -163,11 +167,13 @@ Popup {
         root.compact ? 0 : root.width - root.pickerColumnWidth
     readonly property int pickerPanelWidth:
         root.compact ? root.workColumnWidth : root.pickerColumnWidth
-    // In compact mode the panel must be asked for, and the header badge opens
-    // it for the readability report, so the report is reachable at every width.
+    // The readability report is a popover under the header's readability pill,
+    // at every width; the right-hand panel is the inspector alone (with a
+    // hint while nothing is open, in wide mode, so the preview does not
+    // reflow when a colour is opened).
     property bool reportOpen: false
     readonly property bool pickerPanelVisible:
-        !root.compact || root.editingRole.length > 0 || root.reportOpen
+        !root.compact || root.editingRole.length > 0
     // True while the panel covers the role column; everything underneath must
     // stop taking input.
     readonly property bool pickerPanelCovers:
@@ -235,9 +241,32 @@ Popup {
     property string hoverRole: ""
     property bool confirmingReset: false
     property bool confirmingDelete: false
-    // The collection's actions (New, Duplicate, Share, Import, Delete).
-    property bool manageThemes: false
-    onManageThemesChanged: if (!manageThemes) confirmingDelete = false
+    // The theme menu under the top bar (the list of themes, New, Duplicate,
+    // Share, Import, Delete), and the Share / Import popover.
+    property bool menuOpen: false
+    onMenuOpenChanged: {
+        if (menuOpen) {
+            reportOpen = false
+            shareOpen = false
+        } else {
+            confirmingDelete = false
+        }
+    }
+    property bool shareOpen: false
+    onShareOpenChanged: {
+        if (shareOpen) {
+            reportOpen = false
+            menuOpen = false
+        } else {
+            copyNote = ""
+        }
+    }
+    onReportOpenChanged: {
+        if (reportOpen) {
+            menuOpen = false
+            shareOpen = false
+        }
+    }
     onEditingRoleChanged: {
         root.showDependents = false
         if (editingRole.length === 0) {
@@ -245,6 +274,56 @@ Popup {
             editingStop = -1
         }
     }
+    // A preset asked for while the theme has edits of its own: -1 or its id,
+    // waiting on the Keep / Replace / Cancel question.
+    property int pendingBase: -1
+    // Another theme is a different question.
+    readonly property string activeId: root.store.activeThemeId
+    onActiveIdChanged: root.pendingBase = -1
+    function presetName(id) {
+        var list = AppTheme.themeList
+        for (var i = 0; i < list.length; ++i) {
+            if (list[i].id === id)
+                return list[i].name
+        }
+        return ""
+    }
+    // Every way of choosing a preset comes through here. With nothing of the
+    // user's own to lose it applies at once; otherwise it asks.
+    function requestBase(id) {
+        if (id === root.store.baseTheme)
+            return
+        if (root.store.overrideCount > 0 || root.gradientCount > 0)
+            root.pendingBase = id
+        else
+            root.store.baseTheme = id
+    }
+    // Keep: the preset becomes the base and the edits stay on top of it.
+    // Replace: the edits go too, as one undoable step.
+    function resolvePendingBase(replace) {
+        var id = root.pendingBase
+        root.pendingBase = -1
+        if (id < 0)
+            return
+        var name = root.presetName(id)
+        root.store.sealUndoStep()
+        if (replace) {
+            root.store.beginUndoGroup(qsTr("Replace with %1").arg(name))
+            root.store.resetAll()
+            root.store.baseTheme = id
+            root.store.endUndoGroup()
+        } else {
+            root.store.nameNextStep(qsTr("Start from %1").arg(name))
+            root.store.baseTheme = id
+        }
+        if (root.editingRole.length > 0)
+            root.afterHistoryMove()
+        root.announce(replace
+                      ? qsTr("Started over from %1.").arg(name)
+                      : qsTr("Now based on %1; your changes are kept.").arg(name),
+                      root.undoEdit)
+    }
+
     // The base-theme grid, collapsed by default (see below).
     property bool basesExpanded: false
     // Filter for the role list.
@@ -263,48 +342,154 @@ Popup {
     // The inspector's list of what follows the open colour is folded away
     // until asked for.
     property bool showDependents: false
-    // Import/share state. `notice` is transient and cleared by the timer below.
-    property bool importing: false
-    property string importError: ""
-    property string notice: ""
+    // Share / Import. `shareMode` is "share" or "import"; `importText` is the
+    // field's text (a dropped file lands in it too); `copyNote` says the code
+    // was copied.
+    property string shareMode: "share"
+    property string importText: ""
+    property string copyNote: ""
 
-    onNoticeChanged: if (notice.length > 0) noticeTimer.restart()
-    Timer {
-        id: noticeTimer
-        interval: 4000
-        onTriggered: root.notice = ""
+    function openShare(mode) {
+        root.shareMode = mode
+        root.menuOpen = false
+        root.shareOpen = true
     }
 
-    function applyImport() {
-        var payload = importField.text
-        if (payload.trim().length === 0)
-            return
-        var reason = root.store.importTheme(payload)
-        if (reason.length > 0) {
-            root.importError = reason
-            return
+    // The store's own validation, plus what the editor can say about the
+    // incoming theme: a small swatch and a readability count. The palette is an
+    // ESTIMATE: the incoming base preset with the colours it sets laid on top,
+    // and each unset element that follows a colour the theme sets taking that
+    // colour. The live resolver (AppTheme.paletteForTheme) can only resolve the
+    // theme the editor is editing, so this stands in for it.
+    function resolveImported(baseId, colours) {
+        var pal = AppTheme.paletteForTheme(baseId)
+        var raw = AppTheme.rawPaletteForTheme(baseId)
+        var aliases = root.storeKeyAliases
+        var out = {}
+        for (var k in pal)
+            out[k] = pal[k]
+        var keyOf = function (r) {
+            var a = aliases[r]
+            return a !== undefined ? a : r
         }
-        importField.text = ""
-        root.importError = ""
-        root.importing = false
+        var set = {}
+        for (var r in colours) {
+            out[keyOf(r)] = colours[r]
+            set[r] = true
+        }
+        var list = root.store.roles
+        for (var pass = 0; pass < 4; ++pass) {
+            for (var i = 0; i < list.length; ++i) {
+                var role = list[i].key
+                var parentKey = list[i].follows
+                if (!parentKey || set[role] === true || !set[parentKey]
+                        || (raw && raw[role] !== undefined))
+                    continue
+                out[keyOf(role)] = out[keyOf(parentKey)]
+                set[role] = true
+            }
+        }
+        return out
+    }
+    function describeImport(payload) {
+        var info = root.store.previewImport(payload)
+        if (!info.ok)
+            return { ok: false, error: info.error }
+        var pal = root.resolveImported(info.base, info.colors)
+        var swatch = {}
+        var keys = ["rail", "sidebar", "background", "surface", "accent",
+                    "textPrimary", "ownBubble", "otherBubble"]
+        for (var i = 0; i < keys.length; ++i)
+            swatch[keys[i]] = pal[keys[i]]
+        return {
+            ok: true,
+            name: info.name,
+            baseName: root.presetName(info.base),
+            colourCount: info.colourCount,
+            gradientCount: info.gradientCount,
+            problems: root.store.auditWithGradients(pal, info.gradients).length,
+            atLimit: info.atLimit,
+            swatch: swatch
+        }
+    }
+    readonly property var importPreview:
+        root.shareOpen && root.shareMode === "import"
+        && root.importText.trim().length > 0
+        ? root.describeImport(root.importText) : null
+
+    // "Copy code": the active theme, to the clipboard.
+    function copyThemeCode() {
+        var payload = root.store.exportTheme(root.store.activeThemeId)
+        if (payload.length === 0)
+            return
+        themeClipboard.text = payload
+        themeClipboard.selectAll()
+        themeClipboard.copy()
+        themeClipboard.text = ""
+        root.copyNote = qsTr("Copied. Paste it to share it.")
+    }
+
+    // After an import landed: close the popover and report what the theme
+    // holds, since nobody has checked it. Deferred a frame because the store
+    // has only just emitted its change. The audit is forced first: the
+    // throttle assigns auditPalette imperatively, which destroyed its binding,
+    // so otherwise the count would describe the previous theme.
+    function importLanded(replaced) {
+        root.importText = ""
+        root.shareOpen = false
         root.editingRole = ""
-        // Report the problem count of an imported theme, since nobody has
-        // checked it. Deferred a frame because the store has only just emitted
-        // its change. Force the audit first: the throttle assigns auditPalette
-        // imperatively, which destroyed its binding, so otherwise the count
-        // would describe the previous theme.
         root.auditPalette = root.previewPalette
+        importNoticeTimer.replaced = replaced
         importNoticeTimer.restart()
     }
-
+    function importAsNew() {
+        var reason = root.store.importTheme(root.importText)
+        if (reason.length > 0) {
+            root.announce(reason, null)
+            return
+        }
+        root.importLanded(false)
+    }
+    function replaceWithImport() {
+        var reason = root.store.replaceActiveTheme(root.importText)
+        if (reason.length > 0) {
+            root.announce(reason, null)
+            return
+        }
+        root.importLanded(true)
+    }
     Timer {
         id: importNoticeTimer
         interval: 0
-        onTriggered: root.notice =
-            root.readabilityProblems > 0
-            ? qsTr("Theme imported. %n thing(s) in it will be hard to read.",
-                   "custom theme readability", root.readabilityProblems)
-            : qsTr("Theme imported.")
+        property bool replaced: false
+        onTriggered: {
+            var text = root.readabilityProblems > 0
+                ? qsTr("Theme imported. %n thing(s) in it will be hard to read.",
+                       "custom theme readability", root.readabilityProblems)
+                : qsTr("Theme imported.")
+            // A replaced theme can be put back; a new one is just another theme.
+            root.announce(text, importNoticeTimer.replaced ? root.undoEdit : null)
+        }
+    }
+
+    // A theme file or code dropped on the editor: it goes to the Import tab
+    // with its preview, never straight into the collection.
+    function receiveThemeText(text) {
+        if (text.length === 0) {
+            root.announce(qsTr("That is not a theme file Lightning can read."), null)
+            return
+        }
+        root.importText = text.trim()
+        root.openShare("import")
+    }
+    function handleDrop(drop) {
+        var text = ""
+        if (drop.hasUrls && drop.urls.length > 0)
+            text = root.store.readThemeFile(drop.urls[0])
+        if (text.length === 0 && drop.hasText)
+            text = String(drop.text).substring(0, 24576)
+        drop.accept(Qt.CopyAction)
+        root.receiveThemeText(text)
     }
 
     // Clipboard shuttle for Share, as used elsewhere in the app.
@@ -494,14 +679,26 @@ Popup {
                 && root.storeGradients[root.editingRole] !== undefined))
 
     // A message over the preview after an edit that does not look
-    // reversible. `undoAction` (a function) adds an Undo; without one the
-    // message stands alone, which is the honest choice for anything touching
-    // a gradient, since the history holds colours only.
+    // reversible. `undoAction` (a function) adds an Undo, named after the
+    // history step it takes (the step just recorded); without one the message
+    // stands alone.
     property var toastUndoAction: null
     function announce(text, undoAction) {
         root.toastUndoAction = undoAction ? undoAction : null
+        toast.actionHint = undoAction && root.store.undoLabel.length > 0
+                           ? qsTr("Undo: %1").arg(root.store.undoLabel) : ""
         toast.show(text, undoAction ? qsTr("Undo") : "")
     }
+
+    // The Undo / Redo tooltips: what the next step would take back or return.
+    readonly property string undoTip:
+        root.store.canUndo
+        ? qsTr("Undo: %1").arg(root.store.undoLabel)
+        : qsTr("Nothing to undo")
+    readonly property string redoTip:
+        root.store.canRedo
+        ? qsTr("Redo: %1").arg(root.store.redoLabel)
+        : qsTr("Nothing to redo")
 
     function hasOwnGradient(key) {
         return root.storeGradients && root.storeGradients[key] !== undefined
@@ -513,18 +710,20 @@ Popup {
         var key = root.editingRole
         if (key.length === 0)
             return
-        var touched = root.hasOwnGradient(key)
         var group = root.editingGroup
-        root.store.sealUndoStep()
+        // A colour and a gradient, one step.
+        root.store.beginUndoGroup(qsTr("Reset %1 to its group")
+                                  .arg(root.labelForRole(key)))
         root.store.resetGradient(key)
         root.store.resetColor(key)
+        root.store.endUndoGroup()
         root.editingStop = root.startingStop(key, -1)
         picker.show(root.pickerColourFor(key, root.editingStop))
         if (group.length > 0)
             root.announce(qsTr("%1 follows %2 again.")
                           .arg(root.labelForRole(key))
                           .arg(root.labelForRole(group)),
-                          touched ? null : root.undoEdit)
+                          root.undoEdit)
     }
     // "Apply to all <group>": the group takes this element's colour (and
     // gradient) and every element of the group follows it again.
@@ -533,12 +732,6 @@ Popup {
         if (key.length === 0 || root.editingGroup.length === 0)
             return
         var group = root.editingGroup
-        var touched = root.hasOwnGradient(key)
-        var members = root.store.groupMembers(group)
-        for (var i = 0; i < members.length; ++i) {
-            if (root.hasOwnGradient(members[i]))
-                touched = true
-        }
         root.store.sealUndoStep()
         var hex = root.toHex(Qt.color(String(root.effectiveColor(key))))
         if (root.store.applyToGroup(key, hex)) {
@@ -547,7 +740,7 @@ Popup {
             root.announce(qsTr("%1 now gives its colour to all of %2.")
                           .arg(root.labelForRole(key))
                           .arg(root.labelForRole(group)),
-                          touched ? null : root.undoEdit)
+                          root.undoEdit)
         }
     }
 
@@ -577,16 +770,16 @@ Popup {
         var members = root.store.groupMembers(key)
         if (members.length === 0)
             return
-        var touched = false
         var probe = ""
         for (var i = 0; i < members.length; ++i) {
-            if (root.hasOwnGradient(members[i]))
-                touched = true
-            else if (probe.length === 0)
+            if (!root.hasOwnGradient(members[i])) {
                 probe = members[i]
+                break
+            }
         }
         var hex = root.toHex(Qt.color(String(root.effectiveColor(key))))
-        root.store.sealUndoStep()
+        root.store.beginUndoGroup(qsTr("Include the elements of %1")
+                                  .arg(root.labelForRole(key)))
         if (probe.length > 0) {
             // One step: the store applies the group's colour and frees every
             // member in a single write.
@@ -597,9 +790,10 @@ Popup {
                 root.store.resetColor(members[j])
             }
         }
+        root.store.endUndoGroup()
         root.announce(qsTr("Every element of %1 follows it now.")
                       .arg(root.labelForRole(key)),
-                      touched ? null : root.undoEdit)
+                      root.undoEdit)
     }
 
     // "Edit <group>": the colour the open element is linked to.
@@ -621,33 +815,33 @@ Popup {
         if (key.length === 0 || parentKey.length === 0
                 || !root.editingCanUnlink)
             return
-        root.store.sealUndoStep()
-        var copied = false
+        // The colour and the inherited gradient it copies are one step.
+        root.store.beginUndoGroup(qsTr("Unlink %1").arg(root.labelForRole(key)))
         if (root.store.isGradientRole(key) && !root.hasOwnGradient(key)) {
             var inherited = AppTheme.inheritedGradient(
                                 key, root.storeGradients, root.overrideColors)
-            if (inherited && root.store.setGradient(key, inherited))
-                copied = true
+            if (inherited)
+                root.store.setGradient(key, inherited)
         }
         root.store.setColor(
             key, root.toHex(Qt.color(String(root.effectiveColor(key)))))
-        root.store.sealUndoStep()
+        root.store.endUndoGroup()
         root.announce(qsTr("%1 is no longer linked to %2.")
                       .arg(root.labelForRole(key))
                       .arg(root.labelForRole(parentKey)),
-                      function () {
-                          root.undoEdit()
-                          if (copied)
-                              root.store.resetGradient(key)
-                      })
+                      root.undoEdit)
     }
 
     // "Make readable": moves the open colour, and nothing else, to the nearest
     // lightness that clears every bar it fails against its neighbours. A
     // nudge, not a guarantee: the readability list still says what is left.
-    function makeReadable() {
-        var key = root.editingRole
-        if (key.length === 0 || root.editingStop >= 0)
+    function makeReadable(roleArg) {
+        var key = roleArg !== undefined && roleArg !== "" ? roleArg
+                                                          : root.editingRole
+        // The open role is edited in the picker, which may be on a gradient
+        // colour; any other role is just a flat colour.
+        var open = key === root.editingRole
+        if (key.length === 0 || (open && root.editingStop >= 0))
             return
         var pk = root.store.paletteKeyForRole(key)
         var rows = root.store.auditForRole(root.auditPalette, key)
@@ -679,9 +873,12 @@ Popup {
             return
         }
         root.store.sealUndoStep()
+        root.store.nameNextStep(qsTr("Make %1 readable")
+                                .arg(root.labelForRole(key)))
         root.store.setColor(key, next)
         root.store.sealUndoStep()
-        picker.show(next)
+        if (open)
+            picker.show(next)
         root.announce(qsTr("%1 is easier to read now.")
                       .arg(root.labelForRole(key)), root.undoEdit)
     }
@@ -704,7 +901,6 @@ Popup {
 
     // One entry point for pointer and keyboard.
     function openReport() {
-        root.editingRole = ""
         root.reportOpen = true
     }
 
@@ -736,13 +932,26 @@ Popup {
     // paletteSwatches).
     property var ownColoursAtOpen: ({})
 
-    function labelForRole(key) {
+    // role -> label, built once: the sample window asks for every region's
+    // name, and a list search per ask meant copying the roles a hundred times.
+    readonly property var roleLabelMap: {
+        var out = {}
         var list = root.store.roles
-        for (var i = 0; i < list.length; ++i) {
-            if (list[i].key === key)
-                return list[i].label
-        }
-        return key
+        for (var i = 0; i < list.length; ++i)
+            out[list[i].key] = list[i].label
+        return out
+    }
+    function labelForRole(key) {
+        var v = root.roleLabelMap[key]
+        return v !== undefined ? v : key
+    }
+    // One line a screen reader adds to an element: whether its colour is its
+    // own or follows another.
+    function describeRoleState(role) {
+        if (root.isOverridden(role))
+            return qsTr("Own colour")
+        var p = root.liveLinks[role]
+        return p !== undefined ? qsTr("Linked to %1").arg(root.labelForRole(p)) : ""
     }
 
     function hintForRole(key) {
@@ -1125,6 +1334,78 @@ Popup {
                 anchors.rightMargin: AppTheme.spacing24
                 spacing: AppTheme.spacing16
 
+                // The theme being edited, as the button that opens the theme
+                // menu: switch, rename, new, duplicate, share, import, delete.
+                Rectangle {
+                    id: themeMenuButton
+                    objectName: "themeMenuButton"
+                    Layout.alignment: Qt.AlignVCenter
+                    implicitWidth: Math.min(240, menuNameLabel.implicitWidth
+                                                 + menuChevron.width
+                                                 + AppTheme.spacing12 * 2
+                                                 + AppTheme.spacing8)
+                    implicitHeight: 34
+                    radius: AppTheme.radiusMd
+                    color: root.menuOpen ? AppTheme.editorSelection
+                         : menuButtonHover.containsMouse ? AppTheme.editorInset
+                                                         : "transparent"
+                    border.width: root.menuOpen ? 2 : 1
+                    border.color: root.menuOpen ? AppTheme.editorAccent
+                                                : AppTheme.editorBorderStrong
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Theme: %1. Open the theme menu")
+                                     .arg(menuNameLabel.text)
+                    Keys.onPressed: (e) => {
+                        if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter
+                                || e.key === Qt.Key_Space) {
+                            root.menuOpen = !root.menuOpen
+                            e.accepted = true
+                        }
+                    }
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.margins: 2
+                        visible: themeMenuButton.activeFocus
+                        radius: AppTheme.radiusSm
+                        color: "transparent"
+                        border.width: 2
+                        border.color: AppTheme.editorAccent
+                    }
+                    Label {
+                        id: menuNameLabel
+                        anchors.left: parent.left
+                        anchors.leftMargin: AppTheme.spacing12
+                        anchors.right: menuChevron.left
+                        anchors.rightMargin: AppTheme.spacing6
+                        anchors.verticalCenter: parent.verticalCenter
+                        textFormat: Text.PlainText
+                        text: root.store.name.length > 0 ? root.store.name
+                                                         : qsTr("Untitled")
+                        color: AppTheme.editorText
+                        font.family: AppTheme.uiFont
+                        font.pixelSize: AppTheme.textMeta
+                        font.weight: AppTheme.weightStrong
+                        elide: Label.ElideRight
+                    }
+                    Icon {
+                        id: menuChevron
+                        anchors.right: parent.right
+                        anchors.rightMargin: AppTheme.spacing8
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: root.menuOpen ? "expand_less" : "expand_more"
+                        size: 16
+                        color: AppTheme.editorTextSecondary
+                    }
+                    MouseArea {
+                        id: menuButtonHover
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.menuOpen = !root.menuOpen
+                    }
+                }
+
                 // Elides: an unelided Label's implicit width would push the
                 // button cluster, including Done, off a narrow window.
                 ColumnLayout {
@@ -1175,21 +1456,17 @@ Popup {
                         // place the answer is always visible; clicking it opens
                         // the report.
                         Rectangle {
+                            id: readabilityBadge
                             objectName: "themeReadabilityBadge"
                             implicitWidth: verdictLabel.implicitWidth
                                            + AppTheme.spacing8 * 2
                             implicitHeight: 22
                             radius: AppTheme.radiusPill
-                            // Shown whenever there is something to say. The
-                            // "could not check" clause appears only in compact
-                            // mode, where the badge is the sole route to it; in
-                            // wide mode the report column already says it, and
-                            // a stock Storm base always has one ungradable
-                            // pair, so it would qualify every pristine theme.
-                            visible: root.store.overrideCount > 0
-                                     || root.readabilityProblems > 0
-                                     || (root.compact
-                                         && root.readabilityUnchecked > 0)
+                            // The one way into the report, so it is always
+                            // there. The "could not check" clause waits for an
+                            // edit: a stock base always has an ungradable
+                            // pair, and it would qualify every pristine theme.
+                            visible: true
                             color: verdictHover.containsMouse
                                    ? AppTheme.editorSelection
                                    : AppTheme.editorInset
@@ -1201,11 +1478,13 @@ Popup {
                             activeFocusOnTab: true
                             Accessible.role: Accessible.Button
                             Accessible.name: verdictLabel.text
+                            Accessible.description:
+                                qsTr("Open the readability report")
                             Keys.onPressed: (e) => {
                                 if (e.key === Qt.Key_Return
                                     || e.key === Qt.Key_Enter
                                     || e.key === Qt.Key_Space) {
-                                    root.openReport()
+                                    root.reportOpen = !root.reportOpen
                                     e.accepted = true
                                 }
                             }
@@ -1227,6 +1506,8 @@ Popup {
                                              "custom theme readability",
                                              root.readabilityProblems)
                                       : root.readabilityUnchecked > 0
+                                        && (root.store.overrideCount > 0
+                                            || root.gradientCount > 0)
                                         ? qsTr("Readable, %n not checked",
                                                "custom theme readability",
                                                root.readabilityUnchecked)
@@ -1243,7 +1524,7 @@ Popup {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: root.openReport()
+                                onClicked: root.reportOpen = !root.reportOpen
                             }
                         }
                     }
@@ -1270,7 +1551,10 @@ Popup {
                         visible: !root.confirmingReset
                         enabled: root.store.canUndo
                         text: qsTr("Undo")
-                        Accessible.description: qsTr("Undo the last colour change")
+                        Accessible.description: root.undoTip
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        ToolTip.text: root.undoTip
                         onClicked: root.undoEdit()
                     }
                     EditorButton {
@@ -1278,7 +1562,10 @@ Popup {
                         visible: !root.confirmingReset
                         enabled: root.store.canRedo
                         text: qsTr("Redo")
-                        Accessible.description: qsTr("Redo the colour change you undid")
+                        Accessible.description: root.redoTip
+                        ToolTip.visible: hovered
+                        ToolTip.delay: 500
+                        ToolTip.text: root.redoTip
                         onClicked: root.redoEdit()
                     }
                     Rectangle {
@@ -1384,303 +1671,6 @@ Popup {
                     anchors.fill: parent
                     anchors.margins: AppTheme.spacing16
                     spacing: AppTheme.spacing8
-
-                    // Your themes. The collection's actions sit behind Manage:
-                    // open, they took about 120px from the role list on every
-                    // visit for buttons used once per theme (at 1366x768 the
-                    // list showed eight roles).
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: AppTheme.spacing8
-                        Label {
-                            Layout.fillWidth: true
-                            text: qsTr("Your themes")
-                            color: AppTheme.editorTextSecondary
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMeta
-                            font.weight: AppTheme.weightStrong
-                            elide: Label.ElideRight
-                        }
-                        EditorButton {
-                            objectName: "themeManageToggleButton"
-                            implicitHeight: 24
-                            text: root.manageThemes ? qsTr("Done")
-                                                    : qsTr("Manage")
-                            Accessible.description:
-                                qsTr("New, duplicate, share, import or delete themes")
-                            onClicked: root.manageThemes = !root.manageThemes
-                        }
-                    }
-
-                    // Shown whenever there is a choice to make; one theme
-                    // needs no switcher.
-                    Flow {
-                        Layout.fillWidth: true
-                        visible: root.manageThemes
-                                 || root.store.themes.length > 1
-                        spacing: AppTheme.spacing6
-
-                        Repeater {
-                            model: root.store.themes
-                            delegate: Rectangle {
-                                id: themeChip
-                                required property var modelData
-                                readonly property bool current:
-                                    root.store.activeThemeId === modelData.id
-                                objectName: "customThemeChip_" + modelData.id
-                                implicitWidth: Math.min(
-                                    296, themeChipLabel.implicitWidth
-                                         + AppTheme.spacing12 * 2)
-                                implicitHeight: 30
-                                radius: AppTheme.radiusPill
-                                color: current ? AppTheme.editorAccent
-                                     : themeChipHover.containsMouse
-                                       ? AppTheme.editorSelection
-                                       : AppTheme.editorInset
-                                border.width: 1
-                                border.color: current ? AppTheme.editorAccent
-                                                      : AppTheme.editorBorder
-
-                                Label {
-                                    id: themeChipLabel
-                                    anchors.centerIn: parent
-                                    width: Math.min(implicitWidth,
-                                                    themeChip.width
-                                                    - AppTheme.spacing12 * 2)
-                                    text: themeChip.modelData.name.length > 0
-                                          ? themeChip.modelData.name
-                                          : qsTr("Untitled")
-                                    textFormat: Text.PlainText
-                                    color: themeChip.current
-                                           ? AppTheme.editorAccentInk
-                                           : AppTheme.editorText
-                                    font.family: AppTheme.uiFont
-                                    font.pixelSize: AppTheme.textMeta
-                                    font.weight: AppTheme.weightStrong
-                                    elide: Label.ElideRight
-                                }
-                                MouseArea {
-                                    id: themeChipHover
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    Accessible.role: Accessible.Button
-                                    Accessible.name: themeChip.modelData.name
-                                    onClicked: {
-                                        root.store.activeThemeId =
-                                            themeChip.modelData.id
-                                        root.editingRole = ""
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // The theme's name, edited in place; a shared theme needs a
-                    // name.
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.topMargin: AppTheme.spacing4
-                        implicitHeight: 32
-                        radius: AppTheme.radiusMd
-                        color: AppTheme.editorInset
-                        border.width: nameField.activeFocus ? 2 : 1
-                        border.color: nameField.activeFocus
-                                      ? AppTheme.editorAccent
-                                      : AppTheme.editorBorderStrong
-
-                        TextInput {
-                            id: nameField
-                            objectName: "customThemeNameField"
-                            anchors.fill: parent
-                            anchors.leftMargin: AppTheme.spacing8
-                            anchors.rightMargin: AppTheme.spacing8
-                            verticalAlignment: TextInput.AlignVCenter
-                            color: AppTheme.editorText
-                            selectionColor: AppTheme.editorAccent
-                            selectedTextColor: AppTheme.editorAccentInk
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMeta
-                            maximumLength: 48
-                            Accessible.role: Accessible.EditableText
-                            Accessible.name: qsTr("Theme name")
-                            text: root.store.name
-                            // Committed as typed: editingFinished is not
-                            // reliably reached (a click on the sample window
-                            // takes no focus, and Done destroys the field).
-                            // onTextEdited fires for user edits only, so the
-                            // text binding cannot trigger a write, and setName
-                            // only truncates at 48 and never trims.
-                            onTextEdited: root.store.name = text
-                            onEditingFinished: root.store.name = text
-                            Label {
-                                anchors.fill: parent
-                                verticalAlignment: Text.AlignVCenter
-                                visible: nameField.text.length === 0
-                                text: qsTr("Name this theme")
-                                color: AppTheme.editorTextMuted
-                                font: nameField.font
-                            }
-                        }
-                    }
-
-                    Flow {
-                        Layout.fillWidth: true
-                        visible: root.manageThemes && !root.confirmingDelete
-                        spacing: AppTheme.spacing6
-
-                        EditorButton {
-                            objectName: "customThemeNewButton"
-                            text: qsTr("New")
-                            onClicked: {
-                                root.store.createTheme("")
-                                root.editingRole = ""
-                            }
-                        }
-                        EditorButton {
-                            objectName: "customThemeDuplicateButton"
-                            text: qsTr("Duplicate")
-                            enabled: root.store.exists
-                            onClicked: root.store.duplicateActiveTheme("")
-                        }
-                        EditorButton {
-                            objectName: "customThemeShareButton"
-                            text: qsTr("Share")
-                            enabled: root.store.exists
-                            onClicked: {
-                                var payload = root.store.exportTheme(
-                                    root.store.activeThemeId)
-                                if (payload.length === 0)
-                                    return
-                                themeClipboard.text = payload
-                                themeClipboard.selectAll()
-                                themeClipboard.copy()
-                                themeClipboard.text = ""
-                                root.notice =
-                                    qsTr("Theme copied — paste it to share it.")
-                            }
-                        }
-                        EditorButton {
-                            objectName: "customThemeImportButton"
-                            text: qsTr("Import")
-                            onClicked: {
-                                root.importing = !root.importing
-                                root.importError = ""
-                            }
-                        }
-                        EditorButton {
-                            objectName: "customThemeDeleteButton"
-                            text: qsTr("Delete")
-                            danger: true
-                            enabled: root.store.exists
-                            // Asks first: a deleted theme cannot be undone,
-                            // and its history goes with it.
-                            onClicked: root.confirmingDelete = true
-                        }
-                    }
-
-                    // Delete, confirmed inline (the reset question's pattern).
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        visible: root.confirmingDelete
-                        spacing: AppTheme.spacing6
-                        Label {
-                            Layout.fillWidth: true
-                            textFormat: Text.PlainText
-                            wrapMode: Text.WordWrap
-                            text: qsTr("Delete “%1”? This cannot be undone.")
-                                  .arg(root.store.name.length > 0
-                                       ? root.store.name : qsTr("Untitled"))
-                            color: AppTheme.editorText
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMeta
-                        }
-                        Row {
-                            spacing: AppTheme.spacing6
-                            EditorButton {
-                                objectName: "customThemeDeleteConfirmButton"
-                                danger: true
-                                text: qsTr("Delete")
-                                onClicked: {
-                                    root.confirmingDelete = false
-                                    root.store.deleteTheme(root.store.activeThemeId)
-                                    root.editingRole = ""
-                                }
-                            }
-                            EditorButton {
-                                text: qsTr("Keep")
-                                onClicked: root.confirmingDelete = false
-                            }
-                        }
-                    }
-
-                    // Paste-a-theme row, shown only while importing.
-                    Rectangle {
-                        Layout.fillWidth: true
-                        visible: root.importing
-                        implicitHeight: 32
-                        radius: AppTheme.radiusMd
-                        color: AppTheme.editorInset
-                        border.width: importField.activeFocus ? 2 : 1
-                        border.color: importField.activeFocus
-                                      ? AppTheme.editorAccent
-                                      : AppTheme.editorBorderStrong
-
-                        TextInput {
-                            id: importField
-                            objectName: "customThemeImportField"
-                            anchors.fill: parent
-                            anchors.leftMargin: AppTheme.spacing8
-                            anchors.rightMargin: AppTheme.spacing8
-                            verticalAlignment: TextInput.AlignVCenter
-                            clip: true
-                            color: AppTheme.editorText
-                            selectionColor: AppTheme.editorAccent
-                            selectedTextColor: AppTheme.editorAccentInk
-                            font.family: AppTheme.monoFont
-                            font.pixelSize: AppTheme.textMeta
-                            // Far above any real shared theme; stops holding an
-                            // unrelated paste.
-                            maximumLength: 8192
-                            Accessible.role: Accessible.EditableText
-                            Accessible.name: qsTr("Paste a shared theme")
-                            onAccepted: root.applyImport()
-                            Label {
-                                anchors.fill: parent
-                                verticalAlignment: Text.AlignVCenter
-                                visible: importField.text.length === 0
-                                text: qsTr("Paste a shared theme, then Enter")
-                                color: AppTheme.editorTextMuted
-                                font.family: AppTheme.uiFont
-                                font.pixelSize: AppTheme.textMeta
-                            }
-                        }
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        visible: root.importing && root.importError.length > 0
-                        text: root.importError
-                        wrapMode: Text.WordWrap
-                        color: AppTheme.editorDanger
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: AppTheme.textMeta
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        visible: root.notice.length > 0
-                        text: root.notice
-                        wrapMode: Text.WordWrap
-                        color: AppTheme.editorTextSecondary
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: AppTheme.textMeta
-                    }
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.topMargin: AppTheme.spacing4
-                        implicitHeight: 1
-                        color: AppTheme.editorBorder
-                    }
 
                     // Collapsed by default: the full grid takes about 235px
                     // permanently for a control used once per theme, starving
@@ -1845,7 +1835,7 @@ Popup {
                                     if (e.key === Qt.Key_Return
                                         || e.key === Qt.Key_Enter
                                         || e.key === Qt.Key_Space) {
-                                        root.store.baseTheme = baseChip.modelData.id
+                                        root.requestBase(baseChip.modelData.id)
                                         e.accepted = true
                                     }
                                 }
@@ -1867,7 +1857,7 @@ Popup {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.store.baseTheme = baseChip.modelData.id
+                                    onClicked: root.requestBase(baseChip.modelData.id)
                                 }
                             }
                         }
@@ -1963,7 +1953,7 @@ Popup {
                         openRole: root.editingRole
                         onRoleRequested: (key) =>
                             root.beginEdit(key, root.labelForRole(key))
-                        onBaseRequested: (id) => root.store.baseTheme = id
+                        onBaseRequested: (id) => root.requestBase(id)
                         onReportRequested: root.openReport()
                     }
 
@@ -2374,6 +2364,17 @@ Popup {
                             linkedRoles: root.linkedRoleSet
                             // Amber dots on what the audit flags.
                             problemRoles: root.problemRoleSet
+                            // Names for the keyboard and screen readers, and
+                            // Escape back to the list.
+                            roleLabel: root.labelForRole
+                            roleState: root.describeRoleState
+                            onKeyboardEscape: {
+                                if (root.reportOpen || root.shareOpen
+                                        || root.menuOpen || root.pendingBase >= 0)
+                                    root.dismissTransient()
+                                else
+                                    filterField.forceActiveFocus()
+                            }
                             // 2px on screen at any scale.
                             outlineWidth: 2 / Math.max(0.25, scale)
                             width: implicitWidth
@@ -2398,6 +2399,21 @@ Popup {
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textMeta
                     }
+                }
+
+                // Asked over the preview, where the eye already is.
+                ThemePresetPrompt {
+                    id: presetPrompt
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.top: parent.top
+                    anchors.topMargin: AppTheme.spacing24 * 2
+                    z: 5
+                    visible: root.pendingBase >= 0
+                    presetName: root.presetName(root.pendingBase)
+                    changes: root.store.overrideCount + root.gradientCount
+                    onKeepRequested: root.resolvePendingBase(false)
+                    onReplaceRequested: root.resolvePendingBase(true)
+                    onCancelRequested: root.pendingBase = -1
                 }
 
                 // Said over the preview, where the eye already is.
@@ -2428,9 +2444,145 @@ Popup {
         }
     }
 
-    // The picker/report panel, one instance with two homes. Wide: the reserved
-    // third column, showing the picker when a role is open and the readability
-    // report otherwise. Compact: an overlay on the role column while editing.
+    // The theme menu, under the theme button.
+    ThemePopover {
+        id: themeMenuPopover
+        objectName: "themeMenuPopover"
+        anchors.fill: parent
+        anchorItem: themeMenuButton
+        opened: root.menuOpen
+        popoverWidth: 340
+        accessibleTitle: qsTr("Themes")
+        initialFocus: themeMenuPanel.nameField
+        onDismissRequested: root.menuOpen = false
+
+        ThemeMenuPanel {
+            id: themeMenuPanel
+            Layout.fillWidth: true
+            themes: root.store.themes
+            activeId: root.store.activeThemeId
+            themeName: root.store.name
+            canDuplicate: root.store.exists
+            canCreate: root.store.themes.length < 24
+            canDelete: root.store.exists
+            confirmingDelete: root.confirmingDelete
+            onThemeRequested: (id) => {
+                root.store.activeThemeId = id
+                root.editingRole = ""
+            }
+            onNameEdited: (text) => root.store.name = text
+            onNewRequested: {
+                root.store.createTheme("")
+                root.editingRole = ""
+            }
+            onDuplicateRequested: root.store.duplicateActiveTheme("")
+            onShareRequested: root.openShare("share")
+            onImportRequested: root.openShare("import")
+            // Asks first: a deleted theme cannot be undone, and its history
+            // goes with it.
+            onDeleteRequested: root.confirmingDelete = true
+            onDeleteCancelled: root.confirmingDelete = false
+            onDeleteConfirmed: {
+                root.confirmingDelete = false
+                root.store.deleteTheme(root.store.activeThemeId)
+                root.editingRole = ""
+            }
+        }
+    }
+
+    // Share and Import, with a preview of what an import would do.
+    ThemePopover {
+        id: themeSharePopover
+        objectName: "themeSharePopover"
+        anchors.fill: parent
+        anchorItem: themeMenuButton
+        opened: root.shareOpen
+        popoverWidth: 380
+        accessibleTitle: qsTr("Share or import a theme")
+        initialFocus: root.shareMode === "import" ? themeSharePanel.importField
+                                                  : null
+        onDismissRequested: root.shareOpen = false
+
+        ThemeSharePanel {
+            id: themeSharePanel
+            Layout.fillWidth: true
+            mode: root.shareMode
+            themeName: root.store.name
+            colourCount: root.store.overrideCount
+            gradientCount: root.gradientCount
+            problems: root.readabilityProblems
+            copyNote: root.copyNote
+            importText: root.importText
+            preview: root.importPreview
+            currentName: root.store.name
+            onModeRequested: (mode) => root.shareMode = mode
+            onCopyRequested: root.copyThemeCode()
+            onImportTextEdited: (text) => root.importText = text
+            onImportAsNewRequested: root.importAsNew()
+            onReplaceRequested: root.replaceWithImport()
+            onClearRequested: root.importText = ""
+        }
+    }
+
+    // The readability report, under the header's readability pill.
+    ThemePopover {
+        id: readabilityPopover
+        objectName: "themeReadabilityPopover"
+        anchors.fill: parent
+        anchorItem: readabilityBadge
+        opened: root.reportOpen
+        popoverWidth: 400
+        accessibleTitle: qsTr("Readability report")
+        onDismissRequested: root.reportOpen = false
+
+        ThemeReadabilityPanel {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            report: root.readabilityReport
+            gradedPalette: root.auditPalette
+            problems: root.readabilityProblems
+            edited: root.store.overrideCount > 0 || root.gradientCount > 0
+            translucent: root.readabilityTranslucent
+            missing: root.readabilityMissing
+            onFindingRequested: (role) =>
+                root.beginEdit(role, root.labelForRole(role))
+            onFixRequested: (role) => root.makeReadable(role)
+            onCloseRequested: root.reportOpen = false
+        }
+    }
+
+    // A theme file (or its code) dropped anywhere on the editor opens the
+    // Import tab with its preview. It takes no mouse input of its own.
+    DropArea {
+        id: themeDrop
+        objectName: "themeDropArea"
+        anchors.fill: parent
+        z: 90
+        onDropped: (drop) => root.handleDrop(drop)
+
+        Rectangle {
+            objectName: "themeDropHint"
+            anchors.fill: parent
+            anchors.margins: AppTheme.spacing8
+            visible: themeDrop.containsDrag
+            radius: AppTheme.radiusMd
+            color: Qt.alpha(AppTheme.editorAccent, 0.14)
+            border.width: 3
+            border.color: AppTheme.editorAccent
+            Label {
+                anchors.centerIn: parent
+                text: qsTr("Drop a theme file to see what it would do")
+                color: AppTheme.editorText
+                font.family: AppTheme.uiFont
+                font.pixelSize: AppTheme.textBody
+                font.weight: AppTheme.weightStrong
+            }
+        }
+    }
+
+    // The inspector panel, one instance with two homes. Wide: the reserved
+    // third column, showing the picker when a role is open and a hint
+    // otherwise. Compact: an overlay on the role column while editing.
     Rectangle {
         id: pickerPanel
         x: root.pickerPanelX
@@ -2802,315 +2954,40 @@ Popup {
                 }
             }
 
-            // The report, when nothing is being edited
+            // Nothing open: say how to open something, and where the
+            // readability verdict went.
             ColumnLayout {
+                objectName: "themeInspectorEmpty"
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 visible: root.editingRole.length === 0
                 spacing: AppTheme.spacing8
 
-                RowLayout {
+                Label {
                     Layout.fillWidth: true
-                    spacing: AppTheme.spacing8
-                    Label {
-                        Layout.fillWidth: true
-                        text: root.readabilityProblems > 0
-                              ? qsTr("Hard to read")
-                              : root.store.overrideCount > 0
-                                ? qsTr("Nothing hard to read")
-                                : qsTr("Nothing selected")
-                        color: root.readabilityProblems > 0
-                               ? AppTheme.editorDanger : AppTheme.editorText
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: AppTheme.textBody
-                        font.weight: AppTheme.weightStrong
-                        elide: Label.ElideRight
-                    }
-                    // Only in compact mode, where the panel is a raised
-                    // overlay; in wide mode the column is permanent.
-                    Rectangle {
-                        objectName: "themeReportCloseButton"
-                        visible: root.compact
-                        implicitWidth: 26
-                        implicitHeight: 26
-                        radius: AppTheme.radiusSm
-                        color: reportCloseHover.containsMouse
-                               ? AppTheme.editorSelection : "transparent"
-                        activeFocusOnTab: true
-                        Accessible.role: Accessible.Button
-                        Accessible.name: qsTr("Close the readability report")
-                        Keys.onPressed: (e) => {
-                            if (e.key === Qt.Key_Return
-                                || e.key === Qt.Key_Enter
-                                || e.key === Qt.Key_Space) {
-                                root.reportOpen = false
-                                e.accepted = true
-                            }
-                        }
-                        Rectangle {
-                            anchors.fill: parent
-                            visible: parent.activeFocus
-                            radius: AppTheme.radiusSm
-                            color: "transparent"
-                            border.width: 2
-                            border.color: AppTheme.editorAccent
-                        }
-                        Icon {
-                            anchors.centerIn: parent
-                            name: "close"
-                            size: 14
-                            color: AppTheme.editorTextSecondary
-                        }
-                        MouseArea {
-                            id: reportCloseHover
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.reportOpen = false
-                        }
-                    }
+                    text: qsTr("Nothing selected")
+                    color: AppTheme.editorText
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.textBody
+                    font.weight: AppTheme.weightStrong
+                    elide: Label.ElideRight
                 }
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.WordWrap
+                    text: qsTr("Click a part of the sample window in the middle, or find a colour in the list on the left, and its colour opens here.")
+                    color: AppTheme.editorTextMuted
+                    font.family: AppTheme.uiFont
+                    font.pixelSize: AppTheme.textMeta
+                }
+                EditorButton {
+                    objectName: "themeReportOpenButton"
                     text: root.readabilityProblems > 0
-                          ? qsTr("These are measured against the same rules the built-in themes meet. Click one to fix it.")
-                          : root.store.overrideCount > 0
-                            ? qsTr("Every text and edge this theme paints clears the bar the built-in themes clear.")
-                            : qsTr("Click a part of the sample window in the middle, or a role in the list on the left, and its colour opens here.")
-                    color: AppTheme.editorTextMuted
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.textMeta
+                          ? qsTr("See what is hard to read")
+                          : qsTr("Readability report")
+                    onClicked: root.reportOpen = true
                 }
-
-                // What was not checked, stated, so "all passed" is not confused
-                // with "all we could check passed".
-                Label {
-                    objectName: "themeReadabilityUnchecked"
-                    visible: root.readabilityTranslucent > 0
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    textFormat: Text.PlainText
-                    // Worded to read correctly at n == 1: the English catalog
-                    // has no numerus forms for this family, so the source
-                    // string is shown at every n.
-                    text: qsTr("%n colour(s) could not be checked: a see-through colour reads differently depending on what is behind it.",
-                               "custom theme readability",
-                               root.readabilityTranslucent)
-                    color: AppTheme.editorTextMuted
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.textMeta
-                }
-
-                // A separate sentence: this means the readability table names a
-                // palette key this build does not return, which is our bug.
-                // everyReadabilityKeyIsAKeyPaletteForThemeReturns should make
-                // it unreachable.
-                Label {
-                    objectName: "themeReadabilityMissing"
-                    visible: root.readabilityMissing > 0
-                    Layout.fillWidth: true
-                    wrapMode: Text.WordWrap
-                    textFormat: Text.PlainText
-                    text: qsTr("%n check(s) could not be made: this build has no colour by that name.",
-                               "custom theme readability",
-                               root.readabilityMissing)
-                    color: AppTheme.editorDanger
-                    font.family: AppTheme.uiFont
-                    font.pixelSize: AppTheme.textMeta
-                }
-
-                Flickable {
-                    // Named so a focused row can scroll itself into view; this
-                    // list often overflows.
-                    id: problemScroll
-                    objectName: "themeReadabilityScroll"
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    visible: root.readabilityProblems > 0
-                    clip: true
-                    contentWidth: width
-                    contentHeight: problemColumn.implicitHeight
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    // As the role list: a bar only when the list scrolls.
-                    ScrollBar.vertical: ScrollBar {
-                        policy: problemScroll.contentHeight > problemScroll.height + 1
-                                ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
-                        contentItem: Rectangle {
-                            implicitWidth: 5
-                            radius: 2.5
-                            color: AppTheme.editorBorderStrong
-                        }
-                    }
-
-                    ColumnLayout {
-                        id: problemColumn
-                        width: parent.width
-                        spacing: 2
-
-                        // Three lines per row, still a font-derived constant
-                        // (see the live readout).
-                        FontMetrics {
-                            id: reportMetrics
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMeta
-                        }
-                        // Ceiling per line (see checkRowHeight).
-                        readonly property int rowTextHeight:
-                            2 * Math.ceil(reportMetrics.lineSpacing)
-                        readonly property int rowHeight:
-                            44 + Math.ceil(reportMetrics.lineSpacing)
-
-                        Repeater {
-                            model: root.readabilityReport
-                            delegate: Rectangle {
-                                id: problemRow
-                                required property var modelData
-                                objectName: "themeReadabilityRow"
-                                Layout.fillWidth: true
-                                // Fixed height, for the same loop-avoidance
-                                // reason; uniform rows also read as a list.
-                                implicitHeight: problemColumn.rowHeight
-                                radius: AppTheme.radiusSm
-                                color: problemHover.containsMouse
-                                       ? AppTheme.editorInset : "transparent"
-
-                                // Keyboard reachable.
-                                activeFocusOnTab: true
-                                Accessible.role: Accessible.Button
-                                Accessible.name: problemText.text
-                                // The role rows' clamp, mirrored: assigning
-                                // contentY does not clamp.
-                                onActiveFocusChanged: {
-                                    if (!activeFocus)
-                                        return
-                                    var top = mapToItem(problemColumn, 0, 0).y
-                                    var want = problemScroll.contentY
-                                    if (top < want)
-                                        want = top
-                                    else if (top + height
-                                             > want + problemScroll.height)
-                                        want = top + height
-                                               - problemScroll.height
-                                    problemScroll.contentY =
-                                        Math.max(0, Math.min(
-                                            want,
-                                            problemScroll.contentHeight
-                                            - problemScroll.height))
-                                }
-                                Keys.onPressed: (e) => {
-                                    if (e.key === Qt.Key_Return
-                                        || e.key === Qt.Key_Enter
-                                        || e.key === Qt.Key_Space) {
-                                        root.beginEdit(
-                                            problemRow.modelData.role,
-                                            root.labelForRole(
-                                                problemRow.modelData.role))
-                                        e.accepted = true
-                                    }
-                                }
-                                Rectangle {
-                                    anchors.fill: parent
-                                    visible: problemRow.activeFocus
-                                    radius: AppTheme.radiusSm
-                                    color: "transparent"
-                                    border.width: 2
-                                    border.color: AppTheme.editorAccent
-                                    z: 1
-                                }
-
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: AppTheme.spacing8
-                                    anchors.rightMargin: AppTheme.spacing8
-                                    spacing: AppTheme.spacing8
-
-                                    // The two failing colours, one on the
-                                    // other, at the size they fail at.
-                                    Rectangle {
-                                        implicitWidth: 30
-                                        implicitHeight: 30
-                                        radius: AppTheme.radiusSm
-                                        // The throttled palette, matching the
-                                        // ratio shown beside it.
-                                        color: root.auditPalette[
-                                            problemRow.modelData.bg]
-                                        border.width: 1
-                                        border.color: AppTheme.editorBorderStrong
-                                        Label {
-                                            anchors.centerIn: parent
-                                            //: A two-letter type specimen
-                                            //: shown on a colour pair to
-                                            //: demonstrate its readability.
-                                            //: Translate to whichever letters
-                                            //: best show this locale's script
-                                            //: — a Latin "Aa" says nothing
-                                            //: about legibility in Cyrillic,
-                                            //: Greek or CJK.
-                                            text: qsTr("Aa")
-                                            color: root.auditPalette[
-                                                problemRow.modelData.fg]
-                                            font.family: AppTheme.uiFont
-                                            font.pixelSize: AppTheme.textMeta
-                                            font.weight: AppTheme.weightStrong
-                                        }
-                                    }
-
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 0
-                                        Label {
-                                            id: problemText
-                                            objectName: "themeReadabilityRowLabel"
-                                            Layout.fillWidth: true
-                                            // Pinned to two lines so the ratio sits at
-                                            // the same height in every row.
-                                            Layout.preferredHeight:
-                                                problemColumn.rowTextHeight
-                                            verticalAlignment: Text.AlignVCenter
-                                            wrapMode: Text.WordWrap
-                                            maximumLineCount: 2
-                                            textFormat: Text.PlainText
-                                            text: problemRow.modelData.label
-                                            color: AppTheme.editorText
-                                            font.family: AppTheme.uiFont
-                                            font.pixelSize: AppTheme.textMeta
-                                            elide: Label.ElideRight
-                                        }
-                                        Label {
-                                            Layout.fillWidth: true
-                                            textFormat: Text.PlainText
-                                            text: problemRow.modelData.kind === "ink"
-                                                  ? qsTr("%1:1 — needs %2:1")
-                                                    .arg(problemRow.modelData.value.toFixed(1))
-                                                    .arg(problemRow.modelData.minimum.toFixed(1))
-                                                  : qsTr("ΔL* %1 — needs %2")
-                                                    .arg(problemRow.modelData.value.toFixed(1))
-                                                    .arg(problemRow.modelData.minimum.toFixed(1))
-                                            color: AppTheme.editorDanger
-                                            font.family: AppTheme.monoFont
-                                            font.pixelSize: AppTheme.textMeta
-                                        }
-                                    }
-                                }
-
-                                MouseArea {
-                                    id: problemHover
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.beginEdit(
-                                        problemRow.modelData.role,
-                                        root.labelForRole(
-                                            problemRow.modelData.role))
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Item { Layout.fillHeight: true; visible: root.readabilityProblems === 0 }
+                Item { Layout.fillHeight: true }
             }
 
         }

@@ -1893,6 +1893,241 @@ private Q_SLOTS:
         QCOMPARE(value(accent), QStringLiteral("#333333"));
     }
 
+    // Every undo step has a short human name, and gradients are in the history
+    // (2026-10-14). Fails on the old tree: there was no label and a gradient
+    // was neither undoable nor redoable.
+    void undoStepsAreNamedAndGradientsAreInTheHistory()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("Named"));
+        const auto undoLabel = [&] { return store.property("undoLabel").toString(); };
+        const auto redoLabel = [&] { return store.property("redoLabel").toString(); };
+        QVERIFY2(store.metaObject()->indexOfProperty("undoLabel") >= 0,
+                 "the store has no undoLabel");
+        QCOMPARE(undoLabel(), QString());
+
+        // A colour edit is named after the role.
+        store.setColor(QStringLiteral("roomHeader"), QStringLiteral("#111111"));
+        QVERIFY2(undoLabel().contains(CustomThemeStore::roleLabel(
+                                          QStringLiteral("roomHeader"))),
+                 qPrintable(undoLabel()));
+        // A drag keeps the name of its first sample and is still one step.
+        store.setColor(QStringLiteral("roomHeader"), QStringLiteral("#222222"));
+        const QString dragLabel = undoLabel();
+        store.sealUndoStep();
+
+        // A gradient is a step: undo removes it, redo brings it back.
+        const QVariantMap spec{ { QStringLiteral("type"), QStringLiteral("linear") },
+                                { QStringLiteral("angle"), 180 },
+                                { QStringLiteral("stops"),
+                                  QStringList{ QStringLiteral("#102030"),
+                                               QStringLiteral("#203040") } } };
+        QVERIFY(store.setGradient(QStringLiteral("background"), spec));
+        QVERIFY(undoLabel().contains(CustomThemeStore::roleLabel(
+                                         QStringLiteral("background"))));
+        QVERIFY(undoLabel() != dragLabel);
+        const QString gradientLabel = undoLabel();
+        QVERIFY(store.undo());
+        QVERIFY2(!store.gradients().contains(QStringLiteral("background")),
+                 "undo left the gradient in place");
+        QCOMPARE(redoLabel(), gradientLabel);
+        QCOMPARE(undoLabel(), dragLabel);
+        QVERIFY(store.redo());
+        QVERIFY(store.gradients().contains(QStringLiteral("background")));
+        QVERIFY(undoLabel() == gradientLabel);
+
+        // Samples of one gradient (a stop dragged) are one step.
+        QVariantMap moved = spec;
+        moved.insert(QStringLiteral("stops"),
+                     QStringList{ QStringLiteral("#112233"), QStringLiteral("#203040") });
+        store.sealUndoStep();
+        QVERIFY(store.setGradient(QStringLiteral("background"), moved));
+        moved.insert(QStringLiteral("stops"),
+                     QStringList{ QStringLiteral("#445566"), QStringLiteral("#203040") });
+        QVERIFY(store.setGradient(QStringLiteral("background"), moved));
+        QVERIFY(store.undo());
+        QCOMPARE(store.gradients().value(QStringLiteral("background")).toMap()
+                     .value(QStringLiteral("stops")).toStringList().value(0),
+                 QStringLiteral("#102030"));
+
+        // Removing a gradient is a step too.
+        store.resetGradient(QStringLiteral("background"));
+        QVERIFY(!store.gradients().contains(QStringLiteral("background")));
+        QVERIFY(store.undo());
+        QVERIFY(store.gradients().contains(QStringLiteral("background")));
+
+        // nameNextStep() overrides the default for one step only.
+        store.sealUndoStep();
+        QVERIFY(QMetaObject::invokeMethod(&store, "nameNextStep",
+                                          Q_ARG(QString, QStringLiteral("Make it pop"))));
+        store.setColor(QStringLiteral("accent"), QStringLiteral("#ABCDEF"));
+        QCOMPARE(undoLabel(), QStringLiteral("Make it pop"));
+        store.sealUndoStep();
+        store.setColor(QStringLiteral("link"), QStringLiteral("#ABCDEF"));
+        QVERIFY(undoLabel() != QStringLiteral("Make it pop"));
+
+        // A group is one step with its own name, whatever it writes.
+        store.sealUndoStep();
+        QVERIFY(store.setColor(QStringLiteral("sidebar"), QStringLiteral("#010101")));
+        store.sealUndoStep();
+        const QVariantMap colorsBefore = store.colors();
+        const QVariantMap gradientsBefore = store.gradients();
+        QVERIFY(QMetaObject::invokeMethod(&store, "beginUndoGroup",
+                                          Q_ARG(QString, QStringLiteral("Unlink Room list"))));
+        QVERIFY(store.setGradient(QStringLiteral("roomList"), spec));
+        store.setColor(QStringLiteral("roomList"), QStringLiteral("#050505"));
+        store.resetColor(QStringLiteral("sidebar"));
+        QVERIFY(QMetaObject::invokeMethod(&store, "endUndoGroup"));
+        QCOMPARE(undoLabel(), QStringLiteral("Unlink Room list"));
+        QVERIFY(store.undo());
+        QCOMPARE(store.colors(), colorsBefore);
+        QCOMPARE(store.gradients(), gradientsBefore);
+        QVERIFY(store.redo());
+        QVERIFY(store.gradients().contains(QStringLiteral("roomList")));
+
+        // Reset all brings the gradients back with a single undo.
+        store.resetAll();
+        QCOMPARE(store.gradients().size(), 0);
+        QVERIFY(store.undo());
+        QVERIFY(store.gradients().contains(QStringLiteral("roomList")));
+        QVERIFY(store.gradients().contains(QStringLiteral("background")));
+    }
+
+    // The Import preview and "Replace current" (2026-10-14). previewImport()
+    // is the same validation as importTheme() and changes nothing;
+    // replaceActiveTheme() swaps colours, gradients and base but keeps the
+    // name, as one undo step; readThemeFile() reads only a small local file.
+    // Fails on the old tree: none of the three existed.
+    void importPreviewChangesNothingAndReplaceKeepsTheNameAndIsUndoable()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("Source"));
+        QVERIFY(store.setColor(QStringLiteral("sidebar"), QStringLiteral("#123456")));
+        QVERIFY(store.setColor(QStringLiteral("accent"), QStringLiteral("#FF8800")));
+        QVERIFY(store.setGradient(
+            QStringLiteral("background"),
+            { { QStringLiteral("type"), QStringLiteral("linear") },
+              { QStringLiteral("angle"), 180 },
+              { QStringLiteral("stops"), QStringList{ QStringLiteral("#102030"),
+                                                      QStringLiteral("#203040") } } }));
+        const QString code = store.exportTheme(store.activeThemeId());
+        QVERIFY(!code.isEmpty());
+
+        const QString target = store.createTheme(QStringLiteral("Target"));
+        QVERIFY(!target.isEmpty());
+        const int themesBefore = store.themes().size();
+        const QVariantMap colorsBefore = store.colors();
+
+        // A preview reports what is in it and touches nothing.
+        QVariantMap pv;
+        QVERIFY2(QMetaObject::invokeMethod(&store, "previewImport",
+                                           Q_RETURN_ARG(QVariantMap, pv),
+                                           Q_ARG(QString, code)),
+                 "the store has no previewImport()");
+        QCOMPARE(pv.value(QStringLiteral("ok")).toBool(), true);
+        QCOMPARE(pv.value(QStringLiteral("name")).toString(), QStringLiteral("Source"));
+        QCOMPARE(pv.value(QStringLiteral("colourCount")).toInt(), 2);
+        QCOMPARE(pv.value(QStringLiteral("gradientCount")).toInt(), 1);
+        QCOMPARE(pv.value(QStringLiteral("colors")).toMap()
+                     .value(QStringLiteral("sidebar")).toString(),
+                 QStringLiteral("#123456"));
+        QCOMPARE(pv.value(QStringLiteral("atLimit")).toBool(), false);
+        QCOMPARE(store.themes().size(), themesBefore);
+        QCOMPARE(store.colors(), colorsBefore);
+        QCOMPARE(store.activeThemeId(), target);
+
+        // The same refusals as importTheme(), with the same words.
+        for (const QString &bad : { QStringLiteral("nonsense"), QStringLiteral("{}"),
+                                    QStringLiteral("{\"lightning_theme\":1,\"colors\":{}}") }) {
+            QVariantMap refused;
+            QVERIFY(QMetaObject::invokeMethod(&store, "previewImport",
+                                              Q_RETURN_ARG(QVariantMap, refused),
+                                              Q_ARG(QString, bad)));
+            QCOMPARE(refused.value(QStringLiteral("ok")).toBool(), false);
+            QVERIFY(!refused.value(QStringLiteral("error")).toString().isEmpty());
+        }
+
+        // Replace: colours, gradients and base move; the name does not.
+        QCOMPARE(store.name(), QStringLiteral("Target"));
+        QString reason = QStringLiteral("unset");
+        QVERIFY(QMetaObject::invokeMethod(&store, "replaceActiveTheme",
+                                          Q_RETURN_ARG(QString, reason),
+                                          Q_ARG(QString, code)));
+        QVERIFY2(reason.isEmpty(), qPrintable(reason));
+        QCOMPARE(store.themes().size(), themesBefore);
+        QCOMPARE(store.activeThemeId(), target);
+        QCOMPARE(store.name(), QStringLiteral("Target"));
+        QCOMPARE(store.colors().value(QStringLiteral("sidebar")).toString(),
+                 QStringLiteral("#123456"));
+        QVERIFY(store.gradients().contains(QStringLiteral("background")));
+
+        // One step puts the old colours back, and Redo brings the import again.
+        QVERIFY(store.canUndo());
+        QVERIFY(store.property("undoLabel").toString().length() > 0);
+        QVERIFY(store.undo());
+        QCOMPARE(store.colors(), colorsBefore);
+        QVERIFY(!store.gradients().contains(QStringLiteral("background")));
+        QVERIFY(store.redo());
+        QCOMPARE(store.colors().value(QStringLiteral("accent")).toString(),
+                 QStringLiteral("#FF8800"));
+
+        // A refused replace changes nothing.
+        const QVariantMap colorsNow = store.colors();
+        QVERIFY(QMetaObject::invokeMethod(&store, "replaceActiveTheme",
+                                          Q_RETURN_ARG(QString, reason),
+                                          Q_ARG(QString, QStringLiteral("nonsense"))));
+        QVERIFY(!reason.isEmpty());
+        QCOMPARE(store.colors(), colorsNow);
+
+        // A full collection reports atLimit, and still previews.
+        while (store.themes().size() < CustomThemeStore::kMaxThemes)
+            QVERIFY(!store.createTheme(QStringLiteral("Filler")).isEmpty());
+        QVERIFY(QMetaObject::invokeMethod(&store, "previewImport",
+                                          Q_RETURN_ARG(QVariantMap, pv),
+                                          Q_ARG(QString, code)));
+        QCOMPARE(pv.value(QStringLiteral("ok")).toBool(), true);
+        QCOMPARE(pv.value(QStringLiteral("atLimit")).toBool(), true);
+    }
+
+    // A dropped theme file is read only when it is a small local regular file.
+    void aDroppedThemeFileIsReadOnlyWhenItIsSmallAndLocal()
+    {
+        SettingsManager settings;
+        CustomThemeStore store(&settings);
+        store.createTheme(QStringLiteral("Drop"));
+        QVERIFY(store.setColor(QStringLiteral("accent"), QStringLiteral("#FF8800")));
+        const QString code = store.exportTheme(store.activeThemeId());
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const auto write = [&](const QString &name, const QByteArray &bytes) {
+            QFile f(dir.filePath(name));
+            if (!f.open(QIODevice::WriteOnly))
+                return QUrl();
+            f.write(bytes);
+            return QUrl::fromLocalFile(f.fileName());
+        };
+        const auto read = [&](const QUrl &url) {
+            QString text;
+            const bool ok = QMetaObject::invokeMethod(
+                &store, "readThemeFile", Q_RETURN_ARG(QString, text),
+                Q_ARG(QUrl, url));
+            return ok ? text : QStringLiteral("<no readThemeFile()>");
+        };
+
+        QCOMPARE(read(write(QStringLiteral("t.json"), code.toUtf8())), code);
+        QCOMPARE(read(write(QStringLiteral("big.json"),
+                            QByteArray(int(CustomThemeStore::kMaxShareFileBytes) + 1, 'x'))),
+                 QString());
+        QCOMPARE(read(write(QStringLiteral("empty.json"), QByteArray())), QString());
+        QCOMPARE(read(QUrl(QStringLiteral("https://example.com/theme.json"))), QString());
+        QCOMPARE(read(QUrl::fromLocalFile(dir.path())), QString());
+        QCOMPARE(read(QUrl::fromLocalFile(dir.filePath(QStringLiteral("missing.json")))),
+                 QString());
+    }
+
     void theEditorCoversTheFourShellRegionsAndTheMessageSurfaces()
     {
         const QStringList roles = CustomThemeStore::editableRoles();

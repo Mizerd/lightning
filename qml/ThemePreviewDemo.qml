@@ -55,6 +55,178 @@ Item {
     // without one stays flat.
     property var gradients: ({})
 
+    // ---- keyboard (2026-10-14) ----
+    //
+    // Tab or the arrow keys walk the regions in reading order (top to bottom in
+    // bands, then left to right, a container before what it holds); the focus
+    // ring is the region's own, drawn by the Region. Enter or Space opens the
+    // element in the inspector (regionActivated), Escape hands focus back to
+    // the editor's list (keyboardEscape).
+    //
+    // Real focus moves from region to region (each is a focus target, but not
+    // a Tab stop, so Tab does not visit a hundred of them): that is what lets
+    // an assistive technology read the region's name when it arrives. The
+    // names come from the editor, which knows the roles' labels.
+    // role -> label (a function the editor supplies), and a one-line state
+    // ("Own colour", "Linked to Panels and cards").
+    property var roleLabel: null
+    property var roleState: null
+    // The region the keyboard is on, remembered when focus leaves.
+    property Item kbRegion: null
+    // The role it is on while it has focus, else "".
+    readonly property string keyboardRole:
+        root.kbRegion && root.kbRegion.activeFocus ? root.kbRegion.role : ""
+    // Set when focus leaves backwards, so the entry stop does not pull it back.
+    property bool kbLeaving: false
+    signal keyboardEscape()
+
+    function labelOf(role) {
+        var v = root.roleLabel ? root.roleLabel(role) : ""
+        return v && v.length > 0 ? v : role
+    }
+    function stateOf(role) {
+        return root.roleState ? root.roleState(role) : ""
+    }
+
+    // Every region on screen, in reading order.
+    function orderedRegions() {
+        var found = []
+        var walk = function (node) {
+            var kids = node.children
+            for (var i = 0; i < kids.length; ++i) {
+                var k = kids[i]
+                if (!k.visible)
+                    continue
+                if (k.isThemeRegion === true && k.width > 0 && k.height > 0) {
+                    var p = k.mapToItem(root, 0, 0)
+                    found.push({ item: k, band: Math.round(p.y / 10),
+                                 x: p.x, area: k.width * k.height })
+                }
+                walk(k)
+            }
+        }
+        walk(root)
+        found.sort(function (a, b) {
+            if (a.band !== b.band)
+                return a.band - b.band
+            if (Math.abs(a.x - b.x) > 0.5)
+                return a.x - b.x
+            return b.area - a.area
+        })
+        var out = []
+        for (var j = 0; j < found.length; ++j)
+            out.push(found[j].item)
+        return out
+    }
+    function focusRegion(region) {
+        root.kbRegion = region
+        region.forceActiveFocus()
+    }
+    // Moves one region on. Tab leaves at the ends (false: not handled), the
+    // arrow keys stop there.
+    function stepFocus(dir, tabbing) {
+        var list = root.orderedRegions()
+        if (list.length === 0)
+            return false
+        var i = list.indexOf(root.kbRegion)
+        var n = i < 0 ? (dir > 0 ? 0 : list.length - 1) : i + dir
+        if (n < 0 || n >= list.length) {
+            if (tabbing)
+                return false
+            n = Math.max(0, Math.min(list.length - 1, n))
+        }
+        root.focusRegion(list[n])
+        return true
+    }
+    function jumpFocus(last) {
+        var list = root.orderedRegions()
+        if (list.length > 0)
+            root.focusRegion(list[last ? list.length - 1 : 0])
+    }
+    // Opens the focused element, as a click on it would.
+    function activateFocused() {
+        if (root.kbRegion && root.kbRegion.activeFocus)
+            root.regionActivated(root.kbRegion.role, [root.kbRegion.role])
+    }
+    // Tab arrived at the entry stop: hand focus to the region the keyboard was
+    // on, else the one open in the picker, else the first.
+    function enterFromTab() {
+        if (root.kbLeaving) {
+            root.kbLeaving = false
+            var prev = kbEntry.nextItemInFocusChain(false)
+            if (prev && prev !== kbEntry)
+                prev.forceActiveFocus()
+            return
+        }
+        var list = root.orderedRegions()
+        if (list.length === 0)
+            return
+        var target = list.indexOf(root.kbRegion) >= 0 ? root.kbRegion : null
+        for (var i = 0; !target && i < list.length; ++i) {
+            if (root.highlightRole.length > 0
+                    && list[i].role === root.highlightRole)
+                target = list[i]
+        }
+        root.focusRegion(target ? target : list[0])
+    }
+
+    // The one Tab stop of the whole sample window.
+    Item {
+        id: kbEntry
+        objectName: "themePreviewKeyboardEntry"
+        width: 1
+        height: 1
+        activeFocusOnTab: true
+        Accessible.role: Accessible.Pane
+        Accessible.name: qsTr("Sample window. Tab or the arrow keys move between its parts, Enter edits one, Escape goes back to the list.")
+        onActiveFocusChanged: if (activeFocus) root.enterFromTab()
+    }
+
+    Keys.onPressed: (e) => {
+        switch (e.key) {
+        case Qt.Key_Right:
+        case Qt.Key_Down:
+            root.stepFocus(1, false)
+            e.accepted = true
+            break
+        case Qt.Key_Left:
+        case Qt.Key_Up:
+            root.stepFocus(-1, false)
+            e.accepted = true
+            break
+        case Qt.Key_Home:
+            root.jumpFocus(false)
+            e.accepted = true
+            break
+        case Qt.Key_End:
+            root.jumpFocus(true)
+            e.accepted = true
+            break
+        case Qt.Key_Return:
+        case Qt.Key_Enter:
+        case Qt.Key_Space:
+            root.activateFocused()
+            e.accepted = true
+            break
+        }
+    }
+    Keys.onTabPressed: (e) => { e.accepted = root.stepFocus(1, true) }
+    Keys.onBacktabPressed: (e) => {
+        e.accepted = root.stepFocus(-1, true)
+        if (!e.accepted)
+            root.kbLeaving = true
+    }
+    Keys.onEscapePressed: (e) => {
+        root.keyboardEscape()
+        e.accepted = true
+    }
+    // Escape here is the preview's: without this the editor's Escape shortcut
+    // wins before the key reaches the item.
+    Keys.onShortcutOverride: (e) => {
+        if (e.key === Qt.Key_Escape)
+            e.accepted = true
+    }
+
     function gradientSpec(role) {
         var g = root.gradients ? root.gradients[role] : undefined
         return g && g.stops && g.stops.length >= 2 ? g : null
@@ -177,7 +349,8 @@ Item {
         // at in the list, 1 recoloured along with either, 0.5 under the
         // pointer here, 0 not at all.
         readonly property real emphasis:
-            root.highlightRole === region.role ? 3
+            region.activeFocus ? 3
+            : root.highlightRole === region.role ? 3
             : root.hoverRole === region.role ? 2
             : root.linkedRoles[region.role] === true ? 1
             : region.containsMouse ? 0.5 : 0
@@ -185,8 +358,19 @@ Item {
         anchors.margins: -region.pad
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: (mouse) => root.regionActivated(
-            region.role, root.regionStack(region, mouse.x, mouse.y))
+        // Reachable by the keyboard and named for assistive technology: what
+        // it is, and whether its colour is its own or linked.
+        Accessible.role: Accessible.Button
+        Accessible.name: root.labelOf(region.role)
+        Accessible.description: root.stateOf(region.role)
+        Accessible.focusable: true
+        Accessible.onPressAction: root.regionActivated(region.role, [region.role])
+        onClicked: (mouse) => {
+            // The keyboard carries on from where the pointer last was.
+            root.kbRegion = region
+            root.regionActivated(
+                region.role, root.regionStack(region, mouse.x, mouse.y))
+        }
 
         // The readability mark: inside the region's top-right corner, 8px on
         // screen at any scale (outlineWidth is 2px on screen).
@@ -255,6 +439,19 @@ Item {
                         color: "transparent"
                         border.width: ring.w * 0.5
                         border.color: "#E6FFFFFF"
+                    }
+                    // The keyboard's own mark: a white band standing off the
+                    // ring, so keyboard focus is not mistaken for the element
+                    // that is merely open in the picker.
+                    Rectangle {
+                        objectName: "themeKeyboardRing"
+                        visible: region.activeFocus
+                        anchors.fill: parent
+                        anchors.margins: -ring.w * 2
+                        radius: ring.r + ring.w * 2
+                        color: "transparent"
+                        border.width: ring.w * 0.75
+                        border.color: "#FFFFFFFF"
                     }
                 }
             }

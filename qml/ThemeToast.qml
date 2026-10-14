@@ -13,6 +13,9 @@ Rectangle {
 
     property string message: ""
     property string actionText: ""
+    // What the action does, named ("Undo: Unlink Room list"); read aloud and
+    // shown as a tooltip.
+    property string actionHint: ""
     // How long it stays, in milliseconds.
     property int duration: 6000
     property bool shown: false
@@ -76,7 +79,8 @@ Rectangle {
                                              : "transparent"
             activeFocusOnTab: true
             Accessible.role: Accessible.Button
-            Accessible.name: root.actionText
+            Accessible.name: root.actionHint.length > 0 ? root.actionHint
+                                                         : root.actionText
             Keys.onPressed: (e) => {
                 if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter
                         || e.key === Qt.Key_Space) {
@@ -106,6 +110,9 @@ Rectangle {
                 id: actionHover
                 anchors.fill: parent
                 hoverEnabled: true
+                ToolTip.visible: containsMouse && root.actionHint.length > 0
+                ToolTip.delay: 400
+                ToolTip.text: root.actionHint
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
                     root.dismiss()

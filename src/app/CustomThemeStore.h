@@ -4,6 +4,7 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -44,9 +45,14 @@ class CustomThemeStore : public QObject
     // The editor's undo history for the active theme: colour edits, resets,
     // Reset all and base changes. Cleared when the active theme changes
     // (switch, new, duplicate, delete, import, account switch). Names are not
-    // recorded; the name field has its own text undo.
+    // recorded; the name field has its own text undo. Gradients are in the
+    // history too (2026-10-14).
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY historyChanged)
     Q_PROPERTY(bool canRedo READ canRedo NOTIFY historyChanged)
+    // The short human name of the step Undo / Redo would take ("Change Room
+    // header colour"), empty when there is none.
+    Q_PROPERTY(QString undoLabel READ undoLabel NOTIFY historyChanged)
+    Q_PROPERTY(QString redoLabel READ redoLabel NOTIFY historyChanged)
 
 public:
     explicit CustomThemeStore(SettingsManager *settings,
@@ -107,6 +113,16 @@ public:
     Q_INVOKABLE bool undo();
     Q_INVOKABLE bool redo();
     Q_INVOKABLE void sealUndoStep();
+    QString undoLabel() const;
+    QString redoLabel() const;
+    // Names the NEXT recorded step (every edit has a default name; this is for
+    // an edit the editor composes out of several, such as "Unlink Room list").
+    Q_INVOKABLE void nameNextStep(const QString &label);
+    // Everything recorded between begin and end is ONE step called `label`
+    // ("Reset Room list to group" is a colour and a gradient). Not re-entrant
+    // beyond a depth count; end without begin is ignored.
+    Q_INVOKABLE void beginUndoGroup(const QString &label);
+    Q_INVOKABLE void endUndoGroup();
 
     // ---- the collection --------------------------------------------------
 
@@ -126,9 +142,27 @@ public:
     // are dropped by sanitize(), the base is clamped to a real preset, and the
     // name is bounded.
     Q_INVOKABLE QString importTheme(const QString &payload);
+    // What importing `payload` WOULD do, changing nothing: the same validation
+    // as importTheme(), so the editor can show a preview and the reason a
+    // paste is refused without a second implementation of either.
+    //   { ok, error, name, base, colors, gradients, colourCount, gradientCount,
+    //     atLimit }
+    // `colors` / `gradients` are the sanitised maps (what would be stored),
+    // `atLimit` true when "import as new" would be refused for lack of room.
+    Q_INVOKABLE QVariantMap previewImport(const QString &payload) const;
+    // "Replace current": the active theme takes the payload's base, colours
+    // and gradients and KEEPS its own name. One undo step ("Replace with the
+    // imported theme"). Returns empty on success or the same short reasons as
+    // importTheme(); with no theme yet it imports as a new one.
+    Q_INVOKABLE QString replaceActiveTheme(const QString &payload);
+    // The text of a dropped theme file, or empty. Only a local regular file
+    // under kMaxShareFileBytes is read; anything else is refused. The text is
+    // untrusted and goes through previewImport()/importTheme() like a paste.
+    Q_INVOKABLE QString readThemeFile(const QUrl &url) const;
 
     // Bounded so a corrupt config cannot grow without limit.
     static constexpr int kMaxThemes = 24;
+    static constexpr qint64 kMaxShareFileBytes = 24576;
     static constexpr int kMaxNameLength = 48;
 
     Q_INVOKABLE bool isValidColor(const QString &hex) const;
@@ -284,6 +318,10 @@ private:
     void save(const QList<Theme> &themes, const QString &activeId);
     int activeIndex() const;
     static QString makeId(const QList<Theme> &existing);
+    // A shared payload parsed and sanitised into a Theme (no id), or `error`
+    // set to the user-facing reason. One implementation behind importTheme(),
+    // previewImport() and replaceActiveTheme().
+    static bool parseShared(const QString &payload, Theme *out, QString *error);
     static Theme fromJson(const QJsonObject &object);
     static QJsonObject toJson(const Theme &theme);
 
@@ -296,13 +334,23 @@ private:
         int baseAfter = 0;
         QVariantMap colorsBefore;
         QVariantMap colorsAfter;
+        QVariantMap gradientsBefore;
+        QVariantMap gradientsAfter;
         QString coalesce;
+        QString label;
     };
-    // Called after a mutation with the state read before it.
+    // Called after a mutation with the state read before it. `label` is the
+    // step's default name; nameNextStep() and an open group override it.
     void recordStep(const QString &themeIdBefore, int baseBefore,
-                    const QVariantMap &colorsBefore, const QString &coalesce);
+                    const QVariantMap &colorsBefore,
+                    const QVariantMap &gradientsBefore, const QString &coalesce,
+                    const QString &label);
     void clearHistory();
-    void applyHistoryState(int base, const QVariantMap &colors);
+    void applyHistoryState(int base, const QVariantMap &colors,
+                           const QVariantMap &gradients);
+    QString m_pendingLabel;
+    QString m_groupLabel;
+    int m_groupDepth = 0;
 
     QList<UndoStep> m_undo;
     QList<UndoStep> m_redo;

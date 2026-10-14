@@ -189,7 +189,7 @@ ColumnLayout {
         var lo = i > 0 ? pos[i - 1] : 0
         var hi = i < pos.length - 1 ? pos[i + 1] : 1
         pos[i] = Math.round(Math.max(lo, Math.min(hi, position)) * 100) / 100
-        return editor.write(editor.specWith({ positions: pos }))
+        return editor.write(editor.specWith({ positions: pos }), true)
     }
     // Click on the bar: a new stop at `position` in the colour already
     // showing there. Returns the new stop's index, or -1 when the gradient is
@@ -220,7 +220,12 @@ ColumnLayout {
         pos.splice(i, 1)
         return editor.write(editor.specWith({ stops: stops, positions: pos }))
     }
-    function write(spec) {
+    // `drag`: one sample of a gesture (a stop dragged, the angle slider, the
+    // picker); those merge into one undo step. Any other write is a step of
+    // its own.
+    function write(spec, drag) {
+        if (drag !== true)
+            app.customTheme.sealUndoStep()
         for (var i = 0; i < spec.stops.length; ++i) {
             if (!app.customTheme.isValidColor(spec.stops[i]))
                 return false
@@ -235,7 +240,7 @@ ColumnLayout {
             return false
         var stops = editor.specWith({}).stops
         stops[i] = hex
-        return editor.write(editor.specWith({ stops: stops }))
+        return editor.write(editor.specWith({ stops: stops }), true)
     }
     function applyPreset(spec) {
         if (!editor.write({ type: spec.type, angle: spec.angle,
@@ -355,7 +360,10 @@ ColumnLayout {
             Accessible.name: qsTr("Solid colour")
             selected: !editor.hasGradient
             enabled: editor.available
-            onClicked: if (editor.hasGradient) app.customTheme.resetGradient(editor.role)
+            onClicked: if (editor.hasGradient) {
+                app.customTheme.sealUndoStep()
+                app.customTheme.resetGradient(editor.role)
+            }
         }
         ChromeButton {
             objectName: "gradientLinearButton"
@@ -502,7 +510,7 @@ ColumnLayout {
                 snapMode: Slider.SnapAlways
                 value: editor.hasGradient ? editor.stored.angle : 180
                 Accessible.name: qsTr("Gradient angle")
-                onMoved: editor.write(editor.specWith({ angle: Math.round(value) }))
+                onMoved: editor.write(editor.specWith({ angle: Math.round(value) }), true)
                 background: Rectangle {
                     x: angleSlider.leftPadding
                     y: angleSlider.topPadding + angleSlider.availableHeight / 2 - 2
@@ -685,6 +693,7 @@ ColumnLayout {
                                 when: !stopField.activeFocus
                             }
                             onEditingFinished: {
+                                app.customTheme.sealUndoStep()
                                 if (!editor.setStop(stopRow.index, text))
                                     text = String(editor.stopAt(stopRow.index)).toUpperCase()
                             }

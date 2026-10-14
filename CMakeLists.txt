@@ -1110,6 +1110,11 @@ set(APP_QML_FILES
     qml/ThemeToast.qml
     qml/ThemeLinkRow.qml
     qml/ThemeSimplePanel.qml
+    qml/ThemePresetPrompt.qml
+    qml/ThemePopover.qml
+    qml/ThemeMenuPanel.qml
+    qml/ThemeSharePanel.qml
+    qml/ThemeReadabilityPanel.qml
     qml/GradientBar.qml
     qml/AnimationFileHold.qml
     qml/Skeleton.qml
