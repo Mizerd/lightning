@@ -24,7 +24,8 @@ Rectangle {
     readonly property real tabsUnwrapSlack: 12
     function applyTabsWrap() {
         if (!tabsWrap) {
-            tabsWrap = tabsProbe.overflowing
+            tabsWrap = tabsProbe.width > 0
+                       && tabsProbe.implicitWidth > tabsProbe.width
         } else if (tabsProbe.width > 0
                    && tabsProbe.implicitWidth
                       <= tabsProbe.width - root.tabsUnwrapSlack) {
@@ -289,10 +290,12 @@ Rectangle {
         enabled: false
         storm: true
         dense: true
-        fitWidth: true
+        // Not fitWidth: the natural width is the same sum either way, and
+        // fitWidth would flip each segment's Layout.fillWidth when the answer
+        // moves, re-laying out the probe from inside its own polish.
+        fitWidth: false
         model: root.tabModel
         width: Math.max(0, root.width - AppTheme.spacing6 * 2)
-        onOverflowingChanged: Qt.callLater(root.applyTabsWrap)
         onWidthChanged: Qt.callLater(root.applyTabsWrap)
         onImplicitWidthChanged: Qt.callLater(root.applyTabsWrap)
     }

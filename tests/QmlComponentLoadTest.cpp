@@ -348,6 +348,58 @@ private Q_SLOTS:
         QCOMPARE(checked, 2);
     }
 
+    // The room-info panel's tab strip is measured by a probe SegmentedControl;
+    // that probe used to call polish() from inside updatePolish() on every
+    // pass ("possible QQuickItem::polish() loop", logged without end). Shown
+    // at a width that fits the tabs and at one that wraps them.
+    void theRoomInfoPanelDoesNotPolishLoop()
+    {
+        AppController controller(AppController::MockBackend);
+        QSignalSpy loginSpy(controller.auth(), &AuthManager::loginSucceeded);
+        controller.auth()->login(QStringLiteral("https://mock.local"),
+                                 QStringLiteral("alice"),
+                                 QStringLiteral("unused"));
+        QVERIFY(loginSpy.wait(3000));
+
+        for (const int width : { 420 }) {
+            QQmlEngine engine;
+            engine.rootContext()->setContextProperty("app", &controller);
+            QStringList warnings;
+            connect(&engine, &QQmlEngine::warnings, this,
+                    [&warnings](const QList<QQmlError> &errors) {
+                        for (const QQmlError &e : errors)
+                            warnings << e.toString();
+                    });
+            controller.openRoom(QStringLiteral("!general:mock.local"));
+            QQmlComponent component(&engine);
+            component.setData(QStringLiteral(R"(
+import QtQuick
+import QtQuick.Window
+import MatrixClient
+
+Window {
+    width: %1
+    height: 700
+    visible: true
+    RoomInfoPanel { anchors.fill: parent }
+}
+)").arg(width).toUtf8(), QUrl(QStringLiteral("qrc:/roominfopolishtest.qml")));
+            QScopedPointer<QObject> window(component.create());
+            QVERIFY2(window, qPrintable(component.errorString()));
+            QTest::qWait(300);
+            // Drag the panel through every width, as a resizable side panel is.
+            for (qreal w = 520; w >= 180; w -= 3.7) {
+                window->setProperty("width", w);
+                QTest::qWait(20);
+            }
+            for (const QString &warning : std::as_const(warnings)) {
+                QVERIFY2(!warning.contains(QStringLiteral("polish()")),
+                         qPrintable(QStringLiteral("width %1: ").arg(width)
+                                    + warning));
+            }
+        }
+    }
+
     // The room-list "..." menu: it shows the persisted mode, writes it, and
     // the change reaches BOTH layouts' models through the controller.
     void theRoomListSortMenuWritesTheSettingAndBothModelsFollow()
