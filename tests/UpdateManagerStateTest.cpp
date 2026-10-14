@@ -1920,6 +1920,22 @@ void UpdateManagerStateTest::aPrimaryAnswerThatDoesNotVerifyFallsBackToGitLab()
 // a manifest that verifies (signed by our key, delivered by the mirror slot)
 // still cannot steer downloads anywhere new: the canonical `url` must stay on
 // the canonical host, and a mirror_url on an unlisted host is dropped.
+// A refused manifest must end in Failed after BOTH sources answered with it,
+// and must never be offered: the primary's refusal retries from the fallback.
+static void refusedOnBothSources(UpdateManager *m, const QByteArray &bytes,
+                                 const QByteArray &sig)
+{
+    m->checkForUpdates();
+    QCOMPARE(m->state(), UpdateManager::Checking);
+    m->ingestCheckDocuments(bytes, sig);
+    if (m->state() == UpdateManager::Checking) {
+        QVERIFY(m->metadataInFallbackStageForTest());
+        m->ingestCheckDocuments(bytes, sig);
+    }
+    QCOMPARE(m->state(), UpdateManager::Failed);
+    QVERIFY(!m->updateAvailable());
+}
+
 void UpdateManagerStateTest::aMirrorSignedManifestNamingAForeignHostIsStillRefused()
 {
     if (mirrorHost().isEmpty())
@@ -1938,8 +1954,10 @@ void UpdateManagerStateTest::aMirrorSignedManifestNamingAForeignHostIsStillRefus
         deb.insert(QStringLiteral("url"), mirrorArtifactUrl(version, filename));
         artifacts.insert(QStringLiteral("linux-deb"), deb);
         manifest.insert(QStringLiteral("artifacts"), artifacts);
-        ingest(manager.get(), manifest);
-        QCOMPARE(manager->state(), UpdateManager::Failed);
+        const QByteArray bytes = QJsonDocument(manifest).toJson(QJsonDocument::Compact);
+        refusedOnBothSources(manager.get(), bytes, sign(bytes));
+        if (QTest::currentTestFailed())
+            return;
     }
 
     // 2. Artifact `url` on a third-party host: refused.
@@ -1952,8 +1970,10 @@ void UpdateManagerStateTest::aMirrorSignedManifestNamingAForeignHostIsStillRefus
                    QStringLiteral("https://evil.example/%1").arg(filename));
         artifacts.insert(QStringLiteral("linux-deb"), deb);
         manifest.insert(QStringLiteral("artifacts"), artifacts);
-        ingest(manager.get(), manifest);
-        QCOMPARE(manager->state(), UpdateManager::Failed);
+        const QByteArray bytes = QJsonDocument(manifest).toJson(QJsonDocument::Compact);
+        refusedOnBothSources(manager.get(), bytes, sign(bytes));
+        if (QTest::currentTestFailed())
+            return;
     }
 
     // 3. mirror_url on a non-allow-listed host: dropped, not trusted. The
