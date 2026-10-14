@@ -3832,6 +3832,18 @@ private slots:
         const QColor shownAfter = resolvedPaletteOf(12).value(key);
         const bool stored = store->colors().contains(element);
         const bool toastShown = shown(item("themeToast"));
+
+        // The toast's Undo puts the link back (it takes back the LATEST step,
+        // so it is pressed before anything else is edited), and Redo unlinks
+        // again.
+        if (auto *undo = item("themeToastAction"))
+            clickItem(undo);
+        QCoreApplication::processEvents();
+        const bool storedAfterUndo = store->colors().contains(element);
+        const QString parentAfterUndo = dialog->property("editingParent").toString();
+        QVERIFY(QMetaObject::invokeMethod(dialog, "redoEdit"));
+        QCoreApplication::processEvents();
+
         // The group moves; the unlinked element stays.
         QVERIFY(store->setColor(group, QStringLiteral("#123456")));
         QCoreApplication::processEvents();
@@ -3839,12 +3851,6 @@ private slots:
         const QColor siblingAfterGroup =
             resolvedPaletteOf(12).value(store->paletteKeyForRole(QStringLiteral("roomList")));
         const QString parentAfter = dialog->property("editingParent").toString();
-
-        // The toast's Undo puts the link back.
-        if (auto *undo = item("themeToastAction"))
-            clickItem(undo);
-        QCoreApplication::processEvents();
-        const bool storedAfterUndo = store->colors().contains(element);
 
         closeThemeEditor();
         resetThemeFixture(restoreBase);
@@ -3858,6 +3864,7 @@ private slots:
         QCOMPARE(siblingAfterGroup, QColor(QStringLiteral("#123456")));
         QVERIFY2(parentAfter.isEmpty(), "an unlinked element still reports a parent");
         QVERIFY2(!storedAfterUndo, "Undo did not restore the link");
+        QCOMPARE(parentAfterUndo, group);
     }
 
     // Opening a group shows how many of its elements keep their own colour,
@@ -3933,7 +3940,10 @@ private slots:
         const int failingBefore = failing();
         const double lightBefore = store->lightness(QStringLiteral("#262626"));
 
-        QVERIFY(QMetaObject::invokeMethod(dialog, "makeReadable"));
+        // makeReadable(role) takes its role optionally; an invoke must pass
+        // the argument, and an empty one means the open role.
+        QVERIFY(QMetaObject::invokeMethod(dialog, "makeReadable",
+                                          Q_ARG(QVariant, QString())));
         QCoreApplication::processEvents();
         const int failingAfter = failing();
         const QString now = store->colors().value(QStringLiteral("textPrimary")).toString();
@@ -4075,17 +4085,37 @@ private slots:
         resetThemeFixture(11);
         QVERIFY(store->setColor(QStringLiteral("background"), QStringLiteral("#202020")));
         QVERIFY(store->setColor(QStringLiteral("textPrimary"), QStringLiteral("#262626")));
+        // The empty-state hint is the wide layout's; a narrow window gives the
+        // preview that room instead (pickerPanelVisible).
+        const int w = m_window->width();
+        const int h = m_window->height();
+        m_window->setWidth(1920);
+        m_window->setHeight(1000);
+        QCoreApplication::processEvents();
+        QTRY_COMPARE(m_window->width(), 1920);
         QObject *dialog = openThemeEditor();
         QVERIFY(dialog);
         QTRY_VERIFY(dialog->property("readabilityProblems").toInt() > 0);
 
         const bool pillShown = shown(item("themeReadabilityBadge"));
         const bool closedAtFirst = !shown(item("themeReadabilityScroll"));
+        QTRY_VERIFY(!dialog->property("compact").toBool());
+        QTRY_VERIFY(shown(item("themeInspectorEmpty")));
         const bool hintInColumn = shown(item("themeInspectorEmpty"));
 
         clickItem(item("themeReadabilityBadge"));
         QTRY_VERIFY(dialog->property("reportOpen").toBool());
-        const bool panelShown = shown(item("themePopoverPanel"));
+        // Every ThemePopover (menu, share, readability) has a panel of this
+        // name; the one under the pill is the one that is on screen.
+        const auto anyPanelShown = [&] {
+            for (QQuickItem *p : items("themePopoverPanel")) {
+                if (shown(p))
+                    return true;
+            }
+            return false;
+        };
+        QTRY_VERIFY(anyPanelShown());
+        const bool panelShown = anyPanelShown();
         int rows = 0;
         for (QQuickItem *row : items("themeReadabilityRow")) {
             if (shown(row))
@@ -4122,6 +4152,9 @@ private slots:
         const bool escapeClosedPopover = !dialog->property("reportOpen").toBool()
             && dialog->property("editingRole").toString() == QStringLiteral("rail");
 
+        m_window->setWidth(w);
+        m_window->setHeight(h);
+        QCoreApplication::processEvents();
         closeThemeEditor();
         resetThemeFixture(restoreBase);
 
@@ -4398,13 +4431,13 @@ private slots:
         const int regionAt = text.indexOf(QStringLiteral("component Region: MouseArea"));
         const int regionEnd = text.indexOf(QStringLiteral("component GradientLayer"));
         const QString regionSrc = text.mid(regionAt, regionEnd - regionAt);
-        QString stateText;
+        QVariant stateVar;
         QVERIFY(QMetaObject::invokeMethod(dialog, "describeRoleState",
-                                          Q_RETURN_ARG(QString, stateText),
+                                          Q_RETURN_ARG(QVariant, stateVar),
                                           Q_ARG(QVariant, QStringLiteral("roomHeader"))));
-        QString linkedText;
+        QVariant linkedVar;
         QVERIFY(QMetaObject::invokeMethod(dialog, "describeRoleState",
-                                          Q_RETURN_ARG(QString, linkedText),
+                                          Q_RETURN_ARG(QVariant, linkedVar),
                                           Q_ARG(QVariant, QStringLiteral("roomList"))));
 
         closeThemeEditor();
@@ -4427,6 +4460,8 @@ private slots:
                      && regionSrc.contains(QStringLiteral("Accessible.role"))
                      && regionSrc.contains(QStringLiteral("Accessible.description")),
                  "a Region does not name itself for assistive technology");
+        const QString stateText = stateVar.toString();
+        const QString linkedText = linkedVar.toString();
         QVERIFY2(!stateText.isEmpty(), "an own colour is not described as such");
         QVERIFY2(!linkedText.isEmpty() && linkedText != stateText,
                  "a linked element does not say what it follows");
