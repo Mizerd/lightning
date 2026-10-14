@@ -9052,6 +9052,41 @@ quint64 RustSdkMatrixClient::changePassword(const QString &currentPassword,
     return result.isEmpty() ? opId : 0;
 }
 
+quint64 RustSdkMatrixClient::exportRoomKeys(const QString &filePath,
+                                            const QString &passphrase)
+{
+    if (!m_loggedIn || !m_rustHandle || filePath.isEmpty()
+        || passphrase.isEmpty())
+        return 0;
+    const quint64 opId = nextOpId();
+    const QByteArray pathBytes = filePath.toUtf8();
+    // Convert once; keep no QString copy in C++. Rust scrubs its own copy and
+    // the SDK holds its own in Zeroizing.
+    QByteArray passphraseBytes = passphrase.toUtf8();
+    const QString result = takeRustString(mx_rust_export_room_keys(
+        m_rustHandle, pathBytes.constData(), passphraseBytes.constData(),
+        opId));
+    // volatile so the dead-store optimizer cannot drop the zeroing.
+    volatile char *raw = passphraseBytes.data();
+    for (qsizetype i = 0; i < passphraseBytes.size(); ++i)
+        raw[i] = 0;
+    if (!result.isEmpty()) {
+        // Rust refused it before starting (invalid_path, already_running,
+        // not_signed_in, ...): a category, never the path or the passphrase.
+        // Answered on the next turn of the event loop, so the caller has
+        // recorded opId before the answer arrives.
+        const QString category = result.startsWith(QLatin1String("error: "))
+            ? result.mid(7) : QStringLiteral("failed");
+        qCWarning(lcRust) << "room key export refused category=" << category;
+        QMetaObject::invokeMethod(this, [this, opId, category] {
+            Q_EMIT roomKeyExportFinished(opId, false, 0, category);
+        }, Qt::QueuedConnection);
+        return opId;
+    }
+    qCInfo(lcRust) << "room key export started";
+    return opId;
+}
+
 quint64 RustSdkMatrixClient::probePasswordChange()
 {
     if (!m_rustHandle)
@@ -11988,6 +12023,24 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
             opId(), event.value(QStringLiteral("known")).toBool(),
             event.value(QStringLiteral("can_change")).toBool(true),
             event.value(QStringLiteral("management_url")).toString());
+        return true;
+    }
+
+    // Room-key export: counts and a category only; the events never carry
+    // the path, the passphrase or key material.
+    if (type == QLatin1String("room_key_export_progress")) {
+        Q_EMIT roomKeyExportProgress(
+            opId(), event.value(QStringLiteral("collected")).toInt());
+        return true;
+    }
+    if (type == QLatin1String("room_key_export_result")) {
+        const bool ok = event.value(QStringLiteral("ok")).toBool();
+        const int exported = event.value(QStringLiteral("exported")).toInt();
+        const QString category =
+            event.value(QStringLiteral("category")).toString();
+        qCInfo(lcRust) << "room key export finished ok=" << ok
+                       << "exported=" << exported << "category=" << category;
+        Q_EMIT roomKeyExportFinished(opId(), ok, exported, category);
         return true;
     }
 

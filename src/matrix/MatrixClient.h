@@ -1503,6 +1503,21 @@ public:
     // Whether the server allows it (m.change_password) and the account page
     // from its auth metadata (OAuth/MAS). Answers on passwordChangeProbed.
     virtual quint64 probePasswordChange() { return 0; }
+    // Room-key export: matrix-sdk's own Encryption::export_room_keys writes
+    // every room key this session holds to `filePath`, encrypted with
+    // `passphrase` in the standard key-export format Element imports. The
+    // passphrase is never stored, logged or echoed; Lightning's UTF-8 copy is
+    // zeroed and Rust scrubs its own. Returns 0 when it cannot be asked at
+    // all (no session, empty passphrase or path); otherwise the op id, and
+    // the answer, a refusal included, arrives later on roomKeyExportProgress
+    // / roomKeyExportFinished with a count and a category, never the path or
+    // any key material.
+    virtual bool supportsRoomKeyExport() const { return false; }
+    virtual quint64 exportRoomKeys(const QString &filePath,
+                                   const QString &passphrase)
+    {
+        Q_UNUSED(filePath); Q_UNUSED(passphrase); return 0;
+    }
     // Server-side message search. Unencrypted rooms only (the server cannot
     // search ciphertext), and every UI surface must say so. Empty `roomId`
     // means all rooms; `nextBatch` pages. Answers on messageSearchFinished.
@@ -2412,6 +2427,11 @@ Q_SIGNALS:
     void passwordChangeProbed(quint64 opId, bool known, bool canChange,
                               const QString &managementUrl);
     void passwordChangeFinished(quint64 opId, bool ok, const QString &category);
+    // Room-key export: sessions gathered so far, then the outcome. category
+    // is "" when ok (see RoomKeyExportController::describe).
+    void roomKeyExportProgress(quint64 opId, int collected);
+    void roomKeyExportFinished(quint64 opId, bool ok, int exported,
+                               const QString &category);
     // One server-search page. Each row: roomId, eventId, sender,
     // senderDisplayName, senderAvatarUrl, timestampMs, msgtype, body.
     void messageSearchFinished(quint64 opId, bool ok,

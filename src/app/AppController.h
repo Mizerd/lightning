@@ -9,6 +9,7 @@
 #include "app/PushRulesController.h"
 #include "app/UiaController.h"
 #include "app/PasswordChangeController.h"
+#include "app/RoomKeyExportController.h"
 #include "models/MessageSearchController.h"
 #include "models/RoomExport.h"
 #include "models/WidgetController.h"
@@ -403,6 +404,8 @@ class AppController : public QObject
     Q_PROPERTY(UiaController* uia READ uia CONSTANT)
     // Settings → Account → Change password.
     Q_PROPERTY(PasswordChangeController* passwordChange READ passwordChange CONSTANT)
+    // Settings → Privacy & security → Export room keys.
+    Q_PROPERTY(RoomKeyExportController* roomKeyExport READ roomKeyExport CONSTANT)
     Q_PROPERTY(ModerationController* moderation READ moderation CONSTANT)
     // Settings -> Notifications: account push rules and the troubleshooter.
     Q_PROPERTY(PushRulesController* pushRules READ pushRules CONSTANT)
@@ -720,6 +723,10 @@ public:
     PasswordChangeController *passwordChange() const
     {
         return m_passwordChange.get();
+    }
+    RoomKeyExportController *roomKeyExport() const
+    {
+        return m_roomKeyExport.get();
     }
     ModerationController *moderation() const { return m_moderation.get(); }
     PushRulesController *pushRules() const { return m_pushRules.get(); }
@@ -1501,6 +1508,7 @@ private:
     std::unique_ptr<MessageSearchController> m_messageSearch;
     std::unique_ptr<UiaController> m_uia;
     std::unique_ptr<PasswordChangeController> m_passwordChange;
+    std::unique_ptr<RoomKeyExportController> m_roomKeyExport;
     std::unique_ptr<ModerationController> m_moderation;
     std::unique_ptr<PushRulesController> m_pushRules;
     std::unique_ptr<NotificationTroubleshooter> m_notificationTroubleshooter;

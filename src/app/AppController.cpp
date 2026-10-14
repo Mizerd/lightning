@@ -386,6 +386,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // OAuth (MAS) accounts change their password on the account page.
     m_passwordChange->setOAuthAccountCheck(
         [this] { return activeAccountIsOAuth(); });
+    m_roomKeyExport = std::make_unique<RoomKeyExportController>(this);
     m_moderation = std::make_unique<ModerationController>(this);
     m_pushRules = std::make_unique<PushRulesController>(this);
     m_notificationTroubleshooter =
@@ -1768,6 +1769,7 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     m_messageSearch->setProfileResolver(m_userProfiles.get());
     m_uia->setClient(m_client.get());
     m_passwordChange->setClient(m_client.get());
+    m_roomKeyExport->setClient(m_client.get());
     m_moderation->setClient(m_client.get());
     m_pushRules->setClient(m_client.get());
     m_forward->setClient(m_client.get());

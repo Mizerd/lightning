@@ -710,6 +710,68 @@ backend capability checks and honest live-test status.
 These mechanisms cannot guarantee recovery of historical messages whose keys
 were never backed up or shared.
 
+#### Room-key export (2026-10-13)
+
+Settings → Privacy & security, beside the import (`RoomKeyExportSection`,
+`app.roomKeyExport`, `rust/src/keyexport.rs`). The contract:
+
+- **matrix-sdk writes the file.** `Encryption::export_room_keys` exports every
+  inbound group session the store holds in the standard encrypted
+  key-export format (PBKDF2-SHA-512 at 500,000 rounds, AES-CTR plus
+  HMAC-SHA-256): the file Element and other clients import, and the one this
+  client's own import reads. No custom format, no custom crypto, and nothing
+  opens the crypto store (§6). A Rust test exports from one store, imports
+  into a brand-new one and decrypts a message encrypted before the export.
+- **A passphrase is required**, typed twice, at least 8 characters (counted
+  as characters), and **a weak one blocks the export, as in Element**
+  (Rokas, 2026-10-13). Element refuses below zxcvbn score 3; zxcvbn is not
+  in `rust/Cargo.lock` and no dependency was added, so the bar is mapped onto
+  the change-password strength scale (0 empty, 1 too short, 2 weak, 3 fair,
+  4 strong) at rung 3 (`RoomKeyExportController::kRequiredStrength`): at
+  least 12 characters, or 10 mixing three of lower case, upper case, digits
+  and symbols. One export-only guard: fewer than 5 distinct characters is
+  weak at any length. The mapping cannot see dictionary phrases or keyboard
+  runs, which zxcvbn marks down, so it is a minimum, not zxcvbn's verdict.
+  While too weak the button is disabled and the strength line says why;
+  the controller refuses the same passphrase (`too_weak`) if it is called
+  anyway.
+- **The passphrase is never kept.** It reaches C++ as the argument of one
+  call, the QML fields are wiped (assignment, so no undo history) after it,
+  on hide and on account change; the C++ UTF-8 copy and Rust's `Secret` are
+  zeroed; the SDK holds its own `Zeroizing` copy. No property, signal, event
+  or log line carries it, the destination path or any key material: the
+  events carry counts and a category.
+- **The file is written whole or not at all.** The SDK writes a private
+  (0600 on Unix, `create_new`) hidden sibling, renamed over the chosen path
+  only on success; a failure leaves the chosen path untouched and says so. If
+  no sibling can be created the SDK writes the path directly: a path that did
+  not exist is pre-created private the same way (and removed on failure), an
+  existing one keeps its mode, and a failure there is reported as a possibly
+  incomplete file. The file is flushed (opened for writing, which Windows
+  needs) before the rename, and the directory after it on Unix.
+- **The native save dialog** chooses the location (`NativeFileDialog`, mode
+  save, suggested `lightning-keys.txt`).
+- **Progress is honest**: the SDK gathers every session then encrypts in one
+  step, so the bar sweeps and shows the sessions gathered so far.
+- The page explains what the file is (it unlocks your encrypted history for
+  whoever has it and the passphrase; it covers messages up to now; importing
+  it verifies nothing) and how to keep it.
+- **Sign-out never cancels a write in progress** (§18 review, 2026-10-13).
+  matrix-sdk writes the file inside `spawn_blocking`, which no abort stops,
+  so the export runs in its own task that the room action only awaits:
+  sign-out waits for it within the room-action budget, then detaches it, and
+  the task always ends after the SDK returns, in a rename or a removal. A
+  file the SDK may still be writing is never deleted (deleting it let the
+  write re-create it at the umask). If the session ended meanwhile, the
+  finished file is removed rather than put in place, and the late answer is
+  dropped. Only a runtime torn down mid-write can leave the private hidden
+  sibling behind.
+- One export at a time, held until the SDK's write has ended. Exporting
+  never changes trust or backup state.
+
+Live interoperability (importing a Lightning export into Element, and an
+export of a real account) is NOT TESTED.
+
 ### Calls, screen sharing and MatrixRTC
 
 The deep contract is `docs/matrixrtc.md` and `docs/voice-calls.md`; §16 carries

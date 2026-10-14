@@ -477,6 +477,29 @@ char *mx_rust_import_room_keys(void *client,
 int mx_rust_room_key_import_active(void *client);
 
 /*
+ * Room-key export (keyexport.rs), the counterpart of the import above.
+ * matrix-sdk's own `Encryption::export_room_keys` writes every inbound
+ * group session this session holds to `file_path` in the standard
+ * encrypted Megolm key-export format, protected by `passphrase` (the file
+ * Element imports). Written to a private sibling and renamed into place
+ * only when complete. Returns "" when started, or "error: <category>":
+ * empty_passphrase, invalid_path, not_signed_in, already_running.
+ *
+ * Poll-queue events (counts and a category only; never the path, the
+ * passphrase or key material):
+ *   { "type": "room_key_export_progress", "op_id", "lifecycle",
+ *     "collected": N }
+ *   { "type": "room_key_export_result", "op_id", "lifecycle", "ok",
+ *     "exported": N, "category": "" | "permission_denied" | "disk_full" |
+ *     "invalid_path" | "write_failed" | "partial_file" | "no_encryption" |
+ *     "failed" }
+ */
+char *mx_rust_export_room_keys(void *client,
+                               const char *file_path,
+                               const char *passphrase,
+                               unsigned long long op_id);
+
+/*
  * Live SDK timeline (v0.5.7). Rust owns a persistent matrix-sdk-ui Timeline
  * for the currently open room (single active subscription). All functions
  * return "" on accepted dispatch or "error: …" synchronously. Results arrive

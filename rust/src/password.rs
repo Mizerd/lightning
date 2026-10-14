@@ -49,8 +49,9 @@ const PASSWORD_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// The whole probe (capabilities plus auth metadata).
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// An owned secret that zeroes its buffer when dropped.
-struct Secret(String);
+/// An owned secret that zeroes its buffer when dropped. Also holds the
+/// room-key export passphrase (keyexport.rs).
+pub(crate) struct Secret(pub(crate) String);
 
 impl Secret {
     /// Move the value out (into a ruma request); what is left is empty.

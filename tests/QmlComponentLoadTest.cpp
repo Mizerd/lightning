@@ -108,6 +108,9 @@ constexpr const char *kComponents[] = {
     "PhotoMetadataSetting",
     // Settings -> Appearance: emoji and sticker packs; guards on `app`.
     "StickerPacksSettings",
+    // Settings -> Privacy & security -> Export room keys; renders
+    // app.roomKeyExport and binds the native chooser.
+    "RoomKeyExportSection",
     // Room and Space topics; reads app.linkPreviews. A TextEdit, where a Text
     // property such as lineHeight is a load-time error.
     "TopicText",

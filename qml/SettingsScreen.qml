@@ -486,6 +486,11 @@ Item {
           keywords: qsTr("import room keys export"), section: "privacy",
           breadcrumb: qsTr("Privacy & security · Recovery"),
           anchor: "importRoomKeysHeading" },
+        { title: qsTr("Export room keys"),
+          keywords: qsTr("export room keys backup file passphrase element"),
+          section: "privacy",
+          breadcrumb: qsTr("Privacy & security · Recovery"),
+          anchor: "exportRoomKeysHeading" },
         { title: qsTr("Danger Zone"),
           keywords: qsTr("reset danger local session"), section: "privacy",
           breadcrumb: qsTr("Privacy & security · Recovery"),
@@ -9094,6 +9099,12 @@ Item {
                                             importPassphraseField.text = ""
                                         }
                                     }
+                                }
+
+                                // The counterpart of the import above.
+                                RoomKeyExportSection {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: AppTheme.spacing8
                                 }
 
                                 Label {

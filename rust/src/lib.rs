@@ -91,6 +91,7 @@ mod imagesend;
 mod linkmedia;
 mod indexall;
 mod invites;
+mod keyexport;
 mod localsearch;
 mod location;
 mod mediafetch;

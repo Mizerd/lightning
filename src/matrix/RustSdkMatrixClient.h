@@ -693,6 +693,9 @@ public:
                            const QString &newPassword,
                            bool logoutDevices) override;
     quint64 probePasswordChange() override;
+    bool supportsRoomKeyExport() const override { return true; }
+    quint64 exportRoomKeys(const QString &filePath,
+                           const QString &passphrase) override;
     quint64 addRoomToSpace(const QString &spaceId, const QString &roomId) override;
     quint64 setSpaceChildSuggested(const QString &spaceId,
                                    const QString &roomId,

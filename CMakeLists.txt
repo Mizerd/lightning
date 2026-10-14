@@ -486,6 +486,8 @@ set(APP_SOURCES
     src/app/UiaController.cpp
     src/app/PasswordChangeController.h
     src/app/PasswordChangeController.cpp
+    src/app/RoomKeyExportController.h
+    src/app/RoomKeyExportController.cpp
     src/app/ModerationController.h
     src/app/ModerationController.cpp
     src/app/PushRulesController.h
@@ -1119,6 +1121,7 @@ set(APP_QML_FILES
     qml/ChangePasswordSection.qml
     qml/PhotoMetadataSetting.qml
     qml/StickerPacksSettings.qml
+    qml/RoomKeyExportSection.qml
     qml/ReportMessageDialog.qml
     qml/ForwardMessageDialog.qml
     qml/UpdateAvailablePrompt.qml
@@ -3333,6 +3336,22 @@ if(BUILD_TESTING)
     target_link_libraries(password-change-test PRIVATE Qt6::Core Qt6::Test)
     add_test(NAME password-change COMMAND password-change-test)
 
+    # Settings -> Privacy & security -> Export room keys: the passphrase pair
+    # refused before any backend call, the destination checks, every outcome
+    # category in words, progress, stale answers after sign-out, and no
+    # passphrase or path in any property, signal or log line. The export
+    # itself (and the round trip into a fresh store) is rust/src/keyexport.rs.
+    qt_add_executable(room-key-export-test
+        tests/RoomKeyExportControllerTest.cpp
+        src/app/RoomKeyExportController.h
+        src/app/RoomKeyExportController.cpp
+        src/matrix/MatrixClient.h
+        src/matrix/MatrixClient.cpp
+    )
+    target_include_directories(room-key-export-test PRIVATE src)
+    target_link_libraries(room-key-export-test PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME room-key-export COMMAND room-key-export-test)
+
     # Personal moderation: ignore/unignore, remote list pushes, reporting, and
     # the notification ignore guard.
     qt_add_executable(moderation-test
@@ -3883,6 +3902,15 @@ if(BUILD_TESTING)
     target_link_libraries(push-rules-test PRIVATE Qt6::Test)
     add_test(NAME push-rules COMMAND push-rules-test)
     set_tests_properties(push-rules PROPERTIES
+    # Export room keys section: Password echo on both fields, the button
+    # gated on the pair, and the fields empty with no undo history after an
+    # export starts, on hide and when the account changes.
+    qt_add_executable(room-key-export-qml-test
+        tests/RoomKeyExportSectionQmlTest.cpp
+    lightning_configure_qml_test(room-key-export-qml-test)
+    target_link_libraries(room-key-export-qml-test PRIVATE Qt6::Test)
+    add_test(NAME room-key-export-qml COMMAND room-key-export-qml-test)
+    set_tests_properties(room-key-export-qml PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
     # Incoming-call card contracts plus a real offscreen instantiation against
