@@ -374,9 +374,24 @@ Dialog {
                     font.weight: AppTheme.weightStrong
                 }
                 CheckBox {
+                    id: includeEncryptedBox
                     objectName: "exportRoomIncludeEncrypted"
                     palette.windowText: AppTheme.stormText
                     enabled: !root.busy
+                    // The label is a sentence; it wraps inside the dialog
+                    // instead of running past its edge.
+                    Layout.fillWidth: true
+                    contentItem: Label {
+                        text: includeEncryptedBox.text
+                        wrapMode: Text.Wrap
+                        color: AppTheme.stormText
+                        font: includeEncryptedBox.font
+                        opacity: includeEncryptedBox.enabled ? 1.0 : 0.5
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: includeEncryptedBox.indicator
+                            ? includeEncryptedBox.indicator.width
+                              + includeEncryptedBox.spacing : 0
+                    }
                     // Says what the file will contain, not what the option is
                     // called.
                     text: root.isHtml && root.includeAttachments

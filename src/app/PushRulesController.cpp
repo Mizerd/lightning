@@ -1,5 +1,7 @@
 #include "app/PushRulesController.h"
 
+#include <QTimer>
+
 #include "matrix/MatrixClient.h"
 #include "matrix/PushRulesSnapshot.h"
 
@@ -253,6 +255,15 @@ void PushRulesController::onSnapshot(quint64 opId, bool ok,
         }
         return;
     }
+    if (m_settling.remove(opId)) {
+        // The answer to a write reflects the account data as of the last sync,
+        // not the write (matrix-sdk's Account::push_rules reads storage). Keep
+        // what the user chose and ask again once a sync has had time to land.
+        for (const int delayMs : {2000, 6000})
+            QTimer::singleShot(delayMs, this, [this] { refresh(); });
+        Q_EMIT stateChanged();
+        return;
+    }
     m_lastServer = snapshot;
     // While writes are in flight the optimistic state is what the user just
     // chose; it is replaced once the last of them has answered.
@@ -273,6 +284,7 @@ void PushRulesController::onWriteFinished(quint64 opId, const QString &kind,
     const QString sentKind = m_pending.take(opId);
     Q_UNUSED(kind);
     if (ok) {
+        m_settling.insert(opId);
         // The fresh snapshot follows; keep the optimistic state until then.
         Q_EMIT stateChanged();
         if (sentKind == QLatin1String("default_level"))
@@ -298,6 +310,7 @@ void PushRulesController::onLoggedOut()
     m_snap = PushRulesSnapshot::empty();
     m_lastServer = m_snap;
     m_pending.clear();
+    m_settling.clear();
     m_refreshOp = 0;
     m_loaded = false;
     m_error.clear();

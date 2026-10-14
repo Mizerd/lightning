@@ -103,8 +103,8 @@ Item {
             // when its caller's binding next does.
             return Qt.formatTime(when, app.settings.clockTimeFormat)
         if (days < 2) return qsTr("Yesterday")
-        if (days < 7) return Qt.formatDate(when, "ddd")
-        return Qt.formatDate(when, "d MMM")
+        if (days < 7) return Qt.locale().toString(when, "ddd")
+        return Qt.locale().toString(when, "d MMM")
     }
 
     readonly property bool offline:

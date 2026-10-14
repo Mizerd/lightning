@@ -8587,7 +8587,7 @@ Item {
                                                         if (modelData.lastSeen
                                                             && !isNaN(modelData.lastSeen.getTime()))
                                                             parts.push(qsTr("last seen %1").arg(
-                                                                Qt.formatDateTime(modelData.lastSeen,
+                                                                Qt.locale().toString(modelData.lastSeen,
                                                                                   "d MMM yyyy hh:mm")))
                                                         if (modelData.lastSeenIp
                                                             && modelData.lastSeenIp.length > 0)

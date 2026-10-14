@@ -48,6 +48,48 @@ class RoomExportTest : public QObject
     Q_OBJECT
 
 private Q_SLOTS:
+    // Captions survive in Text and JSON, and the file's dates are English
+    // whatever the default locale is. Both fail on the old code.
+    void aCaptionIsKeptAndTheHeaderDatesAreEnglish()
+    {
+        const QLocale before;
+        QLocale::setDefault(QLocale(QLocale::Lithuanian));
+        TimelineEvent image = message(QStringLiteral("$i"),
+                                      QStringLiteral("@a:example.org"),
+                                      QStringLiteral("Ann"),
+                                      QStringLiteral("sunset picnic"),
+                                      1760400000000);
+        image.type = TimelineEvent::Image;
+        image.mediaFilename = QStringLiteral("sunset.png");
+        QList<TimelineEvent> events{image};
+
+        const QString text = roomexport::renderPlainText(events, plainRoom());
+        QVERIFY2(text.contains(QStringLiteral("sunset picnic")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("October")), qPrintable(text));
+        QVERIFY(!text.contains(QStringLiteral("spalio")));
+
+        const QString json = roomexport::renderJson(events, plainRoom());
+        const QJsonObject row = QJsonDocument::fromJson(json.toUtf8())
+            .object().value(QStringLiteral("messages")).toArray().at(0).toObject();
+        QCOMPARE(row.value(QStringLiteral("caption")).toString(),
+                 QStringLiteral("sunset picnic"));
+
+        // A caption equal to the filename is not a caption.
+        events[0].body = QStringLiteral("sunset.png");
+        QVERIFY(!roomexport::renderJson(events, plainRoom())
+                     .contains(QStringLiteral("\"caption\"")));
+
+        // Withheld for an encrypted room without the opt-in.
+        events[0].body = QStringLiteral("sunset picnic");
+        roomexport::Options enc = plainRoom();
+        enc.encrypted = true;
+        QVERIFY(!roomexport::renderPlainText(events, enc)
+                     .contains(QStringLiteral("sunset picnic")));
+        QVERIFY(!roomexport::renderJson(events, enc)
+                     .contains(QStringLiteral("sunset picnic")));
+        QLocale::setDefault(before);
+    }
+
     // ── What is a row, and what is not ───────────────────────────────────
     void virtualRowsAndUnsentEchoesAreNotConversation()
     {

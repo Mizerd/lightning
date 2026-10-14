@@ -1,6 +1,7 @@
 #include "app/ForwardController.h"
 
 #include <QDateTime>
+#include <QLocale>
 
 #include <QBuffer>
 
@@ -249,9 +250,11 @@ QString ForwardController::contextPrefixFor(const QVariantMap &snapshot) const
     if (!room.isEmpty())
         bits << tr("in %1").arg(room);
     if (ts > 0) {
-        bits << QDateTime::fromMSecsSinceEpoch(ts)
-                    .toLocalTime()
-                    .toString(QStringLiteral("d MMM yyyy hh:mm"));
+        // QLocale(), not QDateTime::toString(format): the latter reads the
+        // SYSTEM locale and ignores the UI language.
+        bits << QLocale().toString(
+            QDateTime::fromMSecsSinceEpoch(ts).toLocalTime(),
+            QStringLiteral("d MMM yyyy hh:mm"));
     }
     if (bits.isEmpty())
         return {};

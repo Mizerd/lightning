@@ -336,8 +336,9 @@ bool HtmlWriter::writeHeader(int messageCount)
     if (!m_options.roomName.isEmpty())
         h += QStringLiteral("<p>") + esc(m_options.roomId)
             + QStringLiteral("</p>\n");
-    const QString when = QLocale().toString(QDateTime::currentDateTime(),
-                                            QLocale::LongFormat);
+    // English, whatever the host language: the page around it is English.
+    const QString when = QLocale::c().toString(
+        QDateTime::currentDateTimeUtc(), QStringLiteral("d MMMM yyyy, HH:mm 'UTC'"));
     h += QStringLiteral("<p>Exported from Lightning on ") + esc(when);
     if (!m_options.exportedBy.isEmpty())
         h += QStringLiteral(" by ") + esc(m_options.exportedBy);
@@ -487,13 +488,14 @@ qsizetype HtmlWriter::beginEvent(const TimelineEvent &event,
         m_lastDate = when.date();
         m_dayOpen = true;
         h += QStringLiteral("<section class=\"day\">\n<h2>")
-            + esc(QLocale().toString(m_lastDate, QLocale::LongFormat))
+            + esc(QLocale::c().toString(m_lastDate, QLocale::LongFormat))
             + QStringLiteral("</h2>\n");
     }
     const QString timeFormat = m_options.use24HourClock
         ? QStringLiteral("HH:mm")
-        : QLocale().timeFormat(QLocale::ShortFormat);
-    const QString stamp = when.isValid() ? when.time().toString(timeFormat)
+        : QStringLiteral("h:mm AP");
+    const QString stamp = when.isValid()
+        ? QLocale::c().toString(when.time(), timeFormat)
                                          : QStringLiteral("--:--");
 
     h += QStringLiteral("<article class=\"msg\" id=\"e-") + esc(event.eventId)

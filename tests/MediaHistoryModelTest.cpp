@@ -61,12 +61,14 @@ class WalkingClient : public MockMatrixClient
 {
 public:
     bool supportsMediaHistory() const override { return true; }
-    quint64 requestMediaHistoryPage(const QString &, int, bool) override
+    quint64 requestMediaHistoryPage(const QString &, int, bool restart) override
     {
+        restarts.append(restart);
         ++pagesRequested;
         lastOp = ++nextOp;
         return lastOp;
     }
+    QList<bool> restarts;
     int pagesRequested = 0;
     quint64 lastOp = 0;
     quint64 nextOp = 100;
@@ -411,6 +413,35 @@ private Q_SLOTS:
     // The reported "4 items in the 60 messages read so far, and no way to get
     // more": a short list never scrolls, so scroll-driven paging never fired.
     // "Show all media" must keep fetching pages by itself, to the end.
+    // The backend keeps one cursor per room for the session. A cleared model
+    // (closing and reopening Room info) must begin at the live edge, or the
+    // exhausted cursor answers "nothing older" and the grid shows 0 items.
+    // Fails on the old code: every request was restart=false.
+    void reopeningARoomRestartsTheBackendWalk()
+    {
+        WalkingClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        const QString room = QStringLiteral("!r:example.org");
+        model.setRoomId(room);
+        model.loadMore();
+        QCOMPARE(client.restarts, QList<bool>{true});
+        Q_EMIT client.mediaHistoryPage(
+            client.lastOp, room,
+            { keyedEntry(QStringLiteral("$a"), QStringLiteral("image")) },
+            10, 10, 0, false, false);
+        model.loadMore(); // continues the same walk
+        QCOMPARE(client.restarts.last(), false);
+        Q_EMIT client.mediaHistoryPage(client.lastOp, room, {}, 5, 15, 0, true,
+                                       false);
+
+        model.setRoomId(QString());
+        model.setRoomId(room);
+        model.loadMore();
+        QCOMPARE(client.restarts.last(), true);
+    }
+
     void showAllWalksPagesUntilTheStartOfHistory()
     {
         WalkingClient client;

@@ -216,6 +216,8 @@ private:
     QVector<Entry> m_all;      // everything loaded, newest first
     QVector<int> m_shown;      // indices into m_all that pass the filters
     quint64 m_pendingOp = 0;
+    // The next page request starts a fresh walk (set by clearAll()).
+    bool m_restartNext = true;
     bool m_complete = false;
     bool m_walking = false;
     int m_walkPages = 0;

@@ -101,7 +101,7 @@ Dialog {
         return out
     }
     function whenLabel(ms) {
-        return Qt.formatDateTime(new Date(ms), "ddd d MMM " + app.settings.clockTimeFormat)
+        return Qt.locale().toString(new Date(ms), "ddd d MMM " + app.settings.clockTimeFormat)
     }
 
     background: Rectangle {

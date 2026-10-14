@@ -110,10 +110,10 @@ Item {
             // next re-evaluates.
             return Qt.formatTime(when, app.settings.clockTimeFormat)
         if (days < 2) return qsTr("Yesterday")
-        if (days < 7) return Qt.formatDate(when, "ddd")
+        if (days < 7) return Qt.locale().toString(when, "ddd")
         if (when.getFullYear() === now.getFullYear())
-            return Qt.formatDate(when, "d MMM")
-        return Qt.formatDate(when, "MMM yyyy")
+            return Qt.locale().toString(when, "d MMM")
+        return Qt.locale().toString(when, "MMM yyyy")
     }
 
     Rectangle {

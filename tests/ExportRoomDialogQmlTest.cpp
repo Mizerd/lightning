@@ -366,6 +366,24 @@ private Q_SLOTS:
         m_rooms.encrypted = false;
     }
 
+    // The opt-in sentence is long; it must wrap inside the notice and not run
+    // past the dialog's edge. Fails on the old code: the box was as wide as
+    // its one-line label.
+    void theEncryptedOptInLabelStaysInsideTheNotice()
+    {
+        m_rooms.encrypted = true;
+        openDialog();
+        auto *box = qobject_cast<QQuickItem *>(child("exportRoomIncludeEncrypted"));
+        auto *notice = qobject_cast<QQuickItem *>(child("exportRoomEncryptedNotice"));
+        QVERIFY(box && notice);
+        QTRY_VERIFY(notice->width() > 0);
+        const QPointF boxRight = box->mapToItem(notice, QPointF(box->width(), 0));
+        QVERIFY2(boxRight.x() <= notice->width() + 0.5,
+                 qPrintable(QStringLiteral("box right %1 > notice %2")
+                                .arg(boxRight.x()).arg(notice->width())));
+        m_rooms.encrypted = false;
+    }
+
     void pickingAFileStartsTheExportWithTheChosenOptions()
     {
         openDialog();

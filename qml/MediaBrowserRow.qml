@@ -91,7 +91,7 @@ ItemDelegate {
                         bits.push(row.humanSize(row.size))
                     if (row.durationMs > 0)
                         bits.push(row.humanDuration(row.durationMs))
-                    bits.push(Qt.formatDateTime(
+                    bits.push(Qt.locale().toString(
                         new Date(row.timestampMs), "d MMM yyyy hh:mm"))
                     return bits.join(" · ")
                 }

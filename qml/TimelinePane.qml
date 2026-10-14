@@ -504,8 +504,8 @@ Rectangle {
             if (d >= startOfToday)
                 return Qt.formatTime(d, app.settings.clockTimeFormat)
             if (startOfToday - d < 6 * 86400000)
-                return Qt.formatDateTime(d, "ddd hh:mm")
-            return Qt.formatDateTime(d, "MMM d, hh:mm")
+                return Qt.locale().toString(d, "ddd hh:mm")
+            return Qt.locale().toString(d, "MMM d, hh:mm")
         }
         contentItem: ColumnLayout {
             spacing: AppTheme.spacing8

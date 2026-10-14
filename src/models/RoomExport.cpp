@@ -80,6 +80,25 @@ QString bodyFor(const TimelineEvent &event, const Options &options)
     return event.body;
 }
 
+// The sender's own words under a piece of media, when they wrote any beyond
+// the file's name. Empty for a withheld or placeholder row, so it can never
+// reveal what the body would not.
+QString captionFor(const TimelineEvent &event, const Options &options)
+{
+    if (!isAttachment(event.type))
+        return {};
+    if (options.encrypted && !options.allowEncryptedPlaintext)
+        return {};
+    if (!placeholderBody(event).isEmpty())
+        return {};
+    const QString caption = event.body.trimmed();
+    const QString name = event.mediaFilename.isEmpty()
+        ? QString() : event.mediaFilename.trimmed();
+    if (caption.isEmpty() || caption == name)
+        return {};
+    return caption;
+}
+
 QString senderFor(const TimelineEvent &event)
 {
     if (!event.senderDisplayName.trimmed().isEmpty())
@@ -120,7 +139,11 @@ QString renderPlainText(const QList<TimelineEvent> &events,
 {
     const QString timeFormat = options.use24HourClock
         ? QStringLiteral("HH:mm")
-        : QLocale().timeFormat(QLocale::ShortFormat);
+        : QStringLiteral("h:mm AP");
+
+    // File content is English whatever the host or UI language is, so the
+    // dates and times in it never mix two languages.
+    const QLocale fileLocale = QLocale::c();
 
     QStringList lines;
     lines.append(options.roomName.isEmpty() ? options.roomId
@@ -129,7 +152,7 @@ QString renderPlainText(const QList<TimelineEvent> &events,
     if (!options.exportedBy.isEmpty()) {
         lines.append(QStringLiteral("Exported by %1 on %2")
                          .arg(options.exportedBy,
-                              QDateTime::currentDateTime().toString(
+                              QDateTime::currentDateTimeUtc().toString(
                                   Qt::ISODate)));
     }
     lines.append(QStringLiteral("Messages in this file: %1")
@@ -171,11 +194,15 @@ QString renderPlainText(const QList<TimelineEvent> &events,
         if (when.isValid() && when.date() != lastDate) {
             lastDate = when.date();
             lines.append(QString());
-            lines.append(QLocale().toString(lastDate, QLocale::LongFormat));
+            lines.append(fileLocale.toString(lastDate, QLocale::LongFormat));
         }
         const QString stamp = when.isValid()
-            ? when.time().toString(timeFormat) : QStringLiteral("--:--");
-        const QString body = bodyFor(event, options);
+            ? fileLocale.toString(when.time(), timeFormat)
+            : QStringLiteral("--:--");
+        QString body = bodyFor(event, options);
+        const QString caption = captionFor(event, options);
+        if (!caption.isEmpty())
+            body += QLatin1Char('\n') + caption;
         if (event.type == TimelineEvent::StateChange) {
             // State rows have no speaker; "Name: ..." would attribute words to
             // someone.
@@ -257,6 +284,9 @@ QString renderJson(const QList<TimelineEvent> &events, const Options &options)
             && (!options.encrypted || options.allowEncryptedPlaintext)) {
             row.insert(QStringLiteral("filename"), event.mediaFilename);
             row.insert(QStringLiteral("mimetype"), event.mediaMimetype);
+            const QString caption = captionFor(event, options);
+            if (!caption.isEmpty())
+                row.insert(QStringLiteral("caption"), caption);
         }
         rows.append(row);
     }

@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -118,6 +119,11 @@ private:
     // Snapshot to restore when a write fails.
     QVariantMap m_lastServer;
     QHash<quint64, QString> m_pending; // op id -> command kind
+    // Writes the server accepted whose OWN snapshot is still to come. That
+    // snapshot is read from the SDK's account-data store, which only moves
+    // when the next sync delivers the change, so it is the state from BEFORE
+    // the write and must not replace the optimistic one.
+    QSet<quint64> m_settling;
     quint64 m_refreshOp = 0;
     bool m_loaded = false;
     QString m_error;

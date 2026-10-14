@@ -216,7 +216,7 @@ ColumnLayout {
                 font.pixelSize: AppTheme.textMeta
                 text: qsTr("Last checked: %1").arg(
                     root.everChecked
-                        ? Qt.formatDateTime(root.um.lastCheckTime,
+                        ? Qt.locale().toString(root.um.lastCheckTime,
                                             "d MMM yyyy hh:mm")
                         : "")
             }

@@ -40,7 +40,7 @@ namespace {
 constexpr int kWaitMs = 2000;
 
 // Records every command so a test can say what crossed the boundary.
-class RecordingClient final : public MockMatrixClient
+class RecordingClient : public MockMatrixClient
 {
     Q_OBJECT
 public:
@@ -51,6 +51,25 @@ public:
     {
         writes.append({kind, key, value});
         return MockMatrixClient::writePushRule(kind, key, value);
+    }
+};
+
+// A server whose answer to a keyword removal still lists the keyword, as the
+// real client's does until the next sync (the SDK reads push rules from its
+// account-data store). The command is recorded as sent but applied to a key
+// that matches nothing.
+class StaleRemovalClient final : public RecordingClient
+{
+    Q_OBJECT
+public:
+    quint64 writePushRule(const QString &kind, const QString &key,
+                          const QString &value) override
+    {
+        if (kind == QLatin1String("keyword_remove")) {
+            writes.append({kind, key, value});
+            return MockMatrixClient::writePushRule(kind, QStringLiteral("\x01none"), value);
+        }
+        return RecordingClient::writePushRule(kind, key, value);
     }
 };
 
@@ -334,6 +353,29 @@ private Q_SLOTS:
         ctl.removeKeyword(QStringLiteral("lightning"));
         QCOMPARE(ctl.keywords().size(), 0);
         QCOMPARE(client.writes.last().kind, QStringLiteral("keyword_remove"));
+        QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
+        QCOMPARE(ctl.keywords().size(), 0);
+    }
+
+    // The row must go at once and stay gone when the write's own (stale)
+    // snapshot arrives. Fails on the old code: the snapshot put it back.
+    void aRemovedKeywordStaysGoneWhenTheWritesSnapshotIsStale()
+    {
+        StaleRemovalClient client;
+        QVERIFY(login(client));
+        QVariantMap rules = serverRules();
+        QVariantMap kw;
+        kw.insert(QStringLiteral("keyword"), QStringLiteral("rckwtest"));
+        kw.insert(QStringLiteral("level"), 1);
+        rules.insert(QStringLiteral("keywords"), QVariantList{kw});
+        client.mockPushRules = rules;
+        PushRulesController ctl;
+        ctl.setClient(&client);
+        QVERIFY(loadRules(ctl));
+        QCOMPARE(ctl.keywords().size(), 1);
+
+        ctl.removeKeyword(QStringLiteral("rckwtest"));
+        QCOMPARE(ctl.keywords().size(), 0);
         QTRY_VERIFY_WITH_TIMEOUT(!ctl.busy(), kWaitMs);
         QCOMPARE(ctl.keywords().size(), 0);
     }

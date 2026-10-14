@@ -242,9 +242,15 @@ void MediaHistoryModel::loadMore()
     if (!available() || m_roomId.isEmpty() || m_pendingOp != 0 || m_complete)
         return;
     m_lastError.clear();
-    m_pendingOp = m_client->requestMediaHistoryPage(m_roomId, kPageSize, false);
+    // The backend keeps one cursor per room for the whole session. A model
+    // that was cleared has forgotten what it showed, so its first page must
+    // begin at the live edge: continuing from the old cursor answered
+    // "nothing older" with no rows the second time a room's Media was opened.
+    const bool restart = m_restartNext;
+    m_pendingOp = m_client->requestMediaHistoryPage(m_roomId, kPageSize, restart);
     if (m_pendingOp == 0)
         return;   // the backend refused; nothing is in flight
+    m_restartNext = false;
     Q_EMIT stateChanged();
 }
 
@@ -286,6 +292,7 @@ void MediaHistoryModel::reload()
         return;
     clearAll();
     m_pendingOp = m_client->requestMediaHistoryPage(m_roomId, kPageSize, true);
+    m_restartNext = false;
     Q_EMIT stateChanged();
 }
 
@@ -558,6 +565,7 @@ void MediaHistoryModel::clearAll()
     m_seen.clear();
     endResetModel();
     m_pendingOp = 0;
+    m_restartNext = true;
     m_complete = false;
     m_walking = false;
     m_walkPages = 0;
