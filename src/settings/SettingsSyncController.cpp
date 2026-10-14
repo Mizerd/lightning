@@ -773,6 +773,8 @@ QVariantMap SettingsSyncController::applyImport()
         }
     }
 
+    const int changedCount = int(diff(before, parsed.doc.settings).size());
+
     m_applying = true;
     const QStringList failed = writeProperties(m_settings.data(), parsed.doc.settings);
     if (!failed.isEmpty()) {
@@ -802,7 +804,10 @@ QVariantMap SettingsSyncController::applyImport()
     }
 
     out.insert(QStringLiteral("ok"), true);
-    out.insert(QStringLiteral("applied"), int(parsed.doc.settings.size()));
+    // The settings that actually changed, which is what the preview counted.
+    // The file carries every exported setting, most of them already at the
+    // value they hold here, so its size would report 73 for "1 change".
+    out.insert(QStringLiteral("applied"), changedCount);
     out.insert(QStringLiteral("shortcutsSkipped"), shortcutsSkipped);
     out.insert(QStringLiteral("themesAdded"), themesAdded);
     // The edits are picked up by sync like any other.

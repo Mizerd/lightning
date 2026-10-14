@@ -574,6 +574,37 @@ Item {
             s[root.matchedSearchResults[i].section] = true
         return s
     }
+    // sessionTrustState is a logic key compared against in several places, so
+    // it stays the English token; this is the display text.
+    function trustStateText(state) {
+        switch (state) {
+        case "Verified": return qsTr("Verified")
+        case "Not verified": return qsTr("Not verified")
+        case "Cross-signing unavailable": return qsTr("Cross-signing unavailable")
+        case "Unknown": return qsTr("Unknown")
+        default: return state
+        }
+    }
+
+    // Backup and upload states arrive from the backend as lower-case tokens
+    // (also compared elsewhere), so only the display goes through here.
+    function backupStateText(state) {
+        switch (state) {
+        case "unknown": return qsTr("unknown")
+        case "creating": return qsTr("creating")
+        case "enabling": return qsTr("enabling")
+        case "resuming": return qsTr("resuming")
+        case "enabled": return qsTr("enabled")
+        case "downloading": return qsTr("downloading")
+        case "disabling": return qsTr("disabling")
+        case "uploading": return qsTr("uploading")
+        case "done": return qsTr("done")
+        case "error": return qsTr("error")
+        case "idle": return qsTr("idle")
+        default: return state
+        }
+    }
+
     function escapeHtml(s) {
         return String(s)
             .replace(/&/g, "&amp;").replace(/</g, "&lt;")
@@ -4473,7 +4504,7 @@ Item {
                         }
 
                         Repeater {
-                            model: app.shortcuts.categories()
+                            model: { app.shortcuts.bindingRevision; return app.shortcuts.categories() }
                             delegate: SettingsCard {
                                 id: shortcutCategoryCard
                                 required property string modelData
@@ -6491,7 +6522,7 @@ Item {
                                             StatusChip {
                                                 storm: true
                                                 visible: app.backendName === "rust"
-                                                label: app.sessionTrustState
+                                                label: root.trustStateText(app.sessionTrustState)
                                                 iconName: app.sessionTrustState === "Verified"
                                                           ? "verified_user" : ""
                                                 // Same mapping as the Sessions "Current
@@ -7978,9 +8009,9 @@ Item {
                                             return qsTr("No key backup exists for this account.")
                                         if (h.keyBackupUsable)
                                             return qsTr("Backup active — this session can use it (%1).")
-                                                       .arg(h.keyBackupState)
+                                                       .arg(root.backupStateText(h.keyBackupState))
                                         return qsTr("A backup exists but this session cannot use it yet (%1). Restore with your recovery key first.")
-                                                   .arg(h.keyBackupState)
+                                                   .arg(root.backupStateText(h.keyBackupState))
                                     }
                                 }
                                 Label {
@@ -7994,8 +8025,8 @@ Item {
                                           ? qsTr("Uploading room keys: %1 of %2")
                                                 .arg(app.backup.backedUp).arg(app.backup.total)
                                           : qsTr("Upload: %1 · backup: %2")
-                                                .arg(app.backup.uploadState)
-                                                .arg(app.backup.backupState)
+                                                .arg(root.backupStateText(app.backup.uploadState))
+                                                .arg(root.backupStateText(app.backup.backupState))
                                 }
                                 Label {
                                     Layout.fillWidth: true
@@ -8694,7 +8725,7 @@ Item {
                                     Item { Layout.fillWidth: true }
                                     StatusChip {
                                         storm: true
-                                        label: app.sessionTrustState
+                                        label: root.trustStateText(app.sessionTrustState)
                                         iconName: app.sessionTrustState === "Verified"
                                                   ? "verified_user" : ""
                                         tone: app.sessionTrustState === "Verified"

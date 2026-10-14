@@ -136,6 +136,10 @@ public:
     /// The distinct category labels, in the order the rows use them.
     Q_INVOKABLE QStringList categories() const;
 
+    /// Rebuilds the translated labels after the UI language changed. The
+    /// categories() list is re-read by QML through bindingRevision.
+    void retranslate();
+
 Q_SIGNALS:
     /// One or more bindings changed. sequenceFor() is a plain call, which QML
     /// cannot track as a dependency, so every QML site also reads
@@ -164,6 +168,7 @@ private:
         QString owner;    // human-readable
     };
 
+    void buildTables();
     const Action *find(const QString &actionId) const;
     QString storedOverride(const QString &actionId) const;
     QString currentSequence(const Action &action) const;

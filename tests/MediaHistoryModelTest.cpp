@@ -278,6 +278,36 @@ private Q_SLOTS:
         QCOMPARE(model.rowCount(), 1);
     }
 
+    // The search placeholder promises captions: a caption is the event body of
+    // an attachment whose name travels in `filename`, and an edited caption
+    // arrives already folded into `body` by the scanner.
+    void theSearchMatchesTheCaptionNotOnlyTheFilename()
+    {
+        MockMatrixClient client;
+        QVERIFY(login(client));
+        MediaHistoryModel model;
+        model.setClient(&client);
+        model.setRoomId(QStringLiteral("!r:example.org"));
+
+        QVariantMap captioned = entry(QStringLiteral("$c"), QStringLiteral("image"));
+        captioned.insert(QStringLiteral("filename"), QStringLiteral("IMG_0001.jpg"));
+        captioned.insert(QStringLiteral("body"),
+                         QStringLiteral("Sunset over the harbour"));
+        QVariantMap plain = entry(QStringLiteral("$p"), QStringLiteral("image"));
+        plain.insert(QStringLiteral("filename"), QStringLiteral("IMG_0002.jpg"));
+        plain.insert(QStringLiteral("body"), QStringLiteral("IMG_0002.jpg"));
+        Q_EMIT client.mediaHistoryPage(0, QStringLiteral("!r:example.org"),
+                                       { captioned, plain }, 2, 2, 0, true, false);
+        QCOMPARE(model.rowCount(), 2);
+
+        model.setQuery(QStringLiteral("harbour"));
+        QCOMPARE(model.rowCount(), 1);
+        model.setQuery(QStringLiteral("HARBOUR"));
+        QCOMPARE(model.rowCount(), 1);
+        model.setQuery(QStringLiteral("IMG_0001"));
+        QCOMPARE(model.rowCount(), 1);
+    }
+
     // One account's attachments must never be listed under the next.
     void signingOutDropsTheBrowse()
     {

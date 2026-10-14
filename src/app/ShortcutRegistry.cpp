@@ -39,6 +39,24 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
     : QAbstractListModel(parent)
     , m_settings(settings)
 {
+    buildTables();
+    m_resolved.resize(m_actions.size());
+    reload();
+}
+
+void ShortcutRegistry::retranslate()
+{
+    // The tables are built in the constructor, which runs before main.cpp
+    // installs the stored language, so every label would otherwise stay in
+    // English for the life of the process.
+    beginResetModel();
+    buildTables();
+    endResetModel();
+    reload();
+}
+
+void ShortcutRegistry::buildTables()
+{
     const QString appCat = tr("Application");
     const QString navCat = tr("Navigation");
     const QString viewCat = tr("View");
@@ -253,9 +271,6 @@ ShortcutRegistry::ShortcutRegistry(SettingsManager *settings, QObject *parent)
         if (!portable.isEmpty())
             r.sequence = portable;
     }
-
-    m_resolved.resize(m_actions.size());
-    reload();
 }
 
 int ShortcutRegistry::rowCount(const QModelIndex &parent) const

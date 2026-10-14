@@ -232,6 +232,18 @@ void LocalizationManager::applyLanguage(const QString &policy)
     removeTranslators();
     m_effective = installCatalog(code) ? code : QStringLiteral("en");
 
+    // Numbers, sizes and dates read the default QLocale, which is the system's
+    // and not the UI language: an English UI on a Lithuanian desktop showed
+    // "1,28 MiB". Follow the UI language, but only when it is not the system's
+    // own language, so a system en_GB keeps 24-hour time and its date order
+    // rather than being replaced by plain "en" (United States).
+    {
+        const QLocale ui(m_effective);
+        QLocale::setDefault(ui.language() == QLocale::system().language()
+                                ? QLocale::system()
+                                : ui);
+    }
+
     // Layout direction is process-wide; Main.qml applies it via
     // LayoutMirroring.
     if (auto *gui = qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {

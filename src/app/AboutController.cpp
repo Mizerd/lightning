@@ -104,8 +104,11 @@ QString AboutController::versionSummary() const
     const QString kind = !m_packageKind.isEmpty()
         ? m_packageKind
         : QStringLiteral(LIGHTNING_ARTIFACT_KIND);
-    return QStringLiteral("Lightning %1\nCommit: %2\nPlatform: %3\nPackage: %4")
-        .arg(QStringLiteral(APP_VERSION), shortCommit(), platform, kind);
+    // Labels are translated; the values (version, commit, platform, package
+    // kind) stay raw so a pasted report is still unambiguous.
+    return QStringLiteral("Lightning %1\n%2: %3\n%4: %5\n%6: %7")
+        .arg(QStringLiteral(APP_VERSION), tr("Commit"), shortCommit(),
+             tr("Platform"), platform, tr("Package"), kind);
 }
 
 QString AboutController::reportIssueUrl() const

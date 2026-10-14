@@ -199,6 +199,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // Constructed before any QML exists so the first frame already carries
     // the user's bindings.
     m_shortcuts = std::make_unique<ShortcutRegistry>(m_settings.get(), this);
+    // Its labels are translated when the tables are built, which is before
+    // the stored language is applied, so rebuild them on every change.
+    connect(m_localization.get(), &LocalizationManager::languageChanged,
+            m_shortcuts.get(), &ShortcutRegistry::retranslate);
     m_railLayout = std::make_unique<RailLayoutStore>(m_settings.get(), this);
     m_railEntries = std::make_unique<RailEntryModel>(this);
     m_mediaVisibility = std::make_unique<MediaVisibilityStore>(this);
@@ -235,6 +239,10 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     // code at a time and a stale token renders nothing.
     m_policy       = std::make_unique<PolicyListController>(this);
     m_about        = std::make_unique<AboutController>(this);
+    // versionSummary() builds translated labels on demand; QML only re-reads
+    // it on this signal.
+    connect(m_localization.get(), &LocalizationManager::languageChanged,
+            m_about.get(), &AboutController::versionSummaryChanged);
     m_qrLogin      = std::make_unique<QrLoginController>(this);
     m_qrLogin->setQrStore(&m_qrCodeStore);
     m_richComposer = std::make_unique<RichComposerBridge>(this);
@@ -2235,6 +2243,12 @@ AppController::AppController(Backend backend, bool screenshotDemo,
     });
     connect(m_client.get(), &MatrixClient::syncModeChanged,
             this, &AppController::syncModeChanged);
+    // The status text is stored already translated, so a language change
+    // would leave it in the old language until the next state edge. QML
+    // compares it against qsTr() of the same words, so both must move.
+    if (m_localization)
+        connect(m_localization.get(), &LocalizationManager::languageChanged,
+                m_client.get(), refreshConnectionStatus);
     setConnectionStatus(tr("Not connected"));
 
     // Recovery-key restore results and the redacted device id, bridged so

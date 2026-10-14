@@ -484,6 +484,9 @@ private Q_SLOTS:
         QCOMPARE(r.settings.textScale(), 125);
         QCOMPARE(r.settings.reducedMotion(), true);
         QCOMPARE(r.settings.messageLayout(), 2);
+        // The result counts what changed, as the preview did, and not every
+        // setting the file carries.
+        QCOMPARE(applied.value("applied").toInt(), 3);
     }
 
     void importReportsRejectedValuesAndAppliesTheRest()

@@ -78,10 +78,10 @@ QString CryptoManager::backendDescription() const
 QString CryptoManager::statusString() const
 {
     if (supportsE2ee())
-        return QStringLiteral("E2EE active (Rust SDK)");
+        return tr("E2EE active (Rust SDK)");
     if (m_backendName == QLatin1String("rust"))
-        return QStringLiteral("Rust backend active (E2EE not yet verified)");
-    return QStringLiteral("E2EE not available on this backend");
+        return tr("Rust backend active (E2EE not yet verified)");
+    return tr("E2EE not available on this backend");
 }
 
 bool CryptoManager::isDeviceVerified(const QString &, const QString &) const

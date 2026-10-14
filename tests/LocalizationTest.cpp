@@ -225,6 +225,31 @@ private Q_SLOTS:
         QVERIFY(LocalizationManager::endonym(QStringLiteral("nope")).isEmpty());
     }
 
+    // Sizes and numbers read the default QLocale. An English UI on a desktop
+    // whose own language is something else must not print "1,28 MiB".
+    void theDefaultLocaleFollowsTheUiLanguageNotTheDesktop()
+    {
+        const QLocale before;
+        SettingsManager settings;
+        LocalizationManager loc(&settings);
+
+        loc.setLanguage(QStringLiteral("fr"));
+        if (QLocale::system().language() != QLocale::French)
+            QCOMPARE(QLocale().language(), QLocale::French);
+
+        loc.setLanguage(QStringLiteral("en"));
+        if (QLocale::system().language() != QLocale::English) {
+            QCOMPARE(QLocale().language(), QLocale::English);
+            QCOMPARE(QLocale().formattedDataSize(1340000).contains(QLatin1Char(',')), false);
+        } else {
+            // The desktop's own regional variant is kept.
+            QCOMPARE(QLocale().name(), QLocale::system().name());
+        }
+        // The cases below start from "nothing stored".
+        loc.setLanguage(QStringLiteral("system"));
+        QLocale::setDefault(before);
+    }
+
     // ---- persistence ----
 
     // "system" is a policy, not a language: storing the resolved code would
