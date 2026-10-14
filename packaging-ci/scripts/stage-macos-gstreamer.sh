@@ -300,8 +300,13 @@ rebound=0
 deps_of "$MAIN_BINARY" >"$work/main-deps"
 while IFS= read -r dep; do
     [[ -n "$dep" ]] || continue
+    # /usr/lib too: the sticker-pack ZIP import links zlib directly, which
+    # the SDK resolves to /usr/lib/libz.1.dylib while GStreamer brings its
+    # own libz. Two copies of one library in the process is exactly what
+    # the validator refuses, so a system copy of a library we stage is
+    # rebound like a Homebrew one.
     case "$dep" in
-        @rpath/*|@executable_path/../Frameworks/*) ;;
+        @rpath/*|@executable_path/../Frameworks/*|/usr/lib/*) ;;
         *) continue ;;
     esac
     base="${dep##*/}"
