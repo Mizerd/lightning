@@ -441,6 +441,14 @@ private slots:
     void anExpiredManifestStillOffersTheUpdateAndSaysSo();
     void theFallbackFetcherHopsOnlyWithinTheMirror();
     void aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirror();
+
+    // GitHub-first metadata (GitLab may be private or unreachable).
+    void theManifestPairIsReadFromGitHubFirstAndGitLabSecond();
+    void aPrimaryTransportFailureFallsBackToGitLabOnce();
+    void aPrimaryAnswerThatDoesNotVerifyFallsBackToGitLab();
+    void aMirrorSignedManifestNamingAForeignHostIsStillRefused();
+    void aGitLabOutageCostsNothingWhenTheMirrorServesTheArtifact();
+    void theReleasePageLinkIsTheGitHubTagForTheOfferedVersion();
     void aPrereleaseIsRefusedWhateverChannelTheManifestClaims();
     void installHandsTheHelperTheVerifiedDigest();
     void installRefusesAnArtifactModifiedAfterVerification();
@@ -558,7 +566,7 @@ void UpdateManagerStateTest::failsOnATamperedManifest()
         // once; a tampered mirror answer is terminal. Without a compiled-in
         // fallback (supported) the first failure is terminal.
         QCOMPARE(manager->state(), UpdateManager::Checking);
-        QVERIFY(manager->metadataFromMirrorForTest());
+        QVERIFY(manager->metadataInFallbackStageForTest());
         manager->ingestCheckDocuments(bytes, envelope);
     }
     QCOMPARE(manager->state(), UpdateManager::Failed);
@@ -584,7 +592,7 @@ void UpdateManagerStateTest::failsOnAnUnknownKey()
         // Unknown key on the canonical answer: try the mirror once; the same
         // key from the mirror is terminal.
         QCOMPARE(manager->state(), UpdateManager::Checking);
-        QVERIFY(manager->metadataFromMirrorForTest());
+        QVERIFY(manager->metadataInFallbackStageForTest());
         manager->ingestCheckDocuments(bytes, rogue);
     }
     QCOMPARE(manager->state(), UpdateManager::Failed);
@@ -1801,7 +1809,7 @@ void UpdateManagerStateTest::aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirr
     // injected by hand.
     manager->checkForUpdates();
     QCOMPARE(manager->state(), UpdateManager::Checking);
-    QVERIFY(!manager->metadataFromMirrorForTest());
+    QVERIFY(!manager->metadataInFallbackStageForTest());
     const QByteArray bytes =
         QJsonDocument(manifestObject(QStringLiteral("0.8.0"))).toJson(QJsonDocument::Compact);
     QByteArray tampered = bytes;
@@ -1814,10 +1822,231 @@ void UpdateManagerStateTest::aCanonicalAnswerThatDoesNotVerifyFallsBackToTheMirr
         return;
     }
     QCOMPARE(manager->state(), UpdateManager::Checking);
-    QVERIFY(manager->metadataFromMirrorForTest());
+    QVERIFY(manager->metadataInFallbackStageForTest());
     // A mirror answer that does not verify is terminal.
     manager->ingestCheckDocuments(tampered, sign(bytes));
     QCOMPARE(manager->state(), UpdateManager::Failed);
+}
+
+// ---------------------------------------------------------------------------
+// GitHub-first metadata. GitLab may become private: the signed manifest pair
+// is read from the fixed GitHub release slot first and from GitLab only as the
+// single fallback. Neither host decides anything; the signature does.
+// ---------------------------------------------------------------------------
+void UpdateManagerStateTest::theManifestPairIsReadFromGitHubFirstAndGitLabSecond()
+{
+    namespace u = lightning::update;
+    if (u::mirrorLatestManifestUrl().isEmpty())
+        QSKIP("this build compiles in no mirror manifest slot");
+
+    // Pure order: primary is the mirror slot, fallback the canonical registry.
+    QCOMPARE(u::primaryManifestUrl(), u::mirrorLatestManifestUrl());
+    QCOMPARE(u::primaryManifestSignatureUrl(), u::mirrorLatestManifestSignatureUrl());
+    QCOMPARE(u::fallbackManifestUrl(), u::latestManifestUrl());
+    QCOMPARE(u::fallbackManifestSignatureUrl(), u::latestManifestSignatureUrl());
+    QVERIFY(u::mirrorArtifactHosts().contains(u::primaryManifestUrl().host()));
+    QCOMPARE(u::fallbackManifestUrl().host(), u::canonicalUpdateHost());
+
+    // The slot is a fixed tag: never a "latest" address GitHub could choose.
+    QVERIFY(!u::primaryManifestUrl().path().contains(QStringLiteral("/latest/")));
+    QVERIFY(u::primaryManifestUrl().path().contains(QStringLiteral("/download/")));
+
+    // And the manager's first request goes to the primary, with no fallback
+    // flag set and no GitLab contact.
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    manager->checkForUpdates();
+    QCOMPARE(manager->state(), UpdateManager::Checking);
+    QVERIFY(!manager->metadataInFallbackStageForTest());
+    QCOMPARE(manager->lastSignatureUrlForTest(), u::primaryManifestSignatureUrl());
+    QVERIFY(manager->lastSignatureUrlForTest().host() != u::canonicalUpdateHost());
+}
+
+void UpdateManagerStateTest::aPrimaryTransportFailureFallsBackToGitLabOnce()
+{
+    namespace u = lightning::update;
+    if (u::mirrorLatestManifestUrl().isEmpty())
+        QSKIP("this build compiles in no mirror manifest slot");
+
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    manager->checkForUpdates();
+    QCOMPARE(manager->lastSignatureUrlForTest(), u::primaryManifestSignatureUrl());
+
+    // GitHub is unreachable (DNS, 5xx, timeout): GitLab is asked, once.
+    manager->simulateMetadataFetchFailureForTest(QStringLiteral("primary unreachable"));
+    QCOMPARE(manager->state(), UpdateManager::Checking);
+    QVERIFY(manager->metadataInFallbackStageForTest());
+    QCOMPARE(manager->lastSignatureUrlForTest(), u::latestManifestSignatureUrl());
+    QCOMPARE(manager->lastSignatureUrlForTest().host(), u::canonicalUpdateHost());
+
+    // The fallback is verified like the primary; if it fails too the check
+    // fails with that message and there is no third source.
+    manager->simulateMetadataFetchFailureForTest(QStringLiteral("fallback unreachable"));
+    QCOMPARE(manager->state(), UpdateManager::Failed);
+    QCOMPARE(manager->lastSignatureUrlForTest(), u::latestManifestSignatureUrl());
+
+    // A fresh check starts at the primary again: a past outage is not sticky.
+    manager->checkForUpdates();
+    QVERIFY(!manager->metadataInFallbackStageForTest());
+    QCOMPARE(manager->lastSignatureUrlForTest(), u::primaryManifestSignatureUrl());
+}
+
+void UpdateManagerStateTest::aPrimaryAnswerThatDoesNotVerifyFallsBackToGitLab()
+{
+    if (lightning::update::mirrorLatestManifestUrl().isEmpty())
+        QSKIP("this build compiles in no mirror manifest slot");
+
+    // A stale or hostile slot answering 200 with bytes the key never signed
+    // must not become the answer: GitLab is asked, and a good signed manifest
+    // there is accepted.
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    manager->checkForUpdates();
+    const QByteArray bytes =
+        QJsonDocument(manifestObject(QStringLiteral("0.8.0"))).toJson(QJsonDocument::Compact);
+    QByteArray tampered = bytes;
+    tampered.replace("0.8.0", "0.9.9");
+    manager->ingestCheckDocuments(tampered, sign(bytes));
+    QCOMPARE(manager->state(), UpdateManager::Checking);
+    QVERIFY(manager->metadataInFallbackStageForTest());
+    QVERIFY(!manager->updateAvailable());
+    QCOMPARE(manager->lastSignatureUrlForTest().host(),
+             lightning::update::canonicalUpdateHost());
+
+    manager->ingestCheckDocuments(bytes, sign(bytes));
+    QVERIFY(manager->updateAvailable());
+    QCOMPARE(manager->latestVersion(), QStringLiteral("0.8.0"));
+}
+
+// PINS EXISTING BEHAVIOUR (these assertions also pass on the pre-change code):
+// a manifest that verifies (signed by our key, delivered by the mirror slot)
+// still cannot steer downloads anywhere new: the canonical `url` must stay on
+// the canonical host, and a mirror_url on an unlisted host is dropped.
+void UpdateManagerStateTest::aMirrorSignedManifestNamingAForeignHostIsStillRefused()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+
+    // 1. Artifact `url` on the mirror host (so the canonical fallback would
+    //    share the mirror's outage): refused outright.
+    {
+        const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+        QJsonObject manifest = downloadableManifest(version);
+        QJsonObject artifacts = manifest.value(QStringLiteral("artifacts")).toObject();
+        QJsonObject deb = artifacts.value(QStringLiteral("linux-deb")).toObject();
+        deb.insert(QStringLiteral("url"), mirrorArtifactUrl(version, filename));
+        artifacts.insert(QStringLiteral("linux-deb"), deb);
+        manifest.insert(QStringLiteral("artifacts"), artifacts);
+        ingest(manager.get(), manifest);
+        QCOMPARE(manager->state(), UpdateManager::Failed);
+    }
+
+    // 2. Artifact `url` on a third-party host: refused.
+    {
+        const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+        QJsonObject manifest = downloadableManifest(version);
+        QJsonObject artifacts = manifest.value(QStringLiteral("artifacts")).toObject();
+        QJsonObject deb = artifacts.value(QStringLiteral("linux-deb")).toObject();
+        deb.insert(QStringLiteral("url"),
+                   QStringLiteral("https://evil.example/%1").arg(filename));
+        artifacts.insert(QStringLiteral("linux-deb"), deb);
+        manifest.insert(QStringLiteral("artifacts"), artifacts);
+        ingest(manager.get(), manifest);
+        QCOMPARE(manager->state(), UpdateManager::Failed);
+    }
+
+    // 3. mirror_url on a non-allow-listed host: dropped, not trusted. The
+    //    download goes to the canonical address only and never to the
+    //    attacker's host.
+    {
+        QTemporaryDir root;
+        QVERIFY(root.isValid());
+        ByteSourceRecorder source;
+        source.serve(artifactUrl(version, filename), payloadBytes());
+        const auto manager = makeDownloadManager(root.path(), &source);
+        ingest(manager.get(),
+               downloadableManifest(
+                   version, QStringLiteral("https://evil.example/%1").arg(filename)));
+        manager->downloadUpdate();
+        QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+        QCOMPARE(source.requestedHosts(),
+                 (QStringList{ lightning::update::canonicalUpdateHost() }));
+    }
+
+    // 4. mirror_url that is allow-listed but plain http, or carries userinfo
+    //    or a port: refused by the same transport policy.
+    for (const QString &bad : { QStringLiteral("http://%1/x/%2").arg(mirrorHost(), filename),
+                                QStringLiteral("https://user@%1/x/%2").arg(mirrorHost(), filename),
+                                QStringLiteral("https://%1:8443/x/%2").arg(mirrorHost(), filename) }) {
+        QVERIFY2(!lightning::update::isAllowedArtifactUrl(QUrl(bad)), qPrintable(bad));
+    }
+    // And the metadata predicates keep their split: the slot's host is a
+    // metadata host only for the mirror role, never the canonical role.
+    QVERIFY(!lightning::update::isAllowedManifestUrl(
+        lightning::update::mirrorLatestManifestUrl()));
+    QVERIFY(lightning::update::isAllowedFallbackManifestUrl(
+        lightning::update::mirrorLatestManifestUrl())
+            || lightning::update::mirrorLatestManifestUrl().isEmpty());
+}
+
+// PINS EXISTING BEHAVIOUR (passes on the pre-change code too): GitLab private
+// or down, the signed manifest names the mirror, the mirror answers, and
+// GitLab is never contacted.
+void UpdateManagerStateTest::aGitLabOutageCostsNothingWhenTheMirrorServesTheArtifact()
+{
+    if (mirrorHost().isEmpty())
+        QSKIP("this build trusts no artifact mirror");
+
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const QString version = QStringLiteral("0.8.0");
+    const QString filename = QStringLiteral("lightning_%1_amd64.deb").arg(version);
+
+    ByteSourceRecorder source; // the canonical address would answer 401/404: unserved
+    source.serve(mirrorArtifactUrl(version, filename), payloadBytes());
+    const auto manager = makeDownloadManager(root.path(), &source);
+    ingest(manager.get(), mirroredManifest(version));
+    manager->downloadUpdate();
+    QTRY_COMPARE(manager->state(), UpdateManager::ReadyToInstall);
+    QCOMPARE(source.requestedHosts(), (QStringList{ mirrorHost() }));
+    QCOMPARE(manager->artifactSource(), QStringLiteral("mirror"));
+    QVERIFY(manager->statusDetail().isEmpty());
+}
+
+// The clicked link comes from the verified version, not from the manifest's
+// release_notes_url, which must still be canonical to be accepted at all.
+void UpdateManagerStateTest::theReleasePageLinkIsTheGitHubTagForTheOfferedVersion()
+{
+    if (lightning::update::releasePageUrlForVersion(QStringLiteral("0.8.0")).isEmpty())
+        QSKIP("this build trusts no mirror host, so the link falls back to the manifest's");
+    const auto manager = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    QJsonObject manifest = manifestObject(QStringLiteral("0.8.0"));
+    manifest.insert(QStringLiteral("release_notes_url"),
+                    QStringLiteral("https://%1/Mizerd/lightning/-/releases/v0.8.0")
+                        .arg(lightning::update::canonicalUpdateHost()));
+    ingest(manager.get(), manifest);
+    QVERIFY(manager->updateAvailable());
+    QCOMPARE(manager->releaseNotesUrl(),
+             QUrl(QStringLiteral("https://github.com/Mizerd/lightning/releases/tag/v0.8.0")));
+
+    // Without the field the link is the same.
+    const auto bare = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    ingest(bare.get(), manifestObject(QStringLiteral("0.8.0")));
+    QCOMPARE(bare->releaseNotesUrl(), manager->releaseNotesUrl());
+
+    // Acceptance is unchanged: a non-canonical release_notes_url still fails
+    // the whole manifest.
+    const auto foreign = makeManager(InstallType::LinuxDeb, QStringLiteral("0.7.0"));
+    QJsonObject bad = manifestObject(QStringLiteral("0.8.0"));
+    bad.insert(QStringLiteral("release_notes_url"),
+               QStringLiteral("https://github.com/Mizerd/lightning/releases/tag/v0.8.0"));
+    ingest(foreign.get(), bad);
+    QVERIFY(!foreign->updateAvailable());
+    QVERIFY(foreign->releaseNotesUrl().isEmpty());
+
+    QVERIFY(lightning::update::releasePageUrlForVersion(QStringLiteral("0.8.0/../x")).isEmpty());
+    QVERIFY(lightning::update::releasePageUrlForVersion(QString()).isEmpty());
 }
 
 void UpdateManagerStateTest::aPrereleaseIsRefusedWhateverChannelTheManifestClaims()

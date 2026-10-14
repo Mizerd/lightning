@@ -4,7 +4,7 @@ The verified workflow uses the repository's Nix flake on Linux; the dev shell
 supplies Qt 6.5+ and a Rust toolchain.
 
 ```sh
-git clone https://gitlab.smetonis.net/Mizerd/lightning.git
+git clone https://github.com/Mizerd/lightning.git
 cd lightning
 
 nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON

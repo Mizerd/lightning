@@ -24,8 +24,9 @@ class QTimer;
 // Policy (spec §9), on the first request and every redirect:
 //   - https only;
 //   - the host must be allowed for this transfer's role (isPermittedUrl):
-//     documents use the canonical host, or the mirror hosts for the fallback
-//     pair only; artifacts also accept the bandwidth mirrors;
+//     documents use the canonical host, or the mirror hosts when the transfer
+//     started at the mirror manifest slot (the primary pair); artifacts also
+//     accept the bandwidth mirrors;
 //   - bounded redirects and a hard size ceiling (aborts mid-stream);
 //   - no cookies or cache, no headers beyond the "Lightning/<version>" user
 //     agent, no user-derived query parameters, no Matrix data.
@@ -126,7 +127,7 @@ public:
 
 protected:
     // Fixed by the starting URL. Canonical metadata never leaves the canonical
-    // host. The fallback pair (a fixed GitHub release slot) is served through
+    // host. The mirror pair (the fixed GitHub release slot, now the primary) is served through
     // GitHub's asset redirects, so that transfer may hop within the mirror host
     // list only.
     bool isPermittedUrl(const QUrl &url) const override;

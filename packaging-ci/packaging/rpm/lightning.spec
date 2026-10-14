@@ -11,7 +11,7 @@ Version:        %{pkg_version}
 Release:        %{pkg_release}
 Summary:        Native Matrix desktop client
 License:        GPL-3.0-or-later
-URL:            https://gitlab.smetonis.net/Mizerd/lightning
+URL:            https://github.com/Mizerd/lightning
 
 Requires:       desktop-file-utils
 

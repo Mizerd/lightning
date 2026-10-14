@@ -7,7 +7,7 @@
 A native desktop Matrix client: Qt 6 on top of the official Rust Matrix SDK.
 
 [![Flathub](https://img.shields.io/flathub/v/org.lightning_matrix.Lightning?logo=flathub&label=flathub)](https://flathub.org/apps/org.lightning_matrix.Lightning)
-[![Latest release](https://img.shields.io/gitlab/v/release/Mizerd/lightning?gitlab_url=https%3A%2F%2Fgitlab.smetonis.net&label=release)](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
+[![Latest release](https://img.shields.io/github/v/release/Mizerd/lightning?label=release)](https://github.com/Mizerd/lightning/releases)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Matrix room](https://img.shields.io/badge/matrix-%23lightning%3Amatrix.smetonis.net-0dbd8b?logo=matrix)](https://matrix.to/#/%23lightning%3Amatrix.smetonis.net)
 
@@ -64,8 +64,8 @@ On Linux, Flathub is the easiest route. The Flatpak brings its own Qt,
 GStreamer and C library, so it also runs on distributions too old for the deb,
 the rpm and the AppImage.
 
-Every release also ships these on [GitLab](https://gitlab.smetonis.net/Mizerd/lightning/-/releases)
-and the [GitHub mirror](https://github.com/Mizerd/lightning/releases/latest),
+Every release also ships these on
+[GitHub Releases](https://github.com/Mizerd/lightning/releases/latest),
 with a `SHA256SUMS` file:
 
 | Platform | Packages |
@@ -84,7 +84,7 @@ the macOS first-launch steps.
 With the repository's Nix flake on Linux:
 
 ```sh
-git clone https://gitlab.smetonis.net/Mizerd/lightning.git
+git clone https://github.com/Mizerd/lightning.git
 cd lightning
 nix develop -c cmake -S . -B build-rust -G Ninja -DENABLE_RUST_SDK_BACKEND=ON
 nix develop -c cmake --build build-rust
@@ -99,14 +99,12 @@ build options and how the layers fit together.
 Bug reports, testing and focused patches are welcome. Read
 [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
-- The canonical repository is <https://gitlab.smetonis.net/Mizerd/lightning>.
-  Registration there is closed, so a change arrives as a pull request on the
-  GitHub mirror or as a patch emailed to the maintainer.
-- [github.com/Mizerd/lightning](https://github.com/Mizerd/lightning) is a
-  read-only mirror. A pull request there is applied on GitLab and then closed,
-  not merged, even when it ships. Its
+- The public repository is <https://github.com/Mizerd/lightning>. A change
+  arrives as a pull request there or as a patch emailed to the maintainer.
+- A pull request is applied on the maintainer's own repository, which GitHub
+  is synchronised from, and then closed, not merged, even when it ships. The
   [issue tracker](https://github.com/Mizerd/lightning/issues) is the place to
-  report a bug without an account.
+  report a bug.
 - Chat: [#lightning:matrix.smetonis.net](https://matrix.to/#/%23lightning%3Amatrix.smetonis.net).
   Website: <https://www.lightning-matrix.org>.
 

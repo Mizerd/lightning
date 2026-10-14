@@ -219,8 +219,17 @@ public:
     // The digest the staged bytes were verified against: the manifest's value,
     // or without a manifest the file's own digest at staging time.
     QString stagedArtifactSha256ForTest() const { return m_stagedSha256; }
-    // Whether this check fell back to the mirror's metadata pair.
-    bool metadataFromMirrorForTest() const { return m_metadataFromMirror; }
+    // Whether this check moved on from the primary (GitHub) metadata pair to
+    // the fallback (GitLab) one.
+    bool metadataInFallbackStageForTest() const { return m_metadataInFallbackStage; }
+    // The signature address the check asked for most recently (recorded even
+    // with the network disabled), and a transport failure on the current
+    // metadata fetch, injected through the production failure path.
+    QUrl lastSignatureUrlForTest() const { return m_lastSignatureUrl; }
+    void simulateMetadataFetchFailureForTest(const QString &message)
+    {
+        onMetadataFetchFailed(message);
+    }
     QString stagingRootForTest() const { return stagingRoot(); }
 
 Q_SIGNALS:
@@ -296,8 +305,11 @@ private:
     QString installTargetPath() const;
     // What to start after installing; for an AppImage, not the running binary.
     QString relaunchProgramPath() const;
-    // One mirror fallback for the manifest pair. True when a retry started.
-    bool retryMetadataFromMirror();
+    // One fallback for the manifest pair (primary GitHub, then GitLab). True
+    // when a retry started.
+    bool retryMetadataFromFallback();
+    // A metadata fetch failed: try the fallback once, else fail the check.
+    void onMetadataFetchFailed(const QString &message);
     QString stagingRoot() const;
     QString statusFilePath() const;
     // Reads and deletes the helper's status file, then sweeps stale artifacts.
@@ -352,8 +364,10 @@ private:
     UpdateDocumentFetcher *m_fetcher = nullptr;
     UpdateDownloader *m_downloader = nullptr;
     QByteArray m_signatureDocument;
-    // Reading the mirrored manifest pair; reset per check.
-    bool m_metadataFromMirror = false;
+    // Reading the fallback manifest pair (primary: GitHub; fallback: GitLab);
+    // reset per check.
+    bool m_metadataInFallbackStage = false;
+    QUrl m_lastSignatureUrl;
     std::unique_ptr<QFile> m_stagedFile;
     QString m_stagedPath;
     // Lowercase hex SHA-256 the staged file must match; set and cleared with

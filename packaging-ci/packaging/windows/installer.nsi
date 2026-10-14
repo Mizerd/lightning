@@ -442,7 +442,7 @@ Section "Lightning application (required)" SEC_APP
   ; What deployment tools (Intune, SCCM, WAPT, winget) run to remove it.
   WriteRegStr SHCTX "${REG_UNINSTALL}" "QuietUninstallString" '"$INSTDIR\Uninstall.exe" /S'
   WriteRegStr SHCTX "${REG_UNINSTALL}" "InstallLocation" "$INSTDIR"
-  WriteRegStr SHCTX "${REG_UNINSTALL}" "URLInfoAbout" "https://gitlab.smetonis.net/Mizerd/lightning"
+  WriteRegStr SHCTX "${REG_UNINSTALL}" "URLInfoAbout" "https://github.com/Mizerd/lightning"
   WriteRegDWORD SHCTX "${REG_UNINSTALL}" "NoModify" 1
   WriteRegDWORD SHCTX "${REG_UNINSTALL}" "NoRepair" 1
   CreateDirectory "$SMPROGRAMS\Lightning"

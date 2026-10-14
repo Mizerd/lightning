@@ -197,7 +197,7 @@ if [[ -n "$existing" ]]; then
     exit 0
 fi
 
-notes_url="https://gitlab.smetonis.net/Mizerd/lightning/-/releases/${TAG}"
+notes_url="https://github.com/Mizerd/lightning/releases/tag/${TAG}"
 jq -n --arg title "Update to ${RELEASE_VERSION}" --arg head "$BRANCH" \
     --arg base "$FLATHUB_BASE_BRANCH" \
     --arg body "Lightning ${RELEASE_VERSION}. Release notes: ${notes_url}" \

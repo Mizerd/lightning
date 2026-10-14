@@ -27,7 +27,7 @@ Summary:        Native Matrix desktop client
 # Lightning is GPL-3.0-or-later. The statically linked Rust crates in Source1
 # carry their own licences (mostly MIT OR Apache-2.0).
 License:        GPL-3.0-or-later
-URL:            https://gitlab.smetonis.net/Mizerd/lightning
+URL:            https://github.com/Mizerd/lightning
 Source0:        lightning-%{shortcommit}.tar.gz
 Source1:        lightning-%{shortcommit}-vendor.tar.xz
 

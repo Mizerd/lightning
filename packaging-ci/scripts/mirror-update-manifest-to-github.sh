@@ -11,7 +11,8 @@ set -Eeuo pipefail
 # promoted (dist/update-publication.json). `update-latest` is a moving pointer
 # and is never marked GitHub's "latest release", which the website reads.
 #
-# allow_failure in CI, and idempotent so a retry converges.
+# NOT allow_failure in CI (a failed write is a red release: GitHub-first
+# clients only see what this slot says), and idempotent so a retry converges.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
@@ -103,7 +104,7 @@ case "$status" in
         jq -n --arg tag "$UPDATE_LATEST_TAG" --arg sha "$SOURCE_SHA" \
             '{tag_name:$tag, target_commitish:$sha,
               name:"Update manifest (moving pointer, not a release)",
-              body:"This slot carries the CURRENT signed update manifest so installed clients can check for updates when the canonical GitLab host is unreachable. Its two assets are replaced on every release; nothing else here is meaningful. Downloads are listed on the versioned releases. The manifest is signed on GitLab with a key that exists nowhere near GitHub, and every client verifies that signature.",
+              body:"This slot carries the CURRENT signed update manifest. It is the PRIMARY place installed clients check for updates (the GitLab copy is only the fallback). Its two assets are replaced on every release; nothing else here is meaningful. Downloads are listed on the versioned releases. The manifest is signed in the release pipeline with a key that exists nowhere near GitHub, and every client verifies that signature.",
               draft:false, prerelease:true, make_latest:"false"}' >"$body"
         response="$tmp_dir/create-response.json"
         status="$("$CURL_BIN" --silent --show-error --config "$auth_conf" \

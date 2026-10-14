@@ -22,14 +22,18 @@
 #endif
 
 #ifndef LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE
-// Base URL of the mirrored manifest pair, read only after the canonical host
-// failed. Empty disables the fallback; a host outside the mirror list is
+// Base URL of the mirrored manifest pair, read FIRST (the canonical GitLab
+// copy is the fallback). Empty makes the canonical copy the only source; a host outside the mirror list is
 // dropped. A fixed tag whose assets the pipeline replaces, never a "latest"
 // URL that would let GitHub choose the release. No API is called; the
 // signature makes the bytes trustworthy. update-manager-state's source scan
 // enforces this.
 #define LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE                                                      \
     "https://github.com/Mizerd/lightning/releases/download/update-latest"
+#endif
+
+#ifndef LIGHTNING_UPDATE_RELEASE_PAGE_BASE
+#define LIGHTNING_UPDATE_RELEASE_PAGE_BASE "https://github.com/Mizerd/lightning/releases/tag/v"
 #endif
 
 namespace lightning::update {
@@ -146,6 +150,48 @@ QUrl mirrorLatestManifestSignatureUrl()
         return {};
     const QUrl url(base + QLatin1Char('/') + QLatin1String(kSignatureFile));
     return isAllowedFallbackManifestUrl(url) ? url : QUrl{};
+}
+
+QUrl releasePageUrlForVersion(const QString &version)
+{
+    if (version.isEmpty())
+        return {};
+    for (const QChar c : version) {
+        const ushort u = c.unicode();
+        const bool ok = (u >= '0' && u <= '9') || (u >= 'a' && u <= 'z') || (u >= 'A' && u <= 'Z')
+            || u == '.' || u == '-';
+        if (!ok)
+            return {};
+    }
+    const QUrl url(QString::fromLatin1(LIGHTNING_UPDATE_RELEASE_PAGE_BASE) + version);
+    return isAllowedFallbackManifestUrl(url) ? url : QUrl{};
+}
+
+QUrl primaryManifestUrl()
+{
+    const QUrl mirror = mirrorLatestManifestUrl();
+    return mirror.isEmpty() ? latestManifestUrl() : mirror;
+}
+
+QUrl primaryManifestSignatureUrl()
+{
+    const QUrl mirror = mirrorLatestManifestSignatureUrl();
+    return mirror.isEmpty() ? latestManifestSignatureUrl() : mirror;
+}
+
+QUrl fallbackManifestUrl()
+{
+    // Only a pair whose primary is the mirror has a fallback.
+    if (mirrorLatestManifestUrl().isEmpty() || mirrorLatestManifestSignatureUrl().isEmpty())
+        return {};
+    return latestManifestUrl();
+}
+
+QUrl fallbackManifestSignatureUrl()
+{
+    if (mirrorLatestManifestUrl().isEmpty() || mirrorLatestManifestSignatureUrl().isEmpty())
+        return {};
+    return latestManifestSignatureUrl();
 }
 
 bool isAllowedArtifactUrl(const QUrl &url)

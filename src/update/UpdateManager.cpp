@@ -339,12 +339,14 @@ void UpdateManager::startCheck(bool automatic)
 
     setState(Checking);
     m_signatureDocument.clear();
-    m_metadataFromMirror = false;
+    m_metadataInFallbackStage = false;
     fetchSignature();
 }
 
 void UpdateManager::fetchSignature()
 {
+    m_lastSignatureUrl = m_metadataInFallbackStage ? fallbackManifestSignatureUrl()
+                                                   : primaryManifestSignatureUrl();
     if (m_networkDisabledForTest)
         return; // stays in Checking; the test supplies the documents itself
     if (!m_fetcher) {
@@ -357,31 +359,37 @@ void UpdateManager::fetchSignature()
                 if (m_state != Checking)
                     return;
                 if (!ok) {
-                    if (retryMetadataFromMirror())
-                        return;
-                    failWith(message);
+                    onMetadataFetchFailed(message);
                     return;
                 }
                 m_signatureDocument = m_fetcher->document();
                 fetchManifest();
             });
-    m_fetcher->start(m_metadataFromMirror ? mirrorLatestManifestSignatureUrl()
-                                          : latestManifestSignatureUrl(),
+    m_fetcher->start(m_lastSignatureUrl,
                      kMaxSignatureEnvelopeBytes, userAgent());
 }
 
-bool UpdateManager::retryMetadataFromMirror()
+void UpdateManager::onMetadataFetchFailed(const QString &message)
 {
-    // One fallback attempt away from the canonical host. The signature is still
-    // verified against the compiled-in key and only strictly newer versions are
-    // accepted, so this can only restore availability (see UpdateEndpoints.h).
-    if (m_metadataFromMirror)
+    if (m_state != Checking)
+        return;
+    if (retryMetadataFromFallback())
+        return;
+    failWith(message);
+}
+
+bool UpdateManager::retryMetadataFromFallback()
+{
+    // One fallback attempt away from the primary source (the GitHub slot; the
+    // canonical GitLab copy is the fallback). Either answer is held to the same
+    // signature check against the compiled-in key and only strictly newer
+    // versions are accepted (see UpdateEndpoints.h). m_metadataInFallbackStage
+    // means "in the fallback stage" and is reset per check.
+    if (m_metadataInFallbackStage)
         return false;
-    if (mirrorLatestManifestUrl().isEmpty()
-        || mirrorLatestManifestSignatureUrl().isEmpty()) {
+    if (fallbackManifestUrl().isEmpty() || fallbackManifestSignatureUrl().isEmpty())
         return false;
-    }
-    m_metadataFromMirror = true;
+    m_metadataInFallbackStage = true;
     m_signatureDocument.clear();
     fetchSignature();
     return true;
@@ -396,12 +404,10 @@ void UpdateManager::fetchManifest()
                 if (m_state != Checking)
                     return;
                 if (!ok) {
-                    // Restart the pair from the mirror: a canonical signature
-                    // over a mirrored manifest would fail as tampering rather
-                    // than read as an outage.
-                    if (retryMetadataFromMirror())
-                        return;
-                    failWith(message);
+                    // Restart the pair from the fallback: a signature from one
+                    // source over a manifest from the other would fail as
+                    // tampering rather than read as an outage.
+                    onMetadataFetchFailed(message);
                     return;
                 }
                 const QByteArray manifestBytes = m_fetcher->document();
@@ -409,8 +415,7 @@ void UpdateManager::fetchManifest()
                 m_signatureDocument.clear();
                 applyCheckDocuments(manifestBytes, signatureBytes);
             });
-    m_fetcher->start(m_metadataFromMirror ? mirrorLatestManifestUrl()
-                                          : latestManifestUrl(),
+    m_fetcher->start(m_metadataInFallbackStage ? fallbackManifestUrl() : primaryManifestUrl(),
                      UpdateManifest::kMaxManifestBytes, userAgent());
 }
 
@@ -439,10 +444,10 @@ void UpdateManager::applyCheckDocuments(const QByteArray &manifestBytes,
     const UpdateManifest::Result result =
         UpdateManifest::parseVerified(manifestBytes, sigBytes, *m_trust);
     if (!result.ok) {
-        // A canonical answer that does not verify counts as no answer (a
-        // hijacked domain or proxy returns 200 with wrong bytes). Retry the
-        // mirror once; it is held to the same verification.
-        if (retryMetadataFromMirror())
+        // A primary answer that does not verify counts as no answer (a stale
+        // slot, a hijacked domain or proxy returns 200 with wrong bytes). Try
+        // the fallback once; it is held to the same verification.
+        if (retryMetadataFromFallback())
             return;
         Q_EMIT updateInfoChanged();
         failWith(result.message);
@@ -505,7 +510,12 @@ void UpdateManager::decideFromManifest(const Version &installed)
 
     m_latestVersion = m_manifest.versionString();
     m_releaseNotes = m_manifest.releaseNotes();
-    m_releaseNotesUrl = m_manifest.releaseNotesUrl();
+    // The manifest's release_notes_url is still parsed and must be canonical
+    // to be accepted, but the link the user clicks is derived from the verified
+    // version so it survives a private GitLab.
+    m_releaseNotesUrl = releasePageUrlForVersion(m_latestVersion);
+    if (m_releaseNotesUrl.isEmpty())
+        m_releaseNotesUrl = m_manifest.releaseNotesUrl(); // no mirror compiled in
 
     // Package-managed installs: only the channel block may declare an update,
     // and only when it is genuinely newer.

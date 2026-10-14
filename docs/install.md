@@ -1,8 +1,7 @@
 # Installing Lightning
 
 Packages are attached to the
-[**Releases**](https://gitlab.smetonis.net/Mizerd/lightning/-/releases) page and
-mirrored to [GitHub Releases](https://github.com/Mizerd/lightning/releases). Every
+[**Releases**](https://github.com/Mizerd/lightning/releases) page on GitHub. Every
 release ships a `SHA256SUMS` file; verifying is worth the one command, because no
 package is code-signed yet:
 

@@ -7,17 +7,22 @@
 // Compiled-in endpoint policy for updates. Two roles; merging them is a
 // security regression:
 //
-//   * Metadata (manifest, signature, release_notes_url) comes from the
-//     canonical release host only. GitLab decides what may be installed.
-//   * Artifact bytes (and their redirect hops) may also come from a
-//     compiled-in mirror, which only supplies bytes the signed manifest
-//     already named, sized and hashed.
+//   * Metadata (manifest, signature, release_notes_url) is trusted only
+//     because the Ed25519 signature verifies against the compiled-in key, and
+//     only strictly newer versions are ever offered. The PRIMARY source is the
+//     fixed GitHub release slot and the canonical GitLab registry is the
+//     single FALLBACK, so a private or unreachable GitLab costs nothing.
+//     Neither host decides anything: the signature does.
+//   * Artifact bytes (and their redirect hops) may come from the compiled-in
+//     mirror (tried first) or the canonical host (the fallback), and only
+//     supply bytes the signed manifest already named, sized and hashed.
 //
-// Every manifest URL and redirect Location is re-validated here, so neither a
-// hostile manifest nor a compromised mirror can redirect downloads or change
-// the installed version. No tokens, user-derived parameters, GitHub API or
-// page scraping: a fixed public Generic Package Registry path, plus an
-// optional immutable mirror URL from the signed manifest.
+// Every manifest URL and redirect Location is re-validated here (https, port
+// 443, no userinfo, exact host match), so neither a hostile manifest nor a
+// compromised host can redirect downloads or change the installed version. No
+// tokens, user-derived parameters, GitHub API or page scraping, and no
+// "latest" URL GitHub could choose: a fixed release tag whose assets the
+// pipeline replaces, plus the fixed public Generic Package Registry path.
 namespace lightning::update {
 
 // Canonical release host. Overridable at build time only.
@@ -32,17 +37,37 @@ QStringList mirrorArtifactHosts();
 // suffix match ("evil-gitlab.smetonis.net"). Diagnostics only.
 QStringList allowedUpdateHosts();
 
-// Canonical host only: the manifest, its signature and release_notes_url.
-// Always tried first.
+// Canonical host only: the GitLab copy of the manifest pair, the manifest's
+// artifact `url` entries and release_notes_url.
 bool isAllowedManifestUrl(const QUrl &url);
 
-// Availability fallback: a mirrored manifest pair, read only after the
-// canonical host failed. Relaxing the canonical-only rule is safe because the
-// Ed25519 signature is verified the same way, only strictly newer versions are
-// offered (a stale manifest offers nothing), and the canonical host is always
-// tried first. A hostile mirror can at most withhold an update from clients
-// that cannot reach GitLab anyway.
+// Mirror hosts only: the GitHub manifest pair and its redirect hops. The
+// Ed25519 signature is verified the same way and only strictly newer versions
+// are offered, so the slot can never cause an unsigned install or a downgrade.
+// ACCEPTED TRADE-OFF: the fallback runs only on a transport failure or a failed
+// signature. An OLD but validly signed manifest in the slot makes the client
+// report "up to date" without asking GitLab, so whoever controls the slot
+// (the GitHub account, a leaked mirror token, or a failed pipeline write) can
+// freeze clients, or pin them to any signed release newer than the one they
+// run. This is inherent once GitHub is the only public source; before the
+// change, GitLab's rollback-guarded "latest" held that control.
 bool isAllowedFallbackManifestUrl(const QUrl &url);
+
+// The order the updater reads the manifest pair in. Primary is the GitHub slot
+// when one is compiled in, otherwise the canonical copy. Fallback is the
+// canonical copy when the primary is the mirror, otherwise empty. Each is
+// tried at most once per check.
+QUrl primaryManifestUrl();
+QUrl primaryManifestSignatureUrl();
+QUrl fallbackManifestUrl();
+QUrl fallbackManifestSignatureUrl();
+
+// The release page the user is sent to: a fixed tag URL on the mirror host
+// derived from the (already signature-verified, semver-validated) version, so
+// the link does not depend on the manifest's release_notes_url, which must keep
+// naming the canonical host for deployed clients. Empty for a version with
+// characters outside [0-9A-Za-z.-] or when the base is not on a mirror host.
+QUrl releasePageUrlForVersion(const QString &version);
 
 // Empty when no mirror base is compiled in, disabling the fallback.
 QUrl mirrorLatestManifestUrl();

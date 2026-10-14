@@ -74,19 +74,19 @@ set(LIGHTNING_INSTALL_TYPE "development" CACHE STRING
 set(LIGHTNING_UPDATE_PUBKEY_2026A "" CACHE STRING
     "Base64 Ed25519 public key for update-manifest key id lightning-release-2026a")
 set(LIGHTNING_UPDATE_HOST "gitlab.smetonis.net" CACHE STRING
-    "Canonical host: the FIRST source of update metadata (the mirror's fixed slot is the fallback), and the fallback for artifacts")
+    "Canonical host: the FALLBACK source of update metadata (the mirror's fixed slot is read first) and of artifacts; the only source when the mirror manifest base is empty")
 set(LIGHTNING_UPDATE_PROJECT_ID "6" CACHE STRING
     "GitLab project id hosting the update package registry")
 
 # Hosts besides the canonical one that may serve artifact bytes, and the
-# fallback manifest pair (isAllowedFallbackManifestUrl uses the same list).
+# mirrored manifest pair (isAllowedFallbackManifestUrl uses the same list).
 # Safe because the pair is verified against the compiled-in Ed25519 key before
 # use; see docs/updates.md and src/update/UpdateEndpoints.h. github.com
 # redirects to the *.githubusercontent.com hosts.
 set(LIGHTNING_UPDATE_MIRROR_HOSTS
     "github.com;objects.githubusercontent.com;release-assets.githubusercontent.com"
     CACHE STRING
-    "Semicolon-separated hosts allowed to serve update ARTIFACTS (never metadata)")
+    "Semicolon-separated hosts allowed to serve update ARTIFACTS and the mirrored manifest pair")
 
 # A list would expand to separate -D arguments in target_compile_definitions
 # ($<SEMICOLON> does not help), so pass a comma-separated string;
@@ -94,13 +94,14 @@ set(LIGHTNING_UPDATE_MIRROR_HOSTS
 string(REPLACE ";" "," LIGHTNING_UPDATE_MIRROR_HOSTS_MACRO
     "${LIGHTNING_UPDATE_MIRROR_HOSTS}")
 
-# Mirrored copy of the signed manifest pair, used only when the canonical host
-# is unreachable; empty disables it. The signature and the strictly-newer rule
-# apply identically, so a stale or hostile mirror can at worst offer no update.
+# Mirrored copy of the signed manifest pair, read FIRST (the canonical host is
+# the fallback); empty disables it, leaving GitLab as the only source. The
+# signature and the strictly-newer rule apply identically; see the freeze/pin
+# trade-off in docs/updates.md.
 set(LIGHTNING_UPDATE_MIRROR_MANIFEST_BASE
     "https://github.com/Mizerd/lightning/releases/download/update-latest"
     CACHE STRING
-    "Base URL of the mirrored manifest pair, or empty to disable the fallback")
+    "Base URL of the mirrored manifest pair (the primary source), or empty to make the canonical host the only source")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -5,21 +5,20 @@ native Qt 6/QML Matrix client built on the official Rust Matrix SDK; the
 repository's operating conventions live in [`CLAUDE.md`](CLAUDE.md), which is
 worth skimming before a larger change.
 
-The canonical repository — the only one that accepts changes, runs releases and
-is authoritative for provenance — is
-<https://gitlab.smetonis.net/Mizerd/lightning>.
-[github.com/Mizerd/lightning](https://github.com/Mizerd/lightning) is an
-automatically synchronised, force-pushed **read-only mirror**: anything committed
-directly to it is overwritten by the next release push.
+The public home of the project is
+<https://github.com/Mizerd/lightning>: clone it, file issues there, and download
+releases from it. Development and releases are driven from the maintainer's own
+GitLab, which is not open to the public and which GitHub is synchronised from
+(force-pushed): anything committed directly to GitHub's own branches is
+overwritten by the next push.
 
-Anyone can clone either one. On the GitLab instance public registration is closed
-and the issue tracker, merge requests and forks are limited to members, so there
-are two ways to send a change and neither needs an account there — a pull
-request on the GitHub mirror is the simpler of the two.
+Anyone can clone the repository. There are two ways to send a change and
+neither needs an account anywhere but GitHub — a pull request is the simpler of
+the two.
 
 ## Reporting a bug
 
-Open an issue on the [GitHub mirror](https://github.com/Mizerd/lightning/issues)
+Open an issue on [GitHub](https://github.com/Mizerd/lightning/issues)
 or email the maintainer. Say which version you are on (Settings → About, or
 `lightning-matrix --version`), your platform, and what you expected against what
 happened. For calling or media problems include the output of
@@ -29,7 +28,7 @@ private message contents.
 
 ## Sending a change
 
-### 1. A pull request on the GitHub mirror — the easiest way
+### 1. A pull request on GitHub — the easiest way
 
 Fork [Mizerd/lightning](https://github.com/Mizerd/lightning) on GitHub and open
 a PR against `main`. You need nothing but a GitHub account, and you get a web UI
@@ -37,20 +36,20 @@ to review the diff in.
 
 One thing to know so the outcome is not a surprise: the PR is read as a
 **proposal**, and it is not merged on GitHub. Accepted commits are applied on
-GitLab and reach GitHub through the mirror, so the PR ends up **closed rather
-than merged** even when your change ships. Your authorship is preserved either
+the maintainer's repository and reach GitHub through the synchronisation, so the
+PR ends up **closed rather than merged** even when your change ships. Your authorship is preserved either
 way — the commits keep your name and email, and you appear in the repository's
 contributor list.
 
-Do not push directly to the mirror's own branches. The mirror is force-updated
-from GitLab and such a commit is destroyed without warning.
+Do not push directly to the repository's own branches. GitHub is force-updated
+from the maintainer's repository and such a commit is destroyed without warning.
 
 ### 2. A patch by email
 
 If you would rather not use GitHub:
 
 ```sh
-git clone https://gitlab.smetonis.net/Mizerd/lightning.git
+git clone https://github.com/Mizerd/lightning.git
 cd lightning
 # commit your work on top of main, in scoped commits
 git format-patch origin/main --stdout > lightning-<topic>.patch
@@ -60,9 +59,8 @@ Send the `.patch` file to <antrasrokas@gmail.com> (`git send-email` works too).
 It applies with `git am`, so your name and email stay on the commit as its
 author.
 
-If you expect to contribute more than once, ask about a GitLab account and
-project membership — registration is closed to the public, but both can be
-arranged on request, which gets you real merge requests and CI.
+If you expect to contribute more than once, ask the maintainer about direct
+write access, which can be arranged on request.
 
 ## Build and test
 

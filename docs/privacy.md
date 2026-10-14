@@ -187,7 +187,7 @@ corresponding integrations — there are none:
   interface is routed through the C++ media bridge; there is no
   `Image { source: "https://…" }` anywhere in `qml/`.
 
-## 5a. Update checks and downloads — GitLab, and the GitHub mirror
+## 5a. Update checks and downloads — GitHub first, GitLab as fallback
 
 Lightning asks whether a newer release exists. This is the only route by
 which the project itself receives any request from an installed client. It is
@@ -199,18 +199,19 @@ per 24 hours, never within the first 30 seconds of launch, and never triggered
 by switching room or account. A manual *Check for updates* button is always
 available and is always an explicit user action.
 
-**What is contacted, for a check.** One host, `gitlab.smetonis.net`, over
-HTTPS, anonymously and without credentials — two small public files from the
-project's package registry (`update-manifest-v1.json` and its detached
-signature). A check contacts nothing else.
+**What is contacted, for a check.** `github.com` first (redirecting to
+`objects.githubusercontent.com` or `release-assets.githubusercontent.com`), over
+HTTPS, anonymously and without credentials — two small public files from one
+fixed release (`update-manifest-v1.json` and its detached signature). Only if
+GitHub cannot be reached, or serves a document that does not verify, does the
+check fall back to `gitlab.smetonis.net` for the same two files. A check
+contacts nothing else.
 
 **What is contacted, for a download.** If the user chooses to install an
-update, the file itself is fetched from the project's read-only GitHub mirror
-first, to keep that bandwidth off the project's own server:
-`github.com`, which redirects to `objects.githubusercontent.com` or
-`release-assets.githubusercontent.com`. If the mirror cannot supply the file,
-Lightning falls back to `gitlab.smetonis.net`. This is a **new third party for
-downloads only**: GitHub sees an anonymous request for a public release file
+update, the file itself is fetched from GitHub first: `github.com`, which redirects
+to `objects.githubusercontent.com` or `release-assets.githubusercontent.com`.
+If GitHub cannot supply the file, Lightning falls back to
+`gitlab.smetonis.net`. GitHub is a third party for checks and downloads: it sees an anonymous request for a public release file
 and the connecting IP address, as any file download does. It is never asked
 what version exists — Lightning makes no GitHub API call and reads no GitHub
 release metadata, and the download URL comes from the signed manifest rather
@@ -431,4 +432,4 @@ linked.
 ## Contact
 
 Rokas Smetonis — <antrasrokas@gmail.com> ·
-<https://gitlab.smetonis.net/Mizerd/lightning>
+<https://github.com/Mizerd/lightning>
