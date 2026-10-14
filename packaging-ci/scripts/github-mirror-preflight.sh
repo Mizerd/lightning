@@ -4,7 +4,8 @@ set -Eeuo pipefail
 # Prove, before anything is published, that the GitHub mirror can be written.
 # The mirror job runs after the tag exists, so a dead or expiring token must be
 # caught here. Runs in a job holding only the token (environment `mirror`);
-# a no-op when GITHUB_MIRROR_REPO is unset. Never prints the token.
+# a no-op when GITHUB_MIRROR_REPO is unset in a NON-publishing pipeline and a
+# hard failure in a publishing one. Never prints the token.
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
@@ -22,6 +23,9 @@ mkdir -p "$ROOT/dist"
 : "${GITHUB_MIRROR_TOKEN_WARN_DAYS:=30}"
 
 if ! update_mirror_enabled; then
+    if update_mirror_missing_is_fatal; then
+        die "GITHUB_MIRROR_REPO is not set in a publishing pipeline (RELEASE_ACTION=${RELEASE_ACTION}): GitHub is the public home, so nothing may be published without it"
+    fi
     printf 'GitHub mirroring is disabled (GITHUB_MIRROR_REPO unset); nothing to preflight\n'
     jq -n '{enabled:false}' >"$ROOT/dist/github-mirror-preflight.json"
     exit 0

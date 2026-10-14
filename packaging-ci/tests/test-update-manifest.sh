@@ -168,8 +168,8 @@ run env UPDATE_EXPIRES_AT=2027-03-01T00:00:00Z "$ROOT/scripts/generate-update-ma
     && bad "a leading-zero validity was accepted" || note "a leading-zero validity is refused"
 run "$ROOT/scripts/generate-update-manifest.sh" || bad "regenerate with the default validity"
 [[ "$($JQ -r '.min_updater_version' "$UPD")" == 1 ]] && note "min_updater_version" || bad "min_updater_version"
-[[ "$($JQ -r '.release_notes_url' "$UPD")" == "https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v$VER" ]] \
-    && note "release notes URL points at the release page" || bad "release_notes_url"
+[[ "$($JQ -r 'has("release_notes_url")' "$UPD")" == false ]] \
+    && note "release_notes_url is omitted (optional in every shipped client)" || bad "release_notes_url present"
 
 expected_keys='["linux-appimage","linux-deb","linux-rpm","windows-msi","windows-portable","windows-setup"]'
 actual_keys="$($JQ -c '.artifacts | keys' "$UPD")"
@@ -661,7 +661,24 @@ grep -qi 'github' "$UPD" && bad "the manifest mentions github with mirroring dis
     || note "the disabled manifest names no mirror at all"
 [[ "$($JQ -r '.schema' "$UPD")" == 1 ]] && note "schema stays 1" || bad "schema changed"
 : >"$MLOG"
-run "$ROOT/scripts/mirror-release-to-github.sh" || bad "the mirror job failed when unconfigured"
+if run "$ROOT/scripts/mirror-release-to-github.sh"; then
+    bad "an unconfigured mirror passed in a PUBLISHING pipeline"
+else
+    grep -q 'GITHUB_MIRROR_REPO is not set in a publishing pipeline' "$TR/out.log" \
+        && note "an unconfigured mirror is a hard failure in a publishing pipeline" \
+        || bad "the publishing failure does not name the missing variable"
+fi
+# The release-mirror job's release contract needs a publishing pipeline anyway
+# (and the job only exists under .publish-rules); the predicate it relies on
+# is checked directly, for every pipeline shape.
+( . "$ROOT/scripts/update-lib.sh"
+  PUBLISH_PACKAGES=true RELEASE_ACTION=create update_mirror_missing_is_fatal \
+  && PUBLISH_PACKAGES=true RELEASE_ACTION=attach-existing update_mirror_missing_is_fatal \
+  && ! PUBLISH_PACKAGES=false RELEASE_ACTION=create update_mirror_missing_is_fatal \
+  && ! PUBLISH_PACKAGES=true RELEASE_ACTION= update_mirror_missing_is_fatal \
+  && ! PUBLISH_PACKAGES= RELEASE_ACTION= update_mirror_missing_is_fatal ) \
+    && note "a missing mirror is fatal exactly in publishing create/attach-existing pipelines" \
+    || bad "update_mirror_missing_is_fatal predicate"
 grep -q 'github.com' "$MLOG" && bad "the disabled mirror job still contacted GitHub" \
     || note "the disabled mirror job makes no GitHub request"
 [[ -f "$TR/dist/github-mirror.json" ]] && bad "a disabled mirror wrote a mirror record" \
@@ -914,7 +931,11 @@ run env MOCK_GITHUB_TAG_UNAUTHORIZED=true UPDATE_REFRESH_LATEST_ONLY=true "$ROOT
 [[ "$(grep -c '^GET https://api.github.com' "$MLOG")" == 0 ]] && note "the skipped preflight contacts GitHub not at all" || bad "refresh preflight contacted GitHub"
 no_leak "$TR/all.log"
 unset GITHUB_MIRROR_REPO GITHUB_MIRROR_TOKEN
-run "$ROOT/scripts/github-mirror-preflight.sh" && note "preflight is a no-op without a mirror" || bad "preflight without a mirror"
+run env PUBLISH_PACKAGES=false "$ROOT/scripts/github-mirror-preflight.sh" \
+    && note "preflight is a no-op without a mirror in a non-publishing pipeline" || bad "preflight without a mirror"
+run "$ROOT/scripts/github-mirror-preflight.sh" \
+    && bad "preflight passed without a mirror in a publishing pipeline" \
+    || note "preflight fails without a mirror in a publishing pipeline"
 
 # --- The update slot on GitHub ---------------------------------------------------
 printf '== the signed manifest pair is mirrored to the fixed update-latest slot ==\n'
@@ -986,7 +1007,11 @@ fi
 cp "$WORK/slot-good.json" "$UPD"
 no_leak "$TR/all.log"
 unset GITHUB_MIRROR_REPO GITHUB_MIRROR_TOKEN
-run "$ROOT/scripts/mirror-update-manifest-to-github.sh" && note "the slot job is a no-op without a mirror" || bad "slot job without a mirror"
+run env PUBLISH_PACKAGES=false "$ROOT/scripts/mirror-update-manifest-to-github.sh" \
+    && note "the slot job is a no-op without a mirror in a non-publishing pipeline" || bad "slot job without a mirror"
+run "$ROOT/scripts/mirror-update-manifest-to-github.sh" \
+    && bad "the slot job passed without a mirror in a publishing pipeline" \
+    || note "the slot job fails without a mirror in a publishing pipeline"
 
 printf '== the signed manifest and the mirror job must agree on every URL ==\n'
 $JQ -S '.artifacts["linux-deb"].mirror_url = "https://github.com/Someone/else/releases/download/v9.9.9/x.deb"' \

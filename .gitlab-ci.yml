@@ -179,7 +179,7 @@ config-tests:
 # Proves the GitHub mirror token works before anything is published, since the
 # mirror job only runs after the GitLab tag and release exist. Refuses a token
 # with fewer than two days left and warns from thirty. Holds only the mirror
-# token (environment `mirror`); a no-op when GITHUB_MIRROR_REPO is unset.
+# token (environment `mirror`); a hard failure when GITHUB_MIRROR_REPO is unset in a publishing pipeline.
 # publish-packages `needs` it, which makes it a gate.
 github-mirror-preflight:
   extends: .publish-rules
@@ -1289,7 +1289,8 @@ finalize-release:
 #   * After finalize-release: the mirrored tag must exist and peel to the
 #     released commit, so GitHub never creates a tag of its own.
 #   * Before publish-update-manifest: every promoted mirror_url is proved first.
-# A no-op when GITHUB_MIRROR_REPO is unset.
+# A no-op when GITHUB_MIRROR_REPO is unset in a NON-publishing pipeline; a hard
+# failure in a publishing one (GitHub is the public home).
 mirror-release-to-github:
   extends: .publish-rules
   stage: mirror

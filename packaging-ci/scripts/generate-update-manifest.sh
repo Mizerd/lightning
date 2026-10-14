@@ -118,15 +118,16 @@ done
 
 # --- Ecosystem channels ------------------------------------------------------
 #
-# Driven by variables so enabling a channel needs no code change. All four are
-# false: no Flathub, Snap Store or APT publication exists, and the release
+# Driven by variables so enabling a channel needs no code change. The Flathub
+# channel stays false here (Flathub updates flow through Flathub itself, not this
+# manifest); no Snap Store or APT publication exists, and the release
 # bundles are manual downloads. The DNF one is Fedora COPR (mizerd/lightning-matrix),
 # read only by a COPR-built install (linux-rpm-repo). It stays false by default
 # because COPR builds a release after it is published: flip it with a manifest
 # refresh once that build is green (packaging-ci/docs/update-manifest.md).
 : "${UPDATE_CHANNEL_FLATPAK_AVAILABLE:=false}"
 : "${UPDATE_CHANNEL_FLATPAK_VERSION:=}"
-: "${UPDATE_CHANNEL_FLATPAK_NOTE:=No Flathub publication exists. The .flatpak bundle on the release page is a manual download, not an update source.}"
+: "${UPDATE_CHANNEL_FLATPAK_NOTE:=Lightning is on Flathub as org.lightning_matrix.Lightning, and updates for the Flatpak come through Flathub. The .flatpak bundle on the release page is a manual download, not an update source.}"
 : "${UPDATE_CHANNEL_SNAP_AVAILABLE:=false}"
 : "${UPDATE_CHANNEL_SNAP_VERSION:=}"
 : "${UPDATE_CHANNEL_SNAP_NOTE:=No Snap Store publication exists. The .snap on the release page is a manual download, not an update source.}"
@@ -167,9 +168,11 @@ channels="$(jq -cn \
 [[ "$UPDATE_CHANNEL" == stable ]] || die "only the stable channel is published today"
 : "${UPDATE_MIN_UPDATER_VERSION:=1}"
 [[ "$UPDATE_MIN_UPDATER_VERSION" =~ ^[0-9]+$ ]] || die "UPDATE_MIN_UPDATER_VERSION must be an integer"
-: "${LIGHTNING_RELEASE_BASE_URL:=https://gitlab.smetonis.net/Mizerd/lightning}"
-[[ "$LIGHTNING_RELEASE_BASE_URL" == https://* ]] || die "release base URL must be https"
-release_notes_url="${LIGHTNING_RELEASE_BASE_URL}/-/releases/${RELEASE_TAG}"
+# release_notes_url is deliberately NOT emitted: the manifest field is optional
+# in every shipped client (0.7.3 onward treat an absent field as no link, and
+# the dialog hides its label), and a URL on the release host would pin the
+# manifest to a server that may go private. Current clients derive the link
+# from the verified version instead (UpdateManager::releasePageUrlForVersion).
 
 # An explicit override, else the pipeline creation time: both are stable
 # across retries, which the immutable per-release copy requires.
@@ -223,7 +226,6 @@ jq -S -n \
     --arg tag "$RELEASE_TAG" \
     --arg released "$released" \
     --arg expires "$expires" \
-    --arg release_notes_url "$release_notes_url" \
     --rawfile release_notes "$notes_file" \
     --argjson schema 1 \
     --argjson min_updater_version "$UPDATE_MIN_UPDATER_VERSION" \
@@ -231,7 +233,7 @@ jq -S -n \
     --argjson channels "$channels" \
     '{schema:$schema, version:$version, channel:$channel, tag:$tag,
       released:$released, expires:$expires, min_updater_version:$min_updater_version,
-      release_notes_url:$release_notes_url, release_notes:$release_notes,
+      release_notes:$release_notes,
       artifacts:$artifacts, channels:$channels}' >"$out"
 
 # The client bound is 1 MiB (UPDATE-SPEC §2); stay well below it. If notes are

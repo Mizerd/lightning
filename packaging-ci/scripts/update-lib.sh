@@ -66,6 +66,18 @@ update_mirror_enabled() {
     [[ -n "${GITHUB_MIRROR_REPO:-}" ]]
 }
 
+# GitHub is the only public source once the self-hosted GitLab is private, so a
+# PUBLISHING pipeline (a release, or a manifest refresh) with no mirror repo
+# configured would publish where nobody can read it. Fatal there; a non-
+# publishing snapshot pipeline keeps the clean no-op.
+update_mirror_missing_is_fatal() {
+    [[ "${PUBLISH_PACKAGES:-false}" == true ]] || return 1
+    case "${RELEASE_ACTION:-}" in
+        create|attach-existing) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # <owner>/<repo> only: no path, scheme, query or userinfo in a signed URL.
 update_mirror_repo_valid() {
     [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ ]]

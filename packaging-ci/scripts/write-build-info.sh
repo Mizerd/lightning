@@ -30,14 +30,18 @@ RUST_VERSION="$(rustc --version 2>/dev/null || true)"
 CMAKE_VERSION="$(cmake --version 2>/dev/null | head -1 || true)"
 BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# The repository recorded here is the PUBLIC home (GitHub). The pipeline's own
+# clone URL and its CI job/project URLs are deliberately not written: they name
+# a host that may be private, and nothing reads them back.
+# PROVENANCE: lightning_repository names the PUBLIC mirror, not the clone the
+# pipeline actually fetched from. What binds a package to its source is
+# resolved_source_sha (a full commit SHA, identical on the mirror), not this URL.
 jq -n \
     --arg project_name "lightning-deploy" \
-    --arg pipeline_project_url "${CI_PROJECT_URL:-local}" \
     --arg pipeline_id "${CI_PIPELINE_ID:-local}" \
     --arg job_id "${CI_JOB_ID:-local}" \
-    --arg job_url "${CI_JOB_URL:-local}" \
     --arg package_format "$FORMAT" \
-    --arg repository "${LIGHTNING_REPOSITORY:-https://gitlab.smetonis.net/Mizerd/lightning.git}" \
+    --arg repository "${LIGHTNING_PUBLIC_REPOSITORY:-https://github.com/Mizerd/lightning.git}" \
     --arg requested_ref "$SOURCE_REF" \
     --arg source_sha "$SOURCE_SHA" \
     --arg source_commit_time "$SOURCE_TIME" \
@@ -56,8 +60,8 @@ jq -n \
     --arg build_timestamp "$BUILD_TIMESTAMP" \
     --argjson files "$FILES_JSON" \
     --argjson checksums "$CHECKSUMS_JSON" \
-    '{project_name:$project_name, pipeline_project_url:$pipeline_project_url,
-      pipeline_id:$pipeline_id, job_id:$job_id, job_url:$job_url,
+    '{project_name:$project_name,
+      pipeline_id:$pipeline_id, job_id:$job_id,
       package_format:$package_format, lightning_repository:$repository,
       requested_lightning_ref:$requested_ref, resolved_source_sha:$source_sha,
       source_commit_time:$source_commit_time, source_tag:(if $source_tag == "" then null else $source_tag end),

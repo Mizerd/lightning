@@ -202,7 +202,7 @@ RELEASE_NOTES_B64=
 Resolve the source SHA before starting. A running pipeline never follows
 project-6 `main` and must not use a mutable local project-6 checkout; the same
 full SHA is rechecked by source resolution and the Windows builder, then
-recorded in filenames and `build-info.json`.
+recorded in filenames and `build-info.json`. (`lightning_repository` there names the public mirror, not necessarily the clone the pipeline fetched; provenance is `resolved_source_sha`.)
 
 Web and API pipeline sources are accepted. A branch, tag, short SHA, merge
 request, non-default project-7 ref, publication input, release input, or Linux
@@ -493,8 +493,8 @@ key. Without that check a pipeline can succeed while publishing a correctly
 signed manifest that every package it just built must reject — a failure nobody
 sees until a user clicks "check for updates", and one that cannot be corrected
 without a new release. The optional `UPDATE_CHANNEL_*`, `UPDATE_RELEASED_AT`,
-`UPDATE_MIN_UPDATER_VERSION`, `UPDATE_INCLUDE_RELEASE_NOTES`, and
-`LIGHTNING_RELEASE_BASE_URL` variables, the rotation procedure, and the
+`UPDATE_MIN_UPDATER_VERSION`, and `UPDATE_INCLUDE_RELEASE_NOTES`
+variables, the rotation procedure, and the
 compromise procedure are in
 [`docs/update-manifest.md`](docs/update-manifest.md).
 

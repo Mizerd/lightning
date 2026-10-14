@@ -56,7 +56,7 @@ use crate::{
 
 /// Client URI advertised during dynamic registration (shown on the consent
 /// screen). Not a secret.
-const CLIENT_URI: &str = "https://gitlab.smetonis.net/Mizerd/lightning";
+const CLIENT_URI: &str = "https://www.lightning-matrix.org";
 
 /// Lightning's OAuth client metadata for dynamic registration.
 /// `redirect_uri` is the sole registered redirect, so the server rejects

@@ -321,8 +321,12 @@ with open(os.path.join(HERE, os.pardir, "scripts",
 check("dist/release-notes.md" in _mirror_sh,
       "the mirror release body includes the release notes")
 check(_mirror_sh.index("dist/release-notes.md")
-      < _mirror_sh.index("This is a read-only mirror"),
-      "the release notes come before the mirror notice in the body")
+      < _mirror_sh.index("is published here on GitHub"),
+      "the release notes come before the GitHub footer in the body")
+check("lives on GitLab" not in _mirror_sh
+      and "only** from GitLab" not in _mirror_sh
+      and "gitlab.smetonis.net" not in _mirror_sh,
+      "the GitHub release body names GitLab neither as home nor as manifest source")
 
 mirror_before = " ".join(
     str(x) for x in resolve_extends("mirror-release-to-github").get("before_script", []))

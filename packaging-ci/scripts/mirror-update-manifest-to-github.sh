@@ -33,7 +33,10 @@ CURL_BIN="${CURL_BIN:-curl}"
 [[ "$UPDATE_SLOT_READBACK_POLL_SECONDS" =~ ^[1-9][0-9]*$ ]] || die "UPDATE_SLOT_READBACK_POLL_SECONDS must be a positive integer"
 
 if ! update_mirror_enabled; then
-    printf 'GitHub mirroring is disabled (GITHUB_MIRROR_REPO unset); the update manifest stays on GitLab only\n'
+    if update_mirror_missing_is_fatal; then
+        die "GITHUB_MIRROR_REPO is not set in a publishing pipeline (RELEASE_ACTION=${RELEASE_ACTION}): the update-latest slot on GitHub is the public fallback and must be written"
+    fi
+    printf 'GitHub mirroring is disabled (GITHUB_MIRROR_REPO unset); the update manifest is not copied to GitHub\n'
     exit 0
 fi
 update_mirror_repo_valid "$GITHUB_MIRROR_REPO" || \

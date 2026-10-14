@@ -4,9 +4,10 @@ set -Eeuo pipefail
 # Mirror the already-published release binaries to a GitHub Release
 # (MIRROR-SPEC §6).
 #
-# GitLab is the release authority; GitHub only holds byte-identical copies. A
-# compromised mirror cannot ship an update: the manifest is signed with a key
-# GitHub never holds, is fetched only from GitLab, and pins every SHA-256.
+# GitHub is the public home of the release; the files uploaded here are the
+# exact bytes the pipeline published. A compromised GitHub account cannot ship
+# an update: the manifest is signed with a key GitHub never holds and pins every
+# SHA-256, and the client verifies both whichever host served them.
 #
 # Runs after finalize-release (the tag must exist) and before
 # publish-update-manifest (so `latest` is promoted only once every mirror URL
@@ -44,6 +45,9 @@ update_manifest="$ROOT/dist/${UPDATE_MANIFEST_NAME}"
 
 # --- Disabled: a clean no-op, but never a silent one -------------------------
 if ! update_mirror_enabled; then
+    if update_mirror_missing_is_fatal; then
+        die "GITHUB_MIRROR_REPO is not set in a publishing pipeline (RELEASE_ACTION=${RELEASE_ACTION}): GitHub is the public home, so nothing may be published without it"
+    fi
     # A signed manifest that already promises mirror URLs must not be
     # promoted without the mirror release it points at.
     if [[ -f "$update_manifest" ]] && \
@@ -229,7 +233,7 @@ status="$(gh_get "${api_base}/releases/tags/${RELEASE_TAG}" "$release_json")" ||
     die "GitHub release lookup request failed"
 
 mirror_notes() { # output
-    local canonical="${LIGHTNING_RELEASE_BASE_URL:-https://gitlab.smetonis.net/Mizerd/lightning}/-/releases/${RELEASE_TAG}"
+    local repo_url="https://github.com/${GITHUB_MIRROR_REPO}"
     # Release notes first, from the same file finalize-release uses for the
     # GitLab description, then the mirror notice. A missing notes file only
     # warns: the tag and GitLab release already exist, so failing here would
@@ -245,26 +249,19 @@ mirror_notes() { # output
             "$notes_src" >&2
     fi
     cat >>"$1" <<EOF
-**This is a read-only mirror. It is not a release authority.**
+Lightning ${PACKAGE_VERSION} is published here on GitHub. The release assets are
+built and validated on clean systems by the project's packaging pipeline and
+uploaded unchanged.
 
-The canonical Lightning ${PACKAGE_VERSION} release lives on GitLab:
-${canonical}
+Verify any download against the \`SHA256SUMS\` asset.
 
-The files attached here are byte-identical copies of the artifacts published
-there. They exist so downloads do not all have to come from one small server.
-Nothing about this page decides anything: it does not determine what version
-exists, what is installable, or what Lightning will accept.
+Lightning's in-app updater reads a signed update manifest (published as the
+\`update-latest\` release on this repository) and verifies an Ed25519 signature
+made with a key that is not stored on GitHub. Every downloaded file is checked
+against the SHA-256 recorded in that signed manifest before it is installed, so
+replacing a file here cannot cause Lightning to install it.
 
-Verify any download against the \`SHA256SUMS\` asset, which is itself a copy of
-the published one.
-
-Lightning's in-app updater fetches its update manifest **only** from GitLab and
-verifies an Ed25519 signature made with a key that exists nowhere near GitHub.
-Every downloaded file is checked against the SHA-256 recorded in that signed
-manifest before it is installed, so replacing a file here cannot cause Lightning
-to install it.
-
-Issues, source, and history: ${LIGHTNING_RELEASE_BASE_URL:-https://gitlab.smetonis.net/Mizerd/lightning}
+Issues, source, and history: ${repo_url}
 EOF
 }
 

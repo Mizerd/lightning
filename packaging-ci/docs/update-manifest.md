@@ -146,7 +146,6 @@ from it, and it deliberately describes fewer things.
   "released": "2026-08-16T12:00:00Z",
   "expires": "2026-12-14T12:00:00Z",
   "min_updater_version": 1,
-  "release_notes_url": "https://gitlab.smetonis.net/Mizerd/lightning/-/releases/v0.8.0",
   "release_notes": "markdown, may be empty",
   "artifacts": {
     "linux-appimage":   { "filename": "…", "size": 0, "sha256": "…",
@@ -297,8 +296,8 @@ faster place to get the *bytes* GitLab already decided on.
 
 | | Canonical (GitLab) | Mirror (GitHub) |
 | --- | --- | --- |
-| Update manifest + signature | **Yes — only here** | Never |
-| `release_notes_url` | **Yes — only here** | Never |
+| Update manifest + signature | Yes (the `latest` slot) | Yes (the `update-latest` release slot, written after GitLab promotes; clients fall back to it, or use it first) |
+| `release_notes_url` | Omitted from the generated manifest (optional field; clients derive the release link from the verified version) | Never |
 | Which version exists / is installable | **Decided here** | Not an input |
 | Artifact bytes | Yes (`url`, and the fallback) | Yes (`mirror_url`, tried first) |
 | Tag and Release authority | **Yes** | Read-only copy |
@@ -392,10 +391,9 @@ commit*. So the job:
 > `gh release create v<version> --verify-tag --title "Lightning <version>"
 > --notes-file docs/releases/v<version>.md <assets…>`. That step is **no longer
 > needed** — the pipeline creates it, uploads every asset, and verifies each one
-> anonymously. The notes differ deliberately: the automated release body states
-> that the page is a read-only mirror and points at the canonical GitLab
-> release, rather than repeating the release notes, which live on GitLab and in
-> the signed manifest.
+> anonymously. The automated release body carries the release notes, then states
+> how to verify the assets and how the signed update manifest protects the
+> updater, and links the GitHub repository for issues and source.
 
 ### Idempotence, and never overwriting
 
@@ -446,8 +444,8 @@ version whose update manifest cannot be produced — and tags are never moved or
 recreated.
 
 **Why publication goes after the release.** The `latest` slot is what every
-installed Lightning polls, and `release_notes_url` points at the GitLab release
-page. Promoting `latest` before `finalize-release` would advertise an update
+installed Lightning polls, and the release page is derived from its version.
+Promoting `latest` before `finalize-release` would advertise an update
 whose release page 404s, and — worse — would leave that advertisement standing
 if the release job then failed. The reverse failure is inert and retryable: a
 finished release whose manifest has not been promoted yet simply does not notify
@@ -644,7 +642,6 @@ Optional, all with safe defaults:
 | `UPDATE_MIN_UPDATER_VERSION` | `1` | Raise when a manifest needs a newer client updater |
 | `UPDATE_RELEASED_AT` | `CI_PIPELINE_CREATED_AT` | Pins the `released` timestamp (retry-stable) |
 | `UPDATE_INCLUDE_RELEASE_NOTES` | `true` | `false` publishes an empty `release_notes` |
-| `LIGHTNING_RELEASE_BASE_URL` | project 6 web URL | Base for `release_notes_url` |
 | `UPDATE_CHANNEL_FLATPAK_AVAILABLE` / `_VERSION` / `_NOTE` | `false` / empty / explanatory | Flip after a Flathub publication exists |
 | `UPDATE_CHANNEL_SNAP_AVAILABLE` / `_VERSION` / `_NOTE` | `false` / empty / explanatory | Flip after a Snap Store publication exists |
 | `UPDATE_CHANNEL_DEB_REPO_AVAILABLE` / `_VERSION` / `_NOTE` | `false` / empty / explanatory | Flip after an APT repository exists |

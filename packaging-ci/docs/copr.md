@@ -10,7 +10,7 @@ CMake options, the same portable Qt ABI. Two things differ on purpose:
   and Snap: it never downloads or installs anything, says dnf manages the
   installation, and shows `sudo dnf upgrade --refresh lightning-matrix` (on
   openSUSE, where `/usr/bin/zypper` exists and no dnf does: zypper, and
-  `sudo zypper refresh && sudo zypper update lightning-matrix`). The GitLab
+  `sudo zypper refresh && sudo zypper update lightning-matrix`). The release
   `.rpm` stays `linux-rpm` and keeps its automatic install. Nothing at runtime
   tells the two apart, so only the build can say which one it is.
 - **No GIF provider keys.** The source RPM is public, so a COPR build has
@@ -20,9 +20,10 @@ CMake options, the same portable Qt ABI. Two things differ on purpose:
 ## How a build happens
 
 ```
-tag push vX.Y.Z on GitLab project 6
-  -> GitLab webhook (Tag push events) -> COPR package "lightning-matrix"
-  -> COPR clones the tag and runs, as root in a Fedora mock chroot with network:
+tag vX.Y.Z created on GitHub (the project 6 push mirror delivers it)
+  -> GitHub webhook (the "Branch or tag creation" event only)
+  -> COPR /webhooks/github/<id>/<uuid>/lightning-matrix/ -> package "lightning-matrix"
+  -> COPR clones https://github.com/Mizerd/lightning.git at the tag and runs, as root in a Fedora mock chroot with network:
        make -f .copr/Makefile srpm outdir=<dir> spec=<ignored>
          -> packaging-ci/scripts/build-copr-srpm.sh
               git archive HEAD, cargo vendor --locked, stamp the spec
@@ -69,17 +70,46 @@ Everything here is outward-facing and done by the maintainer, by hand.
    builds* OFF (the crates are vendored into the SRPM; the SRPM step has
    network regardless). The default 5-hour build timeout is enough.
 2. *Packages → New package → SCM*: name `lightning-matrix`, clone URL
-   `https://gitlab.smetonis.net/Mizerd/lightning.git`, committish `main`, SRPM
+   `https://github.com/Mizerd/lightning.git`, committish `main`, SRPM
    build method `make srpm`, *Auto-rebuild* ON. The same with copr-cli:
-   `copr-cli add-package-scm mizerd/lightning-matrix --name lightning-matrix --clone-url https://gitlab.smetonis.net/Mizerd/lightning.git --commit main --method make_srpm --webhook-rebuild on`
+   `copr-cli add-package-scm mizerd/lightning-matrix --name lightning-matrix --clone-url https://github.com/Mizerd/lightning.git --commit main --method make_srpm --webhook-rebuild on`
 3. First build by hand (*Rebuild*, or
    `copr-cli build-package mizerd/lightning-matrix --name lightning-matrix`); watch
    `builder-live.log`, and check the `%check` output for
    `call media engine built in: yes`.
-4. *Settings → Integrations*: copy the GitLab webhook URL. In GitLab, project 6
-   → *Settings → Webhooks*: that URL with `lightning-matrix/` appended (the package
-   name; our tags are `vX.Y.Z`, not `lightning-matrix-X.Y.Z`), trigger **Tag push
-   events** only. Push events would rebuild `main` on every commit.
+4. *Settings → Integrations*: copy the **GitHub** webhook URL
+   (`https://copr.fedorainfracloud.org/webhooks/github/<id>/<uuid>/`). In GitHub,
+   `Mizerd/lightning` → *Settings → Webhooks → Add webhook*: that URL with
+   `lightning-matrix/` appended (the package name), content type
+   `application/json` (COPR reads `flask.request.json`), and under *Let me select
+   individual events* tick **Branch or tag creation** (the `create` event) and
+   nothing else. Remove the old GitLab webhook (project 6 → *Settings →
+   Webhooks*) and, for an existing package, repoint it:
+   `copr-cli edit-package-scm mizerd/lightning-matrix --name lightning-matrix --clone-url https://github.com/Mizerd/lightning.git --commit main --method make_srpm --webhook-rebuild on`.
+
+   **Why `create`, and not `push` or `release`** (read from COPR's frontend,
+   `webhooks_ns/webhooks_general.py` and `logic/packages_logic.py`, 2026-10-13):
+   the GitHub endpoint takes `ref_type` and `ref` straight from the payload, and
+   only the `create` event carries them (`ref_type: "tag"`, `ref: "v0.10.2"`).
+   With `ref_type == "tag"` and the package name in the URL the package always
+   matches, and the build's committish is the tag. A `push` event has no
+   `ref_type`, so COPR treats it as a commit push: a push to `main` that touches
+   any file rebuilds `main` (the package's committish is `main`), and a tag push
+   (`ref: refs/tags/...`, no commits) matches nothing, so it would never build
+   the tag. A `release` event has neither field and builds nothing. `create` is
+   delivered when GitHub receives the tag, which is exactly "after the tag exists
+   on GitHub"; the mirror's sync of `main` creates no `create` event, so `main`
+   is not rebuilt per commit. Branch creations also arrive (`ref_type: "branch"`)
+   and match nothing. Two caveats: GitHub sends no `create` events when more than
+   three tags are pushed in one go (a first full sync of old tags), which is fine
+   because only new release tags matter; and a delivery can be redelivered from
+   *Settings → Webhooks → Recent deliveries* if COPR was down.
+
+   Not chosen: a pipeline job calling COPR's `custom` webhook after
+   `mirror-release-to-github`. The custom webhook sends no tag (it rebuilds the
+   package with its configured committish, `main`), so building a tag that way
+   needs `copr-cli`/API credentials in CI. The `create` webhook needs no pipeline
+   job and no secret outside GitHub's webhook settings and COPR.
 
 Or upload a source RPM instead of steps 2-4: the `copr-srpm` job keeps one as
 an artifact for a week (`dist/copr/`), and
@@ -116,7 +146,7 @@ installs it on a clean Leap 16.0. Both are canaries; neither gates a release.
 **What the maintainer clicks (once):** at
 <https://copr.fedorainfracloud.org/coprs/mizerd/lightning-matrix/edit/> tick
 the chroots `opensuse-tumbleweed-x86_64` and `opensuse-leap-16.0-x86_64`, save,
-then *Rebuild* the latest build (or wait for the next tag push) so the two new
+then *Rebuild* the latest build (or wait for the next release tag) so the two new
 chroots get packages. Nothing else changes: same package, same webhook, same
 SRPM method. `aarch64` only after x86_64 is green.
 
@@ -138,7 +168,7 @@ chroots, as the Fedora ones do.
 
 ## Each release
 
-Nothing, if the webhook is set: the tag push starts the build. The signed
+Nothing, if the webhook is set: the tag arriving on GitHub starts the build. The signed
 update manifest's `linux-rpm-repo` channel is `false` by default, which is
 what a COPR install reads; see `docs/update-manifest.md` for the two ways to
 set it `true`.
@@ -171,4 +201,5 @@ again. Users should pick one.
   `-DCMAKE_SKIP_INSTALL_RPATH=ON` at all: the spec's current form has been
   assembled into a source RPM (`copr-srpm`), not compiled.
 - `aarch64`, and `fedora-rawhide`.
-- The webhook route end to end.
+- The webhook route end to end (the GitHub `create` route is read from COPR's
+  source, not exercised).
