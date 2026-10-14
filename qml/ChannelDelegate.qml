@@ -50,6 +50,7 @@ ItemDelegate {
     signal copyRoomLink()
     signal leaveRoomRequested()
     signal chatBackgroundRequested()
+    signal inviteRequested()
     // Invitation rows only (GitHub #28): the menu replaces Leave with these.
     signal acceptInvite()
     signal rejectInvite()
@@ -410,6 +411,7 @@ ItemDelegate {
             onCopyRoomLink: root.copyRoomLink()
             onLeaveRoomRequested: root.leaveRoomRequested()
             onChatBackgroundRequested: root.chatBackgroundRequested()
+            onInviteRequested: root.inviteRequested()
         }
     }
 }

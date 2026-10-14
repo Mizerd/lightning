@@ -592,6 +592,14 @@ Rectangle {
         }
 
         ActivityCenterPanel { id: activityPanel }
+        // The row menu's "Invite people…" (RoomActionsMenu), for whichever
+        // room was right-clicked.
+        InvitePeopleDialog {
+            id: roomInviteDialog
+            objectName: "roomListInviteDialog"
+            parent: Overlay.overlay
+        }
+
         // The row menu's "Chat background…" (RoomActionsMenu), for whichever
         // room was right-clicked.
         ChatBackgroundDialog {
@@ -779,6 +787,8 @@ Rectangle {
                         leaveRoomConfirm.openFor(roomId, roomName)
                     onChatBackgroundRequested: (roomId, roomName) =>
                         roomChatBackgroundDialog.openForRoom(roomId, roomName)
+                    onInviteRequested: (roomId) =>
+                        roomInviteDialog.openFor(roomId)
                 }
             }
 
@@ -816,6 +826,8 @@ Rectangle {
                         leaveRoomConfirm.openFor(roomId, roomName)
                     onChatBackgroundRequested: (roomId, roomName) =>
                         roomChatBackgroundDialog.openForRoom(roomId, roomName)
+                    onInviteRequested: (roomId) =>
+                        roomInviteDialog.openFor(roomId)
                 }
             }
         }

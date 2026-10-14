@@ -42,6 +42,7 @@ Item {
     signal roomLinkCopyRequested(string roomId)
     signal leaveRoomRequested(string roomId, string roomName)
     signal chatBackgroundRequested(string roomId, string roomName)
+    signal inviteRequested(string roomId)
 
     // Empty state, only when the account has nothing; a filter or search that
     // matched nothing is a different message (below).
@@ -220,6 +221,7 @@ Item {
                     onAcceptInvite: app.roomList.acceptInvite(rowLoader.model.roomId)
                     onRejectInvite: app.roomInfo.leaveRoom(rowLoader.model.roomId)
                     onChatBackgroundRequested: root.chatBackgroundRequested(rowLoader.model.roomId, rowLoader.model.name)
+                    onInviteRequested: root.inviteRequested(rowLoader.model.roomId)
                 }
             }
 

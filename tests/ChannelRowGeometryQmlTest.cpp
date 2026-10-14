@@ -69,6 +69,10 @@ QtObject {
     property QtObject roomList: QtObject {
         property bool roomFavouritesSupported: true
     }
+    property QtObject roomInfo: QtObject {
+        property string roomId: ""
+        property bool canInvite: false
+    }
 }
 )"),
                          QUrl(QStringLiteral("qrc:/channelrowtest-appstub.qml")));
@@ -693,6 +697,56 @@ private Q_SLOTS:
             QCOMPARE(accepted.count(), 0);
             QVERIFY(QMetaObject::invokeMethod(accept, "triggered"));
             QCOMPARE(accepted.count(), 1);
+        }
+    }
+
+
+    // "Invite people…" on the room row menu: offered for a joined room, gated
+    // on the SDK permission only where it is known (the open room), absent on
+    // invitations and DMs, and it reaches the row's own signal.
+    void theRoomMenuOffersInviteWhereAllowed()
+    {
+        struct Case { bool invite; bool direct; QString open; bool can; bool shown; };
+        const Case cases[] = {
+            { false, false, QString(),               false, true  },
+            { false, false, QStringLiteral("!room:example.org"), true,  true  },
+            { false, false, QStringLiteral("!room:example.org"), false, false },
+            { true,  false, QString(),               false, false },
+            { false, true,  QString(),               false, false },
+        };
+        for (const Case &c : cases) {
+            Harness h;
+            QVERIFY(build(h, QStringLiteral(R"(
+        ChannelDelegate {
+            width: 300
+            roomId: "!room:example.org"
+            channelName: "alx"
+            isInvite: %1
+            isDirect: %2
+        })").arg(c.invite ? QStringLiteral("true") : QStringLiteral("false"),
+                 c.direct ? QStringLiteral("true") : QStringLiteral("false")),
+                          /*withAppStub=*/true));
+            QObject *info = h.appStub->property("roomInfo").value<QObject *>();
+            QVERIFY(info);
+            info->setProperty("roomId", c.open);
+            info->setProperty("canInvite", c.can);
+            QQuickItem *row = h.item();
+            QVERIFY(row);
+            QVERIFY(QMetaObject::invokeMethod(row, "openContextMenu"));
+            QCoreApplication::processEvents();
+            QObject *menu =
+                row->findChild<QObject *>(QStringLiteral("channelContextMenu"));
+            QVERIFY(menu);
+            QObject *item =
+                menu->findChild<QObject *>(QStringLiteral("roomInviteItem"));
+            QVERIFY2(item, "the room menu has no invite item");
+            QCOMPARE(item->property("visible").toBool(), c.shown);
+            if (!c.shown)
+                continue;
+            QSignalSpy requested(row, SIGNAL(inviteRequested()));
+            QVERIFY(requested.isValid());
+            QVERIFY(QMetaObject::invokeMethod(item, "triggered"));
+            QCOMPARE(requested.count(), 1);
         }
     }
 

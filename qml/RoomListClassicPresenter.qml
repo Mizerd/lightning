@@ -46,6 +46,7 @@ Item {
     signal clearSearchRequested
     signal leaveRoomRequested(string roomId, string roomName)
     signal chatBackgroundRequested(string roomId, string roomName)
+    signal inviteRequested(string roomId)
     signal inviteRejectRequested(string roomId, string roomName)
 
     ListView {
@@ -130,6 +131,7 @@ Item {
             onCopyRoomLink: root.roomLinkCopyRequested(model.roomId)
             onLeaveRoomRequested: root.leaveRoomRequested(model.roomId, model.name)
             onChatBackgroundRequested: root.chatBackgroundRequested(model.roomId, model.name)
+            onInviteRequested: root.inviteRequested(model.roomId)
         }
     }
 

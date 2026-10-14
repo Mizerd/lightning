@@ -30,6 +30,8 @@ AppMenu {
     signal leaveRoomRequested()
     // The host opens ChatBackgroundDialog for this room.
     signal chatBackgroundRequested()
+    // The host opens the invite dialog for this room.
+    signal inviteRequested()
     // Mono room-address header: the canonical alias when there is one,
     // otherwise the display name without a fabricated "#".
     contextLabel: root.isDirect
@@ -171,6 +173,19 @@ AppMenu {
         iconName: "image"
         text: qsTr("Chat background…")
         onTriggered: root.chatBackgroundRequested()
+    }
+    // Power gate: the open room's permission is known (RoomInfoController);
+    // for any other row the room list carries none, so it is offered and the
+    // invite dialog reports the server's answer (as the Space menu does).
+    AppMenuItem {
+        objectName: "roomInviteItem"
+        readonly property bool openRoom: !!app.roomInfo
+                                         && app.roomInfo.roomId === root.roomId
+        visible: !root.isInvite && !root.isDirect
+                 && (!openRoom || app.roomInfo.canInvite)
+        iconName: "person_add"
+        text: qsTr("Invite people…")
+        onTriggered: root.inviteRequested()
     }
     AppMenuItem {
         iconName: "link"
