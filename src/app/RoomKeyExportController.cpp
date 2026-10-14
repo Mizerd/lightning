@@ -104,6 +104,91 @@ qsizetype characterCount(const QString &text)
 }
 } // namespace
 
+namespace {
+// Things a guesser tries first. Matched case-insensitively as substrings and
+// each counted as nothing: "password123" is two common pieces, not 11
+// characters of entropy.
+const QStringList &commonWords()
+{
+    static const QStringList words{
+        QStringLiteral("password"), QStringLiteral("passw0rd"),
+        QStringLiteral("qwerty"),   QStringLiteral("qwertz"),
+        QStringLiteral("azerty"),   QStringLiteral("asdfgh"),
+        QStringLiteral("zxcvbn"),   QStringLiteral("letmein"),
+        QStringLiteral("admin"),    QStringLiteral("welcome"),
+        QStringLiteral("iloveyou"), QStringLiteral("matrix"),
+        QStringLiteral("lightning"), QStringLiteral("element"),
+        QStringLiteral("synapse"),  QStringLiteral("monkey"),
+        QStringLiteral("dragon"),   QStringLiteral("football"),
+        QStringLiteral("baseball"), QStringLiteral("sunshine"),
+        QStringLiteral("princess"), QStringLiteral("changeme"),
+        QStringLiteral("trustno1"), QStringLiteral("abc123"),
+        QStringLiteral("123456"),
+    };
+    return words;
+}
+
+// The part of a passphrase that actually carries information: a passphrase
+// that is a block repeated counts the block once, a common word counts for
+// nothing, and a run of three or more consecutive letters or digits
+// ("abc", "4321") counts for nothing. Deterministic and dictionary-light on
+// purpose; it is a floor, not zxcvbn.
+QString informativePart(const QString &passphrase)
+{
+    QString text = passphrase;
+    const QString lower = text.toLower();
+    const qsizetype n = lower.size();
+    for (qsizetype p = 1; p <= n / 2; ++p) {
+        bool periodic = true;
+        for (qsizetype i = p; i < n && periodic; ++i)
+            periodic = lower[i] == lower[i - p];
+        if (periodic) {
+            text = passphrase.left(p);
+            break;
+        }
+    }
+    QString low = text.toLower();
+    if (low.size() != text.size())
+        low = text; // case mapping changed the length; stay index-aligned
+    QString kept;
+    for (qsizetype i = 0; i < low.size();) {
+        bool skipped = false;
+        for (const QString &w : commonWords()) {
+            if (low.mid(i, w.size()) == w) {
+                i += w.size();
+                skipped = true;
+                break;
+            }
+        }
+        if (skipped)
+            continue;
+        qsizetype run = 1;
+        int step = 0;
+        if (low[i].isLetterOrNumber() && i + 1 < low.size()) {
+            const int d = int(low[i + 1].unicode()) - int(low[i].unicode());
+            if ((d == 1 || d == -1)
+                && low[i].isDigit() == low[i + 1].isDigit()
+                && low[i].isLetter() == low[i + 1].isLetter()) {
+                step = d;
+                run = 2;
+                while (i + run < low.size()
+                       && int(low[i + run].unicode())
+                              - int(low[i + run - 1].unicode()) == step
+                       && low[i + run].isLetterOrNumber())
+                    ++run;
+            }
+        }
+        if (run >= 3) {
+            i += run;
+            continue;
+        }
+        kept.append(text[i]);
+        ++i;
+    }
+    return kept;
+}
+} // namespace
+
 QString RoomKeyExportController::localProblem(const QString &passphrase,
                                               const QString &confirmation)
 {
@@ -133,11 +218,16 @@ int RoomKeyExportController::strengthOf(const QString &passphrase)
     // the hint says the bar is a minimum, not a guarantee.
     if (passphrase.isEmpty())
         return 0;
-    const qsizetype chars = characterCount(passphrase);
-    if (chars < kMinimumLength)
+    if (characterCount(passphrase) < kMinimumLength)
         return 1;
+    // Strength is judged on what is left once repetition, common words and
+    // sequences are taken out ("password123password123" leaves nothing).
+    const QString effective = informativePart(passphrase);
+    const qsizetype chars = characterCount(effective);
+    if (chars < kMinimumLength)
+        return 2;
     bool lower = false, upper = false, digit = false, other = false;
-    for (QChar c : passphrase) {
+    for (QChar c : effective) {
         const ushort u = c.unicode();
         if (u >= 'a' && u <= 'z')
             lower = true;
@@ -150,7 +240,7 @@ int RoomKeyExportController::strengthOf(const QString &passphrase)
     }
     const int kinds = int(lower) + int(upper) + int(digit) + int(other);
     QSet<QChar> distinct;
-    for (QChar c : passphrase) {
+    for (QChar c : effective) {
         distinct.insert(c);
         if (distinct.size() >= kMinimumDistinct)
             break;

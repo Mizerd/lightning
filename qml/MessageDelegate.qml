@@ -3358,6 +3358,34 @@ Item {
             function scaleFor(i) {
                 return hoverIndex === i && !AppTheme.reducedMotion ? 1.05 : 1
             }
+            // Which slot a pointer at row-local x is nearest. Read from the
+            // UNLIFTED layout (an item's x is not moved by its Translate or
+            // scale) and never -1 while the pointer is inside the row, so a
+            // gap between two faces cannot drop the hover. Hover and tap both
+            // use this one stationary row-wide mapping: the lifted face moves
+            // 4px up and 5% bigger, so a per-face hit area slid out from
+            // under a pointer near the lower edge, hover dropped, the face fell
+            // back under the pointer, and it flickered for as long as the
+            // pointer stayed there.
+            function slotAt(px) {
+                var best = -1
+                var bestD = 1e9
+                for (var i = 0; i < restChips; ++i) {
+                    var c = chipRepeater.itemAt(i)
+                    if (!c)
+                        continue
+                    var d = Math.abs(px - (c.x + c.width / 2))
+                    if (d < bestD) {
+                        bestD = d
+                        best = i
+                    }
+                }
+                if (restOverflow > 0
+                        && Math.abs(px - (overflowPill.x
+                                          + overflowPill.width / 2)) < bestD)
+                    best = restChips
+                return best
+            }
 
             // How many faces the collapsed row shows and what the "+N" pill
             // counts.
@@ -3431,6 +3459,7 @@ Item {
             readonly property real hoverTintOpacity:
                 rowHighlight.visible ? rowHighlight.opacity : 0
             Repeater {
+                id: chipRepeater
                 // Array model + modelData, like the reaction chips: no
                 // document-id lookups from delegate scope. Delegates are
                 // rebuilt only when `shown` changes.
@@ -3481,26 +3510,10 @@ Item {
                         name: modelData.displayName
                         colorKey: modelData.userId
                     }
-                    HoverHandler {
-                        id: chipHover
-                        enabled: !readReceiptStrip.sentOnly
-                        cursorShape: Qt.PointingHandCursor
-                        onHoveredChanged: {
-                            if (hovered)
-                                receiptRow.hoverIndex = chip.chipIndex
-                            else if (receiptRow.hoverIndex === chip.chipIndex)
-                                receiptRow.hoverIndex = -1
-                        }
-                    }
-                    TapHandler {
-                        enabled: root.rowActionsEnabled
-                        gesturePolicy: TapHandler.WithinBounds
-                        onTapped: receiptRow.openProfileFor(chip, modelData)
-                    }
                     // The reader's name and read time. Plain text: a display
                     // name is remote input.
                     ToolTip {
-                        visible: chipHover.hovered
+                        visible: receiptRow.hoverIndex === chip.chipIndex
                         delay: 400
                         timeout: 0
                         contentItem: Label {
@@ -3578,29 +3591,8 @@ Item {
                     font.pixelSize: AppTheme.fontMicro
                     font.weight: AppTheme.weightBold
                 }
-                HoverHandler {
-                    id: pillHover
-                    cursorShape: Qt.PointingHandCursor
-                    onHoveredChanged: {
-                        if (hovered)
-                            receiptRow.hoverIndex = overflowPill.pillIndex
-                        else if (receiptRow.hoverIndex
-                                 === overflowPill.pillIndex)
-                            receiptRow.hoverIndex = -1
-                    }
-                }
-                // The pill opens the full reader list (up to 16, newest
-                // first, plus a truthful "+N more").
-                TapHandler {
-                    enabled: root.rowActionsEnabled
-                    gesturePolicy: TapHandler.WithinBounds
-                    onTapped: {
-                        receiptRow.forceActiveFocus(Qt.MouseFocusReason)
-                        receiptRow.openList(overflowPill)
-                    }
-                }
                 ToolTip {
-                    visible: pillHover.hovered
+                    visible: receiptRow.hoverIndex === overflowPill.pillIndex
                     delay: 400
                     timeout: 0
                     contentItem: Label {
@@ -3612,7 +3604,41 @@ Item {
                 }
             }
 
-            HoverHandler { id: receiptHover }
+            // The ONE hover area: the row itself, which never moves. It
+            // owns the lift index for the faces and the pill.
+            HoverHandler {
+                id: receiptHover
+                cursorShape: readReceiptStrip.sentOnly ? Qt.ArrowCursor
+                                                       : Qt.PointingHandCursor
+                onPointChanged: receiptRow.updateHover()
+                onHoveredChanged: receiptRow.updateHover()
+            }
+            function updateHover() {
+                hoverIndex = (receiptHover.hovered
+                              && !readReceiptStrip.sentOnly)
+                             ? slotAt(receiptHover.point.position.x) : -1
+            }
+            // A face opens that reader's profile, the pill the full reader
+            // list (up to 16, newest first, plus a truthful "+N more").
+            // Row-wide for the same reason as the hover.
+            TapHandler {
+                enabled: root.rowActionsEnabled && !readReceiptStrip.sentOnly
+                gesturePolicy: TapHandler.WithinBounds
+                onTapped: function(eventPoint) {
+                    var slot = receiptRow.slotAt(eventPoint.position.x)
+                    if (slot < 0)
+                        return
+                    if (slot === receiptRow.restChips) {
+                        receiptRow.forceActiveFocus(Qt.MouseFocusReason)
+                        receiptRow.openList(overflowPill)
+                        return
+                    }
+                    var chip = chipRepeater.itemAt(slot)
+                    var reader = readReceiptStrip.shown[slot]
+                    if (chip && reader)
+                        receiptRow.openProfileFor(chip, reader)
+                }
+            }
             // Faces and the pill carry their own tooltips; this one is for the
             // "Sent" check.
             ToolTip.text: readReceiptStrip.summary

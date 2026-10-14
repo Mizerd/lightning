@@ -255,13 +255,41 @@ private Q_SLOTS:
 
         // The bar itself: 12 characters, or 10 mixing three kinds.
         for (const QString &fair :
-             { QStringLiteral("abcdefghijkl"), QStringLiteral("Abcdefgh1!") }) {
+             { QStringLiteral("kzvxmwjqpdhr"), QStringLiteral("Kzvxmwj7!q") }) {
             QCOMPARE(RoomKeyExportController::strengthOf(fair), 3);
             QCOMPARE(RoomKeyExportController::localProblem(fair, fair), QString());
         }
-        QVERIFY(ctl.exportKeys(target(), QStringLiteral("abcdefghijkl"),
-                               QStringLiteral("abcdefghijkl")));
+        QVERIFY(ctl.exportKeys(target(), QStringLiteral("kzvxmwjqpdhr"),
+                               QStringLiteral("kzvxmwjqpdhr")));
         QCOMPARE(client.exportCalls, 1);
+    }
+
+    // Rokas, 2026-10-14: "password123password123" was rated Strong. On the
+    // old code every weak line below was 4 (22 chars, 3 kinds, 16+ chars).
+    void repetitionSequencesAndCommonWordsAreMarkedDown()
+    {
+        using C = RoomKeyExportController;
+        // A repeated block counts once, in any case.
+        QVERIFY(C::strengthOf(QStringLiteral("password123password123")) < 3);
+        QVERIFY(C::strengthOf(QStringLiteral("Xk9#mQ2vXk9#mQ2vXk9#mQ2v")) < 3);
+        QVERIFY(C::strengthOf(QStringLiteral("xk9mq2vzXK9MQ2VZ")) < 3);
+        // Sequences, ascending or descending, letters or digits.
+        QVERIFY(C::strengthOf(QStringLiteral("abcdefghijklmnopqrstuvwx")) < 3);
+        QVERIFY(C::strengthOf(QStringLiteral("1234567890987654321")) < 3);
+        // Common words and passwords, however long the line gets.
+        QVERIFY(C::strengthOf(QStringLiteral("qwertyuiopasdfgh")) < 3);
+        QVERIFY(C::strengthOf(QStringLiteral("Welcome-Admin-Matrix")) < 3);
+        QVERIFY(C::strengthOf(QStringLiteral("LETMEINiloveyou")) < 3);
+        QVERIFY(C::strengthOf(QStringLiteral("lightning-lightning")) < 3);
+        // They are blocked, not merely graded.
+        QCOMPARE(C::localProblem(QStringLiteral("password123password123"),
+                                 QStringLiteral("password123password123")),
+                 QStringLiteral("too_weak"));
+        // Genuinely strong passphrases stay strong, including one that
+        // merely contains a short common run.
+        QCOMPARE(C::strengthOf(QStringLiteral("pass-SECRET-5c1e-horse")), 4);
+        QCOMPARE(C::strengthOf(QStringLiteral("correct horse battery")), 4);
+        QCOMPARE(C::strengthOf(QStringLiteral("Tr0ub4dor&3-purple-kettle")), 4);
     }
 
     void theStrengthHintGradesLengthAndVariety()
@@ -269,16 +297,17 @@ private Q_SLOTS:
         QCOMPARE(RoomKeyExportController::strengthOf(QString()), 0);
         QCOMPARE(RoomKeyExportController::strengthOf(QStringLiteral("short")), 1);
         QCOMPARE(RoomKeyExportController::strengthOf(QStringLiteral("abcdefgh")), 2);
-        QCOMPARE(RoomKeyExportController::strengthOf(QStringLiteral("abcdefghijkl")), 3);
-        QCOMPARE(RoomKeyExportController::strengthOf(QStringLiteral("Abcdefgh1!")), 3);
-        QCOMPARE(RoomKeyExportController::strengthOf(QStringLiteral("Abcdefgh1!xy")), 4);
+        QCOMPARE(RoomKeyExportController::strengthOf(QStringLiteral("kzvxmwjqpdhr")), 3);
+        QCOMPARE(RoomKeyExportController::strengthOf(QStringLiteral("Kzvxmwj7!q")), 3);
+        QCOMPARE(RoomKeyExportController::strengthOf(QStringLiteral("Kzvxmwj7!qxy")), 4);
         QCOMPARE(RoomKeyExportController::strengthOf(
                      QStringLiteral("correct horse battery")), 4);
         // A few characters repeated are weak at any length.
         QCOMPARE(RoomKeyExportController::strengthOf(
                      QStringLiteral("abcdabcdabcdabcdabcd")), 2);
+        // A repeated block counts once, however distinct its letters.
         QCOMPARE(RoomKeyExportController::strengthOf(
-                     QStringLiteral("abcdeabcdeabcdeabcde")), 4);
+                     QStringLiteral("abcdeabcdeabcdeabcde")), 2);
         RoomKeyExportController ctl;
         QCOMPARE(ctl.strength(QStringLiteral("abcdefgh")), 2);
     }

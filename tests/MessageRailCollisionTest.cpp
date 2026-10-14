@@ -572,6 +572,53 @@ private Q_SLOTS:
         QTRY_VERIFY(qAbs(chips[1]->scale() - 1.0) < 0.001);
     }
 
+    // Rokas, 2026-10-14: with the pointer on the LOWER edge of a face the
+    // centre face flickered. The hover belonged to the face, the face rises
+    // 4px, so its hit area left the pointer, hover dropped, the face fell
+    // back, and so on. On the old code hoverIndex alternates 1 / -1 here
+    // (and a gap between faces gave -1 too); the hover is row-wide now.
+    void thePointerOnTheLowerEdgeOfAFaceDoesNotFlicker()
+    {
+        AppController app(AppController::MockBackend);
+        QVariantMap f = baseFixture();
+        f.insert(QStringLiteral("readReceipts"), receipts(5));
+        f.insert(QStringLiteral("readReceiptsTotal"), 5);
+        Delegate d;
+        QVERIFY(build(app, f, d));
+        auto *pile = d.root->findChild<QQuickItem *>(
+            QStringLiteral("readReceiptRow"));
+        QVERIFY(pile);
+        const QList<QQuickItem *> chips = receiptChips(pile);
+        QCOMPARE(chips.size(), 3);
+
+        // Lower edge of the middle face, inside its unlifted box but well
+        // within the 4px it rises. Floored, so rounding cannot land the
+        // pointer on the row's exclusive bottom edge.
+        const QPointF edgeF = pile->mapToScene(
+            QPointF(chips[1]->x() + 9, pile->height() - 1.5));
+        const QPoint edgeP(int(std::floor(edgeF.x())), int(std::floor(edgeF.y())));
+        QTest::mouseMove(d.window.get(), QPoint(10, 10));
+        QTest::mouseMove(d.window.get(), edgeP);
+        QTRY_COMPARE(pile->property("hoverIndex").toInt(), 1);
+        // Hold still for the whole 350ms lift and well past it, sampling.
+        for (int i = 0; i < 40; ++i) {
+            QTest::qWait(16);
+            QTest::mouseMove(d.window.get(), edgeP);
+            QCOMPARE(pile->property("hoverIndex").toInt(), 1);
+        }
+        QVERIFY(qAbs(chips[1]->property("liftNow").toReal() - 4.0) < 0.05);
+
+        // The gap between two faces is the nearest face, never "none".
+        const QPointF gap = pile->mapToScene(
+            QPointF(chips[1]->x() - 3, pile->height() - 1.5));
+        QTest::mouseMove(d.window.get(),
+                         QPoint(int(std::floor(gap.x())), int(std::floor(gap.y()))));
+        for (int i = 0; i < 10; ++i) {
+            QTest::qWait(16);
+            QVERIFY(pile->property("hoverIndex").toInt() >= 0);
+        }
+    }
+
     // A face opens that reader's profile; the pill opens the list.
     void aFaceOpensTheProfileAndThePillOpensTheList()
     {
