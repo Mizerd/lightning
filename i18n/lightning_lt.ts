@@ -13062,7 +13062,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
     <message>
         <location line="+13"/>
         <source>Invite people…</source>
-        <translation type="unfinished"></translation>
+        <translation>Pakviesti žmonių…</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -13990,12 +13990,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+250"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+251"/>
         <source>Choose room avatar</source>
         <translation>Pasirinkite kambario avatarą</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+75"/>
         <source>Room information</source>
         <translation>Informacija apie kambarį</translation>
     </message>
@@ -14020,7 +14020,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Uždaryti kambario informaciją</translation>
     </message>
     <message>
-        <location line="-306"/>
+        <location line="-308"/>
         <source>Overview</source>
         <translation>Apžvalga</translation>
     </message>
@@ -14040,7 +14040,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Medija</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+399"/>
         <source>Notifications</source>
         <translation>Pranešimai</translation>
     </message>
@@ -14108,12 +14108,12 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>%1 nariai (%2 pakviesti)</translation>
     </message>
     <message>
-        <location line="-582"/>
+        <location line="-584"/>
         <source>Widgets</source>
         <translation>Valdikliai</translation>
     </message>
     <message>
-        <location line="+2113"/>
+        <location line="+2115"/>
         <source>Open</source>
         <translation>Atidaryti</translation>
     </message>
@@ -14123,7 +14123,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Eksportuoti kambarį…</translation>
     </message>
     <message>
-        <location line="-499"/>
+        <location line="-501"/>
         <source>View profile</source>
         <translation>Peržiūrėti profilį</translation>
     </message>
@@ -14154,7 +14154,7 @@ Vienintelis sprendimas – atsijungti ir prisijungti iš naujo.</translation>
         <translation>Pasirinkite savo avatarą šiam kambariui</translation>
     </message>
     <message>
-        <location line="+267"/>
+        <location line="+269"/>
         <source>This room has no override — your account&apos;s notification settings apply.</source>
         <translation>Šis kambarys neturi išimties – taikomi jūsų paskyros pranešimų nustatymai.</translation>
     </message>

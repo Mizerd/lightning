@@ -13027,7 +13027,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
     <message>
         <location line="+13"/>
         <source>Invite people…</source>
-        <translation type="unfinished"></translation>
+        <translation>Inviter des personnes…</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -13952,12 +13952,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+250"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+251"/>
         <source>Choose room avatar</source>
         <translation>Choisir l&apos;avatar du salon</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+75"/>
         <source>Room information</source>
         <translation>Informations du salon</translation>
     </message>
@@ -13982,7 +13982,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Fermer les informations du salon</translation>
     </message>
     <message>
-        <location line="-306"/>
+        <location line="-308"/>
         <source>Overview</source>
         <translation>Aperçu</translation>
     </message>
@@ -14002,7 +14002,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Médias</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+399"/>
         <source>Notifications</source>
         <translation>Notifications</translation>
     </message>
@@ -14070,12 +14070,12 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>%1 membres (%2 invités)</translation>
     </message>
     <message>
-        <location line="-582"/>
+        <location line="-584"/>
         <source>Widgets</source>
         <translation>Widgets</translation>
     </message>
     <message>
-        <location line="+2113"/>
+        <location line="+2115"/>
         <source>Open</source>
         <translation>Ouvrir</translation>
     </message>
@@ -14085,7 +14085,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Exporter le salon…</translation>
     </message>
     <message>
-        <location line="-499"/>
+        <location line="-501"/>
         <source>View profile</source>
         <translation>Voir le profil</translation>
     </message>
@@ -14116,7 +14116,7 @@ Seule une déconnexion puis une nouvelle connexion corrige ce problème.</transl
         <translation>Choisissez votre avatar pour ce salon</translation>
     </message>
     <message>
-        <location line="+267"/>
+        <location line="+269"/>
         <source>This room has no override — your account&apos;s notification settings apply.</source>
         <translation>Ce salon n&apos;a pas de réglage propre : les paramètres de notification de votre compte s&apos;appliquent.</translation>
     </message>

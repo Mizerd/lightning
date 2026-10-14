@@ -12992,7 +12992,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
     <message>
         <location line="+13"/>
         <source>Invite people…</source>
-        <translation type="unfinished"></translation>
+        <translation>Undang orang…</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -13914,12 +13914,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+250"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+251"/>
         <source>Choose room avatar</source>
         <translation>Pilih avatar ruang</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+75"/>
         <source>Room information</source>
         <translation>Informasi ruang</translation>
     </message>
@@ -13944,7 +13944,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Tutup informasi ruang</translation>
     </message>
     <message>
-        <location line="-306"/>
+        <location line="-308"/>
         <source>Overview</source>
         <translation>Ikhtisar</translation>
     </message>
@@ -13964,7 +13964,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Media</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+399"/>
         <source>Notifications</source>
         <translation>Notifikasi</translation>
     </message>
@@ -14032,12 +14032,12 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>%1 anggota (%2 diundang)</translation>
     </message>
     <message>
-        <location line="-582"/>
+        <location line="-584"/>
         <source>Widgets</source>
         <translation>Widget</translation>
     </message>
     <message>
-        <location line="+2113"/>
+        <location line="+2115"/>
         <source>Open</source>
         <translation>Buka</translation>
     </message>
@@ -14047,7 +14047,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Ekspor ruang…</translation>
     </message>
     <message>
-        <location line="-499"/>
+        <location line="-501"/>
         <source>View profile</source>
         <translation>Lihat profil</translation>
     </message>
@@ -14078,7 +14078,7 @@ Keluar lalu masuk lagi adalah satu-satunya perbaikan.</translation>
         <translation>Pilih avatar Anda untuk ruang ini</translation>
     </message>
     <message>
-        <location line="+267"/>
+        <location line="+269"/>
         <source>This room has no override — your account&apos;s notification settings apply.</source>
         <translation>Ruang ini tidak memiliki penggantian — pengaturan notifikasi akun Anda berlaku.</translation>
     </message>

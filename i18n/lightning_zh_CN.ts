@@ -12992,7 +12992,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+13"/>
         <source>Invite people…</source>
-        <translation type="unfinished"></translation>
+        <translation>邀请成员…</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -13914,12 +13914,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+250"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+251"/>
         <source>Choose room avatar</source>
         <translation>选择房间头像</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+75"/>
         <source>Room information</source>
         <translation>房间信息</translation>
     </message>
@@ -13944,7 +13944,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>关闭房间信息</translation>
     </message>
     <message>
-        <location line="-306"/>
+        <location line="-308"/>
         <source>Overview</source>
         <translation>概览</translation>
     </message>
@@ -13964,7 +13964,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>媒体</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+399"/>
         <source>Notifications</source>
         <translation>通知</translation>
     </message>
@@ -14032,12 +14032,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 位成员（已邀请 %2 位）</translation>
     </message>
     <message>
-        <location line="-582"/>
+        <location line="-584"/>
         <source>Widgets</source>
         <translation>小组件</translation>
     </message>
     <message>
-        <location line="+2113"/>
+        <location line="+2115"/>
         <source>Open</source>
         <translation>打开</translation>
     </message>
@@ -14047,7 +14047,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>导出房间…</translation>
     </message>
     <message>
-        <location line="-499"/>
+        <location line="-501"/>
         <source>View profile</source>
         <translation>查看个人资料</translation>
     </message>
@@ -14078,7 +14078,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>为此房间选择你的头像</translation>
     </message>
     <message>
-        <location line="+267"/>
+        <location line="+269"/>
         <source>This room has no override — your account&apos;s notification settings apply.</source>
         <translation>此房间没有覆盖设置，因此适用你账号的通知设置。</translation>
     </message>

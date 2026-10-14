@@ -13018,7 +13018,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+13"/>
         <source>Invite people…</source>
-        <translation type="unfinished"></translation>
+        <translation>লোকজনকে আমন্ত্রণ জানান…</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -13943,12 +13943,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+250"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+251"/>
         <source>Choose room avatar</source>
         <translation>রুমের অবতার বেছে নিন</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+75"/>
         <source>Room information</source>
         <translation>রুমের তথ্য</translation>
     </message>
@@ -13973,7 +13973,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুমের তথ্য বন্ধ করুন</translation>
     </message>
     <message>
-        <location line="-306"/>
+        <location line="-308"/>
         <source>Overview</source>
         <translation>সংক্ষিপ্ত বিবরণ</translation>
     </message>
@@ -13993,7 +13993,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>মিডিয়া</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+399"/>
         <source>Notifications</source>
         <translation>বিজ্ঞপ্তি</translation>
     </message>
@@ -14061,12 +14061,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 জন সদস্য (%2 জন আমন্ত্রিত)</translation>
     </message>
     <message>
-        <location line="-582"/>
+        <location line="-584"/>
         <source>Widgets</source>
         <translation>উইজেট</translation>
     </message>
     <message>
-        <location line="+2113"/>
+        <location line="+2115"/>
         <source>Open</source>
         <translation>খুলুন</translation>
     </message>
@@ -14076,7 +14076,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>রুম এক্সপোর্ট করুন…</translation>
     </message>
     <message>
-        <location line="-499"/>
+        <location line="-501"/>
         <source>View profile</source>
         <translation>প্রোফাইল দেখুন</translation>
     </message>
@@ -14107,7 +14107,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>এই রুমের জন্য আপনার অবতার বেছে নিন</translation>
     </message>
     <message>
-        <location line="+267"/>
+        <location line="+269"/>
         <source>This room has no override — your account&apos;s notification settings apply.</source>
         <translation>এই রুমের কোনো আলাদা সেটিং নেই — আপনার অ্যাকাউন্টের বিজ্ঞপ্তি সেটিং প্রযোজ্য।</translation>
     </message>

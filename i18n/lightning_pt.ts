@@ -13027,7 +13027,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
     <message>
         <location line="+13"/>
         <source>Invite people…</source>
-        <translation type="unfinished"></translation>
+        <translation>Convidar pessoas…</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -13952,12 +13952,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+250"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+251"/>
         <source>Choose room avatar</source>
         <translation>Escolher o avatar da sala</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+75"/>
         <source>Room information</source>
         <translation>Informações da sala</translation>
     </message>
@@ -13982,7 +13982,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Fechar as informações da sala</translation>
     </message>
     <message>
-        <location line="-306"/>
+        <location line="-308"/>
         <source>Overview</source>
         <translation>Visão geral</translation>
     </message>
@@ -14002,7 +14002,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Multimédia</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+399"/>
         <source>Notifications</source>
         <translation>Notificações</translation>
     </message>
@@ -14070,12 +14070,12 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>%1 membros (%2 convidados)</translation>
     </message>
     <message>
-        <location line="-582"/>
+        <location line="-584"/>
         <source>Widgets</source>
         <translation>Widgets</translation>
     </message>
     <message>
-        <location line="+2113"/>
+        <location line="+2115"/>
         <source>Open</source>
         <translation>Abrir</translation>
     </message>
@@ -14085,7 +14085,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Exportar sala…</translation>
     </message>
     <message>
-        <location line="-499"/>
+        <location line="-501"/>
         <source>View profile</source>
         <translation>Ver perfil</translation>
     </message>
@@ -14116,7 +14116,7 @@ Terminar a sessão e voltar a iniciá-la é a única solução.</translation>
         <translation>Escolha o seu avatar para esta sala</translation>
     </message>
     <message>
-        <location line="+267"/>
+        <location line="+269"/>
         <source>This room has no override — your account&apos;s notification settings apply.</source>
         <translation>Esta sala não tem substituição — aplicam-se as definições de notificação da sua conta.</translation>
     </message>

@@ -13158,7 +13158,7 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+13"/>
         <source>Invite people…</source>
-        <translation type="unfinished"></translation>
+        <translation>دعوة أشخاص…</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -14095,12 +14095,12 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+250"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+251"/>
         <source>Choose room avatar</source>
         <translation>اختر صورة الغرفة الرمزية</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+75"/>
         <source>Room information</source>
         <translation>معلومات الغرفة</translation>
     </message>
@@ -14125,7 +14125,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>إغلاق معلومات الغرفة</translation>
     </message>
     <message>
-        <location line="-306"/>
+        <location line="-308"/>
         <source>Overview</source>
         <translation>نظرة عامة</translation>
     </message>
@@ -14145,7 +14145,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>الوسائط</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+399"/>
         <source>Notifications</source>
         <translation>الإشعارات</translation>
     </message>
@@ -14213,12 +14213,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 عضوًا (%2 مدعوًا)</translation>
     </message>
     <message>
-        <location line="-582"/>
+        <location line="-584"/>
         <source>Widgets</source>
         <translation>الودجات</translation>
     </message>
     <message>
-        <location line="+2113"/>
+        <location line="+2115"/>
         <source>Open</source>
         <translation>فتح</translation>
     </message>
@@ -14228,7 +14228,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>تصدير الغرفة…</translation>
     </message>
     <message>
-        <location line="-499"/>
+        <location line="-501"/>
         <source>View profile</source>
         <translation>عرض الملف الشخصي</translation>
     </message>
@@ -14259,7 +14259,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>اختر صورتك الرمزية لهذه الغرفة</translation>
     </message>
     <message>
-        <location line="+267"/>
+        <location line="+269"/>
         <source>This room has no override — your account&apos;s notification settings apply.</source>
         <translation>ليس لهذه الغرفة تجاوز — تسري إعدادات إشعارات حسابك.</translation>
     </message>
