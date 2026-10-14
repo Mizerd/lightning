@@ -293,7 +293,7 @@ ApplicationWindow {
     // nothing here and a close quits or goes to the tray.
     Shortcut {
         objectName: "macCloseWindowShortcut"
-        sequence: StandardKey.Close
+        sequences: [StandardKey.Close]
         context: Qt.WindowShortcut
         enabled: Qt.platform.os === "osx"
         onActivated: window.close()
