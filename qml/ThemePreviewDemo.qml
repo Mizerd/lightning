@@ -42,6 +42,10 @@ Item {
     // unset child takes its parent's colour), outlined more lightly: editing
     // the parent recolours them too.
     property var linkedRoles: ({})
+    // { role: true } for the roles the readability audit flags: each region
+    // painting one carries a small amber dot, so a problem is on the thing
+    // rather than in a report. Decoration only; it takes no input.
+    property var problemRoles: ({})
     // The ring's stroke in this item's own pixels. The editor scales the
     // preview, so it passes 2 / scale to keep the ring 2px on screen.
     property real outlineWidth: 2
@@ -183,6 +187,23 @@ Item {
         cursorShape: Qt.PointingHandCursor
         onClicked: (mouse) => root.regionActivated(
             region.role, root.regionStack(region, mouse.x, mouse.y))
+
+        // The readability mark: inside the region's top-right corner, 8px on
+        // screen at any scale (outlineWidth is 2px on screen).
+        Rectangle {
+            objectName: "themeProblemDot"
+            visible: root.problemRoles[region.role] === true
+            enabled: false
+            readonly property real d: root.outlineWidth * 4
+            x: region.width - d - root.outlineWidth
+            y: root.outlineWidth
+            width: d
+            height: d
+            radius: d / 2
+            color: "#F2A93B"
+            border.width: root.outlineWidth * 0.5
+            border.color: "#B0000000"
+        }
 
         // Built only while shown: there are about a hundred regions.
         Loader {

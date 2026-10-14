@@ -188,6 +188,9 @@ public:
     // CIE L*, 0 .. 100. Used to sort the picker's suggestion swatches into a
     // ladder.
     Q_INVOKABLE double lightness(const QString &hex) const;
+    // nudgeToPass() for QML.
+    Q_INVOKABLE QString readableColor(const QString &hex, const QString &against,
+                                      double minimum, bool edge) const;
 
     // ---- pure, testable ---------------------------------------------------
 
@@ -214,6 +217,14 @@ public:
     static constexpr int kMaxGradientStops = 3;
     static double contrast(const QString &a, const QString &b);
     static double lstar(const QString &hex);
+    // The nearest colour to `hex` (same hue and saturation, lightness moved
+    // the least) that meets `minimum` against `against`: a WCAG ratio for ink
+    // (`edge` false), a CIE L* separation for an edge (`edge` true). Returns
+    // `hex` itself (upper-cased) when it already passes and an empty string
+    // when `hex` or `against` is not a plain opaque colour or no lightness
+    // reaches the bar. Backs the editor's "Make readable".
+    static QString nudgeToPass(const QString &hex, const QString &against,
+                               double minimum, bool edge);
     // The translated label for a role, or the key itself if not editable.
     static QString roleLabel(const QString &role);
     // The editable role this one falls back to while unset (empty if none):

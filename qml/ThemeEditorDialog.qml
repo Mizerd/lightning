@@ -44,6 +44,12 @@ Popup {
     onOpened: {
         if (!root.store.exists)
             root.store.createTheme("")
+        // A theme with nothing changed starts at Simple; one that has been
+        // worked on starts where its changes are. A level the user has picked
+        // is kept for as long as the editor lives.
+        if (!root.levelChosen)
+            root.level = root.store.overrideCount > 0 || root.gradientCount > 0
+                         ? 2 : 0
         if (root.initialRole.length > 0) {
             root.beginEdit(root.initialRole, root.labelForRole(root.initialRole))
             // The row's own reveal ran before the list was laid out and
@@ -233,6 +239,7 @@ Popup {
     property bool manageThemes: false
     onManageThemesChanged: if (!manageThemes) confirmingDelete = false
     onEditingRoleChanged: {
+        root.showDependents = false
         if (editingRole.length === 0) {
             spotRoles = []
             editingStop = -1
@@ -242,6 +249,20 @@ Popup {
     property bool basesExpanded: false
     // Filter for the role list.
     property string roleFilter: ""
+    // How much structure the editor shows: 0 Simple (presets and four base
+    // colours), 1 Groups (the colours that others follow), 2 Elements (every
+    // part of the window). It changes what the left column lists and which
+    // action the inspector leads with; a click on the sample window always
+    // opens the element it landed on, at every level.
+    property int level: 0
+    property bool levelChosen: false
+    function setLevel(n) {
+        root.levelChosen = true
+        root.level = Math.max(0, Math.min(2, n))
+    }
+    // The inspector's list of what follows the open colour is folded away
+    // until asked for.
+    property bool showDependents: false
     // Import/share state. `notice` is transient and cleared by the timer below.
     property bool importing: false
     property string importError: ""
@@ -472,17 +493,38 @@ Popup {
             || (root.storeGradients
                 && root.storeGradients[root.editingRole] !== undefined))
 
+    // A message over the preview after an edit that does not look
+    // reversible. `undoAction` (a function) adds an Undo; without one the
+    // message stands alone, which is the honest choice for anything touching
+    // a gradient, since the history holds colours only.
+    property var toastUndoAction: null
+    function announce(text, undoAction) {
+        root.toastUndoAction = undoAction ? undoAction : null
+        toast.show(text, undoAction ? qsTr("Undo") : "")
+    }
+
+    function hasOwnGradient(key) {
+        return root.storeGradients && root.storeGradients[key] !== undefined
+    }
+
     // "Reset to group": the open element drops its own colour and gradient
     // and shows its group's again.
     function resetToGroup() {
         var key = root.editingRole
         if (key.length === 0)
             return
+        var touched = root.hasOwnGradient(key)
+        var group = root.editingGroup
         root.store.sealUndoStep()
         root.store.resetGradient(key)
         root.store.resetColor(key)
         root.editingStop = root.startingStop(key, -1)
         picker.show(root.pickerColourFor(key, root.editingStop))
+        if (group.length > 0)
+            root.announce(qsTr("%1 follows %2 again.")
+                          .arg(root.labelForRole(key))
+                          .arg(root.labelForRole(group)),
+                          touched ? null : root.undoEdit)
     }
     // "Apply to all <group>": the group takes this element's colour (and
     // gradient) and every element of the group follows it again.
@@ -490,12 +532,158 @@ Popup {
         var key = root.editingRole
         if (key.length === 0 || root.editingGroup.length === 0)
             return
+        var group = root.editingGroup
+        var touched = root.hasOwnGradient(key)
+        var members = root.store.groupMembers(group)
+        for (var i = 0; i < members.length; ++i) {
+            if (root.hasOwnGradient(members[i]))
+                touched = true
+        }
         root.store.sealUndoStep()
         var hex = root.toHex(Qt.color(String(root.effectiveColor(key))))
         if (root.store.applyToGroup(key, hex)) {
             root.editingStop = root.startingStop(key, -1)
             picker.show(root.pickerColourFor(key, root.editingStop))
+            root.announce(qsTr("%1 now gives its colour to all of %2.")
+                          .arg(root.labelForRole(key))
+                          .arg(root.labelForRole(group)),
+                          touched ? null : root.undoEdit)
         }
+    }
+
+    // The open role is a group and some of its elements keep a colour of their
+    // own: how many.
+    readonly property int editingKeepOwn: {
+        var key = root.editingRole
+        if (key.length === 0)
+            return 0
+        var members = root.store.groupMembers(key)
+        var n = 0
+        for (var i = 0; i < members.length; ++i) {
+            if (root.isOverridden(members[i])
+                    || (root.storeGradients
+                        && root.storeGradients[members[i]] !== undefined))
+                ++n
+        }
+        return n
+    }
+
+    // "Include them": the open group's colour goes to every element of it,
+    // dropping what they had of their own.
+    function includeOwnMembers() {
+        var key = root.editingRole
+        if (key.length === 0)
+            return
+        var members = root.store.groupMembers(key)
+        if (members.length === 0)
+            return
+        var touched = false
+        var probe = ""
+        for (var i = 0; i < members.length; ++i) {
+            if (root.hasOwnGradient(members[i]))
+                touched = true
+            else if (probe.length === 0)
+                probe = members[i]
+        }
+        var hex = root.toHex(Qt.color(String(root.effectiveColor(key))))
+        root.store.sealUndoStep()
+        if (probe.length > 0) {
+            // One step: the store applies the group's colour and frees every
+            // member in a single write.
+            root.store.applyToGroup(probe, hex)
+        } else {
+            for (var j = 0; j < members.length; ++j) {
+                root.store.resetGradient(members[j])
+                root.store.resetColor(members[j])
+            }
+        }
+        root.announce(qsTr("Every element of %1 follows it now.")
+                      .arg(root.labelForRole(key)),
+                      touched ? null : root.undoEdit)
+    }
+
+    // "Edit <group>": the colour the open element is linked to.
+    function editParent() {
+        var parentKey = root.editingParent
+        if (parentKey.length > 0)
+            root.beginEdit(parentKey, root.labelForRole(parentKey))
+    }
+
+    // Unlinking keeps what is on screen: the colour the element has now
+    // (and the gradient it was showing from its group) becomes its own, so
+    // nothing changes until it is edited.
+    readonly property bool editingCanUnlink:
+        root.editingRole.length > 0 && root.editingParent.length > 0
+        && Qt.color(String(root.effectiveColor(root.editingRole))).a > 0.999
+    function unlinkEditing() {
+        var key = root.editingRole
+        var parentKey = root.editingParent
+        if (key.length === 0 || parentKey.length === 0
+                || !root.editingCanUnlink)
+            return
+        root.store.sealUndoStep()
+        var copied = false
+        if (root.store.isGradientRole(key) && !root.hasOwnGradient(key)) {
+            var inherited = AppTheme.inheritedGradient(
+                                key, root.storeGradients, root.overrideColors)
+            if (inherited && root.store.setGradient(key, inherited))
+                copied = true
+        }
+        root.store.setColor(
+            key, root.toHex(Qt.color(String(root.effectiveColor(key)))))
+        root.store.sealUndoStep()
+        root.announce(qsTr("%1 is no longer linked to %2.")
+                      .arg(root.labelForRole(key))
+                      .arg(root.labelForRole(parentKey)),
+                      function () {
+                          root.undoEdit()
+                          if (copied)
+                              root.store.resetGradient(key)
+                      })
+    }
+
+    // "Make readable": moves the open colour, and nothing else, to the nearest
+    // lightness that clears every bar it fails against its neighbours. A
+    // nudge, not a guarantee: the readability list still says what is left.
+    function makeReadable() {
+        var key = root.editingRole
+        if (key.length === 0 || root.editingStop >= 0)
+            return
+        var pk = root.store.paletteKeyForRole(key)
+        var rows = root.store.auditForRole(root.auditPalette, key)
+        var current = root.toHex(Qt.color(String(root.effectiveColor(key))))
+        var next = current
+        var failing = 0
+        var fixed = 0
+        for (var i = 0; i < rows.length; ++i) {
+            var r = rows[i]
+            if (r.passes)
+                continue
+            ++failing
+            var other = r.fg === pk ? r.bg : (r.bg === pk ? r.fg : "")
+            if (other.length === 0)
+                continue
+            var candidate = root.store.readableColor(
+                                next, String(root.auditPalette[other]),
+                                r.minimum, r.kind === "edge")
+            if (candidate.length === 0)
+                continue
+            next = candidate
+            ++fixed
+        }
+        if (failing === 0)
+            return
+        if (fixed === 0 || next === current) {
+            root.announce(qsTr("No lightness of %1 clears the bar. Try changing the colour beside it.")
+                          .arg(root.labelForRole(key)), null)
+            return
+        }
+        root.store.sealUndoStep()
+        root.store.setColor(key, next)
+        root.store.sealUndoStep()
+        picker.show(next)
+        root.announce(qsTr("%1 is easier to read now.")
+                      .arg(root.labelForRole(key)), root.undoEdit)
     }
 
     // What the open role is currently following, or "".
@@ -586,6 +774,41 @@ Popup {
 
     readonly property string gradientWord: qsTr("gradient").toLowerCase()
 
+    // The four colours Simple edits; everything else follows them through the
+    // groups.
+    readonly property var simpleSwatches: {
+        var keys = ["background", "surface", "textPrimary", "accent"]
+        var out = []
+        for (var i = 0; i < keys.length; ++i)
+            out.push({ key: keys[i], label: root.labelForRole(keys[i]),
+                       color: root.effectiveColor(keys[i]) })
+        return out
+    }
+    // The surfaces that can be a gradient, offered at Simple so gradients are
+    // found without reading the list.
+    readonly property var simpleGradientRoles: {
+        var keys = ["background", "sidebar", "rail", "surface"]
+        var out = []
+        for (var i = 0; i < keys.length; ++i) {
+            if (root.store.isGradientRole(keys[i]))
+                out.push({ key: keys[i], label: root.labelForRole(keys[i]),
+                           color: root.effectiveColor(keys[i]) })
+        }
+        return out
+    }
+    readonly property string changedWord: qsTr("changed").toLowerCase()
+    readonly property string hardWord: qsTr("unreadable").toLowerCase()
+
+    // { role: true } for the roles the audit flags, to dot them in the preview
+    // and to find them by searching "unreadable".
+    readonly property var problemRoleSet: {
+        var out = {}
+        var rows = root.readabilityReport
+        for (var i = 0; i < rows.length; ++i)
+            out[rows[i].role] = true
+        return out
+    }
+
     // Groups narrowed by the filter; empty groups are dropped.
     //
     // Within a section every element role sits under the group it inherits
@@ -619,6 +842,14 @@ Popup {
             }
         }
         var shown = {}
+        // Groups lists the colours others follow and Elements lists every
+        // part; a search always looks at everything.
+        var depthCap = root.level === 2 || needle.length > 0 ? 6 : 0
+        var changedHit = needle.length >= 3
+                         && root.changedWord.indexOf(needle) === 0
+        var hardHit = needle.length >= 3
+                      && root.hardWord.indexOf(needle) === 0
+        var problemSet = hardHit ? root.problemRoleSet : ({})
         for (i = 0; i < list.length; ++i) {
             var textHit = needle.length > 0
                 && (list[i].label.toLowerCase().indexOf(needle) >= 0
@@ -631,6 +862,15 @@ Popup {
             if (!hit && needle.length >= 3
                     && root.gradientWord.indexOf(needle) === 0
                     && root.store.isGradientRole(list[i].key))
+                hit = true
+            // "changed" lists what this theme sets itself, "unreadable" what
+            // the audit flags.
+            if (!hit && changedHit
+                    && (root.isOverridden(list[i].key)
+                        || (root.storeGradients
+                            && root.storeGradients[list[i].key] !== undefined)))
+                hit = true
+            if (!hit && hardHit && problemSet[list[i].key] === true)
                 hit = true
             if (!hit && hexNeedle.length > 0) {
                 var hex = root.toHex(Qt.color(String(
@@ -670,7 +910,7 @@ Popup {
             })
             var kids = children[k] || []
             for (var j = 0; j < kids.length; ++j) {
-                if (shown[kids[j]] && depth < 6)
+                if (shown[kids[j]] && depth < depthCap)
                     emit(kids[j], depth + 1, section)
             }
         }
@@ -844,6 +1084,30 @@ Popup {
         enabled: root.opened
         onActivated: root.peelEscape()
     }
+    // Detail level, and the search field.
+    Shortcut {
+        sequence: "Ctrl+1"
+        enabled: root.opened
+        onActivated: root.setLevel(0)
+    }
+    Shortcut {
+        sequence: "Ctrl+2"
+        enabled: root.opened
+        onActivated: root.setLevel(1)
+    }
+    Shortcut {
+        sequence: "Ctrl+3"
+        enabled: root.opened
+        onActivated: root.setLevel(2)
+    }
+    Shortcut {
+        sequences: [StandardKey.Find]
+        enabled: root.opened && !root.pickerPanelCovers
+        onActivated: {
+            filterField.forceActiveFocus()
+            filterField.selectAll()
+        }
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -983,6 +1247,12 @@ Popup {
                             }
                         }
                     }
+                }
+
+                ThemeLevelSwitch {
+                    Layout.alignment: Qt.AlignVCenter
+                    level: root.level
+                    onLevelRequested: (n) => root.setLevel(n)
                 }
 
                 // A Row rather than RowLayout children: a layout hands slack to
@@ -1419,6 +1689,7 @@ Popup {
                     // of height on a small window).
                     RowLayout {
                         Layout.fillWidth: true
+                        visible: root.level > 0
                         spacing: AppTheme.spacing8
                         Label {
                             text: qsTr("Start from")
@@ -1509,7 +1780,7 @@ Popup {
                     // Base-theme chips painted in their own palettes.
                     Flow {
                         Layout.fillWidth: true
-                        visible: root.basesExpanded
+                        visible: root.basesExpanded && root.level > 0
                         spacing: AppTheme.spacing6
 
                         Repeater {
@@ -1609,21 +1880,6 @@ Popup {
                         color: AppTheme.editorBorder
                     }
 
-                    // Gradients belong to six large surfaces and were found
-                    // only by opening one of them and reading below its
-                    // picker. One button opens the largest, where the Fill
-                    // choice is the first control.
-                    EditorButton {
-                        objectName: "themeMakeGradientButton"
-                        Layout.fillWidth: true
-                        text: qsTr("Make a gradient")
-                        Accessible.description: qsTr("Opens the conversation "
-                            + "background with its fill choices: a solid colour "
-                            + "or a gradient")
-                        onClicked: root.beginEdit("background",
-                                                  root.labelForRole("background"))
-                    }
-
                     // Filter field: with 26 roles, typing beats scrolling,
                     // especially on small windows.
                     Rectangle {
@@ -1688,10 +1944,35 @@ Popup {
                         font.pixelSize: AppTheme.textMeta
                     }
 
+                    ThemeSimplePanel {
+                        id: simplePanel
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        visible: root.level === 0
+                                 && root.roleFilter.trim().length === 0
+                        swatches: root.simpleSwatches
+                        gradientRoles: root.simpleGradientRoles
+                        baseTheme: root.store.baseTheme
+                        bases: AppTheme.themeList.filter(
+                                   (t) => t.id !== 12 && t.id !== 0)
+                        problems: root.readabilityProblems
+                        unchecked: root.readabilityTranslucent
+                        dark: AppTheme.relativeLuminance(
+                                  AppTheme._asColor(
+                                      root.previewPalette.background)) < 0.18
+                        openRole: root.editingRole
+                        onRoleRequested: (key) =>
+                            root.beginEdit(key, root.labelForRole(key))
+                        onBaseRequested: (id) => root.store.baseTheme = id
+                        onReportRequested: root.openReport()
+                    }
+
                     Flickable {
                         id: roleScroll
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        visible: root.level > 0
+                                 || root.roleFilter.trim().length > 0
                         clip: true
                         contentWidth: width
                         contentHeight: roleColumn.implicitHeight
@@ -1984,6 +2265,22 @@ Popup {
                                                             font.pixelSize: AppTheme.menuSectionSize
                                                             elide: Label.ElideRight
                                                         }
+                                                        // What a group carries, below
+                                                        // Elements, where its members
+                                                        // are not listed.
+                                                        Label {
+                                                            objectName: "themeRoleMembers_"
+                                                                + roleRow.modelData.key
+                                                            visible: root.level < 2
+                                                                     && roleRow.modelData.members > 0
+                                                            textFormat: Text.PlainText
+                                                            text: qsTr("%n element(s)",
+                                                                       "custom theme, size of a group",
+                                                                       roleRow.modelData.members)
+                                                            color: AppTheme.editorTextMuted
+                                                            font.family: AppTheme.uiFont
+                                                            font.pixelSize: AppTheme.menuSectionSize
+                                                        }
                                                         Item {
                                                             visible: roleRow.followsKey.length === 0
                                                             Layout.fillWidth: true
@@ -2075,6 +2372,8 @@ Popup {
                             // Everything that changes with the role being
                             // traced, outlined lightly.
                             linkedRoles: root.linkedRoleSet
+                            // Amber dots on what the audit flags.
+                            problemRoles: root.problemRoleSet
                             // 2px on screen at any scale.
                             outlineWidth: 2 / Math.max(0.25, scale)
                             width: implicitWidth
@@ -2098,6 +2397,19 @@ Popup {
                         color: AppTheme.editorTextMuted
                         font.family: AppTheme.uiFont
                         font.pixelSize: AppTheme.textMeta
+                    }
+                }
+
+                // Said over the preview, where the eye already is.
+                ThemeToast {
+                    id: toast
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: AppTheme.spacing24 * 2
+                    onActionTriggered: {
+                        var action = root.toastUndoAction
+                        if (action)
+                            action()
                     }
                 }
             }
@@ -2297,110 +2609,48 @@ Popup {
                         onClosed: root.editingRole = ""
                     }
 
-                    // How the open role is tied to others: what it follows,
-                    // and what follows it. Editing a parent silently
-                    // recoloured up to six other places before this said so.
-                    ColumnLayout {
-                        objectName: "themeRoleLinks"
+                    // How the open role is tied to the rest of the theme, as
+                    // things to act on: linked to a group (edit it, or unlink),
+                    // or its own (reset it, or give it to the group).
+                    ThemeLinkRow {
+                        id: linkRow
                         Layout.fillWidth: true
-                        visible: root.editingParent.length > 0
-                                 || root.editingGroup.length > 0
-                                 || root.editingDependents.length > 0
-                        spacing: AppTheme.spacing4
-
-                        Label {
-                            objectName: "themeRoleFollowsNote"
-                            Layout.fillWidth: true
-                            visible: root.editingParent.length > 0
-                            wrapMode: Text.WordWrap
-                            textFormat: Text.PlainText
-                            text: qsTr("Follows %1 until you change it here.")
-                                  .arg(root.labelForRole(root.editingParent))
-                            color: AppTheme.editorTextSecondary
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMeta
-                        }
-                        // An element with a colour of its own still belongs
-                        // to its group; say which, so "Apply to all" is clear.
-                        Label {
-                            objectName: "themeRoleGroupNote"
-                            Layout.fillWidth: true
-                            visible: root.editingParent.length === 0
-                                     && root.editingGroup.length > 0
-                            wrapMode: Text.WordWrap
-                            textFormat: Text.PlainText
-                            text: qsTr("Part of %1, with a colour of its own.")
-                                  .arg(root.labelForRole(root.editingGroup))
-                            color: AppTheme.editorTextSecondary
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMeta
-                        }
-                        Flow {
-                            Layout.fillWidth: true
-                            visible: root.editingParent.length > 0
+                        visible: root.editingRole.length > 0
+                                 && (root.editingParent.length > 0
                                      || root.editingGroup.length > 0
-                            spacing: AppTheme.spacing4
-                            RoleChip {
-                                roleKey: root.editingParent.length > 0
-                                         ? root.editingParent : root.editingGroup
-                            }
-                        }
-                        // Reset to group / Apply to all <group>.
-                        Flow {
-                            objectName: "themeRoleGroupActions"
-                            Layout.fillWidth: true
-                            visible: root.editingGroup.length > 0
-                            spacing: AppTheme.spacing6
-                            EditorButton {
-                                objectName: "themeResetToGroup"
-                                visible: root.editingHasOwn
-                                         && root.editingFollowsDeclared.length > 0
-                                implicitHeight: 28
-                                text: qsTr("Reset to group")
-                                Accessible.description:
-                                    qsTr("Take the colour of %1 again")
-                                    .arg(root.labelForRole(root.editingGroup))
-                                onClicked: root.resetToGroup()
-                            }
-                            EditorButton {
-                                objectName: "themeApplyToGroup"
-                                implicitHeight: 28
-                                // A long group name must not push the button
-                                // past the panel.
-                                width: Math.min(implicitWidth, parent.width)
-                                text: qsTr("Apply to all %1")
-                                      .arg(root.labelForRole(root.editingGroup))
-                                Accessible.description:
-                                    qsTr("Give this colour to %1 and everything in it")
-                                    .arg(root.labelForRole(root.editingGroup))
-                                onClicked: root.applyToGroup()
-                            }
-                        }
-
-                        Label {
-                            Layout.fillWidth: true
-                            Layout.topMargin: root.editingParent.length > 0
-                                              ? AppTheme.spacing6 : 0
-                            visible: root.editingDependents.length > 0
-                            wrapMode: Text.WordWrap
-                            // No count: the English catalog has no numerus
-                            // forms, so "%n place(s)" showed literally.
-                            text: qsTr("Changing this also recolours what follows it:")
-                            color: AppTheme.editorTextSecondary
-                            font.family: AppTheme.uiFont
-                            font.pixelSize: AppTheme.textMeta
-                        }
-                        Flow {
-                            objectName: "themeRoleDependents"
-                            Layout.fillWidth: true
-                            visible: root.editingDependents.length > 0
-                            spacing: AppTheme.spacing4
-                            Repeater {
-                                model: root.editingDependents
-                                delegate: RoleChip {
-                                    required property string modelData
-                                    roleKey: modelData
-                                }
+                                     || root.editingDependents.length > 0
+                                     || root.editingKeepOwn > 0)
+                        groupLabel: root.editingGroup.length > 0
+                                    ? root.labelForRole(root.editingGroup) : ""
+                        parentLabel: root.editingParent.length > 0
+                                     ? root.labelForRole(root.editingParent) : ""
+                        hasOwn: root.editingHasOwn
+                                && root.editingFollowsDeclared.length > 0
+                        canUnlink: root.editingCanUnlink
+                        emphasizeParent: root.level < 2
+                        alsoChanges: root.editingDependents.length
+                        keepOwn: root.editingKeepOwn
+                        showingDependents: root.showDependents
+                        onParentRequested: root.editParent()
+                        onUnlinkRequested: root.unlinkEditing()
+                        onResetRequested: root.resetToGroup()
+                        onApplyRequested: root.editingGroup.length > 0
+                                          ? root.applyToGroup()
+                                          : root.includeOwnMembers()
+                        onShowDependentsToggled:
+                            root.showDependents = !root.showDependents
+                    }
+                    Flow {
+                        objectName: "themeRoleDependents"
+                        Layout.fillWidth: true
+                        visible: root.showDependents
+                                 && root.editingDependents.length > 0
+                        spacing: AppTheme.spacing4
+                        Repeater {
+                            model: root.showDependents ? root.editingDependents : []
+                            delegate: RoleChip {
+                                required property string modelData
+                                roleKey: modelData
                             }
                         }
                     }
@@ -2431,14 +2681,39 @@ Popup {
                         readonly property int checkRowHeight:
                             2 * Math.ceil(checkMetrics.lineSpacing)
 
-                        Label {
+                        // How many of this colour's pairs fail right now.
+                        readonly property int failing: {
+                            var rows = roleChecks.model
+                            var n = 0
+                            for (var i = 0; rows && i < rows.length; ++i) {
+                                if (rows[i].passes === false)
+                                    ++n
+                            }
+                            return n
+                        }
+
+                        RowLayout {
                             Layout.fillWidth: true
                             Layout.topMargin: AppTheme.spacing4
-                            text: qsTr("Readability")
-                            color: AppTheme.editorTextMuted
-                            font.family: AppTheme.menuSectionFont
-                            font.pixelSize: AppTheme.menuSectionSize
-                            font.weight: AppTheme.menuSectionWeight
+                            spacing: AppTheme.spacing8
+                            Label {
+                                Layout.fillWidth: true
+                                text: qsTr("Readability")
+                                color: AppTheme.editorTextMuted
+                                font.family: AppTheme.menuSectionFont
+                                font.pixelSize: AppTheme.menuSectionSize
+                                font.weight: AppTheme.menuSectionWeight
+                            }
+                            EditorButton {
+                                objectName: "themeMakeReadable"
+                                visible: roleReadability.failing > 0
+                                         && root.editingStop < 0
+                                implicitHeight: 26
+                                text: qsTr("Make readable")
+                                Accessible.description:
+                                    qsTr("Move this colour to the nearest one that is easy to read against its neighbours")
+                                onClicked: root.makeReadable()
+                            }
                         }
                         Repeater {
                             id: roleChecks
@@ -2606,50 +2881,6 @@ Popup {
                     color: AppTheme.editorTextMuted
                     font.family: AppTheme.uiFont
                     font.pixelSize: AppTheme.textMeta
-                }
-
-                // Where a newcomer looks first: gradients exist, and which
-                // surfaces take one, each a click away. Not shown over a list
-                // of readability problems, which matter more.
-                ColumnLayout {
-                    objectName: "themeGradientTip"
-                    Layout.fillWidth: true
-                    Layout.topMargin: AppTheme.spacing8
-                    visible: root.readabilityProblems === 0
-                    spacing: AppTheme.spacing6
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("Gradients")
-                        color: AppTheme.editorTextMuted
-                        font.family: AppTheme.menuSectionFont
-                        font.pixelSize: AppTheme.menuSectionSize
-                        font.weight: AppTheme.menuSectionWeight
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.WordWrap
-                        textFormat: Text.PlainText
-                        text: qsTr("The large areas can be a gradient instead of "
-                                   + "one colour. Open one, then choose Linear or "
-                                   + "Radial under Fill, or start from a preset.")
-                        color: AppTheme.editorTextSecondary
-                        font.family: AppTheme.uiFont
-                        font.pixelSize: AppTheme.textMeta
-                    }
-                    Flow {
-                        Layout.fillWidth: true
-                        spacing: AppTheme.spacing4
-                        Repeater {
-                            model: ["background", "sidebar", "rail", "surface"]
-                                   .filter(function(k) {
-                                       return root.store.isGradientRole(k)
-                                   })
-                            delegate: RoleChip {
-                                required property string modelData
-                                roleKey: modelData
-                            }
-                        }
-                    }
                 }
 
                 // What was not checked, stated, so "all passed" is not confused

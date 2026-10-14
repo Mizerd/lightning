@@ -142,6 +142,12 @@ constexpr const char *kComponents[] = {
     "SettingsBackupSection",
     "MediaPreviewSettings",
     "GradientEditor",
+    // Theme editor levels (2026-10-13): the Simple/Groups/Elements switch, the
+    // undo toast, the inheritance row and the Simple panel. Empty defaults.
+    "ThemeLevelSwitch",
+    "ThemeToast",
+    "ThemeLinkRow",
+    "ThemeSimplePanel",
     // The "Chat background…" dialog the room header, the room menu and Home
     // open; hosts ChatBackgroundEditor behind a Loader.
     "ChatBackgroundDialog",

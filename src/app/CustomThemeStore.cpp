@@ -1062,6 +1062,61 @@ double CustomThemeStore::lstar(const QString &hex)
     return c.isValid() ? lstarOf(c) : 0.0;
 }
 
+QString CustomThemeStore::nudgeToPass(const QString &hex, const QString &against,
+                                      double minimum, bool edge)
+{
+    const QColor from = asColor(hex);
+    const QColor other = asColor(against);
+    if (!from.isValid() || !other.isValid())
+        return QString();
+    auto passes = [&](const QColor &c) {
+        return edge ? std::abs(lstarOf(c) - lstarOf(other)) >= minimum
+                    : contrastOf(c, other) >= minimum;
+    };
+    auto upper = [](const QColor &c) {
+        return c.name(QColor::HexRgb).toUpper();
+    };
+    if (passes(from))
+        return upper(from);
+
+    float h = 0, s = 0, l = 0, a = 0;
+    from.getHslF(&h, &s, &l, &a);
+    // Lightness moves away from `against` first: that is the direction that
+    // can reach the bar with the smallest change. The other direction is the
+    // fallback (a mid-grey ground can be passed from either side).
+    const bool lighterFirst = lstarOf(from) >= lstarOf(other);
+    const double step = 0.005;
+    QString best;
+    double bestMove = 2.0;
+    for (int pass = 0; pass < 2; ++pass) {
+        const bool lighter = pass == 0 ? lighterFirst : !lighterFirst;
+        for (double d = step; d <= 1.0 + 1e-9; d += step) {
+            const double nl = lighter ? double(l) + d : double(l) - d;
+            if (nl < 0.0 || nl > 1.0)
+                break;
+            const QColor c = QColor::fromHslF(h < 0 ? 0.0f : h, s, float(nl));
+            if (!passes(c))
+                continue;
+            if (d < bestMove) {
+                bestMove = d;
+                best = upper(c);
+            }
+            break;
+        }
+        // The first direction that reaches the bar is the nearest one that
+        // moves away from the ground; do not search the other.
+        if (!best.isEmpty())
+            break;
+    }
+    return best;
+}
+
+QString CustomThemeStore::readableColor(const QString &hex, const QString &against,
+                                        double minimum, bool edge) const
+{
+    return nudgeToPass(hex, against, minimum, edge);
+}
+
 int CustomThemeStore::readabilityCheckCount()
 {
     return int(std::size(kReadability));

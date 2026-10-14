@@ -564,6 +564,63 @@ private Q_SLOTS:
 
     // ---- readability ----
 
+    // The editor's "Make readable": the nearest lightness that clears the bar,
+    // moving away from the colour it must stand out against, and nothing else.
+    void nudgeToPassMovesOnlyLightnessAndOnlyAsFarAsNeeded()
+    {
+        const auto nudge = &CustomThemeStore::nudgeToPass;
+        const QString ground = QStringLiteral("#202020");
+
+        // Already readable: returned unchanged (upper-cased), not "improved".
+        QCOMPARE(nudge(QStringLiteral("#f0f0f0"), ground, 4.5, false),
+                 QStringLiteral("#F0F0F0"));
+
+        // Too close: grey on a near-black ground gets lighter, and only until
+        // the ratio is met.
+        const QString lifted = nudge(QStringLiteral("#303030"), ground, 4.5, false);
+        QVERIFY2(!lifted.isEmpty(), "a reachable bar returned nothing");
+        QVERIFY(CustomThemeStore::contrast(lifted, ground) >= 4.5);
+        QVERIFY(CustomThemeStore::lstar(lifted) > CustomThemeStore::lstar(QStringLiteral("#303030")));
+        // Minimal: one 0.5% step darker no longer passes (the answer is not a
+        // blanket jump to white).
+        QVERIFY(CustomThemeStore::lstar(lifted) < 90.0);
+
+        // Hue is kept: a blue stays blue.
+        const QColor blue = QColor::fromString(
+            nudge(QStringLiteral("#1a2a60"), ground, 4.5, false));
+        QVERIFY(blue.isValid());
+        QVERIFY(blue.blue() > blue.red() && blue.blue() > blue.green());
+
+        // A light ground pushes the other way.
+        const QString darker = nudge(QStringLiteral("#d0d0d0"),
+                                     QStringLiteral("#ffffff"), 4.5, false);
+        QVERIFY(!darker.isEmpty());
+        QVERIFY(CustomThemeStore::contrast(darker, QStringLiteral("#ffffff")) >= 4.5);
+        QVERIFY(CustomThemeStore::lstar(darker) < CustomThemeStore::lstar(QStringLiteral("#d0d0d0")));
+
+        // An edge is a separation in L*, not a ratio.
+        const QString edge = nudge(QStringLiteral("#252525"), ground, 8.0, true);
+        QVERIFY(!edge.isEmpty());
+        QVERIFY(qAbs(CustomThemeStore::lstar(edge) - CustomThemeStore::lstar(ground)) >= 8.0);
+
+        // Honest refusals: a see-through or malformed colour is not guessed at.
+        QVERIFY(nudge(QStringLiteral("#80303030"), ground, 4.5, false).isEmpty());
+        QVERIFY(nudge(QStringLiteral("#303030"), QStringLiteral("nonsense"), 4.5, false).isEmpty());
+        QVERIFY(nudge(QStringLiteral("nonsense"), ground, 4.5, false).isEmpty());
+        // A bar no lightness can reach (above the 21:1 maximum).
+        QVERIFY(nudge(QStringLiteral("#303030"), ground, 30.0, false).isEmpty());
+    }
+
+    // The QML-facing wrapper is the same function.
+    void readableColorIsTheSameAnswerAsNudgeToPass()
+    {
+        CustomThemeStore store(nullptr);
+        QCOMPARE(store.readableColor(QStringLiteral("#303030"),
+                                     QStringLiteral("#202020"), 4.5, false),
+                 CustomThemeStore::nudgeToPass(QStringLiteral("#303030"),
+                                               QStringLiteral("#202020"), 4.5, false));
+    }
+
     // The WCAG formula against published values (it is also copied in
     // AppTheme.qml and src/theme/IdentityColors.cpp). #767676 and #949494 are
     // the W3C's AA and AA-large boundary greys against white.

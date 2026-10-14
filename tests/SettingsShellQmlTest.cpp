@@ -3735,6 +3735,263 @@ private slots:
                                 .arg(wrong.mid(0, 40).join(QStringLiteral("\n  ")))));
     }
 
+    // ---- theme editor UX (2026-10-13): levels, links, readability ----------
+
+    // Effective visibility: an item is on screen only if it and every ancestor
+    // are visible (QQuickItem::isVisible is already the effective value).
+    static bool shown(const QQuickItem *it)
+    {
+        return it && it->isVisible() && it->width() > 0 && it->height() > 0;
+    }
+
+    // The editor opens at Simple on a theme with nothing changed, and each
+    // level reveals more of the same editor: Simple shows presets and four
+    // base colours, Groups the colours others follow, Elements every part.
+    // Fails on the old tree: there was one flat list and no level.
+    void theEditorStartsSimpleAndEachLevelRevealsMore()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+
+        const int startLevel = dialog->property("level").toInt();
+        const bool simpleShown = shown(item("themeSimplePanel"));
+        const bool listAtSimple = shown(item("themeRole_sidebar"));
+        const bool baseCards = shown(item("themeSimpleBases"));
+        const bool switchShown = shown(item("themeLevelSwitch"));
+
+        QMetaObject::invokeMethod(dialog, "setLevel", Q_ARG(QVariant, 1));
+        QCoreApplication::processEvents();
+        const bool simpleAtGroups = shown(item("themeSimplePanel"));
+        const bool groupAtGroups = shown(item("themeRole_sidebar"));
+        const bool elementAtGroups = shown(item("themeRole_roomList"));
+        // A group says how much it carries.
+        const bool sizeShown = shown(item("themeRoleMembers_sidebar"));
+
+        QMetaObject::invokeMethod(dialog, "setLevel", Q_ARG(QVariant, 2));
+        QCoreApplication::processEvents();
+        const bool elementAtElements = shown(item("themeRole_roomList"));
+
+        // A search looks at everything, whatever the level.
+        QMetaObject::invokeMethod(dialog, "setLevel", Q_ARG(QVariant, 1));
+        dialog->setProperty("roleFilter", QStringLiteral("room list"));
+        QCoreApplication::processEvents();
+        const bool searchFindsElement = shown(item("themeRole_roomList"));
+        dialog->setProperty("roleFilter", QString());
+
+        // A theme that has been worked on does not start at Simple.
+        closeThemeEditor();
+        store->setColor(QStringLiteral("sidebar"), QStringLiteral("#123456"));
+        dialog = openThemeEditor();
+        QVERIFY(dialog);
+        const int workedLevel = dialog->property("level").toInt();
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QCOMPARE(startLevel, 0);
+        QVERIFY2(switchShown, "the Simple / Groups / Elements switch is missing");
+        QVERIFY2(simpleShown, "Simple does not show its panel");
+        QVERIFY2(!listAtSimple, "Simple still shows the full role list");
+        QVERIFY2(baseCards, "Simple offers no presets to start from");
+        QVERIFY2(!simpleAtGroups, "the Simple panel stays behind at Groups");
+        QVERIFY2(groupAtGroups, "Groups does not list the groups");
+        QVERIFY2(!elementAtGroups, "Groups lists the elements as well");
+        QVERIFY2(sizeShown, "a group does not say how many elements it carries");
+        QVERIFY2(elementAtElements, "Elements does not list every part");
+        QVERIFY2(searchFindsElement, "a search cannot reach an element at Groups");
+        QCOMPARE(workedLevel, 2);
+    }
+
+    // Unlinking keeps what is on screen and ends the following; its toast
+    // undoes it. Fails on the old tree: there was no Unlink.
+    void unlinkingKeepsTheColourAndStopsFollowing()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        const QString element = QStringLiteral("roomHeader");
+        const QString group = QStringLiteral("sidebar");
+        const QString key = store->paletteKeyForRole(element);
+        QVERIFY(QMetaObject::invokeMethod(
+            dialog, "beginEdit", Q_ARG(QVariant, element), Q_ARG(QVariant, element)));
+        QCoreApplication::processEvents();
+
+        const QString parentBefore = dialog->property("editingParent").toString();
+        const QColor shownBefore = resolvedPaletteOf(12).value(key);
+        const bool canUnlink = dialog->property("editingCanUnlink").toBool();
+        QVERIFY(QMetaObject::invokeMethod(dialog, "unlinkEditing"));
+        QCoreApplication::processEvents();
+
+        const QColor shownAfter = resolvedPaletteOf(12).value(key);
+        const bool stored = store->colors().contains(element);
+        const bool toastShown = shown(item("themeToast"));
+        // The group moves; the unlinked element stays.
+        QVERIFY(store->setColor(group, QStringLiteral("#123456")));
+        QCoreApplication::processEvents();
+        const QColor elementAfterGroup = resolvedPaletteOf(12).value(key);
+        const QColor siblingAfterGroup =
+            resolvedPaletteOf(12).value(store->paletteKeyForRole(QStringLiteral("roomList")));
+        const QString parentAfter = dialog->property("editingParent").toString();
+
+        // The toast's Undo puts the link back.
+        if (auto *undo = item("themeToastAction"))
+            clickItem(undo);
+        QCoreApplication::processEvents();
+        const bool storedAfterUndo = store->colors().contains(element);
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QCOMPARE(parentBefore, group);
+        QVERIFY(canUnlink);
+        QVERIFY2(stored, "unlinking stored no colour of its own");
+        QCOMPARE(shownAfter, shownBefore);
+        QVERIFY2(toastShown, "unlinking said nothing and offered no Undo");
+        QCOMPARE(elementAfterGroup, shownBefore);
+        QCOMPARE(siblingAfterGroup, QColor(QStringLiteral("#123456")));
+        QVERIFY2(parentAfter.isEmpty(), "an unlinked element still reports a parent");
+        QVERIFY2(!storedAfterUndo, "Undo did not restore the link");
+    }
+
+    // Opening a group shows how many of its elements keep their own colour,
+    // and "Include them" gives them the group's. Fails on the old tree.
+    void aGroupCanIncludeTheElementsThatKeepTheirOwnColour()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QVERIFY(store->setColor(QStringLiteral("roomHeader"),
+                                QStringLiteral("#AA3355")));
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(
+            dialog, "beginEdit", Q_ARG(QVariant, QStringLiteral("sidebar")),
+            Q_ARG(QVariant, QStringLiteral("Side columns"))));
+        QCoreApplication::processEvents();
+        const int keepBefore = dialog->property("editingKeepOwn").toInt();
+        const bool keepRowShown = shown(item("themeRoleKeepOwn"));
+        QVERIFY(QMetaObject::invokeMethod(dialog, "includeOwnMembers"));
+        QCoreApplication::processEvents();
+        const bool headerStillOwn = store->colors().contains(QStringLiteral("roomHeader"));
+        const int keepAfter = dialog->property("editingKeepOwn").toInt();
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QCOMPARE(keepBefore, 1);
+        QVERIFY2(keepRowShown, "the group does not say that an element keeps its own colour");
+        QVERIFY2(!headerStillOwn, "Include them left the element's own colour");
+        QCOMPARE(keepAfter, 0);
+    }
+
+    // "Make readable" moves the open colour to one that passes, and the
+    // preview dots the roles that fail. Fails on the old tree: neither
+    // existed.
+    void makeReadableClearsWhatFailedAndThePreviewDotsIt()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        // Body text almost the colour of the ground it sits on.
+        QVERIFY(store->setColor(QStringLiteral("background"), QStringLiteral("#202020")));
+        QVERIFY(store->setColor(QStringLiteral("textPrimary"), QStringLiteral("#262626")));
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+        QVERIFY(QMetaObject::invokeMethod(
+            dialog, "beginEdit", Q_ARG(QVariant, QStringLiteral("textPrimary")),
+            Q_ARG(QVariant, QStringLiteral("Text"))));
+
+        // The audit is throttled; wait for it to see the failure.
+        QTRY_VERIFY(dialog->property("problemRoleSet").toMap()
+                        .contains(QStringLiteral("textPrimary")));
+        int dots = 0;
+        for (QQuickItem *dot : items("themeProblemDot")) {
+            if (shown(dot))
+                ++dots;
+        }
+        const bool buttonShown = shown(item("themeMakeReadable"));
+        const auto failing = [&]() {
+            int n = 0;
+            const QVariantList rows = store->auditForRole(
+                dialog->property("previewPalette").toMap(),
+                QStringLiteral("textPrimary"));
+            for (const QVariant &v : rows) {
+                if (!v.toMap().value(QStringLiteral("passes")).toBool())
+                    ++n;
+            }
+            return n;
+        };
+        const int failingBefore = failing();
+        const double lightBefore = store->lightness(QStringLiteral("#262626"));
+
+        QVERIFY(QMetaObject::invokeMethod(dialog, "makeReadable"));
+        QCoreApplication::processEvents();
+        const int failingAfter = failing();
+        const QString now = store->colors().value(QStringLiteral("textPrimary")).toString();
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QVERIFY2(dots > 0, "the preview does not dot a role that is hard to read");
+        QVERIFY2(buttonShown, "no Make readable beside a failing pair");
+        QVERIFY(failingBefore > 0);
+        QVERIFY2(failingAfter < failingBefore,
+                 qPrintable(QStringLiteral("Make readable left %1 of %2 failing")
+                                .arg(failingAfter).arg(failingBefore)));
+        QVERIFY(store->lightness(now) > lightBefore);
+    }
+
+    // Searching "changed" lists what this theme sets itself, and "unreadable"
+    // what the audit flags. Fails on the old tree: both words matched nothing.
+    void searchKnowsChangedAndUnreadable()
+    {
+        auto *store = m_controller->customTheme();
+        QVERIFY(store);
+        const int restoreBase = store->baseTheme();
+        resetThemeFixture(11);
+        QVERIFY(store->setColor(QStringLiteral("sidebar"), QStringLiteral("#123456")));
+        QObject *dialog = openThemeEditor();
+        QVERIFY(dialog);
+
+        const auto listed = [&](const QString &word, const QString &role) {
+            dialog->setProperty("roleFilter", word);
+            QCoreApplication::processEvents();
+            const QVariantList groups = dialog->property("roleGroups").toList();
+            for (const QVariant &g : groups) {
+                for (const QVariant &it : g.toMap().value(QStringLiteral("items")).toList()) {
+                    if (it.toMap().value(QStringLiteral("key")).toString() == role)
+                        return true;
+                }
+            }
+            return false;
+        };
+        const bool changedFinds = listed(QStringLiteral("changed"), QStringLiteral("sidebar"));
+        const bool changedSkips = !listed(QStringLiteral("changed"), QStringLiteral("rail"));
+
+        QVERIFY(store->setColor(QStringLiteral("background"), QStringLiteral("#202020")));
+        QVERIFY(store->setColor(QStringLiteral("textPrimary"), QStringLiteral("#262626")));
+        QTRY_VERIFY(dialog->property("problemRoleSet").toMap()
+                        .contains(QStringLiteral("textPrimary")));
+        const bool hardFinds = listed(QStringLiteral("unreadable"), QStringLiteral("textPrimary"));
+        dialog->setProperty("roleFilter", QString());
+
+        closeThemeEditor();
+        resetThemeFixture(restoreBase);
+
+        QVERIFY2(changedFinds, "\"changed\" does not list a colour this theme sets");
+        QVERIFY2(changedSkips, "\"changed\" lists a colour the theme leaves alone");
+        QVERIFY2(hardFinds, "\"unreadable\" does not list a flagged role");
+    }
+
     // Giving one element a colour changes that element and nothing else: in
     // the resolved palette (every other key keeps its colour), in the live
     // token the app reads, and in the preview (no Region of another role
