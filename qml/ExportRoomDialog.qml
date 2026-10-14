@@ -336,6 +336,7 @@ Dialog {
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.WordWrap
+                textFormat: Text.PlainText
                 text: root.includeAttachments
                       ? qsTr("Attachments are embedded in the file until the "
                              + "size limit is reached; the rest are listed by "
