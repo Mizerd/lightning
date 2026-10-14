@@ -2,6 +2,228 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="lt_LT">
 <context>
+    <name>AboutController</name>
+    <message>
+        <location filename="../src/app/AboutController.cpp" line="+22"/>
+        <source>The homeserver could not be reached.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The homeserver refused the request.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The answer was too large to show.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The homeserver did not give a usable answer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+132"/>
+        <source>Nothing was cleared: you are not signed in.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <location line="+26"/>
+        <location line="+36"/>
+        <source>media cache</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-57"/>
+        <location line="+56"/>
+        <location line="+65"/>
+        <source>event cache</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-117"/>
+        <location line="+2"/>
+        <source>search index</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+74"/>
+        <source>Disk use of those caches went from %1 to %2.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Could not be compacted: %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Still being compacted: %1. The space is returned when that finishes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Compaction did not report back: %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+52"/>
+        <source>Clearing did not finish. Some of the cache may still be on disk; you can try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Cleared the event cache, the media cache and the search index. Your sign-in and encryption keys were not touched.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Nothing was cleared (%1). Your sign-in and encryption keys were not touched.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Cleared: %1. Could not clear: %2. Your sign-in and encryption keys were not touched.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>AboutToolsSection</name>
+    <message>
+        <location filename="../qml/AboutToolsSection.qml" line="+61"/>
+        <source>This build</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>Copied</source>
+        <translation type="unfinished">Nukopijuota</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Copy version</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Copies the version, commit, platform and package kind</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Report an issue</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Opens the issue tracker in your browser</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Paste the version into your report. Please leave out anything private.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Homeserver</source>
+        <translation type="unfinished">Namų serveris</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Asking the homeserver...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This backend cannot ask a homeserver.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Address</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Software</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Not published by this server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Features</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Matrix %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>None listed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source> and %n more (see Developer tools)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Refresh</source>
+        <translation type="unfinished">Atnaujinti</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Local data</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>If rooms look stale or stuck, clearing the local cache makes Lightning fetch them from the server again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Reset local cache</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+33"/>
+        <source>Reset the local cache?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+36"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Atšaukti</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Reset cache</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>This clears three things on this device: the event cache (messages stored for quick opening), the media cache, and the search index. Rooms reload from the server and media downloads again, and searching your history stops working until Lightning has indexed it again.
+
+It does not touch your encryption keys, your sign-in or any message on the server, and it does not sign you out.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>AccountMenu</name>
     <message>
         <location filename="../qml/AccountMenu.qml" line="+33"/>
@@ -31,12 +253,12 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+193"/>
+        <location line="+276"/>
         <source>Sign out</source>
         <translation>Atsijungti</translation>
     </message>
     <message>
-        <location line="-239"/>
+        <location line="-322"/>
         <source>Edit status…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -108,12 +330,12 @@
     </message>
     <message>
         <location line="+15"/>
-        <location line="+110"/>
+        <location line="+180"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-103"/>
+        <location line="-173"/>
         <source>Remove</source>
         <translation>Pašalinti</translation>
     </message>
@@ -128,7 +350,7 @@
         <translation>Atsijungti?</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+55"/>
         <source>You will be signed out of this session. Lightning&apos;s local data for this account is removed from this computer; your messages stay on the server, and encrypted history may need your recovery key after the next sign-in.</source>
         <translation>Būsite atjungti nuo šios sesijos. Vietiniai šios paskyros „Lightning“ duomenys pašalinami iš šio kompiuterio; jūsų pranešimai lieka serveryje, o šifruotai istorijai gali prireikti atkūrimo rakto po kito prisijungimo.</translation>
     </message>
@@ -152,6 +374,59 @@
     </message>
     <message>
         <location line="+21"/>
+        <source>Checking your key backup…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Your room keys are not backed up. Encrypted messages that only this session can read cannot be read again once you sign out.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>You have no recovery key. Your keys are backed up, but without a recovery key you cannot unlock that backup after signing in again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+5"/>
+        <source>%n room key is not backed up yet. Signing out now loses it for good.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Lightning could not confirm that your room keys are backed up.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>%n other verified session keeps its own keys, though not necessarily every one this session holds.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>You have no other verified session.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Set up recovery</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Sign out anyway</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Confirm sign out</source>
         <translation>Patvirtinkite atsijungimą</translation>
     </message>
@@ -442,7 +717,7 @@
 <context>
     <name>AppController</name>
     <message>
-        <location filename="../src/app/AppController.cpp" line="+5749"/>
+        <location filename="../src/app/AppController.cpp" line="+5900"/>
         <source>Room invitation</source>
         <translation>Kvietimas į kambarį</translation>
     </message>
@@ -457,7 +732,7 @@
         <translation>Buvote pakviesti į %1</translation>
     </message>
     <message>
-        <location line="-4565"/>
+        <location line="-4654"/>
         <source>Incoming voice call</source>
         <translation>Įeinantis balso skambutis</translation>
     </message>
@@ -498,7 +773,7 @@
         <translation>Praleidote balso skambutį %1</translation>
     </message>
     <message>
-        <location line="+538"/>
+        <location line="+551"/>
         <source>The room was created, but adding it to the Space failed.</source>
         <translation>Kambarys buvo sukurtas, bet nepavyko jo pridėti prie erdvės.</translation>
     </message>
@@ -530,13 +805,13 @@
     <message>
         <location line="+1"/>
         <location line="+49"/>
-        <location line="+3252"/>
+        <location line="+3328"/>
         <location line="+715"/>
         <source>Not connected</source>
         <translation>Neprisijungęs</translation>
     </message>
     <message>
-        <location line="-4013"/>
+        <location line="-4089"/>
         <source>Connecting…</source>
         <translation>Jungiamasi…</translation>
     </message>
@@ -597,39 +872,45 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2115"/>
+        <location line="+2116"/>
         <location line="+9"/>
         <source>Lightning could not read the selected file.</source>
         <translation>Lightning nepavyko nuskaityti pasirinkto failo.</translation>
     </message>
     <message>
-        <location line="-2121"/>
+        <location line="-2122"/>
         <source>A room-key import is already in progress.</source>
         <translation>Jau vyksta kambario rakto importavimas.</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2951"/>
+        <location line="+3027"/>
         <source>Not signed in.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-2949"/>
+        <location line="-3025"/>
         <source>Room-key import failed.</source>
         <translation>Nepavyko importuoti kambario rakto.</translation>
     </message>
     <message>
-        <location line="+116"/>
+        <location line="-2237"/>
+        <location line="+2353"/>
         <source>Lightning</source>
         <translation type="unfinished">Lightning</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-2352"/>
+        <source>This is a test notification. If you can read it, desktop notifications work.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2353"/>
         <source>That notification was for a different account, so nothing was sent. Switch back to that account and try again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+542"/>
+        <location line="+543"/>
         <source>Video calls need a MatrixRTC service, which isn&apos;t available here yet.</source>
         <translation>Vaizdo skambučiams reikalinga MatrixRTC paslauga, kuri čia dar nepasiekiama.</translation>
     </message>
@@ -829,7 +1110,7 @@
         <translation>Išvalius šio įrenginio vietinius duomenis problema neišspręstų ir būtų sunaikinti šifravimo raktai, kurių vis dar reikia.</translation>
     </message>
     <message>
-        <location line="+444"/>
+        <location line="+519"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Your other accounts are still on this device; unlock the keyring and restart Lightning to continue with them.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -881,8 +1162,8 @@
     </message>
     <message>
         <location filename="../qml/LoginScreen.qml" line="+377"/>
-        <location filename="../src/app/AppController.cpp" line="-1131"/>
-        <location line="+860"/>
+        <location filename="../src/app/AppController.cpp" line="-1206"/>
+        <location line="+935"/>
         <source>Lightning can&apos;t read this device&apos;s saved sign-ins right now — the system keyring is locked or unavailable. Unlock it and try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -921,7 +1202,7 @@
 <context>
     <name>AppTheme</name>
     <message>
-        <location filename="../qml/AppTheme.qml" line="+641"/>
+        <location filename="../qml/AppTheme.qml" line="+663"/>
         <source>Storm</source>
         <translation>Audra</translation>
     </message>
@@ -1195,7 +1476,7 @@
 <context>
     <name>BackupController</name>
     <message>
-        <location filename="../src/crypto/BackupController.cpp" line="+114"/>
+        <location filename="../src/crypto/BackupController.cpp" line="+115"/>
         <source>The approval had already gone through before Cancel took effect, so the change was completed.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1210,7 +1491,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="+53"/>
         <source>This account already has a cross-signing identity, but this session does not hold its keys and they could not be created again without replacing that identity. Lightning will not replace it automatically. Verify this session with another session, or enter your recovery key; resetting is the last resort.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1312,7 +1593,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+73"/>
         <source>The password could not be sent. Try again.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1884,7 +2165,7 @@
         <translation>Prastas ryšys</translation>
     </message>
     <message>
-        <location line="+412"/>
+        <location line="+414"/>
         <location line="+90"/>
         <source>Volume for %1</source>
         <translation>%1 tomas</translation>
@@ -1963,6 +2244,149 @@
     </message>
 </context>
 <context>
+    <name>CallQualitySettings</name>
+    <message>
+        <location filename="../qml/CallQualitySettings.qml" line="+72"/>
+        <source>Quality</source>
+        <translation type="unfinished">Kokybė</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Camera resolution</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <location line="+12"/>
+        <location line="+12"/>
+        <location line="+11"/>
+        <source>Auto</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-34"/>
+        <source>360p</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>480p</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+10"/>
+        <source>720p</source>
+        <translation type="unfinished">720p</translation>
+    </message>
+    <message>
+        <location line="-9"/>
+        <location line="+10"/>
+        <source>1080p</source>
+        <translation type="unfinished">1080p</translation>
+    </message>
+    <message>
+        <location line="-5"/>
+        <source>Screen share resolution</source>
+        <translation type="unfinished">Ekrano bendrinimo skiriamoji geba</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>1440p</source>
+        <translation type="unfinished">1440p</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>4K</source>
+        <translation type="unfinished">4K</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Screen share frame rate</source>
+        <translation type="unfinished">Ekrano bendrinimo kadrų dažnis</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>15 fps</source>
+        <translation type="unfinished">15 kadrų per sekundę</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>30 fps</source>
+        <translation type="unfinished">30 kadrų per sekundę</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>60 fps</source>
+        <translation type="unfinished">60 kadrų per sekundę</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Screen share bitrate limit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>0.5 Mbps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>1 Mbps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>2 Mbps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>3 Mbps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>4.5 Mbps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>This resolution and frame rate ask a lot of your computer and may stutter.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Auto is 720p for the camera and 1080p at 30 fps for a screen share. A bitrate limit only ever lowers the share&apos;s quality, which helps on a slow connection. Changes apply to the next camera or share you start.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Microphone processing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Automatic gain control</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Lifts a quiet microphone and evens out loud and soft speech. Turn it off if you set your level by hand.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Echo cancellation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Removes your callers&apos; voices from your microphone when you use speakers. Headphones do not need it. It needs the WebRTC audio component and is new: with several people in a call it may cancel only some of them. Both apply to your next call.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>CallShareOptionsMenu</name>
     <message>
         <location filename="../qml/CallShareOptionsMenu.qml" line="+50"/>
@@ -1991,6 +2415,13 @@
     </message>
     <message>
         <location line="+4"/>
+        <location line="+25"/>
+        <location line="+29"/>
+        <source>Auto</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-53"/>
         <source>720p</source>
         <translation>720p</translation>
     </message>
@@ -2015,7 +2446,7 @@
         <translation>Kadrų dažnis</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
         <source>15 fps</source>
         <translation>15 kadrų per sekundę</translation>
     </message>
@@ -2033,6 +2464,36 @@
         <location line="+9"/>
         <source>%1 — slow</source>
         <translation>%1 – lėtas</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Bitrate limit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>0.5 Mbps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>1 Mbps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>2 Mbps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>3 Mbps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>4.5 Mbps</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -2054,17 +2515,17 @@
     </message>
     <message>
         <location line="+7"/>
-        <location line="+318"/>
+        <location line="+320"/>
         <source>Screen share</source>
         <translation>Ekrano bendrinimas</translation>
     </message>
     <message>
-        <location line="-194"/>
+        <location line="-196"/>
         <source>Waiting for the picture…</source>
         <translation>Laukiam nuotraukos…</translation>
     </message>
     <message>
-        <location line="+217"/>
+        <location line="+219"/>
         <source>Screen share volume</source>
         <translation>Ekrano bendrinimo garsumas</translation>
     </message>
@@ -3678,7 +4139,13 @@
 <context>
     <name>CustomThemeStore</name>
     <message>
-        <location filename="../src/app/CustomThemeStore.cpp" line="+33"/>
+        <location filename="../src/app/CustomThemeStore.cpp" line="+35"/>
+        <location line="+5"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+5"/>
+        <location line="+3"/>
+        <location line="+3"/>
         <location line="+3"/>
         <location line="+3"/>
         <location line="+3"/>
@@ -3690,7 +4157,7 @@
         <translation>Lango sritys</translation>
     </message>
     <message>
-        <location line="-20"/>
+        <location line="-42"/>
         <source>Spaces rail</source>
         <translation>Erdvių juosta</translation>
     </message>
@@ -3700,7 +4167,7 @@
         <translation>Siaura erdvių juosta tolimajame krašte</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+15"/>
         <source>Room list</source>
         <translation>Kambarių sąrašas</translation>
     </message>
@@ -3710,7 +4177,7 @@
         <translation>Kambarių ir žmonių stulpelis</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+8"/>
         <source>Conversation background</source>
         <translation>Pokalbio fonas</translation>
     </message>
@@ -3720,27 +4187,17 @@
         <translation>Fonas po laiko juosta – didžiausia ekrano sritis</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-15"/>
         <source>Panels and cards</source>
         <translation>Skydeliai ir kortelės</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Side panels, dialogs, the composer</source>
-        <translation>Šoniniai skydeliai, dialogai ir žinučių rašymo laukas</translation>
-    </message>
-    <message>
-        <location line="+11"/>
+        <location line="+32"/>
         <source>Text fields</source>
         <translation>Teksto laukai</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>The inside of the message box and every input</source>
-        <translation>Žinučių laukelio ir visų įvesties laukų vidus</translation>
-    </message>
-    <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <location line="+3"/>
         <location line="+3"/>
         <location line="+3"/>
@@ -3751,6 +4208,13 @@
         <location line="+4"/>
         <location line="+3"/>
         <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+141"/>
         <location line="+3"/>
         <location line="+3"/>
         <location line="+3"/>
@@ -3761,7 +4225,7 @@
         <translation>Būsenos</translation>
     </message>
     <message>
-        <location line="-40"/>
+        <location line="-199"/>
         <source>Raised chips</source>
         <translation>Iškilūs ženkleliai</translation>
     </message>
@@ -3786,11 +4250,13 @@
         <location line="+3"/>
         <location line="+3"/>
         <location line="+3"/>
+        <location line="+180"/>
+        <location line="+4"/>
         <source>Messages</source>
         <translation>Žinutės</translation>
     </message>
     <message>
-        <location line="-11"/>
+        <location line="-195"/>
         <source>Your messages</source>
         <translation>Jūsų žinutės</translation>
     </message>
@@ -3839,11 +4305,21 @@
         <location line="+4"/>
         <location line="+3"/>
         <location line="+3"/>
+        <location line="+121"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
         <source>Accent</source>
         <translation>Akcentas</translation>
     </message>
     <message>
-        <location line="-20"/>
+        <location line="-168"/>
         <source>Primary buttons, focus rings, the checked state</source>
         <translation>Pagrindiniai mygtukai, fokusavimo rėmeliai ir pažymėta būsena</translation>
     </message>
@@ -3895,11 +4371,40 @@
         <location line="+3"/>
         <location line="+4"/>
         <location line="+3"/>
+        <location line="+138"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
         <source>Text</source>
         <translation>Tekstas</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-240"/>
         <source>Main text</source>
         <translation>Pagrindinis tekstas</translation>
     </message>
@@ -3951,11 +4456,22 @@
     <message>
         <location line="+9"/>
         <location line="+3"/>
+        <location line="+30"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+5"/>
         <source>Lines</source>
         <translation>Linijos</translation>
     </message>
     <message>
-        <location line="-2"/>
+        <location line="-64"/>
         <source>Hairlines</source>
         <translation>Plonos linijos</translation>
     </message>
@@ -3976,12 +4492,77 @@
     </message>
     <message>
         <location line="-68"/>
-        <location line="+126"/>
+        <location line="+344"/>
         <source>Text on your messages</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-197"/>
+        <location line="-444"/>
+        <source>Side columns</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The room list, the room header and the side panel take this until they have their own</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Backgrounds</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The conversation and Settings take this until they have their own</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The search field, the message box, menus and dialogs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Room header</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The bar above the conversation with the room&apos;s name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Side panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>People, room details and threads beside the conversation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Search field</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The filter box at the top of the room list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Message box</source>
+        <translation type="unfinished">Pranešimų dėžutė</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The field you type messages into</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Menus and dialogs</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4011,7 +4592,12 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+3"/>
+        <source>The inside of text fields in dialogs and panels</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Hover</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4221,11 +4807,17 @@
         <location line="+3"/>
         <location line="+3"/>
         <location line="+3"/>
+        <location line="+203"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
+        <location line="+3"/>
         <source>Status</source>
         <translation type="unfinished">Būsena</translation>
     </message>
     <message>
-        <location line="-11"/>
+        <location line="-229"/>
         <source>Success</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4275,7 +4867,658 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+12"/>
+        <source>Header divider</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The line under the room list, room and side-panel headers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Search field outline</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge of the room list&apos;s filter box</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Message box outline</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge of the field you type messages into</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Text field outline</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge of text fields in dialogs and panels</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Link preview outline</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge of link previews and other cards in messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Code block outline</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge of fenced code in a message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open folder outline</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge of an open folder in the Channels layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Settings divider</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The lines between Settings&apos; navigation, header and page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Disabled button outline</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge of a button that cannot be used right now</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Menu outline</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge of context menus and pop-up menus</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Reaction pill outline</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge of someone else&apos;s reaction</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Spaces rail tile</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Home, People and folder tiles on the Spaces rail</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Link previews</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Link previews, files and other cards inside messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open room row, hovered</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The room you are in, with the pointer on it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open Settings section</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The section you are in, in Settings&apos; navigation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Person row, hovered</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A person in the side panel under the pointer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Room unread count</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The count or dot of new messages on a room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Space unread dot</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The dot on a Space with something new in it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Open Space tile</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The wash behind the Space you are in</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Call banner</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The strip above the conversation while a call is on</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open Space ring</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The ring around the Space you are in</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Your reaction outline</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The edge of a reaction you added yourself</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Mentions of you</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Your name, and @room, where a message mentions it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Primary button</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The main button of a dialog or form, at rest</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Send button</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The button that sends a message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unread count number</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+301"/>
+        <source>The number on a room&apos;s unread count</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-299"/>
+        <source>Primary button label</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The words on a primary button</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Send button icon</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The arrow on the send button</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Room mention count</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The count on a room where someone named you</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Mention count number</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The number on a mention count</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Message text</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The words of messages, except on your own bubbles</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Room list heading</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The name at the top of the room list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Room name in the header</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The room&apos;s name above the conversation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Unread room names</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The name of a room with something new in it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Code text</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The text inside a code block</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Link preview title</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The title of a link preview or media card</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Your reaction count</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The count on a reaction you added yourself</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Typed text</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>What you type in the message box</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Text field text</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>What you type in text fields in dialogs and panels</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Highlighted menu item</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The menu entry under the pointer or the keyboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Call banner text</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The words on the strip above a conversation with a call on</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Settings headings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The title of Settings and of each of its pages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Room names</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The name of a room with nothing new in it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Channel names</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Room names in the Channels layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Menu items</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The entries of context menus and pop-up menus</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Reaction count</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The count on someone else&apos;s reaction</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Quiet button label</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The words on a button with no fill</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Settings navigation labels</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The section names down the left of Settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Message previews</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The last message under each room&apos;s name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Room list sections</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Labels such as Invites and Favourites in the room list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Side panel sections</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Headings over groups of people in the side panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Channel categories</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Folder and category names in the Channels layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Folder arrows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The arrow that opens a folder in the Channels layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Settings descriptions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The explanation under each Settings page&apos;s title</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open room&apos;s name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The name in the open room&apos;s row</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open room&apos;s preview</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The last message in the open room&apos;s row</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open channel&apos;s name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The name in the open row of the Channels layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Text on a system selection</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Selected text in the message box and standard controls</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Disabled button label</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The words on a button that cannot be used right now</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Online dot on people</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The dot on someone&apos;s picture while they are online</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Success chip</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A small &quot;verified&quot; or &quot;done&quot; label</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Warning chip</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A small caution label, such as Invited</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Destructive menu item, highlighted</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The tint behind Delete or Leave under the pointer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Error chip</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A small &quot;failed&quot; or Banned label</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Destructive menu item</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Delete, Leave and other menu entries that cannot be undone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+52"/>
         <source>Main text on the conversation background</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4315,7 +5558,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+5"/>
         <source>Reaction text on a reaction pill</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4326,11 +5569,56 @@
     </message>
     <message>
         <location line="+4"/>
+        <source>Room names in the room list</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
         <source>Message previews in the room list</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+1236"/>
+        <source>Replace with the imported theme</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+73"/>
+        <source>Change the starting point</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+47"/>
+        <source>Change %1 colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Reset %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+53"/>
+        <source>Apply %1 to all of %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>Reset every colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+39"/>
+        <source>Change %1 gradient</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Remove %1 gradient</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-1516"/>
         <source>Secondary text on panels and cards</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4345,12 +5633,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4"/>
-        <source>Timestamps in the room list</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+4"/>
+        <location line="+8"/>
         <source>Timestamps on panels and cards</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4370,6 +5653,26 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <location line="+6"/>
+        <source>The room&apos;s name in the room header</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Typed text in the message box</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Menu items on a menu</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>A link preview&apos;s title on its card</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <location line="+8"/>
         <source>A button&apos;s label on the accent</source>
         <translation type="unfinished"></translation>
@@ -4385,7 +5688,17 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+4"/>
+        <source>A primary button&apos;s label</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>The send button&apos;s arrow</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Hairlines against panels and cards</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4405,36 +5718,36 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>A mention badge against the room list</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+816"/>
-        <location line="+118"/>
+        <location line="+980"/>
+        <location line="+196"/>
         <location line="+28"/>
-        <location line="+114"/>
+        <location line="+178"/>
         <source>My theme</source>
         <translation>Mano tema</translation>
     </message>
     <message>
-        <location line="-241"/>
+        <location line="-383"/>
         <source>%1 copy</source>
         <translation>%1 kopija</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+89"/>
         <source>You already have the maximum number of themes.</source>
         <translation>Jau turite didžiausią temų skaičių.</translation>
     </message>
     <message>
-        <location line="+4"/>
-        <location line="+3"/>
+        <location line="-38"/>
+        <location line="+5"/>
         <source>That does not look like a shared theme.</source>
         <translation>Tai neatrodo kaip bendra tema.</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
         <source>Shared theme</source>
         <translation>Bendrinama tema</translation>
     </message>
@@ -4550,6 +5863,122 @@ Dydis: %3</translation>
         <location line="+2"/>
         <source>Hide controls</source>
         <translation>Slėpti valdiklius</translation>
+    </message>
+</context>
+<context>
+    <name>DeveloperToolsSection</name>
+    <message>
+        <location filename="../qml/DeveloperToolsSection.qml" line="+51"/>
+        <source>Developer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Developer tools</source>
+        <translation type="unfinished">Kūrėjo įrankiai</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Shows read-only views of what the homeserver reports and what your account stores. Nothing here changes your account.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Homeserver features</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Asking the homeserver...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This backend cannot ask a homeserver.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Spec versions: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>on</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>off</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>Refresh</source>
+        <translation type="unfinished">Atnaujinti</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Account data</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Read only. Leave the room ID empty for your account&apos;s own data, or enter a room ID such as !abc:example.org. Keys and secrets are never shown: those entries appear as their type name only.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Room ID (empty for account-wide)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Load</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Loading...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This backend cannot list account data.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>No account data found.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>%n entries shown; more exist but are not listed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>%n entries.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+39"/>
+        <source>hidden</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>... cut</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -5605,7 +7034,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>GradientEditor</name>
     <message>
-        <location filename="../qml/GradientEditor.qml" line="+364"/>
+        <location filename="../qml/GradientEditor.qml" line="+372"/>
         <source>Linear</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5615,7 +7044,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-262"/>
+        <location line="-270"/>
         <source>Soft fade</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5640,7 +7069,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+134"/>
+        <location line="+139"/>
         <source>Centre</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5680,7 +7109,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+13"/>
         <source>Linear gradient</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5750,7 +7179,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+20"/>
         <source>Remove</source>
         <translation type="unfinished">Pašalinti</translation>
     </message>
@@ -6101,18 +7530,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+641"/>
+        <location line="+643"/>
         <location line="+1"/>
         <source>Open in browser</source>
         <translation type="unfinished">Atidaryti naršyklėje</translation>
     </message>
     <message>
-        <location line="-634"/>
+        <location line="-636"/>
         <source>Close</source>
         <translation>Uždaryti</translation>
     </message>
     <message>
-        <location line="+266"/>
+        <location line="+268"/>
         <source>The image could not be loaded.</source>
         <translation>Nepavyko įkelti vaizdo.</translation>
     </message>
@@ -6619,7 +8048,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+89"/>
+        <location line="+90"/>
         <source>Open link in browser</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6661,6 +8090,164 @@ Signing out and signing in again is the only fix.</source>
         <location line="+1"/>
         <source>System default</source>
         <translation>Numatytasis sistemos</translation>
+    </message>
+</context>
+<context>
+    <name>LogExportCard</name>
+    <message>
+        <location filename="../qml/LogExportCard.qml" line="+49"/>
+        <source>%1 B</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>%1 KB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>%1 MB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Troubleshooting</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Export logs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Save Lightning&apos;s recent log, with basic facts about this build and computer, as a .zip you can attach to a bug report. Nothing is uploaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <location line="+23"/>
+        <source>Keep a diagnostic log</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-11"/>
+        <source>Disabled by the LIGHTNING_NO_ROLLING_LOG environment variable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Keeps up to about 8 MB of recent log on this computer, so there is something to export after a problem. Nothing is uploaded. Not synced to your other devices.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>This file has no messages, passwords or keys; user and room ids are replaced with codes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Preparing…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Nothing has been logged yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>No log has been kept. Turn on “Keep a diagnostic log”, reproduce the problem, then export.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>About %1, %2, from %3.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>%n line(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>%n log file(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Export logs…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Copy last 200 lines</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Delete saved logs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>Deleted %n log file(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Save logs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Zip archive (*.zip)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Saved.</source>
+        <translation type="unfinished">Išsaugota.</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Could not save the file: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>Copied %n line(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+</context>
+<context>
+    <name>LogExportController</name>
+    <message>
+        <location filename="../src/app/LogExportController.cpp" line="+199"/>
+        <source>No file was chosen.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Could not save the file.</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -7144,7 +8731,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Lightning %1</translation>
     </message>
     <message>
-        <location line="+489"/>
+        <location line="+536"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
@@ -7259,7 +8846,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Nepavyko išsaugoti lipduko.</translation>
     </message>
     <message>
-        <location line="+168"/>
+        <location line="+15"/>
+        <source>Added :%1: to your emoji</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+172"/>
         <location line="+16"/>
         <source>Connected</source>
         <translation>Prisijungta</translation>
@@ -7308,7 +8900,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MainScreen</name>
     <message>
-        <location filename="../qml/MainScreen.qml" line="+563"/>
+        <location filename="../qml/MainScreen.qml" line="+568"/>
         <source>Signing out…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7321,18 +8913,23 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBridge</name>
     <message>
-        <location filename="../src/media/MediaBridge.cpp" line="+1309"/>
-        <location line="+662"/>
+        <location filename="../src/media/MediaBridge.cpp" line="+1333"/>
+        <location line="+682"/>
         <source>The file could not be downloaded.</source>
         <translation>Failo atsisiųsti nepavyko.</translation>
     </message>
     <message>
-        <location line="-542"/>
+        <location line="-562"/>
         <source>The download timed out.</source>
         <translation>Baigėsi atsisiuntimo laikas.</translation>
     </message>
     <message>
-        <location line="+639"/>
+        <location line="+560"/>
+        <source>The media server is unreachable. Try again in a few minutes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+107"/>
         <location line="+10"/>
         <source>No destination selected.</source>
         <translation>Nepasirinktas joks tikslas.</translation>
@@ -7545,7 +9142,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished">(be vardo)</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+58"/>
         <source>Go to message</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7578,7 +9175,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MediaBrowserTile</name>
     <message>
-        <location filename="../qml/MediaBrowserTile.qml" line="+148"/>
+        <location filename="../qml/MediaBrowserTile.qml" line="+150"/>
         <source>Go to message</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7587,7 +9184,7 @@ Signing out and signing in again is the only fix.</source>
     <name>MediaHiddenPlaceholder</name>
     <message>
         <location filename="../qml/MediaHiddenPlaceholder.qml" line="+47"/>
-        <location line="+22"/>
+        <location line="+23"/>
         <source>Show image</source>
         <translation>Rodyti vaizdą</translation>
     </message>
@@ -7617,6 +9214,55 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+2"/>
         <source>This month</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>MediaPreviewSettings</name>
+    <message>
+        <location filename="../qml/MediaPreviewSettings.qml" line="+20"/>
+        <source>Media previews</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <location line="+27"/>
+        <source>Load media automatically</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-14"/>
+        <source>Always</source>
+        <translation type="unfinished">Visada</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Private rooms only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Never</source>
+        <translation type="unfinished">Niekada</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>Pictures, GIFs, stickers, video, audio and files start as one line you can open, and are not downloaded until you do. Private rooms are encrypted rooms and direct messages. The choice is saved in your account, so other apps that support it follow it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Show avatars in room invitations</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Load the picture a stranger set on a room that invites you</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Could not save this to your account. It still shows what your account holds.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -7930,7 +9576,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageComposer</name>
     <message>
-        <location filename="../src/models/MessageComposer.cpp" line="+185"/>
+        <location filename="../src/models/MessageComposer.cpp" line="+189"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Ši posistemė nepalaiko priedų.</translation>
     </message>
@@ -7940,24 +9586,29 @@ Signing out and signing in again is the only fix.</source>
         <translation>Nepavyko nuskaityti iškarpinės vaizdo.</translation>
     </message>
     <message>
-        <location line="+112"/>
+        <location line="+104"/>
+        <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+35"/>
         <source>The attachment could not be queued.</source>
         <translation>Priedo nepavyko įtraukti į eilę.</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+17"/>
         <location line="+27"/>
-        <location line="+41"/>
+        <location line="+43"/>
         <source>The voice message could not be sent.</source>
         <translation>Balso pranešimo išsiųsti nepavyko.</translation>
     </message>
     <message>
-        <location line="-58"/>
+        <location line="-60"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>Balso pranešimas yra didesnis nei serverio įkėlimo limitas (%1).</translation>
     </message>
     <message>
-        <location line="+76"/>
+        <location line="+78"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Įkelti nepavyko. Bandykite dar kartą arba pašalinkite.</translation>
     </message>
@@ -8167,18 +9818,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+1062"/>
+        <location line="+1067"/>
         <source>Switch to Markdown composing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1061"/>
-        <location line="+1062"/>
+        <location line="-1066"/>
+        <location line="+1067"/>
         <source>Switch to rich-text composing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1018"/>
+        <location line="-1023"/>
         <source>Attach files or create a poll</source>
         <translation>Pridėkite failus arba sukurkite apklausą</translation>
     </message>
@@ -8200,18 +9851,18 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+939"/>
+        <location line="+944"/>
         <source>Hide formatting</source>
         <translation>Slėpti formatavimą</translation>
     </message>
     <message>
-        <location line="-938"/>
-        <location line="+939"/>
+        <location line="-943"/>
+        <location line="+944"/>
         <source>Show formatting</source>
         <translation>Rodyti formatavimą</translation>
     </message>
     <message>
-        <location line="-665"/>
+        <location line="-669"/>
         <source>Select a room to start typing</source>
         <translation>Pasirinkite kambarį, kad pradėtumėte vesti tekstą</translation>
     </message>
@@ -8226,7 +9877,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Pranešimas %1</translation>
     </message>
     <message>
-        <location line="+216"/>
+        <location line="+217"/>
         <source>Add to dictionary</source>
         <translation>Pridėti į žodyną</translation>
     </message>
@@ -8262,12 +9913,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+325"/>
+        <location line="+328"/>
         <source>Emoji</source>
         <translation>Jaustukai</translation>
     </message>
     <message>
-        <location line="-292"/>
+        <location line="-295"/>
         <source>GIF</source>
         <translation>GIF</translation>
     </message>
@@ -8279,12 +9930,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+27"/>
         <location line="+1"/>
-        <location line="+279"/>
+        <location line="+282"/>
         <source>Record a voice message</source>
         <translation>Įrašykite balso pranešimą</translation>
     </message>
     <message>
-        <location line="-2981"/>
+        <location line="-2986"/>
         <source>A recording is already in progress.</source>
         <translation>Jau vyksta įrašymas.</translation>
     </message>
@@ -8294,7 +9945,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Balso įrašymas nepasiekiamas.</translation>
     </message>
     <message>
-        <location line="+2717"/>
+        <location line="+2719"/>
         <location line="+1"/>
         <source>More</source>
         <translation type="unfinished">Daugiau</translation>
@@ -8336,7 +9987,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+38"/>
+        <location line="+41"/>
         <source>Send</source>
         <translation>Siųsti</translation>
     </message>
@@ -8351,7 +10002,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Išsaugoti redagavimą</translation>
     </message>
     <message>
-        <location line="-210"/>
+        <location line="-213"/>
         <source>Insert a GIF or sticker</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8362,7 +10013,7 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+300"/>
+        <location line="+303"/>
         <source>GIFs and stickers</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8406,7 +10057,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MessageDelegate</name>
     <message>
-        <location filename="../qml/MessageDelegate.qml" line="+1029"/>
+        <location filename="../qml/MessageDelegate.qml" line="+1045"/>
         <source>Today</source>
         <translation>Šiandien</translation>
     </message>
@@ -8426,7 +10077,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Nauji pranešimai</translation>
     </message>
     <message>
-        <location line="+224"/>
+        <location line="+226"/>
         <source>Avatar for %1</source>
         <translation>%1 pseudoportretas</translation>
     </message>
@@ -8454,12 +10105,12 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+101"/>
         <location line="+939"/>
-        <location line="+1088"/>
+        <location line="+1134"/>
         <source>Reply</source>
         <translation>Atsakyti</translation>
     </message>
     <message>
-        <location line="-2012"/>
+        <location line="-2058"/>
         <source>(original message not loaded)</source>
         <translation>(originali žinutė neįkelta)</translation>
     </message>
@@ -8514,12 +10165,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Apsaugos nustatymai</translation>
     </message>
     <message>
-        <location line="-1890"/>
+        <location line="-1892"/>
         <source>Link</source>
         <translation type="unfinished">Nuoroda</translation>
     </message>
     <message>
-        <location line="+1974"/>
+        <location line="+1976"/>
         <source>Show preview</source>
         <translation>Rodyti peržiūrą</translation>
     </message>
@@ -8560,29 +10211,29 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+2297"/>
+        <location line="+2370"/>
         <source>Retry</source>
         <translation>Bandykite dar kartą</translation>
     </message>
     <message>
-        <location line="-2267"/>
-        <location line="+1143"/>
+        <location line="-2340"/>
+        <location line="+1189"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-1138"/>
+        <location line="-1184"/>
         <source>Cancel sending this message</source>
         <translation>Atšaukti šio pranešimo siuntimą</translation>
     </message>
     <message>
         <location line="+151"/>
-        <location line="+1313"/>
+        <location line="+1386"/>
         <source>Hide image</source>
         <translation>Slėpti vaizdą</translation>
     </message>
     <message>
-        <location line="-1309"/>
+        <location line="-1382"/>
         <source>Hide</source>
         <translation>Slėpti</translation>
     </message>
@@ -8617,7 +10268,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Daugiau</translation>
     </message>
     <message>
-        <location line="+186"/>
+        <location line="+187"/>
         <source>%1 and 1 other</source>
         <translation>%1 ir dar 1</translation>
     </message>
@@ -8663,7 +10314,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Pridėti reakciją</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+62"/>
         <source>Read by %1</source>
         <translation>Perskaitė %1</translation>
     </message>
@@ -8688,14 +10339,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>Skaitė %1, %2 ir %3 kiti</translation>
     </message>
     <message>
-        <location line="+407"/>
+        <location line="+453"/>
         <source>Message · %1 · %2</source>
         <translation>Pranešimas · %1 · %2</translation>
     </message>
     <message>
-        <location line="-941"/>
+        <location line="-987"/>
         <location line="+4"/>
-        <location line="+1067"/>
+        <location line="+1113"/>
         <source>Reply in thread</source>
         <translation>Atsakyti gijoje</translation>
     </message>
@@ -8740,7 +10391,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Pridėkite prie šio kambario lipdukų</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+46"/>
         <source>Save as…</source>
         <translation>Išsaugoti kaip…</translation>
     </message>
@@ -8781,13 +10432,13 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1284"/>
-        <location line="+1291"/>
+        <location line="-1357"/>
+        <location line="+1364"/>
         <source>Edit</source>
         <translation>Redaguoti</translation>
     </message>
     <message>
-        <location line="-3775"/>
+        <location line="-3850"/>
         <source>%1 B</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8828,12 +10479,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="-552"/>
         <location line="+66"/>
         <location line="+485"/>
-        <location line="+4144"/>
+        <location line="+4219"/>
         <source>Image</source>
         <translation type="unfinished">Vaizdas</translation>
     </message>
     <message>
-        <location line="-4693"/>
+        <location line="-4768"/>
         <source>Attachment</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8856,7 +10507,7 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+1088"/>
+        <location line="+1090"/>
         <source>Message deleted</source>
         <translation type="unfinished">Pranešimas ištrintas</translation>
     </message>
@@ -8872,6 +10523,20 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+748"/>
+        <source>Add :%1: to my emoji</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>Add %n custom emoji to my pack</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+72"/>
         <source>Use as my background here</source>
         <translation type="unfinished"></translation>
     </message>
@@ -9069,20 +10734,20 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+382"/>
-        <location line="+972"/>
+        <location line="+983"/>
         <location line="+247"/>
         <source>Download %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1217"/>
-        <location line="+972"/>
+        <location line="-1228"/>
+        <location line="+983"/>
         <location line="+250"/>
         <source>Download</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-806"/>
+        <location line="-809"/>
         <source>Remove from saved</source>
         <translation>Pašalinti iš išsaugotų</translation>
     </message>
@@ -9092,7 +10757,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Išsaugoti vaizdą</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+74"/>
+        <source>Media server unreachable — retrying in %1 min</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>Image failed to load — click to retry</source>
         <translation>Nepavyko įkelti vaizdo – spustelėkite ir bandykite dar kartą</translation>
     </message>
@@ -9118,11 +10788,11 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6057"/>
+        <location line="-6143"/>
         <location line="+70"/>
         <location line="+488"/>
-        <location line="+4142"/>
-        <location line="+1022"/>
+        <location line="+4217"/>
+        <location line="+1033"/>
         <location line="+66"/>
         <source>Video</source>
         <translation>Vaizdo įrašas</translation>
@@ -9133,10 +10803,10 @@ Signing out and signing in again is the only fix.</source>
         <translation>vaizdo įrašą</translation>
     </message>
     <message>
-        <location line="-5800"/>
+        <location line="-5886"/>
         <location line="+554"/>
-        <location line="+4252"/>
-        <location line="+1136"/>
+        <location line="+4327"/>
+        <location line="+1147"/>
         <location line="+31"/>
         <source>File</source>
         <translation>Failas</translation>
@@ -9162,8 +10832,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Išsaugoti nepavyko</translation>
     </message>
     <message>
-        <location line="-1164"/>
-        <location line="+1219"/>
+        <location line="-1175"/>
+        <location line="+1230"/>
         <source>file</source>
         <translation>failą</translation>
     </message>
@@ -9309,11 +10979,11 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>MockMatrixClient</name>
     <message>
-        <location filename="../src/matrix/MockMatrixClient.cpp" line="+358"/>
+        <location filename="../src/matrix/MockMatrixClient.cpp" line="+360"/>
         <location line="+33"/>
         <location line="+28"/>
         <location line="+43"/>
-        <location line="+563"/>
+        <location line="+569"/>
         <location line="+26"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
@@ -9826,9 +11496,412 @@ Signing out and signing in again is the only fix.</source>
     </message>
 </context>
 <context>
+    <name>NotificationRulesSettings</name>
+    <message>
+        <location filename="../qml/NotificationRulesSettings.qml" line="+59"/>
+        <location line="+212"/>
+        <location line="+80"/>
+        <location line="+8"/>
+        <location line="+8"/>
+        <source>Off</source>
+        <translation type="unfinished">Išjungta</translation>
+    </message>
+    <message>
+        <location line="-308"/>
+        <location line="+212"/>
+        <location line="+80"/>
+        <location line="+8"/>
+        <location line="+8"/>
+        <source>Notify</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-308"/>
+        <location line="+212"/>
+        <source>Loud</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-185"/>
+        <source>Account notification rules</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>These are saved to your Matrix account, so they apply on every device and in every client you use. A room you have set up yourself keeps its own level whatever is chosen here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <location line="+13"/>
+        <source>Mute all notifications</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-7"/>
+        <source>Silences every room on every device until you turn it off.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Default alerts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Direct messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+7"/>
+        <source>All messages</source>
+        <translation type="unfinished">Visi pranešimai</translation>
+    </message>
+    <message>
+        <location line="-7"/>
+        <location line="+7"/>
+        <source>Mentions and keywords</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-2"/>
+        <source>Rooms</source>
+        <translation type="unfinished">Kambariai</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Encrypted and unencrypted rooms were set to different levels, probably by another client. Choosing a level here sets both.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>This is the level for rooms that have no setting of their own. Set a single room from its Room information.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Mentions</source>
+        <translation type="unfinished">Paminėjimai</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Your user ID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Your display name</source>
+        <translation type="unfinished">Jūsų rodomas vardas</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Your username</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>@room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Notify alerts you. Loud alerts you with a sound. Off ignores that kind of mention. These apply in every room that is not muted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Keywords</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>Add a word or phrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>New keyword</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Level for the new keyword</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Add</source>
+        <translation type="unfinished">Pridėti</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>No keywords. Add a word and you are notified whenever someone says it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Remove</source>
+        <translation type="unfinished">Pašalinti</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Remove keyword %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Your homeserver cannot read encrypted messages, so in encrypted rooms a keyword matches only on devices that can decrypt them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Other events</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>Reactions to your messages</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Invitations to you</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Messages from bots</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Bot messages are the automated notices some bridges and bots post. Off keeps them quiet; Notify treats them like any other message in that room.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Not getting notifications?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Checks the things Lightning can see: whether something can show a notification, the switches here, your account, and the room you have open. The test notification covers the rest.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Run checks</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Send a test notification</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>OK</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Check</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Problem</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Unknown</source>
+        <translation type="unfinished">Nežinoma</translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Turn on</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Unmute</source>
+        <translation type="unfinished">Įjungti garsą</translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>Remove this keyword?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+41"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Atšaukti</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Remove keyword</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>You will stop being notified when someone says “%1”, on every device signed in to this account.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>NotificationTroubleshooter</name>
+    <message>
+        <location filename="../src/app/NotificationTroubleshooter.cpp" line="+70"/>
+        <source>A notification service is running</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Your desktop&apos;s notification service answered.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Notifications use the tray icon</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lightning shows notifications as balloons from its tray icon on this system. They need the icon to be visible.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>No way to show a notification</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Nothing is listening for notifications on the session bus and there is no tray to fall back on. Start a notification service (your desktop&apos;s own, or one such as dunst or mako).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>The system tray is not available, so there is nowhere to show a notification from.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Lightning cannot read whether macOS allows its notifications or whether a Focus mode is on. If the test below does not appear, check System Settings, Notifications and Focus.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Lightning cannot read whether Windows allows its notifications or whether Focus assist is on. If the test below does not appear, check Settings, System, Notifications.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Lightning cannot read whether your desktop is in Do Not Disturb or has muted Lightning. If the test below does not appear, check your desktop&apos;s notification settings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>System permission and Do Not Disturb</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Desktop notifications are on</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lightning is allowed to show notifications.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Desktop notifications are off</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Lightning is set not to show any desktop notification.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Account notification settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>They have not been loaded from your homeserver yet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>All notifications are muted on your account</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The master mute is on, so your homeserver sends no notifications for any room, to any of your devices.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Your account is not muted</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The master mute is off.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>This room is muted</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>It never notifies. Change it under Room information, Notifications.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>This room notifies only for mentions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Ordinary messages here stay quiet. Change it under Room information, Notifications.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>This room notifies for every message</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Nothing is overriding it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>This room follows your defaults</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>It has no setting of its own.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>Notifications</name>
     <message>
-        <location line="-733"/>
+        <location filename="../src/notifications/NotificationManager.cpp" line="-733"/>
         <source>Matrix room</source>
         <translation>Matrix kambarys</translation>
     </message>
@@ -9990,6 +12063,44 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+1"/>
         <source>The password could not be changed. Try again later.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>PhotoMetadataSetting</name>
+    <message>
+        <location filename="../qml/PhotoMetadataSetting.qml" line="+27"/>
+        <source>Photo details removed when sending</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Remove location (recommended)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Remove all details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Keep everything</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Removes location, camera, time and every other detail stored inside JPEG, PNG, WebP and HEIC photos. The picture itself is not re-encoded and keeps its rotation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Photos are sent exactly as they are, including where and when they were taken.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Removes where a JPEG, PNG, WebP or HEIC photo was taken before it is sent: GPS position and any named place (city, country, location) in its details. Camera and time details stay. The picture itself is not re-encoded. TIFF, raw and JPEG XL files cannot be cleaned and are not sent. Your own file is never changed.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -10241,6 +12352,117 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location filename="../src/profile/ProfileBadges.cpp" line="+16"/>
         <source>idea master — a thank-you badge for helping develop Lightning.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>PushRulesController</name>
+    <message>
+        <location filename="../src/app/PushRulesController.cpp" line="+171"/>
+        <source>Type a word or phrase.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Keep a keyword under %1 characters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>A keyword cannot start with a full stop.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A keyword cannot contain a slash.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>A keyword cannot contain control characters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+129"/>
+        <source>Your homeserver does not have that notification rule.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>That setting was not accepted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Your homeserver refused the change.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Your homeserver is limiting requests. Try again in a moment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The change could not be saved. Check your connection and try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>QObject</name>
+    <message>
+        <location filename="../src/settings/SettingsSyncController.cpp" line="+34"/>
+        <source>out of range</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>wrong kind of value</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>too long</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>contains control characters</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>not a value this version knows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>needs a custom theme the file does not contain</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>not valid</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>That file is empty.</source>
+        <translation type="unfinished">Tas failas tuščias.</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>That file is too large to be a settings file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>That file is not a settings file (it is not valid JSON).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>That file is not a Lightning settings file.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -10628,7 +12850,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Nėra atitinkančių veiksmų</translation>
     </message>
     <message>
-        <location line="+258"/>
+        <location line="+264"/>
         <source>navigate</source>
         <translation>naršyti</translation>
     </message>
@@ -10671,7 +12893,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailEntryModel</name>
     <message>
-        <location filename="../src/spaces/RailEntryModel.cpp" line="+242"/>
+        <location filename="../src/spaces/RailEntryModel.cpp" line="+249"/>
         <source>Direct Messages</source>
         <translation>Tiesioginiai pokalbiai</translation>
     </message>
@@ -10679,7 +12901,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RailLayoutStore</name>
     <message>
-        <location filename="../src/spaces/RailLayoutStore.cpp" line="+263"/>
+        <location filename="../src/spaces/RailLayoutStore.cpp" line="+266"/>
         <location line="+294"/>
         <source>Folder</source>
         <translation>Aplankas</translation>
@@ -11525,7 +13747,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>vakar</translation>
     </message>
     <message>
-        <location line="+280"/>
+        <location line="+284"/>
         <source>Space invitation from %1</source>
         <translation>%1 kviečia į erdvę</translation>
     </message>
@@ -11754,7 +13976,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomInfoPanel</name>
     <message>
-        <location filename="../qml/RoomInfoPanel.qml" line="+243"/>
+        <location filename="../qml/RoomInfoPanel.qml" line="+250"/>
         <source>Choose room avatar</source>
         <translation>Pasirinkite kambario avatarą</translation>
     </message>
@@ -11784,7 +14006,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Uždaryti kambario informaciją</translation>
     </message>
     <message>
-        <location line="-299"/>
+        <location line="-306"/>
         <source>Overview</source>
         <translation>Apžvalga</translation>
     </message>
@@ -11804,7 +14026,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Medija</translation>
     </message>
     <message>
-        <location line="+390"/>
+        <location line="+397"/>
         <source>Notifications</source>
         <translation>Pranešimai</translation>
     </message>
@@ -11872,17 +14094,17 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 nariai (%2 pakviesti)</translation>
     </message>
     <message>
-        <location line="-575"/>
+        <location line="-582"/>
         <source>Widgets</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2102"/>
+        <location line="+2113"/>
         <source>Open</source>
         <translation type="unfinished">Atidaryti</translation>
     </message>
     <message>
-        <location line="-1474"/>
+        <location line="-1478"/>
         <source>Export room…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12132,13 +14354,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+22"/>
-        <location line="+730"/>
+        <location line="+734"/>
         <location line="+85"/>
         <source>Remove</source>
         <translation type="unfinished">Pašalinti</translation>
     </message>
     <message>
-        <location line="-795"/>
+        <location line="-799"/>
         <source>#another-name</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12154,12 +14376,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+17"/>
-        <location line="+802"/>
+        <location line="+806"/>
         <source>Leave room</source>
         <translation>Palikite kambarį</translation>
     </message>
     <message>
-        <location line="-791"/>
+        <location line="-795"/>
         <source>Close room…</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12338,7 +14560,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rodomi pirmieji %1 %2 nariai.</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+55"/>
         <source>%1 — %2</source>
         <translation>%1 – %2</translation>
     </message>
@@ -12348,7 +14570,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>%1 (%2), %3</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+77"/>
         <source>Invited</source>
         <translation>Pakviestas</translation>
     </message>
@@ -12407,6 +14629,192 @@ Signing out and signing in again is the only fix.</source>
         <location line="+48"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
+    </message>
+</context>
+<context>
+    <name>RoomKeyExportController</name>
+    <message>
+        <location filename="../src/app/RoomKeyExportController.cpp" line="+172"/>
+        <source>Export finished, but this session holds no room keys yet, so the file contains none.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>Exported %n room key(s). Keep the file and its passphrase safe, and apart from each other.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Enter a passphrase to protect the file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The passphrases do not match.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Use at least %1 characters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This passphrase is too weak to protect your keys. Use at least 12 characters, or 10 that mix upper and lower case, digits or symbols.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Lightning cannot save to that location. Choose another folder or file name.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Lightning is not allowed to write to that location. Choose another folder.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>There is not enough space to save the file. Nothing was saved. Free some space or choose another location.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Writing the file failed. Nothing was saved. Try again or choose another location.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Writing the file failed part-way. The file at that location may be incomplete: delete it and export again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>An export is already running.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Sign in to export room keys.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Encryption is not ready on this session yet. Try again in a moment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Exporting room keys needs the Matrix SDK backend.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The export failed. Nothing was saved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>RoomKeyExportSection</name>
+    <message>
+        <location filename="../qml/RoomKeyExportSection.qml" line="+73"/>
+        <source>Export room keys</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Save the keys that decrypt your encrypted messages to a file, locked with a passphrase you choose. Another session, or another Matrix app such as Element, can import it to read your message history. The file covers messages received up to now, and importing it does not verify a session.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Anyone with this file and its passphrase can read your encrypted messages. Keep the file somewhere private, never send it in a chat, and store the passphrase separately from it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <location line="+1"/>
+        <source>Passphrase for the file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+38"/>
+        <source>Too short to export: use at least %1 characters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Too weak to export: use at least 12 characters, or 10 that mix upper and lower case, digits or symbols, and avoid repeating a few characters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Fair</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Strong</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <location line="+1"/>
+        <source>Confirm the passphrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>The passphrases do not match.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Exporting…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Export keys…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Disabled: the passphrase is too weak.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+20"/>
+        <source>Exporting room keys… %n gathered so far.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Exporting room keys… This can take a while on an account with a long history.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>Save room-key export</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Room-key export (*.txt)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>All files (*)</source>
+        <translation type="unfinished">Visi failai (*)</translation>
     </message>
 </context>
 <context>
@@ -12569,7 +14977,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RoomListSortMenu</name>
     <message>
-        <location filename="../qml/RoomListSortMenu.qml" line="+25"/>
+        <location filename="../qml/RoomListSortMenu.qml" line="+27"/>
         <source>Sort rooms by</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12586,6 +14994,11 @@ Signing out and signing in again is the only fix.</source>
     <message>
         <location line="+7"/>
         <source>Space order</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Unread first</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -12856,7 +15269,7 @@ Signing out and signing in again is the only fix.</source>
 <context>
     <name>RustSdkMatrixClient</name>
     <message>
-        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+396"/>
+        <location filename="../src/matrix/RustSdkMatrixClient.cpp" line="+397"/>
         <source>Lightning could not create its local storage directory for this account. Check filesystem permissions and free space.</source>
         <translation>„Lightning“ negalėjo sukurti šios paskyros vietinės saugyklos katalogo. Patikrinkite failų sistemos leidimus ir laisvą vietą.</translation>
     </message>
@@ -13009,12 +15422,12 @@ Signing out and signing in again is the only fix.</source>
         <location line="+7"/>
         <location line="+10"/>
         <location line="+53"/>
-        <location line="+2567"/>
+        <location line="+2615"/>
         <source>Lightning could not completely reset the local session for this account. Check the application logs and filesystem permissions, then try again.</source>
         <translation>„Lightning“ nepavyko visiškai iš naujo nustatyti šios paskyros vietinės sesijos. Patikrinkite programų žurnalus ir failų sistemos leidimus, tada bandykite dar kartą.</translation>
     </message>
     <message>
-        <location line="-2583"/>
+        <location line="-2631"/>
         <source>Local Lightning session rebuilt. The previous encryption store was moved aside, not deleted, and is still in this account&apos;s data directory. You can sign in again.</source>
         <translation>Atkurta vietinė Lightning sesija. Ankstesnė šifravimo saugykla buvo perkelta, neištrinta ir vis dar yra šios paskyros duomenų kataloge. Galite prisijungti dar kartą.</translation>
     </message>
@@ -13027,7 +15440,7 @@ Signing out and signing in again is the only fix.</source>
         <location line="+206"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+4074"/>
+        <location line="+4122"/>
         <location line="+93"/>
         <location line="+13"/>
         <location line="+50"/>
@@ -13036,23 +15449,23 @@ Signing out and signing in again is the only fix.</source>
         <translation>Neprisijungęs.</translation>
     </message>
     <message>
-        <location line="-4472"/>
+        <location line="-4520"/>
         <location line="+61"/>
         <location line="+151"/>
-        <location line="+4266"/>
+        <location line="+4314"/>
         <source>Unknown room: %1</source>
         <translation>Nežinomas kambarys: %1</translation>
     </message>
     <message>
-        <location line="-4474"/>
+        <location line="-4522"/>
         <location line="+61"/>
         <location line="+151"/>
         <source>Cannot send to encrypted rooms yet: Rust SDK encrypted send is not verified.</source>
         <translation>Dar negalima siųsti į užšifruotus kambarius: Rust SDK šifruotas siuntimas nepatvirtintas.</translation>
     </message>
     <message>
-        <location line="+689"/>
-        <location line="+2328"/>
+        <location line="+730"/>
+        <location line="+2335"/>
         <location line="+54"/>
         <source>The sticker could not be sent.</source>
         <translation>Nepavyko išsiųsti lipduko.</translation>
@@ -13140,7 +15553,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5145"/>
+        <location line="-5193"/>
         <source>Enter your username.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -13155,7 +15568,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5137"/>
+        <location line="+5185"/>
         <source>Message could not be sent. You can retry from the message&apos;s Retry action.</source>
         <translation>Nepavyko išsiųsti pranešimo. Galite bandyti dar kartą naudodami pranešimo veiksmą Bandyti iš naujo.</translation>
     </message>
@@ -13431,6 +15844,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+12"/>
+        <location line="+31"/>
+        <source>Auto</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-30"/>
         <source>720p</source>
         <translation>720p</translation>
     </message>
@@ -13455,7 +15874,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Ekrano bendrinimo skiriamoji geba</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+26"/>
         <source>15 fps</source>
         <translation>15 kadrų per sekundę</translation>
     </message>
@@ -13888,42 +16307,378 @@ Signing out and signing in again is the only fix.</source>
     </message>
 </context>
 <context>
+    <name>SettingsBackupSection</name>
+    <message>
+        <location filename="../qml/SettingsBackupSection.qml" line="+26"/>
+        <source>Appearance</source>
+        <translation type="unfinished">Išvaizda</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Window</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Notifications and sounds</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Privacy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Media and previews</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Calls</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Timeline</source>
+        <translation type="unfinished">Laiko juosta</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Composer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>on</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>off</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>not set</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+2"/>
+        <source>none</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+32"/>
+        <source>Settings file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Save your preferences to a file, or load them from one. It holds how Lightning looks and behaves: appearance, layout, notifications, sounds, shortcuts and your custom themes. It never holds your sign-in, keys, devices, accounts or where files are kept on this computer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Export settings…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Import settings…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>Sync across your devices</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>Sync settings across your devices</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Keeps the same preferences on every device signed in to this account, and brings them back when you sign in on a new one. They are stored in your account data on your homeserver, which its administrator can read; they hold no keys or passwords. Things that belong to one computer (window size, zoom, volumes, microphone and camera, privacy and security switches, custom themes) stay on that computer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>Checking your homeserver…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Syncing…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Your account&apos;s settings were saved by a newer Lightning. This version reads what it knows and writes nothing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Settings could not be synced (%1). Trying again shortly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>%n change(s) waiting to sync.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Up to date. Last synced %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Up to date.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+19"/>
+        <source>Your account already has synced settings, and %n setting(s) you chose on this device differ. Nothing has been changed yet.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Use my account&apos;s settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Upload this device&apos;s settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Changed on another device since you edited them here, so the newer value was kept: %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>OK</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Turn off and remove from my homeserver</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Export settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+15"/>
+        <source>Settings (*.json)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-15"/>
+        <location line="+15"/>
+        <source>All files (*)</source>
+        <translation type="unfinished">Visi failai (*)</translation>
+    </message>
+    <message>
+        <location line="-10"/>
+        <source>Settings exported.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <location line="+19"/>
+        <source>Import settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>This file changes nothing: every setting in it already has that value.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>Importing will change %n setting(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>This file was made by a newer Lightning. The settings this version knows are read; the rest are ignored.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>%1: %2 → %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+16"/>
+        <source>%n shortcut(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>%n custom theme(s) added</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Skipped because the value is not valid: %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+11"/>
+        <source>%n entry(ies) this version does not know were ignored.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <location line="+52"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Atšaukti</translation>
+    </message>
+    <message>
+        <location line="-45"/>
+        <source>Import</source>
+        <translation type="unfinished">Importuoti</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+7"/>
+        <source>Imported %n setting(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>%n shortcut(s) could not be used and were skipped.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Remove synced settings?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>This turns settings sync off for every device on this account and empties the copy on your homeserver. Every device keeps the settings it has now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Turn off and remove</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SettingsNavOutline</name>
+    <message>
+        <location filename="../qml/SettingsNavOutline.qml" line="+32"/>
+        <location line="+22"/>
+        <source>On this page</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SettingsNeedsBadge</name>
+    <message>
+        <location filename="../qml/SettingsNeedsBadge.qml" line="+36"/>
+        <location line="+5"/>
+        <source>Needs “%1”</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SettingsPercentBox</name>
+    <message>
+        <location filename="../qml/SettingsPercentBox.qml" line="+52"/>
+        <source>%1, percent</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Percent</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>SettingsScreen</name>
     <message>
-        <location filename="../qml/SettingsScreen.qml" line="+60"/>
+        <location filename="../qml/SettingsScreen.qml" line="+64"/>
         <location line="+1"/>
         <location line="+4"/>
         <location line="+3"/>
-        <location line="+901"/>
-        <location line="+658"/>
-        <location line="+4263"/>
+        <location line="+1153"/>
+        <location line="+689"/>
+        <location line="+4454"/>
         <source>Account</source>
         <translation>Paskyra</translation>
     </message>
     <message>
-        <location line="-5830"/>
+        <location line="-6304"/>
         <source>account profile</source>
         <translation>paskyros profilis</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+6790"/>
+        <location line="+7264"/>
         <source>Homeserver</source>
         <translation>Namų serveris</translation>
     </message>
     <message>
-        <location line="-6790"/>
+        <location line="-7264"/>
         <source>homeserver server url</source>
         <translation>namų serverio serverio url</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6825"/>
+        <location line="+7299"/>
         <source>Start minimized</source>
         <translation>Pradėti iki minimumo</translation>
     </message>
     <message>
-        <location line="-6825"/>
+        <location line="-7299"/>
         <source>startup minimized</source>
         <translation>paleidimas sumažintas</translation>
     </message>
@@ -13934,39 +16689,40 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1748"/>
-        <location line="+21"/>
+        <location line="+611"/>
+        <location line="+1489"/>
         <source>Theme</source>
         <translation>tema</translation>
     </message>
     <message>
-        <location line="-1768"/>
+        <location line="-2099"/>
         <source>theme moss indigo teal light dark graphite midnight nordic purple warm</source>
         <translation>tema samanos indigo žalsvai melsva šviesiai tamsus grafitas vidurnaktis šiaurietiška violetinė šilta</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+8"/>
-        <location line="+38"/>
+        <location line="+5"/>
+        <location line="+37"/>
         <location line="+4"/>
         <location line="+3"/>
         <location line="+11"/>
-        <location line="+830"/>
-        <location line="+662"/>
-        <location line="+167"/>
+        <location line="+1078"/>
+        <location line="+714"/>
+        <location line="+221"/>
         <source>Appearance</source>
         <translation>Išvaizda</translation>
     </message>
     <message>
-        <location line="-1721"/>
-        <location line="+1374"/>
-        <location line="+947"/>
+        <location line="-2079"/>
+        <location line="+1649"/>
+        <location line="+1014"/>
         <location line="+55"/>
         <source>Match system light/dark</source>
         <translation>Derinkite sistemą šviesiai/tamsiai</translation>
     </message>
     <message>
-        <location line="-2375"/>
+        <location line="-2717"/>
         <source>match system auto theme</source>
         <translation>atitiktų sistemos automatinę temą</translation>
     </message>
@@ -13977,57 +16733,57 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+2455"/>
+        <location line="+2797"/>
         <source>Message layout</source>
         <translation>Pranešimo išdėstymas</translation>
     </message>
     <message>
-        <location line="-2454"/>
+        <location line="-2796"/>
         <source>message layout modern bubbles compact</source>
         <translation>žinutės išdėstymas modernūs burbulai kompaktiški</translation>
     </message>
     <message>
-        <location line="+38"/>
-        <location line="+2441"/>
+        <location line="+42"/>
+        <location line="+2795"/>
         <source>Text size</source>
         <translation>Teksto dydis</translation>
     </message>
     <message>
-        <location line="-2441"/>
+        <location line="-2795"/>
         <source>text size font scale</source>
         <translation>teksto dydžio šrifto skalė</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2532"/>
-        <location line="+16"/>
+        <location line="+2905"/>
+        <location line="+20"/>
         <source>Interface zoom</source>
         <translation>Sąsajos priartinimas</translation>
     </message>
     <message>
-        <location line="-2547"/>
+        <location line="-2924"/>
         <source>interface zoom scale bigger ui size</source>
         <translation>sąsajos mastelio keitimas didesnis vartotojo sąsajos dydis</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2612"/>
+        <location line="+2986"/>
         <source>Font</source>
         <translation>Šriftas</translation>
     </message>
     <message>
-        <location line="-2612"/>
+        <location line="-2986"/>
         <source>font family typeface</source>
         <translation>šriftų šeimos šriftas</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+2761"/>
+        <location line="+3135"/>
         <source>Code font</source>
         <translation>Kodo šriftas</translation>
     </message>
     <message>
-        <location line="-2760"/>
+        <location line="-3134"/>
         <source>code font monospace mono fixed width typeface</source>
         <translation>kodo šriftas monospace mono fiksuoto pločio šriftas</translation>
     </message>
@@ -14039,35 +16795,38 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-2"/>
-        <location line="+2826"/>
+        <location line="+3200"/>
         <source>Your own fonts</source>
         <translation>Savo šriftus</translation>
     </message>
     <message>
-        <location line="-2825"/>
+        <location line="-3199"/>
         <source>import font file ttf otf install custom typeface</source>
         <translation>importuoti šrifto failą ttf otf įdiegti pasirinktinį šriftą</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3317"/>
+        <location line="+552"/>
+        <location line="+3145"/>
         <source>Language</source>
         <translation>Kalba</translation>
     </message>
     <message>
-        <location line="-3317"/>
+        <location line="-3697"/>
         <source>language locale</source>
         <translation>kalbos lokalę</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1319"/>
-        <location line="+1765"/>
+        <location line="+1590"/>
+        <location line="+1872"/>
+        <location line="+30"/>
+        <location line="+12"/>
         <source>Show room activity</source>
         <translation>Rodyti kambario veiklą</translation>
     </message>
     <message>
-        <location line="-3083"/>
+        <location line="-3503"/>
         <source>room activity membership joins leaves profile</source>
         <translation>Kambario veiklos narystė prisijungia prie profilio</translation>
     </message>
@@ -14082,131 +16841,132 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-19"/>
-        <location line="+3158"/>
+        <location line="+3538"/>
         <source>Mouse-wheel speed</source>
         <translation>Pelės rato greitis</translation>
     </message>
     <message>
-        <location line="-3157"/>
+        <location line="-3537"/>
         <source>wheel speed scroll timeline</source>
         <translation>rato greičio slinkties laiko juosta</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1341"/>
-        <location line="+1759"/>
+        <location line="+1612"/>
+        <location line="+1866"/>
         <source>Joins, leaves and invites</source>
         <translation>Prisijungimai, išėjimai ir kvietimai</translation>
     </message>
     <message>
-        <location line="-3099"/>
+        <location line="-3477"/>
         <source>membership join leave invite kick ban activity hide</source>
         <translation>narystė prisijungti išeiti pakviesti kick uždrausti veiklą slėpti</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1345"/>
-        <location line="+1761"/>
+        <location line="+1616"/>
+        <location line="+1869"/>
         <source>Display name and avatar changes</source>
         <translation>Rodomas vardas ir pseudoportretas</translation>
     </message>
     <message>
-        <location line="-3105"/>
+        <location line="-3484"/>
         <source>profile change display name avatar activity hide</source>
         <translation>profilio keitimas rodomas vardas pseudoportreto veikla slėpti</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+1348"/>
-        <location line="+2017"/>
+        <location line="+1619"/>
+        <location line="+2196"/>
         <source>Reduce motion</source>
         <translation>Sumažinti judesį</translation>
     </message>
     <message>
-        <location line="-3364"/>
+        <location line="-3814"/>
         <source>reduced motion animation accessibility vestibular</source>
         <translation>sumažintas judesys animacija prieinamumas vestibuliarinis</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+6"/>
+        <location line="+21"/>
         <location line="+6"/>
         <source>Appearance · Motion and time</source>
         <translation>Išvaizda · Judesys ir laikas</translation>
     </message>
     <message>
         <location line="-9"/>
-        <location line="+1350"/>
-        <location line="+2020"/>
+        <location line="+1606"/>
+        <location line="+2199"/>
         <source>Smooth scrolling</source>
         <translation>Sklandus slinkimas</translation>
     </message>
     <message>
-        <location line="-3369"/>
+        <location line="-3804"/>
         <source>smooth scrolling scroll wheel glide animation instant jumpy mouse</source>
         <translation>sklandžiai slinkantis slinkties ratukas slydimo animacija momentinė šokinėjanti pelė</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3387"/>
+        <location line="+3822"/>
         <source>Clock</source>
         <translation>Laikrodis</translation>
     </message>
     <message>
-        <location line="-3386"/>
+        <location line="-3821"/>
         <source>clock 24 hour time format am pm timestamp</source>
         <translation>laikrodis 24 valandų laiko formatas am pm laiko žymė</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+1347"/>
-        <location line="+2086"/>
+        <location line="+1603"/>
+        <location line="+2265"/>
+        <location line="+12"/>
         <source>Show Space banners</source>
         <translation>Rodyti erdvių reklamjuostes</translation>
     </message>
     <message>
-        <location line="-3432"/>
+        <location line="-3879"/>
         <source>space banner header image hide show</source>
         <translation>erdvės reklamjuostės antraštės vaizdas slėpti rodyti</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3460"/>
+        <location line="+3896"/>
         <source>Conversation list width</source>
         <translation>Pokalbių sąrašo plotis</translation>
     </message>
     <message>
-        <location line="-3459"/>
+        <location line="-3895"/>
         <source>room list width panel size sidebar</source>
         <translation>kambarių sąrašo pločio skydelio dydžio šoninė juosta</translation>
     </message>
     <message>
         <location line="+19"/>
-        <location line="+3479"/>
+        <location line="+3915"/>
         <source>Side panel width</source>
         <translation>Šoninės plokštės plotis</translation>
     </message>
     <message>
-        <location line="-3478"/>
+        <location line="-3914"/>
         <source>side panel width members threads size</source>
         <translation>šoninio skydelio plotis nariai gijos dydis</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+1334"/>
-        <location line="+2159"/>
+        <location line="+1590"/>
+        <location line="+2339"/>
         <source>Enter starts a new line</source>
         <translation>Enter pradeda naują eilutę</translation>
     </message>
     <message>
-        <location line="-3492"/>
+        <location line="-3928"/>
         <source>enter newline send composer message box return</source>
         <translation>įvesti naują eilutę siųsti rašymo laukas žinutės laukelis grįžti</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+5"/>
-        <location line="+6"/>
+        <location line="+12"/>
         <location line="+7"/>
         <location line="+4"/>
         <location line="+4"/>
@@ -14214,48 +16974,48 @@ Signing out and signing in again is the only fix.</source>
         <translation>Išvaizda · Pranešimų dėžutė</translation>
     </message>
     <message>
-        <location line="-23"/>
-        <location line="+1337"/>
-        <location line="+2264"/>
+        <location line="-29"/>
+        <location line="+1593"/>
+        <location line="+2444"/>
         <source>Send text with an attachment as its caption</source>
         <translation>Siųsti tekstą su priedu kaip antraštę</translation>
     </message>
     <message>
-        <location line="-3600"/>
+        <location line="-4036"/>
         <source>caption attachment upload text description</source>
         <translation>antraštės priedo įkėlimo teksto aprašas</translation>
     </message>
     <message>
-        <location line="+10"/>
-        <location line="+3643"/>
+        <location line="+16"/>
+        <location line="+4073"/>
         <source>Message box buttons</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3642"/>
+        <location line="-4072"/>
         <source>composer buttons hide show emoji gif sticker stickers voice microphone formatting schedule send later declutter simplify</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+3495"/>
+        <location line="+3925"/>
         <source>Check spelling as you type</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3494"/>
+        <location line="-3924"/>
         <source>spell spelling checker dictionary typo underline language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3501"/>
+        <location line="+3931"/>
         <location line="+13"/>
         <source>Spelling language</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3513"/>
+        <location line="-3943"/>
         <source>spell spelling language dictionary automatic system</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14263,25 +17023,25 @@ Signing out and signing in again is the only fix.</source>
         <location line="+4"/>
         <location line="+2"/>
         <location line="+4"/>
+        <location line="+946"/>
         <location line="+719"/>
-        <location line="+666"/>
-        <location line="+2310"/>
+        <location line="+2470"/>
         <source>Keyboard shortcuts</source>
         <translation>Spartieji klavišai</translation>
     </message>
     <message>
-        <location line="-3700"/>
+        <location line="-4140"/>
         <source>keyboard shortcut shortcuts key keys binding rebind hotkey</source>
         <translation>spartieji klavišai spartieji klavišai klavišų klavišai privalomas perrišimas spartusis klavišas</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3826"/>
+        <location line="+4266"/>
         <source>Reset all shortcuts</source>
         <translation>Iš naujo nustatyti visus sparčiuosius klavišus</translation>
     </message>
     <message>
-        <location line="-3825"/>
+        <location line="-4265"/>
         <source>reset shortcuts default keys</source>
         <translation>iš naujo nustatyti sparčiuosius klavišus, numatytuosius klavišus</translation>
     </message>
@@ -14302,33 +17062,37 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
+        <location line="+424"/>
         <source>Microphone</source>
         <translation>Mikrofonas</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="-399"/>
         <source>Output device</source>
         <translation>Išvesties įrenginys</translation>
     </message>
     <message>
         <location line="+11"/>
+        <location line="+390"/>
         <source>Camera</source>
         <translation>Fotoaparatas</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-389"/>
         <source>camera webcam video device call</source>
         <translation>kameros internetinės kameros vaizdo įrenginio skambutis</translation>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+1157"/>
-        <location line="+3855"/>
+        <location line="+356"/>
+        <location line="+1051"/>
+        <location line="+4042"/>
+        <location line="+215"/>
         <source>Desktop notifications</source>
         <translation>Darbalaukio pranešimai</translation>
     </message>
     <message>
-        <location line="-5011"/>
+        <location line="-5663"/>
         <source>notifications desktop enable</source>
         <translation>pranešimų darbalaukio įgalinimas</translation>
     </message>
@@ -14339,26 +17103,26 @@ Signing out and signing in again is the only fix.</source>
         <location line="+6"/>
         <location line="+4"/>
         <location line="+5"/>
-        <location line="+629"/>
-        <location line="+670"/>
-        <location line="+3679"/>
+        <location line="+856"/>
+        <location line="+729"/>
+        <location line="+3830"/>
         <source>Notifications</source>
         <translation>Pranešimai</translation>
     </message>
     <message>
-        <location line="-5160"/>
-        <location line="+1348"/>
-        <location line="+1766"/>
+        <location line="-5618"/>
+        <location line="+1619"/>
+        <location line="+1875"/>
         <source>Collapse media and link embeds</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3113"/>
+        <location line="-3493"/>
         <source>embed embeds collapse collapsed compact single line clutter declutter media image picture gif sticker video audio voice file attachment link preview expand arrow</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+99"/>
+        <location line="+120"/>
         <source>microphone mic input device voice call audio sound</source>
         <translation>mikrofonas mikrofono įvesties įrenginys balso skambučio garsas</translation>
     </message>
@@ -14392,13 +17156,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+5396"/>
-        <location line="+26"/>
+        <location line="+5848"/>
+        <location line="+24"/>
         <source>Media playback volume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5421"/>
+        <location line="-5871"/>
         <source>volume sound audio video voice message playback level media loud</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14434,12 +17198,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+5013"/>
+        <location line="+5450"/>
         <source>Notification preview</source>
         <translation>Pranešimo peržiūra</translation>
     </message>
     <message>
-        <location line="-5012"/>
+        <location line="-5449"/>
         <source>notification preview privacy sender message</source>
         <translation>pranešimo peržiūros privatumo siuntėjo pranešimas</translation>
     </message>
@@ -14455,23 +17219,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+5076"/>
+        <location line="+5513"/>
         <source>Notification sound</source>
         <translation>Pranešimo garsas</translation>
     </message>
     <message>
-        <location line="-5075"/>
+        <location line="-5512"/>
         <source>notification sound mute</source>
         <translation>pranešimo garso nutildymas</translation>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+3804"/>
+        <location line="+4217"/>
         <source>Only exchange messages with verified devices</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3803"/>
+        <location line="-4216"/>
         <source>invisible crypto msc4153 cross-signed verified device trust insecure exclude encryption</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14482,12 +17246,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+23"/>
-        <location line="+3832"/>
+        <location line="+4245"/>
         <source>Read receipts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3831"/>
+        <location line="-4244"/>
         <source>read receipt receipts private seen ticks blue m.read.private privacy</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14499,23 +17263,23 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-4"/>
-        <location line="+3868"/>
+        <location line="+4281"/>
         <source>Let others see when I am typing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3867"/>
+        <location line="-4280"/>
         <source>typing notice notification composing indicator privacy</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+3903"/>
+        <location line="+4316"/>
         <source>Share my online status</source>
         <translation>Pasidalykite savo būsena internete</translation>
     </message>
     <message>
-        <location line="-3902"/>
+        <location line="-4315"/>
         <source>presence online idle offline status share</source>
         <translation>buvimas internete neaktyvus neprisijungus būsenos bendrinimas</translation>
     </message>
@@ -14526,13 +17290,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+3724"/>
-        <location line="+200"/>
+        <location line="+303"/>
+        <location line="+4034"/>
         <source>Ignored users</source>
         <translation>Ignoruojami vartotojai</translation>
     </message>
     <message>
-        <location line="-3923"/>
+        <location line="-4336"/>
         <source>ignore ignored block user mute person hide</source>
         <translation>ignoruoti ignoruojamas blokuoti vartotojas nutildyti asmenį slėpti</translation>
     </message>
@@ -14553,27 +17317,27 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+54"/>
+        <location line="+64"/>
         <location line="+1"/>
         <location line="+4"/>
         <location line="+5"/>
         <location line="+5"/>
-        <location line="+500"/>
-        <location line="+682"/>
-        <location line="+5679"/>
+        <location line="+717"/>
+        <location line="+695"/>
+        <location line="+5893"/>
         <location line="+551"/>
         <source>Sessions</source>
         <translation>Sesijos</translation>
     </message>
     <message>
-        <location line="-7478"/>
-        <location line="+1060"/>
-        <location line="+3194"/>
+        <location line="-7932"/>
+        <location line="+1310"/>
+        <location line="+3362"/>
         <source>Automatically load previews in unencrypted rooms</source>
         <translation>Automatiškai įkelti peržiūras nešifruotuose kambariuose</translation>
     </message>
     <message>
-        <location line="-4253"/>
+        <location line="-4671"/>
         <source>link preview privacy</source>
         <translation>nuorodos peržiūros privatumas</translation>
     </message>
@@ -14586,41 +17350,42 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-7"/>
-        <location line="+4256"/>
+        <location line="+4680"/>
         <source>Load previews in encrypted rooms</source>
         <translation>Įkelti peržiūras šifruotuose kambariuose</translation>
     </message>
     <message>
-        <location line="-4255"/>
+        <location line="-4679"/>
         <source>link preview encrypted</source>
         <translation>nuorodos peržiūra užšifruota</translation>
     </message>
     <message>
         <location line="+8"/>
-        <location line="+4331"/>
+        <location line="+4760"/>
         <location line="+7"/>
         <source>Autoplay and prefetch media</source>
         <translation>Automatinis paleidimas ir išankstinis laikmenos gavimas</translation>
     </message>
     <message>
-        <location line="-4337"/>
+        <location line="-4766"/>
         <source>gif autoplay prefetch video audio media</source>
         <translation>gif automatinis paleidimas iš anksto paimkite vaizdo įrašo garso laikmeną</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+4"/>
+        <location line="+5"/>
         <source>Privacy &amp; security · Media</source>
         <translation>Privatumas ir saugumas · Medija</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+4448"/>
+        <location line="+4875"/>
         <source>GIF safe search</source>
         <translation>GIF saugi paieška</translation>
     </message>
     <message>
-        <location line="-4447"/>
+        <location line="-4874"/>
         <source>gif safe search rating</source>
         <translation>gif saugios paieškos įvertinimas</translation>
     </message>
@@ -14633,84 +17398,85 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-6"/>
-        <location line="+4472"/>
+        <location line="+4899"/>
         <location line="+7"/>
         <source>Preferred GIF provider</source>
         <translation>Pageidaujamas GIF teikėjas</translation>
     </message>
     <message>
-        <location line="-4478"/>
+        <location line="-4905"/>
         <source>gif provider giphy klipy</source>
         <translation>gif teikėjas giphy klipy</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+4510"/>
+        <location line="+4942"/>
         <location line="+3"/>
         <source>Store recently used GIFs</source>
         <translation>Saugokite neseniai naudotus GIF</translation>
     </message>
     <message>
-        <location line="-4512"/>
+        <location line="-4944"/>
         <source>gif recents store</source>
         <translation>gif naujausi saugykla</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6537"/>
+        <location line="+6986"/>
         <source>Security status</source>
         <translation>Saugumo būsena</translation>
     </message>
     <message>
-        <location line="-6536"/>
+        <location line="-6985"/>
         <source>e2ee encryption status cross-signing backup</source>
         <translation>e2ee šifravimo būsenos kryžminio pasirašymo atsarginė kopija</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+529"/>
-        <location line="+678"/>
-        <location line="+2439"/>
+        <location line="+751"/>
+        <location line="+690"/>
+        <location line="+2640"/>
         <source>Privacy &amp; security</source>
         <translation>Privatumas ir saugumas</translation>
     </message>
     <message>
-        <location line="-3644"/>
-        <location line="+7978"/>
+        <location line="-4079"/>
+        <location line="+8427"/>
         <source>Recovery key or passphrase</source>
         <translation>Atkūrimo raktas arba slaptafrazė</translation>
     </message>
     <message>
-        <location line="-7977"/>
+        <location line="-8426"/>
         <source>recovery key passphrase backup restore</source>
         <translation>atkūrimo rakto slaptafrazės atsarginės kopijos atkūrimas</translation>
     </message>
     <message>
         <location line="+1"/>
         <location line="+4"/>
+        <location line="+5"/>
         <location line="+4"/>
         <source>Privacy &amp; security · Recovery</source>
         <translation>Privatumas ir saugumas · Atkūrimas</translation>
     </message>
     <message>
-        <location line="-6"/>
-        <location line="+7989"/>
+        <location line="-11"/>
+        <location line="+8438"/>
         <source>Import room keys</source>
         <translation>Importuoti kambario raktus</translation>
     </message>
     <message>
-        <location line="-7988"/>
+        <location line="-8437"/>
         <source>import room keys export</source>
         <translation>importuoti kambario raktus eksportuoti</translation>
     </message>
     <message>
-        <location line="+3"/>
-        <location line="+8212"/>
+        <location line="+8"/>
+        <location line="+8662"/>
         <source>Danger Zone</source>
         <translation>Pavojaus zona</translation>
     </message>
     <message>
-        <location line="-8211"/>
+        <location line="-8661"/>
         <source>reset danger local session</source>
         <translation>iš naujo nustatyti pavojaus vietinę sesiją</translation>
     </message>
@@ -14721,34 +17487,34 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+7740"/>
+        <location line="+8184"/>
         <source>Current session</source>
         <translation>Dabartinė sesija</translation>
     </message>
     <message>
-        <location line="-7739"/>
+        <location line="-8183"/>
         <source>device id session status</source>
         <translation>įrenginio ID seanso būsena</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+6895"/>
+        <location line="+7339"/>
         <source>Sign in another device</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-6894"/>
+        <location line="-7338"/>
         <source>qr code scan sign in another device phone link msc4108 login</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+7790"/>
+        <location line="+8234"/>
         <source>Verify this session</source>
         <translation>Patvirtinkite šią sesiją</translation>
     </message>
     <message>
-        <location line="-7789"/>
+        <location line="-8233"/>
         <source>verify verification sas cross-signing</source>
         <translation>patikrinkite patikrinimą kaip kryžminį pasirašymą</translation>
     </message>
@@ -14768,14 +17534,14 @@ Signing out and signing in again is the only fix.</source>
         <location line="+3"/>
         <location line="+3"/>
         <location line="+4"/>
-        <location line="+482"/>
-        <location line="+689"/>
-        <location line="+7096"/>
+        <location line="+699"/>
+        <location line="+737"/>
+        <location line="+7281"/>
         <source>Labs</source>
         <translation>Laboratorijos</translation>
     </message>
     <message>
-        <location line="-8275"/>
+        <location line="-8725"/>
         <source>Sync mode</source>
         <translation>Sinchronizavimo režimas</translation>
     </message>
@@ -14796,39 +17562,40 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+3"/>
-        <location line="+8375"/>
+        <location line="+8825"/>
         <source>Refresh current room</source>
         <translation>Atnaujinti esamą kambarį</translation>
     </message>
     <message>
-        <location line="-8374"/>
+        <location line="-8824"/>
         <source>refresh reload timeline</source>
         <translation>atnaujinti iš naujo įkėlimo laiko juostą</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+13"/>
         <location line="+1"/>
-        <location line="+480"/>
-        <location line="+732"/>
-        <location line="+7191"/>
+        <location line="+688"/>
+        <location line="+774"/>
+        <location line="+11"/>
+        <location line="+7371"/>
         <source>About</source>
         <translation>Apie</translation>
     </message>
     <message>
-        <location line="-8404"/>
+        <location line="-8845"/>
         <source>about version license</source>
         <translation>apie versijos licenciją</translation>
     </message>
     <message>
         <location line="+4"/>
         <location line="+2"/>
-        <location line="+474"/>
-        <location line="+693"/>
+        <location line="+682"/>
+        <location line="+781"/>
         <source>Updates</source>
         <translation>Atnaujinimai</translation>
     </message>
     <message>
-        <location line="-1168"/>
+        <location line="-1464"/>
         <source>update version upgrade check download install</source>
         <translation>atnaujinimo versija atnaujinimo patikrinimas atsisiųsti įdiegti</translation>
     </message>
@@ -14848,43 +17615,43 @@ Signing out and signing in again is the only fix.</source>
         <translation>Atnaujinimai · Automatiniai patikrinimai</translation>
     </message>
     <message>
-        <location line="+247"/>
+        <location line="+429"/>
         <source>Confirm</source>
         <translation>Patvirtinti</translation>
     </message>
     <message>
         <location line="+39"/>
-        <location line="+5386"/>
+        <location line="+5634"/>
         <location line="+205"/>
-        <location line="+1307"/>
+        <location line="+1312"/>
         <source>Cancel</source>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-6756"/>
+        <location line="-6983"/>
         <source>Needs attention</source>
         <translation>Reikia dėmesio</translation>
     </message>
     <message>
         <location line="+38"/>
-        <location line="+674"/>
-        <location line="+3942"/>
+        <location line="+734"/>
+        <location line="+4096"/>
         <source>Sound &amp; video</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4481"/>
+        <location line="-4695"/>
         <source>Clear the search index?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3377"/>
+        <location line="+3563"/>
         <source>Clear index</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3366"/>
+        <location line="-3552"/>
         <source>Searching your history stops working until Lightning has indexed it again, which it does on its own. No messages are deleted — the index is only a copy Lightning built so it can search.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -14900,14 +17667,14 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+5056"/>
+        <location line="+5278"/>
         <location line="+404"/>
-        <location line="+1920"/>
+        <location line="+1925"/>
         <source>Clear</source>
         <translation>Aišku</translation>
     </message>
     <message>
-        <location line="-7370"/>
+        <location line="-7597"/>
         <source>Remove every provider GIF you&apos;ve saved on this device? GIFs you saved out of chats are unaffected. This cannot be undone.</source>
         <translation>Pašalinti visus teikėjo GIF, kuriuos išsaugojote šiame įrenginyje? GIF failai, kuriuos išsaugojote pokalbiuose, neturi įtakos. To negalima anuliuoti.</translation>
     </message>
@@ -14973,30 +17740,31 @@ Signing out and signing in again is the only fix.</source>
         <translation>Paieškos nustatymai</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+42"/>
         <source>No matching settings</source>
         <translation>Nėra atitinkančių nustatymų</translation>
     </message>
     <message>
         <location line="+76"/>
-        <location line="+1126"/>
+        <location line="+1208"/>
         <source>Modern</source>
         <translation>Modernus</translation>
     </message>
     <message>
-        <location line="-1125"/>
-        <location line="+1126"/>
+        <location line="-1207"/>
+        <location line="+1208"/>
         <source>Bubbles</source>
         <translation>Burbulai</translation>
     </message>
     <message>
-        <location line="-1125"/>
-        <location line="+1126"/>
+        <location line="-1207"/>
+        <location line="+1208"/>
+        <location line="+23"/>
         <source>Compact</source>
         <translation>Kompaktiškas</translation>
     </message>
     <message>
-        <location line="-959"/>
+        <location line="-1049"/>
         <source>theme</source>
         <translation>tema</translation>
     </message>
@@ -15016,12 +17784,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Ieškoti %1</translation>
     </message>
     <message>
-        <location line="+79"/>
+        <location line="+99"/>
         <source>Matches · %1 sections · %2 settings</source>
         <translation>Atitiktys · %1 skyriai · %2 nustatymai</translation>
     </message>
     <message>
-        <location line="+172"/>
+        <location line="+208"/>
         <source>Indigo Night</source>
         <translation>Indigo naktis</translation>
     </message>
@@ -15046,12 +17814,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Daugiau temų</translation>
     </message>
     <message>
-        <location line="-1997"/>
+        <location line="-2324"/>
         <source>Custom theme</source>
         <translation>Pasirinktinė tema</translation>
     </message>
     <message>
-        <location line="+2154"/>
+        <location line="+2484"/>
         <source>Build your own theme</source>
         <translation>Sukurkite savo temą</translation>
     </message>
@@ -15081,12 +17849,12 @@ Signing out and signing in again is the only fix.</source>
         </translation>
     </message>
     <message>
-        <location line="+3829"/>
+        <location line="+3969"/>
         <source>Edit</source>
         <translation>Redaguoti</translation>
     </message>
     <message>
-        <location line="-3628"/>
+        <location line="-3760"/>
         <source>When on, Lightning follows the system scheme: Moss Light in light mode, Indigo Night in dark mode.</source>
         <translation>Kai įjungta, „Lightning“ veikia pagal sistemos schemą: „Moss Light“ šviesiu režimu, „Indigo Night“ tamsiuoju režimu.</translation>
     </message>
@@ -15096,14 +17864,14 @@ Signing out and signing in again is the only fix.</source>
         <translation>Pokalbių sąrašas</translation>
     </message>
     <message>
-        <location line="-1058"/>
-        <location line="+1068"/>
-        <location line="+641"/>
+        <location line="-1140"/>
+        <location line="+1150"/>
+        <location line="+677"/>
         <source>Classic</source>
         <translation>Klasika</translation>
     </message>
     <message>
-        <location line="-3083"/>
+        <location line="-3461"/>
         <source>Change password</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15113,24 +17881,25 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+50"/>
-        <location line="+3012"/>
+        <location line="+54"/>
+        <location line="+3386"/>
         <source>Spaces rail depth</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3011"/>
+        <location line="-3385"/>
         <source>spaces rail depth space bar sidebar nesting regions classic old style flat tint indent</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+187"/>
-        <location line="+5432"/>
+        <location line="+208"/>
+        <location line="+387"/>
+        <location line="+5495"/>
         <source>Call sounds</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5431"/>
+        <location line="-5881"/>
         <source>call sounds join leave mute deafen unmute screen share hand chime beep effects</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15142,40 +17911,40 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="-3"/>
-        <location line="+5529"/>
-        <location line="+30"/>
+        <location line="+5980"/>
+        <location line="+28"/>
         <source>Ringer volume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5558"/>
+        <location line="-6007"/>
         <source>ringer ringtone ring volume incoming call loud</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+110"/>
-        <location line="+4262"/>
+        <location line="+4691"/>
         <source>Show images and videos from links inline</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4261"/>
+        <location line="-4690"/>
         <source>link preview image video embed inline media player viewer</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1017"/>
-        <location line="+1709"/>
+        <location line="+1252"/>
+        <location line="+1827"/>
         <source>Regions</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1222"/>
+        <location line="-1269"/>
         <source>%1 (in effect)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+583"/>
+        <location line="+594"/>
         <source>One list, most recent first, with message previews.</source>
         <translation>Vienas sąrašas, naujausias pirmas, su pranešimų peržiūromis.</translation>
     </message>
@@ -15200,12 +17969,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Burbulai taikomi tiesioginiams pokalbiams; kambariuose lieka modernios eilutės. Glaustas rodinys sutankina visas laiko juostas.</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+56"/>
         <source>Message text size</source>
         <translation>Pranešimo teksto dydis</translation>
     </message>
     <message>
-        <location line="+149"/>
+        <location line="+155"/>
         <source>Scales the entire interface — text, icons and layout. Ctrl+= and Ctrl+- adjust it anywhere. Takes effect the next time Lightning starts.</source>
         <translation>Pakeičia visą sąsają – tekstą, piktogramas ir išdėstymą. Ctrl+= ir Ctrl+- koreguokite jį bet kur. Įsigalios kitą kartą, kai prasidės Lightning.</translation>
     </message>
@@ -15276,13 +18045,13 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3451"/>
+        <location line="+3547"/>
         <location line="+295"/>
         <source>Remove</source>
         <translation>Pašalinti</translation>
     </message>
     <message>
-        <location line="-3745"/>
+        <location line="-3841"/>
         <source>Remove this imported font</source>
         <translation>Pašalinkite šį importuotą šriftą</translation>
     </message>
@@ -15387,7 +18156,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+15"/>
         <source>Regions tint the rail behind a Space and everything inside it. Classic is the flat rail from earlier versions, where a nested Space steps in instead. Both show the same Spaces.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15402,13 +18171,13 @@ Signing out and signing in again is the only fix.</source>
         <translation>Kai langas uždarytas, bėgkite dėkle</translation>
     </message>
     <message>
-        <location line="-2980"/>
-        <location line="+2987"/>
+        <location line="-3342"/>
+        <location line="+3349"/>
         <source>Start in the tray</source>
         <translation>Pradėkite nuo dėklo</translation>
     </message>
     <message>
-        <location line="-3107"/>
+        <location line="-3484"/>
         <source>Chat background</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15418,7 +18187,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+232"/>
+        <location line="+253"/>
         <source>Notification sound style and volume</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15429,12 +18198,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+25"/>
-        <location line="+4914"/>
+        <location line="+5351"/>
         <source>Always ask where to save files</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4913"/>
+        <location line="-5350"/>
         <source>download downloads save folder location directory ask where file</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15446,36 +18215,36 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+57"/>
-        <location line="+4370"/>
+        <location line="+4799"/>
         <location line="+3"/>
         <source>Preload short videos</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4372"/>
+        <location line="-4801"/>
         <source>video preload prefetch download size megabytes data disk instant play</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+50"/>
-        <location line="+5152"/>
-        <location line="+3149"/>
+        <location line="+60"/>
+        <location line="+5594"/>
+        <location line="+3157"/>
         <source>Microphone noise suppression</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-8300"/>
+        <location line="-8750"/>
         <source>noise suppression cancellation microphone background webrtc rnnoise deepfilternet denoise</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2728"/>
+        <location line="+3075"/>
         <source>Click the tray icon to bring the window back. Ctrl+Q quits.</source>
         <translation>Spustelėkite dėklo piktogramą, kad grąžintumėte langą. Ctrl+Q išjungiamas.</translation>
     </message>
     <message>
-        <location line="-1373"/>
-        <location line="+1384"/>
+        <location line="-2895"/>
+        <location line="+2906"/>
         <source>Timeline</source>
         <translation>Laiko juosta</translation>
     </message>
@@ -15495,12 +18264,12 @@ Signing out and signing in again is the only fix.</source>
         <translation>Rodyti narystės pakeitimus laiko juostose</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+12"/>
         <source>Show profile changes in timelines</source>
         <translation>Rodyti profilio pakeitimus laiko juostose</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Show attachments and link previews as one line with an arrow that expands them</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15551,12 +18320,12 @@ Signing out and signing in again is the only fix.</source>
     </message>
     <message>
         <location line="+24"/>
-        <location line="+3327"/>
+        <location line="+3417"/>
         <source>Choose image…</source>
         <translation>Pasirinkite vaizdą…</translation>
     </message>
     <message>
-        <location line="-3320"/>
+        <location line="-3410"/>
         <source>Reset to Lightning default</source>
         <translation>Iš naujo nustatyti „Lightning“ numatytuosius nustatymus</translation>
     </message>
@@ -15596,7 +18365,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Sąsaja pasikeičia iš karto. Kai kitą kartą atidarysite jų skydelį, atnaujinamos kelios ekrane jau esančios eilutės.</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="-3191"/>
+        <location line="+3283"/>
         <source>Motion and time</source>
         <translation>Judesys ir laikas</translation>
     </message>
@@ -15641,7 +18411,7 @@ Signing out and signing in again is the only fix.</source>
         <translation>Vietoj juostelės rodykite visą reklamjuostę</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
         <source>Conversation list width: %1 px</source>
         <translation>Pokalbių sąrašo plotis: %1 px</translation>
     </message>
@@ -15656,8 +18426,8 @@ Signing out and signing in again is the only fix.</source>
         <translation>Šoninės plokštės plotis: %1 px</translation>
     </message>
     <message>
-        <location line="-1839"/>
-        <location line="+1862"/>
+        <location line="-3434"/>
+        <location line="+3457"/>
         <source>Message box</source>
         <translation>Pranešimų dėžutė</translation>
     </message>
@@ -15767,7 +18537,7 @@ Signing out and signing in again is the only fix.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+64"/>
         <source>Per account, like your theme. Press Change and then the combination you want.</source>
         <translation>Kiekvienai paskyrai atskirai, kaip ir tema. Paspauskite „Keisti“, tada – norimą klavišų derinį.</translation>
     </message>
@@ -15795,8 +18565,8 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation>Tinklo privatumas, šifravimo būsena ir atkūrimas.</translation>
     </message>
     <message>
-        <location line="+14"/>
-        <location line="+24"/>
+        <location line="-3846"/>
+        <location line="+3857"/>
         <source>Device trust</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15880,12 +18650,12 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         </translation>
     </message>
     <message>
-        <location line="+170"/>
+        <location line="+175"/>
         <source>Link previews &amp; media</source>
         <translation>Nuorodų peržiūros ir medija</translation>
     </message>
     <message>
-        <location line="+44"/>
+        <location line="+55"/>
         <source>A picture opens in Lightning&apos;s viewer and a video plays here. A video, or a picture too large to preview, is downloaded from the link&apos;s site only when you press Play or open it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -15941,7 +18711,7 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+17"/>
         <source>GIF safe search rating</source>
         <translation>GIF saugios paieškos įvertinimas</translation>
     </message>
@@ -15966,7 +18736,7 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation>R - viskas</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+53"/>
         <source>GIPHY: %1 · KLIPY: %2</source>
         <translation>GIPHY: %1 · KLIPY: %2</translation>
     </message>
@@ -16084,12 +18854,12 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
     </message>
     <message>
         <location line="+8"/>
-        <location line="+391"/>
+        <location line="+406"/>
         <source>Change…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-380"/>
+        <location line="-395"/>
         <source>Use the Downloads folder</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16132,7 +18902,8 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="-1908"/>
+        <location line="+1928"/>
         <source>Off</source>
         <translation>Išjungta</translation>
     </message>
@@ -16152,7 +18923,7 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation>Garsas grojamas tik tada, kai rodomas pranešimas, todėl nutildyti ir aktyvūs kambariai tyli. Plyšiai sujungiami į vieną įspėjimą.</translation>
     </message>
     <message>
-        <location line="+3330"/>
+        <location line="+3353"/>
         <source>Experimental features, and diagnostics.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16162,30 +18933,31 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-8471"/>
-        <location line="+5222"/>
+        <location line="-8931"/>
+        <location line="+5657"/>
         <source>Ring for incoming voice calls</source>
         <translation>Skambėti įeinantiems balso skambučiams</translation>
     </message>
     <message>
-        <location line="-5344"/>
-        <location line="+1346"/>
-        <location line="+2116"/>
+        <location line="-5785"/>
+        <location line="+1602"/>
+        <location line="+2296"/>
         <source>Keep the room list still while I use it</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3461"/>
+        <location line="-3897"/>
         <source>room list order sort reorder jump move still hold freeze stable recent activity conversation list sidebar channels new message</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+6"/>
+        <location line="+3358"/>
         <source>Keep running in the tray</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-3357"/>
         <source>tray system tray minimize close background icon taskbar quit close to tray</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16201,25 +18973,25 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+17"/>
-        <location line="+1341"/>
-        <location line="+2279"/>
+        <location line="+23"/>
+        <location line="+1591"/>
+        <location line="+2459"/>
         <source>Convert :shortcode: to emoji</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3619"/>
+        <location line="-4049"/>
         <source>emoji shortcode colon convert autoconvert auto-convert thumbsup smiley slack discord</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+127"/>
-        <location line="+4727"/>
+        <location line="+5164"/>
         <source>Keep downloaded media on this device</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-4726"/>
+        <location line="-5163"/>
         <source>media cache video image picture file download offline storage disk keep clear</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16239,17 +19011,17 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2244"/>
+        <location line="+2596"/>
         <source>Scales message and list text, and the Spaces rail with it, so its nesting levels stay readable at any size. Other chrome keeps its size — Interface zoom below scales the whole window.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1212"/>
+        <location line="+1290"/>
         <source>Typing a shortcode like &quot;:thumbsup:&quot; turns it into the emoji as soon as it is complete. Custom pack shortcodes are unaffected.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+684"/>
+        <location line="+667"/>
         <source>%1 of %2 rooms</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16341,7 +19113,7 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+435"/>
+        <location line="+459"/>
         <source>Media kept on this device</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16392,7 +19164,7 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
     </message>
     <message>
         <location line="+12"/>
-        <location line="+44"/>
+        <location line="+42"/>
         <source>Notification volume</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16422,7 +19194,7 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation>Pakartokite skambučio garsą, kai skamba įeinantis balso skambutis. Išjungus tai vis tiek rodomas skambutis – tik nutildomas skambutis.</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+18"/>
         <source>Per-room notification modes (set from Room information) are saved to your account&apos;s notification settings (server push rules). </source>
         <translation>Kiekvieno kambario pranešimų režimai (nustatomi kambario informacijoje) išsaugomi paskyros pranešimų nustatymuose (serverio siunčiamųjų pranešimų taisyklėse). </translation>
     </message>
@@ -16432,22 +19204,25 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation>Kiekvieno kambario pranešimų režimai (nustatomi kambario informacijoje) taikomi tik šiam įrenginiui – tai nėra serverio siunčiamųjų pranešimų taisyklės. </translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+112"/>
         <source>Media playback</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+62"/>
         <source>The level voice messages, audio files and videos start at. Changing the volume on a player remembers it here too.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+21"/>
+        <location line="+19"/>
+        <location line="+11"/>
+        <location line="+11"/>
         <source>Play sounds during calls</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-36"/>
         <source>Short sounds when you join or leave a call, when others do, and when you mute or share your screen.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16457,30 +19232,30 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
         <source>Muting and deafening</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
         <source>Screen shares and raised hands</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+13"/>
-        <location line="+31"/>
+        <location line="+14"/>
+        <location line="+29"/>
         <source>Call sound volume</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-338"/>
-        <location line="+323"/>
-        <location line="+42"/>
+        <location line="-354"/>
+        <location line="+339"/>
+        <location line="+40"/>
         <source>Test</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-5764"/>
+        <location line="-6234"/>
         <source>chat background wallpaper picture image photo backdrop room conversation own set custom others shared hide</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16522,7 +19297,7 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+85"/>
         <location line="+5"/>
         <location line="+6"/>
         <location line="+14"/>
@@ -16530,7 +19305,7 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+58"/>
+        <location line="+64"/>
         <source>Microphone test</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16561,17 +19336,12 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
     </message>
     <message>
         <location line="+36"/>
-        <location line="+4227"/>
+        <location line="+4640"/>
         <source>Index encrypted rooms</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3912"/>
-        <source>Go to %1</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+873"/>
+        <location line="-3202"/>
         <source>background</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16586,18 +19356,18 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+221"/>
+        <location line="+304"/>
         <source>Theme, colours and gradients, chat background, layout, text and fonts — per account.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+17"/>
-        <location line="+362"/>
+        <location line="-1479"/>
+        <location line="+1831"/>
         <source>Custom colours and gradients</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-360"/>
+        <location line="-1829"/>
         <source>Chat background and depth</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16607,23 +19377,18 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+1"/>
         <source>Text and fonts</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2"/>
-        <location line="+1252"/>
+        <location line="+1"/>
+        <location line="+2770"/>
         <source>Spaces rail and room list</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-1248"/>
-        <source>Language and motion</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+435"/>
+        <location line="-857"/>
         <source>Pick a colour for any part of the window, or a gradient for its large areas, and watch a sample room repaint.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16658,22 +19423,180 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished">Naudokite šią temą</translation>
     </message>
     <message>
-        <location line="+1259"/>
+        <location line="+1379"/>
         <source>Banners and panel widths</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+505"/>
+        <location line="-3345"/>
         <source>Receipts and typing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+4"/>
-        <source>Message search</source>
+        <location line="-631"/>
+        <location line="+2817"/>
+        <source>Message spacing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-2816"/>
+        <source>message spacing density compact cozy roomy gap padding</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+91"/>
+        <location line="+3742"/>
+        <source>Increase contrast</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3741"/>
+        <source>high contrast accessibility borders text readable vision</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
+        <location line="+5"/>
+        <location line="+5"/>
+        <source>Appearance · Accessibility</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-8"/>
+        <location line="+3750"/>
+        <source>Always underline links</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3749"/>
+        <source>underline links mentions accessibility colour blind</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location line="+3758"/>
+        <source>Name colour readability</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3757"/>
+        <source>name color colour contrast sender readable strong weak off</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+54"/>
+        <source>Emoji and sticker packs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>emoji sticker pack custom emote use everywhere room space export import zip share</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Appearance · Emoji and sticker packs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+208"/>
+        <location line="+4877"/>
+        <source>Photo details when sending</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-4876"/>
+        <source>photo image exif gps location metadata strip remove privacy upload picture camera</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>Export room keys</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>export room keys backup file passphrase element</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+46"/>
+        <source>Export and import settings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>export import backup settings file restore</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Account · Settings file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Sync settings across your devices</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>sync settings devices account data backup</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Account · Sync</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+143"/>
+        <source>Profile</source>
+        <translation type="unfinished">Profilis</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Password</source>
+        <translation type="unfinished">Slaptažodis</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <location line="+3217"/>
+        <source>Accessibility</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-3209"/>
+        <source>Previews</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sound</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Calls</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Speaker</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Media volume</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Message search</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Link previews and GIFs</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16688,22 +19611,119 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished">Šifravimas</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+2"/>
         <source>Recovery key</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+378"/>
+        <location line="+983"/>
+        <location line="+1"/>
+        <location line="+383"/>
+        <source>Copy link to this setting</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-191"/>
+        <source>User</source>
+        <translation type="unfinished">Vartotojas</translation>
+    </message>
+    <message>
+        <location line="+26"/>
+        <source>Interface</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Behavior</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+963"/>
+        <source>Cozy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Roomy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Space between messages and between senders</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+617"/>
+        <source>Show the Spaces rail</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+391"/>
+        <source>Make secondary text and borders stronger</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Pulls secondary text toward the main text colour and strengthens borders, on any theme.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Underline mentions and in-app links as well</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Web links in messages are always underlined. This adds mentions and the link texts in cards and previews.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Strong</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Weak</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>How strongly sender name colours are adjusted to stay readable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Sender names are lightened or darkened until they read against the background: Strong aims for 4.5:1, Weak for 3:1, Off keeps the colour exactly as chosen.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+976"/>
         <source>Index encrypted rooms fetches older history for every encrypted room you are in, one room at a time and up to the same per-room limit as Index this room, so you can search it here. It can take a long time and uses bandwidth, and like the rest of the index it stores the decrypted message text on this device. Messages that cannot be decrypted yet are skipped until their keys arrive — run it again then and they are added. It pauses during calls and continues after a restart.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1065"/>
+        <location line="+169"/>
+        <source>If your homeserver cannot build the preview, Lightning fetches the link itself and the site sees your IP address.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Asking for a preview tells your homeserver which link was in an encrypted message.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+265"/>
+        <source>Only the words you search for go to the provider. Your Matrix ID, rooms and messages never do.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+641"/>
         <source>Lightning does not register for push, so its notifications arrive only while it is running, in the window or the tray.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+85"/>
         <source>%1 · an experiment, set in Labs or from the call&apos;s microphone menu</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16713,12 +19733,12 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+158"/>
+        <location line="+157"/>
         <source>Play a call sound</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+40"/>
         <source>Play the ringer</source>
         <translation type="unfinished"></translation>
     </message>
@@ -16947,7 +19967,7 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation>Paleidimas</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+39"/>
         <source>Secret backend: %1</source>
         <translation>Slaptųjų duomenų posistemė: %1</translation>
     </message>
@@ -17423,18 +20443,18 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+275"/>
+        <location line="+281"/>
         <source>Reset deletes only Lightning&apos;s local Rust SDK store for this account (also available from a terminal: lightning-matrix --reset-crypto-store). It does not touch server messages or Element data. You will need to sign in again afterwards.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-751"/>
+        <location line="-757"/>
         <location line="+110"/>
         <source>Verified</source>
         <translation>Patvirtinta</translation>
     </message>
     <message>
-        <location line="-3816"/>
+        <location line="-3857"/>
         <source>Private receipts still clear the unread badge on your own other devices; nobody else sees them. Not sending them at all means your other devices stop clearing it too, though your place in a conversation is still saved. Either way, receipts you have already sent cannot be taken back, and other people&apos;s receipts are still shown to you.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17444,13 +20464,13 @@ Escape ir atskiros raidės, kurias naudoja pranešimų meniu, kai jis atidarytas
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2039"/>
+        <location line="+2075"/>
         <location line="+329"/>
         <source>Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp *.svg)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+110"/>
+        <location line="+115"/>
         <source>Access tokens are stored in the system credential store: %1. Logout clears them.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -17616,7 +20636,7 @@ Paveikti kambariai: %2
 Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+37"/>
         <source>Verification establishes trust in this session. Secure Backup and room-key imports provide decryption keys for message history. These are separate operations.</source>
         <translation>Patvirtinimas sukuria pasitikėjimą šia sesija. Saugus atsarginis kopijavimas ir kambario raktų importavimas suteikia pranešimų istorijos iššifravimo raktus. Tai yra atskiros operacijos.</translation>
     </message>
@@ -17702,9 +20722,44 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
 </context>
 <context>
+    <name>SettingsSyncController</name>
+    <message>
+        <location filename="../src/settings/SettingsSyncController.cpp" line="+549"/>
+        <location line="+50"/>
+        <source>Settings are not available.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-47"/>
+        <source>Choose a file to save to.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+32"/>
+        <location line="+5"/>
+        <source>Could not write that file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Could not read that file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+79"/>
+        <source>Choose a file first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+45"/>
+        <source>Could not apply %1. Nothing was changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>SfuCallController</name>
     <message>
-        <location filename="../src/calls/SfuCallController.cpp" line="+696"/>
+        <location filename="../src/calls/SfuCallController.cpp" line="+703"/>
         <location line="+306"/>
         <location line="+131"/>
         <source>Screen sharing isn&apos;t available on this desktop.</source>
@@ -18003,7 +21058,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+2099"/>
+        <location line="+2114"/>
         <source>This system can&apos;t capture the sound it plays.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -18058,7 +21113,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="-3428"/>
+        <location line="-3443"/>
         <source>This room is encrypted, and encrypted calls aren&apos;t available yet on this build.</source>
         <translation>Šis kambarys yra užšifruotas, o šifruoti skambučiai šioje versijoje dar nepasiekiami.</translation>
     </message>
@@ -18627,7 +21682,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>SpaceChannelModel</name>
     <message>
-        <location filename="../src/models/SpaceChannelModel.cpp" line="+734"/>
+        <location filename="../src/models/SpaceChannelModel.cpp" line="+745"/>
         <source>Create Room</source>
         <translation>Sukurti kambarį</translation>
     </message>
@@ -18715,7 +21770,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>SpaceManager</name>
     <message>
-        <location filename="../src/spaces/SpaceManager.cpp" line="+219"/>
+        <location filename="../src/spaces/SpaceManager.cpp" line="+221"/>
         <source>All rooms</source>
         <translation>Visi kambariai</translation>
     </message>
@@ -19269,12 +22324,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+12"/>
-        <location line="+886"/>
+        <location line="+888"/>
         <source>Published address</source>
         <translation>Paskelbtas adresas</translation>
     </message>
     <message>
-        <location line="-877"/>
+        <location line="-879"/>
         <source>A published address lets people find and join this space by name. Leave it empty to remove it.</source>
         <translation>Paskelbtas adresas leidžia žmonėms rasti šią erdvę pagal pavadinimą ir prie jos prisijungti. Norėdami adresą pašalinti, palikite lauką tuščią.</translation>
     </message>
@@ -19364,18 +22419,18 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+151"/>
+        <location line="+153"/>
         <source>Invited</source>
         <translation>Pakviestas</translation>
     </message>
     <message>
-        <location line="-150"/>
-        <location line="+149"/>
+        <location line="-152"/>
+        <location line="+151"/>
         <source>Banned</source>
         <translation>Uždrausta</translation>
     </message>
     <message>
-        <location line="-147"/>
+        <location line="-149"/>
         <source>Filter by membership</source>
         <translation>Filtruoti pagal narystę</translation>
     </message>
@@ -19400,7 +22455,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>%1 · %2</translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+135"/>
         <source>Actions for %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19632,7 +22687,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>SpacesRail</name>
     <message>
-        <location filename="../qml/SpacesRail.qml" line="+768"/>
+        <location filename="../qml/SpacesRail.qml" line="+780"/>
         <source>Folder: %1</source>
         <translation>Aplankas: %1</translation>
     </message>
@@ -19672,7 +22727,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Išplėsti erdvę</translation>
     </message>
     <message>
-        <location line="+506"/>
+        <location line="+511"/>
         <location line="+4"/>
         <source>Show more rooms</source>
         <translation>Rodyti daugiau kambarių</translation>
@@ -19766,12 +22821,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+152"/>
+        <location line="+175"/>
         <source>Copy link</source>
         <translation>Nukopijuoti nuorodą</translation>
     </message>
     <message>
-        <location line="-143"/>
+        <location line="-166"/>
         <source>Share link…</source>
         <translation>Bendrinti nuorodą…</translation>
     </message>
@@ -19796,7 +22851,27 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Perkelti į „%1“</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+7"/>
+        <source>Order Spaces by</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Manual</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>A–Z</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Recent activity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+53"/>
         <source>Share space</source>
         <translation>Bendrinkite erdvę</translation>
     </message>
@@ -19940,7 +23015,23 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>StickerPackEditor</name>
     <message>
-        <location filename="../qml/StickerPackEditor.qml" line="+67"/>
+        <location filename="../qml/StickerPackEditor.qml" line="+79"/>
+        <source>Export pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+9"/>
+        <source>Sticker pack (*.zip)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-2"/>
+        <source>Import a sticker pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
         <source>Saved.</source>
         <translation type="unfinished">Išsaugota.</translation>
     </message>
@@ -19981,12 +23072,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+123"/>
+        <location line="+154"/>
         <source>Rename</source>
         <translation type="unfinished">Pervardyti</translation>
     </message>
     <message>
-        <location line="-111"/>
+        <location line="-142"/>
         <source>Leave the name empty to use the default — for a room&apos;s pack that is the room&apos;s own name.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -19996,12 +23087,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+131"/>
         <source>Save</source>
         <translation type="unfinished">Išsaugoti</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+17"/>
         <source>Remove</source>
         <translation type="unfinished">Pašalinti</translation>
     </message>
@@ -20021,13 +23112,280 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+13"/>
+        <source>Export…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>sticker-pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Import…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
         <source>Done</source>
         <translation type="unfinished">Atlikta</translation>
     </message>
     <message>
         <location line="+14"/>
         <source>This removes every image and the pack&apos;s name. It cannot be undone, and for a room&apos;s pack everyone in the room loses it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>StickerPackManager</name>
+    <message>
+        <location filename="../src/stickers/StickerPackManager.cpp" line="+744"/>
+        <source>Enter a name.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Names can be at most 64 characters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Use only letters, numbers, - and _ (no spaces, colons or accents).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>A name cannot start or end with - or _, or contain __.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Another image in this pack already uses that name.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+241"/>
+        <source>This pack has no images to export.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>That pack has no usable images. SVG files are not accepted.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>None of the images could be downloaded, so nothing was exported.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The file could not be written.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>That file is not a readable sticker pack.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>That ZIP is not a Lightning sticker pack (it has no pack.json).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>That pack file is damaged, or was made by a newer version of Lightning.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Your pack is full. Remove some images in another client to add more.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>That pack is no longer available.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The pack could not be exported.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The emoji could not be added.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The pack could not be imported.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Exported %n image(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Already in your custom emoji.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>Added %n custom emoji to your pack.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Everything in that pack is already in yours.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>Added %n image(s) to your pack.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+5"/>
+        <source>%n could not be included.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>%n already there or not usable.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>%n could not be downloaded.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>%n failed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+</context>
+<context>
+    <name>StickerPacksSettings</name>
+    <message>
+        <location filename="../qml/StickerPacksSettings.qml" line="+35"/>
+        <source>Emoji and sticker packs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>A room&apos;s packs work inside that room. Turn on Use everywhere to use a pack in every room. Packs from the room you have open and the ones you turned on are listed here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Packs are not available with this connection.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+40"/>
+        <source>Room pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Your pack</source>
+        <translation type="unfinished">Jūsų pakuotė</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>%n sticker(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>%n emoji</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Use %1 in every room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Use everywhere</source>
+        <translation type="unfinished">Naudokite visur</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Manage</source>
+        <translation type="unfinished">Tvarkyti</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>No packs yet. Import one, or add a sticker from the sticker picker to start your own.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Import a sticker pack</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Sticker pack (*.zip)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Import a pack…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>%1 of %2</source>
+        <translation type="unfinished">%1 iš %2</translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>That could not be changed. Try again in a moment.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -20206,12 +23564,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>ThemeEditorDialog</name>
     <message>
-        <location filename="../qml/ThemeEditorDialog.qml" line="+286"/>
+        <location filename="../qml/ThemeEditorDialog.qml" line="+469"/>
         <source>Theme imported.</source>
         <translation>Tema importuota.</translation>
     </message>
     <message>
-        <location line="+464"/>
+        <location line="+949"/>
         <source>Custom theme</source>
         <translation>Pasirinktinė tema</translation>
     </message>
@@ -20221,7 +23579,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Spustelėkite bet kurią pavyzdinio lango dalį arba vaidmenį kairėje.</translation>
     </message>
     <message numerus="yes">
-        <location line="-491"/>
+        <location line="-976"/>
         <source>Theme imported. %n thing(s) in it will be hard to read.</source>
         <comment>custom theme readability</comment>
         <translation type="unfinished">
@@ -20231,12 +23589,138 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         </translation>
     </message>
     <message>
-        <location line="+245"/>
+        <location line="-156"/>
+        <source>Replace with %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Start from %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Started over from %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Now based on %1; your changes are kept.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+106"/>
+        <source>Copied. Paste it to share it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+50"/>
+        <source>That is not a theme file Lightning can read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+210"/>
+        <location line="+7"/>
+        <source>Undo: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Nothing to undo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Redo: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Nothing to redo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Reset %1 to its group</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>%1 follows %2 again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>%1 now gives its colour to all of %2.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+41"/>
+        <source>Include the elements of %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Every element of %1 follows it now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+25"/>
+        <source>Unlink %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>%1 is no longer linked to %2.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+42"/>
+        <source>No lightness of %1 clears the bar. Try changing the colour beside it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Make %1 readable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>%1 is easier to read now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+70"/>
+        <source>Own colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Linked to %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+30"/>
         <source>gradient</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+244"/>
+        <location line="+24"/>
+        <source>changed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>unreadable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+348"/>
+        <source>Theme: %1. Open the theme menu</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+84"/>
         <source>Preview only: choose Use this theme to see it everywhere.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -20250,8 +23734,13 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
             <numerusform></numerusform>
         </translation>
     </message>
+    <message>
+        <location line="+38"/>
+        <source>Open the readability report</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
-        <location line="+63"/>
+        <location line="+23"/>
         <source>%n thing(s) hard to read</source>
         <comment>custom theme readability</comment>
         <translation type="unfinished">
@@ -20261,7 +23750,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+4"/>
+        <location line="+6"/>
         <source>Readable, %n not checked</source>
         <comment>custom theme readability</comment>
         <translation type="unfinished">
@@ -20276,27 +23765,28 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+1470"/>
+        <source>Click a part of the sample window in the middle, or find a colour in the list on the left, and its colour opens here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>See what is hard to read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-2302"/>
+        <location line="+863"/>
         <source>Undo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Undo the last colour change</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+7"/>
+        <location line="+11"/>
         <source>Redo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Redo the colour change you undid</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+17"/>
+        <location line="+21"/>
         <source>Reset every colour?</source>
         <translation>Iš naujo nustatyti kiekvieną spalvą?</translation>
     </message>
@@ -20308,100 +23798,26 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="-7"/>
-        <location line="+293"/>
         <source>Keep</source>
         <translation>Laikyti</translation>
     </message>
     <message>
-        <location line="-276"/>
+        <location line="+17"/>
         <source>Use this theme</source>
         <translation>Naudokite šią temą</translation>
     </message>
     <message>
         <location line="+6"/>
-        <location line="+66"/>
         <source>Done</source>
         <translation>Atlikta</translation>
     </message>
     <message>
-        <location line="-10"/>
-        <source>Your themes</source>
-        <translation>Jūsų temos</translation>
-    </message>
-    <message>
-        <location line="+11"/>
-        <source>Manage</source>
-        <translation type="unfinished">Tvarkyti</translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>New, duplicate, share, import or delete themes</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+42"/>
-        <location line="+141"/>
+        <location line="-244"/>
         <source>Untitled</source>
         <translation>Be pavadinimo</translation>
     </message>
     <message>
-        <location line="-87"/>
-        <source>Theme name</source>
-        <translation>Temos pavadinimas</translation>
-    </message>
-    <message>
-        <location line="+14"/>
-        <source>Name this theme</source>
-        <translation>Pavadinkite šią temą</translation>
-    </message>
-    <message>
-        <location line="+14"/>
-        <source>New</source>
-        <translation>Nauja</translation>
-    </message>
-    <message>
-        <location line="+8"/>
-        <source>Duplicate</source>
-        <translation>Pasikartoti</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Share</source>
-        <translation>Dalintis</translation>
-    </message>
-    <message>
-        <location line="+12"/>
-        <source>Theme copied — paste it to share it.</source>
-        <translation>Tema nukopijuota – įklijuokite ją ir bendrinkite.</translation>
-    </message>
-    <message>
-        <location line="+5"/>
-        <source>Import</source>
-        <translation>Importuoti</translation>
-    </message>
-    <message>
-        <location line="+8"/>
-        <location line="+30"/>
-        <source>Delete</source>
-        <translation>Ištrinti</translation>
-    </message>
-    <message>
-        <location line="-12"/>
-        <source>Delete “%1”? This cannot be undone.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+55"/>
-        <source>Paste a shared theme</source>
-        <translation>Įklijuokite bendrinamą temą</translation>
-    </message>
-    <message>
-        <location line="+6"/>
-        <source>Paste a shared theme, then Enter</source>
-        <translation>Įklijuokite bendrinamą temą, tada Enter</translation>
-    </message>
-    <message>
-        <location line="+42"/>
+        <location line="+301"/>
         <source>Start from</source>
         <translation>Pradėkite nuo</translation>
     </message>
@@ -20411,17 +23827,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+173"/>
-        <source>Make a gradient</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Opens the conversation background with its fill choices: a solid colour or a gradient</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+35"/>
+        <location line="+194"/>
         <location line="+19"/>
         <source>Find a colour</source>
         <translation type="unfinished"></translation>
@@ -20432,7 +23838,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+267"/>
+        <location line="+297"/>
         <source>Radial gradient</source>
         <translation type="unfinished"></translation>
     </message>
@@ -20451,18 +23857,49 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <source>follows %1</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <location line="+17"/>
+        <source>%n element(s)</source>
+        <comment>custom theme, size of a group</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+38"/>
+        <location line="+37"/>
         <source>Reset %1 to the base theme</source>
         <translation>Iš naujo nustatykite %1 į pagrindinę temą</translation>
     </message>
     <message>
-        <location line="+80"/>
+        <location line="+99"/>
         <source>A sample window, not one of your rooms. Click a part of it to recolour it.</source>
         <translation>Lango pavyzdys, o ne vienas iš jūsų kambarių. Spustelėkite jos dalį, kad pakeistumėte spalvą.</translation>
     </message>
     <message>
-        <location line="+110"/>
+        <location line="+58"/>
+        <source>Themes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+46"/>
+        <source>Share or import a theme</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <location line="+452"/>
+        <source>Readability report</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-413"/>
+        <source>Drop a theme file to see what it would do</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+97"/>
         <source>Under the pointer</source>
         <translation type="unfinished"></translation>
     </message>
@@ -20487,22 +23924,22 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+60"/>
-        <source>Follows %1 until you change it here.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+21"/>
-        <source>Changing this also recolours what follows it:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+49"/>
+        <location line="+133"/>
         <source>Readability</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+11"/>
+        <source>Make readable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Move this colour to the nearest one that is easy to read against its neighbours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+58"/>
         <source>see-through</source>
         <translation type="unfinished"></translation>
     </message>
@@ -20522,64 +23959,235 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+25"/>
-        <source>Hard to read</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+2"/>
-        <source>Nothing hard to read</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+1"/>
+        <location line="+23"/>
         <source>Nothing selected</source>
         <translation>Nieko nepasirinkta</translation>
     </message>
+</context>
+<context>
+    <name>ThemeLevelSwitch</name>
     <message>
-        <location line="+20"/>
-        <source>Close the readability report</source>
+        <location filename="../qml/ThemeLevelSwitch.qml" line="+19"/>
+        <source>Simple</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+36"/>
-        <source>These are measured against the same rules the built-in themes meet. Click one to fix it.</source>
+        <location line="+0"/>
+        <source>Groups</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Elements</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+2"/>
-        <source>Every text and edge this theme paints clears the bar the built-in themes clear.</source>
+        <source>A few base colours; everything else follows them</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location line="+1"/>
-        <source>Click a part of the sample window in the middle, or a role in the list on the left, and its colour opens here.</source>
-        <translation>Spustelėkite pavyzdinio lango dalį viduryje arba vaidmenį sąraše kairėje ir čia atsidarys jo spalva.</translation>
+        <source>Each group of colours, such as panels or text</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+17"/>
-        <source>Gradients</source>
+        <location line="+1"/>
+        <source>Every part of the window on its own</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Detail level</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ThemeLinkRow</name>
+    <message>
+        <location filename="../qml/ThemeLinkRow.qml" line="+127"/>
+        <source>Linked to %1. It changes when that does.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Own colour. Part of %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Edit %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open %1, so a change recolours everything linked to it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Unlink</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Keep the colour it has now, and stop it following %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Reset to group</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Take the colour of %1 again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Apply to all %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Give this colour to %1 and everything in it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+17"/>
+        <source>Also changes %n element(s)</source>
+        <comment>custom theme, count of linked elements</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Hide</source>
+        <translation type="unfinished">Slėpti</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Show</source>
+        <translation type="unfinished">Rodyti</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>List the elements that follow this colour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+14"/>
+        <source>%n keep their own colour</source>
+        <comment>custom theme, count of elements that do not follow</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
         <location line="+10"/>
-        <source>The large areas can be a gradient instead of one colour. Open one, then choose Linear or Radial under Fill, or start from a preset.</source>
+        <source>Include them</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <location line="+2"/>
+        <source>Give them this colour too, dropping their own</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ThemeMenuPanel</name>
+    <message>
+        <location filename="../qml/ThemeMenuPanel.qml" line="+100"/>
+        <source>Your themes</source>
+        <translation type="unfinished">Jūsų temos</translation>
+    </message>
+    <message>
+        <location line="+55"/>
+        <location line="+41"/>
+        <location line="+144"/>
+        <source>Untitled</source>
+        <translation type="unfinished">Be pavadinimo</translation>
+    </message>
     <message numerus="yes">
-        <location line="+34"/>
-        <source>%n colour(s) could not be checked: a see-through colour reads differently depending on what is behind it.</source>
-        <comment>custom theme readability</comment>
+        <location line="-133"/>
+        <source>%n changed</source>
+        <comment>custom theme, edited colours</comment>
         <translation type="unfinished">
             <numerusform></numerusform>
             <numerusform></numerusform>
             <numerusform></numerusform>
         </translation>
     </message>
+    <message>
+        <location line="+34"/>
+        <source>Name</source>
+        <translation type="unfinished">Vardas</translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>Theme name</source>
+        <translation type="unfinished">Temos pavadinimas</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Name this theme</source>
+        <translation type="unfinished">Pavadinkite šią temą</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>New</source>
+        <translation type="unfinished">Nauja</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Duplicate</source>
+        <translation type="unfinished">Pasikartoti</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Share…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Import…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <location line="+29"/>
+        <source>Delete</source>
+        <translation type="unfinished">Ištrinti</translation>
+    </message>
+    <message>
+        <location line="-12"/>
+        <source>Delete “%1”? This cannot be undone.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Keep</source>
+        <translation type="unfinished">Laikyti</translation>
+    </message>
+</context>
+<context>
+    <name>ThemePresetPrompt</name>
+    <message>
+        <location filename="../qml/ThemePresetPrompt.qml" line="+33"/>
+        <location line="+76"/>
+        <source>Start from %1?</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
-        <location line="+18"/>
-        <source>%n check(s) could not be made: this build has no colour by that name.</source>
-        <comment>custom theme readability</comment>
+        <location line="+10"/>
+        <source>This theme has %n colour(s) of its own.</source>
+        <comment>custom theme, count of edited roles</comment>
         <translation type="unfinished">
             <numerusform></numerusform>
             <numerusform></numerusform>
@@ -20587,26 +24195,35 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         </translation>
     </message>
     <message>
-        <location line="+136"/>
-        <source>Aa</source>
-        <extracomment>A two-letter type specimen shown on a colour pair to demonstrate its readability. Translate to whichever letters best show this locale&apos;s script — a Latin &quot;Aa&quot; says nothing about legibility in Cyrillic, Greek or CJK.</extracomment>
+        <location line="+10"/>
+        <source>Keep them on top of the new preset, or start over from it?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+34"/>
-        <source>%1:1 — needs %2:1</source>
+        <location line="+12"/>
+        <source>Keep my changes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+3"/>
-        <source>ΔL* %1 — needs %2</source>
+        <location line="+6"/>
+        <source>Replace</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Cancel</source>
+        <translation type="unfinished">Atšaukti</translation>
     </message>
 </context>
 <context>
     <name>ThemePreviewDemo</name>
     <message>
-        <location filename="../qml/ThemePreviewDemo.qml" line="+98"/>
+        <location filename="../qml/ThemePreviewDemo.qml" line="+181"/>
+        <source>Sample window. Tab or the arrow keys move between its parts, Enter edits one, Escape goes back to the list.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+128"/>
         <location line="+14"/>
         <source>Design</source>
         <translation>Dizainas</translation>
@@ -20619,13 +24236,13 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+1"/>
         <location line="+14"/>
-        <location line="+225"/>
-        <location line="+243"/>
+        <location line="+295"/>
+        <location line="+276"/>
         <source>Lightning</source>
         <translation>Lightning</translation>
     </message>
     <message>
-        <location line="-482"/>
+        <location line="-585"/>
         <source>Storm looks good now</source>
         <translation>Audra dabar atrodo gerai</translation>
     </message>
@@ -20673,23 +24290,24 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+262"/>
         <source>Rooms</source>
         <translation>Kambariai</translation>
     </message>
     <message>
-        <location line="-261"/>
+        <location line="+1"/>
+        <location line="+1214"/>
         <source>Creative Studio</source>
         <translation>Kūrybinė studija</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <location line="+516"/>
+        <location line="-1207"/>
+        <location line="+646"/>
+        <location line="+407"/>
         <source>Sam</source>
         <translation>Semas</translation>
     </message>
     <message>
-        <location line="-516"/>
+        <location line="-1053"/>
         <source>Robin</source>
         <translation>Robinas</translation>
     </message>
@@ -20699,12 +24317,22 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Kim</translation>
     </message>
     <message>
-        <location line="+243"/>
+        <location line="+312"/>
         <source>Search</source>
         <translation>Ieškoti</translation>
     </message>
     <message>
-        <location line="+281"/>
+        <location line="+11"/>
+        <source>Favourites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+277"/>
+        <source>Call in progress</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+53"/>
         <source>12:41</source>
         <translation type="unfinished"></translation>
     </message>
@@ -20729,32 +24357,32 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>užrašai</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+10"/>
         <source>@you</source>
         <translation>@tu</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+22"/>
         <source>git push</source>
         <translation>git stumti</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+22"/>
         <source>Release notes</source>
         <translation>Išleidimo pastabos</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+32"/>
         <source>+2</source>
         <translation>+2</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>+1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+37"/>
         <source>Typing </source>
         <translation type="unfinished"></translation>
     </message>
@@ -20784,57 +24412,52 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation type="unfinished">Ištrinti</translation>
     </message>
     <message>
-        <location line="+26"/>
-        <source>People</source>
-        <translation>Žmonės</translation>
+        <location line="+54"/>
+        <source>Admins</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+70"/>
-        <source>Admin</source>
-        <translation type="unfinished">Administratorius</translation>
+        <location line="+72"/>
+        <source>Invited</source>
+        <translation type="unfinished">Pakviestas</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+1"/>
+        <source>Banned</source>
+        <translation type="unfinished">Uždrausta</translation>
+    </message>
+    <message>
+        <location line="+82"/>
+        <source>Open room</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Room, hovered</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="-92"/>
         <source>Verified</source>
         <translation type="unfinished">Patvirtinta</translation>
     </message>
     <message>
-        <location line="+1"/>
-        <source>Slow</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Failed</source>
-        <translation type="unfinished">Nepavyko</translation>
-    </message>
-    <message>
-        <location line="+31"/>
-        <source>Row, hovered</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+5"/>
+        <location line="+36"/>
         <source>Open channel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <source>Channel, hovered</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+5"/>
-        <source>Standard control</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+6"/>
+        <location line="+55"/>
         <source>Quiet button</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+57"/>
         <source>Settings</source>
         <translation type="unfinished">Nustatymai</translation>
     </message>
@@ -20860,9 +24483,299 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     </message>
 </context>
 <context>
+    <name>ThemeReadabilityPanel</name>
+    <message>
+        <location filename="../qml/ThemeReadabilityPanel.qml" line="+46"/>
+        <source>Hard to read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Nothing hard to read</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Readable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>Close the readability report</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+36"/>
+        <source>These are measured against the same rules the built-in themes meet. Click one to open it, or fix it here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Every text and edge this theme paints clears the bar the built-in themes clear.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Nothing has been changed yet, so this is the starting preset as it ships.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+16"/>
+        <source>%n colour(s) could not be checked: a see-through colour reads differently depending on what is behind it.</source>
+        <comment>custom theme readability</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+15"/>
+        <source>%n check(s) could not be made: this build has no colour by that name.</source>
+        <comment>custom theme readability</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+129"/>
+        <source>Aa</source>
+        <extracomment>A two-letter type specimen shown on a colour pair to demonstrate its readability. Translate to whichever letters best show this locale&apos;s script — a Latin &quot;Aa&quot; says nothing about legibility in Cyrillic, Greek or CJK.</extracomment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+33"/>
+        <source>%1:1 — needs %2:1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>ΔL* %1 — needs %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>Make this readable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Move the colour to the nearest one that is easy to read against its neighbours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+21"/>
+        <source>Fix</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ThemeSharePanel</name>
+    <message>
+        <location filename="../qml/ThemeSharePanel.qml" line="+121"/>
+        <source>Share or import</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Share</source>
+        <translation type="unfinished">Dalintis</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Import</source>
+        <translation type="unfinished">Importuoti</translation>
+    </message>
+    <message>
+        <location line="+65"/>
+        <source>“%1” as a code you can paste to anyone. It holds colours and gradients only, nothing about you or your rooms.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+312"/>
+        <source>Untitled</source>
+        <translation type="unfinished">Be pavadinimo</translation>
+    </message>
+    <message numerus="yes">
+        <location line="-301"/>
+        <source>%1 · %2 · %n thing(s) in it are hard to read</source>
+        <comment>custom theme share summary</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <location line="+5"/>
+        <location line="+220"/>
+        <source>%n colour(s)</source>
+        <comment>custom theme, edited colours</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="-223"/>
+        <location line="+5"/>
+        <location line="+220"/>
+        <source>%n gradient(s)</source>
+        <comment>custom theme, gradients</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="-223"/>
+        <source>%1 · %2 · readable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Copy code</source>
+        <translation type="unfinished">Nukopijuokite kodą</translation>
+    </message>
+    <message>
+        <location line="+51"/>
+        <source>Paste a shared theme</source>
+        <translation type="unfinished">Įklijuokite bendrinamą temą</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Paste a shared theme, or drop its file on the editor</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+56"/>
+        <source>A small preview of the theme</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+77"/>
+        <source>Based on %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>%1 · %2</source>
+        <translation type="unfinished">%1 · %2</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+18"/>
+        <source>%n thing(s) in it would be hard to read (estimated)</source>
+        <comment>custom theme readability</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Readable (estimated)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>You already have the most themes there is room for. Replace the current one, or delete another first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>Import as new theme</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Replace current</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Replace the colours of “%1” with these. Its name stays, and Undo brings the old colours back.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Clear</source>
+        <translation type="unfinished">Aišku</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Replace keeps the name “%1” and changes only its colours and gradients.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ThemeSimplePanel</name>
+    <message>
+        <location filename="../qml/ThemeSimplePanel.qml" line="+69"/>
+        <source>Start from</source>
+        <translation type="unfinished">Pradėkite nuo</translation>
+    </message>
+    <message>
+        <location line="+87"/>
+        <source>Base colours</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+72"/>
+        <source>A dark theme. Everything else is worked out from these colours; switch to Groups to refine it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A light theme. Everything else is worked out from these colours; switch to Groups to refine it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <location line="+47"/>
+        <source>%n spot(s) hard to read. Review</source>
+        <comment>custom theme readability</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>Readable, %n not checked</source>
+        <comment>custom theme readability</comment>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Readable everywhere</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>Gradients</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>The large areas can be a gradient instead of one colour. Open one, then choose Linear or Radial under Fill.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>ThreadController</name>
     <message>
-        <location filename="../src/threads/ThreadController.cpp" line="+636"/>
+        <location filename="../src/threads/ThreadController.cpp" line="+651"/>
         <source>Attachments are not supported on this backend.</source>
         <translation>Ši posistemė nepalaiko priedų.</translation>
     </message>
@@ -20872,24 +24785,29 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Nepavyko nuskaityti iškarpinės vaizdo.</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+57"/>
+        <source>Photo details could not be removed from this image, so it was not sent. You can change this under Settings, Privacy.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location line="+28"/>
         <source>The attachment could not be queued.</source>
         <translation>Priedo nepavyko įtraukti į eilę.</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+18"/>
         <location line="+29"/>
-        <location line="+25"/>
+        <location line="+27"/>
         <source>The voice message could not be sent.</source>
         <translation>Balso pranešimo išsiųsti nepavyko.</translation>
     </message>
     <message>
-        <location line="-46"/>
+        <location line="-48"/>
         <source>The voice message is larger than the server&apos;s upload limit (%1).</source>
         <translation>Balso pranešimas yra didesnis nei serverio įkėlimo limitas (%1).</translation>
     </message>
     <message>
-        <location line="+61"/>
+        <location line="+63"/>
         <source>Upload failed. Retry or remove.</source>
         <translation>Įkelti nepavyko. Bandykite dar kartą arba pašalinkite.</translation>
     </message>
@@ -20897,7 +24815,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>ThreadPanel</name>
     <message>
-        <location filename="../qml/ThreadPanel.qml" line="+72"/>
+        <location filename="../qml/ThreadPanel.qml" line="+79"/>
         <source>Yesterday</source>
         <translation>vakar</translation>
     </message>
@@ -21339,7 +25257,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>TimelineModel</name>
     <message>
-        <location filename="../src/models/TimelineModel.cpp" line="+1059"/>
+        <location filename="../src/models/TimelineModel.cpp" line="+1123"/>
         <source>%1 changed their display name from “%2” to “%3” and changed their avatar.</source>
         <translation>%1 pakeitė rodomą pavadinimą iš „%2“ į „%3“ ir pakeitė savo avatarą.</translation>
     </message>
@@ -21389,7 +25307,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>%1 pradėjo skambutį.</translation>
     </message>
     <message>
-        <location line="+1244"/>
+        <location line="+1247"/>
         <source>%1 is typing…</source>
         <translation>%1 rašo…</translation>
     </message>
@@ -21428,12 +25346,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location filename="../qml/SpaceLobby.qml" line="-498"/>
         <location filename="../qml/TimelinePane.qml" line="+372"/>
-        <location line="+5057"/>
+        <location line="+5071"/>
         <source>Space</source>
         <translation>Erdvė</translation>
     </message>
     <message>
-        <location filename="../qml/TimelinePane.qml" line="-5056"/>
+        <location filename="../qml/TimelinePane.qml" line="-5070"/>
         <source>Home</source>
         <translation>Pradžia</translation>
     </message>
@@ -21508,12 +25426,12 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
     <message>
         <location line="+16"/>
         <location line="+2"/>
-        <location line="+3665"/>
+        <location line="+3679"/>
         <source>Room information</source>
         <translation>Informacija apie kambarį</translation>
     </message>
     <message>
-        <location line="-3649"/>
+        <location line="-3663"/>
         <location line="+1"/>
         <source>More room actions</source>
         <translation type="unfinished"></translation>
@@ -21714,7 +25632,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Paieškos užbaigti nepavyko.</translation>
     </message>
     <message>
-        <location line="+2714"/>
+        <location line="+2728"/>
         <location line="+395"/>
         <source>Loading older messages…</source>
         <translation>Įkeliami senesni pranešimai…</translation>
@@ -22154,13 +26072,13 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
         <translation>Atšaukti</translation>
     </message>
     <message>
-        <location line="-5612"/>
+        <location line="-5626"/>
         <location line="+91"/>
         <source>View profile</source>
         <translation type="unfinished">Žiūrėti profilį</translation>
     </message>
     <message>
-        <location line="+4843"/>
+        <location line="+4857"/>
         <source>Images (*.png *.jpg *.jpeg *.gif *.webp *.svg)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -23296,7 +27214,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>lightning::update::UpdateManager</name>
     <message>
-        <location filename="../src/update/UpdateManager.cpp" line="+1043"/>
+        <location filename="../src/update/UpdateManager.cpp" line="+1053"/>
         <source>Lightning is installed for all users of this computer, so installing an update needs administrator approval, and Windows did not get it. Nothing was changed. Approve the prompt next time, or ask an administrator to install the update.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -23354,7 +27272,7 @@ Pastaba: importuojant raktus šis seansas nepatvirtina.</translation>
 <context>
     <name>main</name>
     <message>
-        <location filename="../src/main.cpp" line="+2316"/>
+        <location filename="../src/main.cpp" line="+2369"/>
         <source>Native Qt/QML Matrix client. Backend: --backend={mock,http,rust}. Default: rust (http in builds without the Rust SDK).</source>
         <translation>Vietinė Qt/QML Matrix programa. Posistemė: --backend={mock,http,rust}. Numatytoji: rust (versijose be Rust SDK – http).</translation>
     </message>
