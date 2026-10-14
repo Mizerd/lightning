@@ -1426,6 +1426,44 @@ above. The event cache this index duplicates is unchanged.)
 * **The query is text, not a language.** FTS5 has operators; a user typing
   `AND` or a quotation mark means the characters. The whole query becomes one
   quoted phrase.
+* **Attachment file names are indexed (decision 2026-10-14, Rokas).** A
+  captioned attachment (MSC2530) has the caption in `body` and its name in
+  `filename`, so it was unfindable by name — the commonest media search. The
+  `filename` of `m.image`/`m.video`/`m.audio`/`m.file` is now stored beside the
+  body and is part of the sanctioned exception above, encrypted rooms
+  included. NOTHING ELSE about the attachment is stored: no mxc URI, no key or
+  hash, no mimetype, size or dimensions. A name is stripped of control and
+  bidi-control characters and capped at 255 BYTES (cut on a character boundary); a name equal to the body is not stored twice.
+  Redaction, forgetting a room and "Clear index" remove it with the row.
+  **A persistent media index (kind/mxc/metadata rows feeding the media
+  browser) was considered and DECLINED for now**; the browser stays a live
+  `/messages` walk.
+  Schema version 1 (`PRAGMA user_version`, migrated inside one
+  `BEGIN IMMEDIATE ... COMMIT`) adds `messages.filename` (NULL = "not examined")
+  and `messages.edit_id`, and a SECOND external-content FTS table
+  `messages_fn_fts`; the existing text index is neither rebuilt nor rewritten,
+  so upgrading is not a write burst. Old attachment rows are filled in once, by
+  the ordinary paced sweeps and index-all walks as they meet the event again,
+  never by a scan of the table. Every migration step is guarded and idempotent.
+  **Rooms that "Index encrypted rooms" had already completed were walked
+  without file names, and the queue skips completed rooms, so on the first start
+  after this change the stored index-all record (`lightning-index-all.json`,
+  version 1 -> 2) forgets its `complete` set ONCE.** Nothing starts by itself:
+  the old names appear for a room when the user next starts "Index encrypted
+  rooms", which re-walks it at the existing pacing (one room and one page at a
+  time, 5 s and 10 s gaps). Until then only rooms the sweeps happen to re-read
+  (about one cached page per room, 40 rooms per wake) gain names.
+* **An edit counts only from the original's sender**, as the spec says: the
+  index applies an `m.replace` when its sender equals the stored original's
+  sender, and skips it otherwise (including when the original is unknown;
+  no row is ever created under an editor's name). Redacting an edit drops the
+  row (`edit_id`, partially indexed, records which edit produced its text) and the next sweep
+  re-indexes the original from the event cache, which ignores the redacted edit
+  and applies any earlier one. **Consequence: a message whose edit was
+  redacted can be unfindable until that sweep meets it again** (the next
+  five-minute sweep when its event is still in the cache, otherwise the next
+  index-all or "Index this room" walk over it). That is the deliberate,
+  privacy-safe direction: a redacted edit's wording never stays findable.
 * **Edits overwrite, redactions delete.** An `m.replace` is filed on the event
   it REPLACES using `m.new_content`, never under its own id with the
   "* fallback" body. A redacted message is removed outright — leaving it

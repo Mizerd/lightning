@@ -33,7 +33,10 @@ use crate::localsearch::{DeepOutcome, Gate, PageGate};
 
 /// File name inside the account's store directory.
 pub(crate) const PROGRESS_FILE: &str = "lightning-index-all.json";
-const PROGRESS_VERSION: u32 = 1;
+/// 2: the local index began storing attachment file names. A record older than
+/// this forgets its `complete` rooms ONCE (see [`Control::read_file`]) so the
+/// next USER-STARTED run re-walks them and fills the names in.
+const PROGRESS_VERSION: u32 = 2;
 
 /// Background-only pacing: every fetched page is persisted by the SDK event
 /// cache. A 5 s gap reduces the maximum page rate by 60% versus 2 s, giving
@@ -305,9 +308,20 @@ impl Control {
             return Progress::default();
         };
         // A corrupt record costs a re-walk, never a failure.
-        serde_json::from_slice::<Progress>(&bytes)
+        let mut progress = serde_json::from_slice::<Progress>(&bytes)
             .map(Progress::sanitized)
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if progress.version < 2 {
+            // Rooms completed before file names were indexed were walked
+            // without them, and `plan_queue` would skip them for ever. Forget
+            // them once. Nothing is started here: the queue, position and
+            // paused flag are untouched, and the walk happens only when the
+            // user starts a run, at the existing pacing. The upgraded version
+            // is written by the next persist.
+            progress.complete.clear();
+            progress.version = PROGRESS_VERSION;
+        }
+        progress
     }
 
     /// Write the record atomically (temp file, then rename), 0600 on unix.
@@ -921,7 +935,7 @@ mod tests {
         let store = Store::new("encrypted-upgrade");
         // A v1 record from the old all-joined-rooms walk, paused mid-run.
         let old = Progress {
-            version: 1,
+            version: 2,
             queue: vec![
                 "!public-done:x".into(),
                 "!private-done:x".into(),
@@ -966,11 +980,38 @@ mod tests {
         assert_eq!(restarted.status(None).current_room, "!private:x");
     }
 
+    // Schema 1 of the local index added file names. A room completed before
+    // that was walked without them, so its completion is forgotten once. The
+    // queue is untouched and nothing starts by itself.
+    #[test]
+    fn a_record_from_before_file_names_forgets_completed_rooms_once_and_starts_nothing() {
+        let store = Store::new("filename-upgrade");
+        let old = Progress {
+            version: 1,
+            queue: vec!["!todo:x".into()],
+            position: 0,
+            paused: true,
+            complete: ["!done:x".into()].into_iter().collect(),
+            ..Progress::default()
+        };
+        std::fs::write(store.0.join(PROGRESS_FILE), serde_json::to_vec(&old).unwrap()).unwrap();
+        let control = Control::new(&store.0);
+        let status = control.status(None);
+        assert_eq!(status.complete_rooms, 0, "a pre-file-name completion survived");
+        // Nothing was started or unpaused: the pending run is as it was.
+        assert_eq!(status.total, 1);
+        // Once a record is written at the new version, completion is kept.
+        let again = Progress { version: 2, complete: ["!done:x".into()].into_iter().collect(), ..Progress::default() };
+        std::fs::write(store.0.join(PROGRESS_FILE), serde_json::to_vec(&again).unwrap()).unwrap();
+        let reread = Control::new(&store.0);
+        assert_eq!(reread.status(None).complete_rooms, 1);
+    }
+
     #[test]
     fn background_upgrade_with_only_public_rooms_leaves_nothing_pending() {
         let store = Store::new("public-only-upgrade");
         let old = Progress {
-            version: 1,
+            version: 2,
             queue: vec!["!public:x".into()],
             paused: true,
             ..Progress::default()
@@ -999,7 +1040,7 @@ mod tests {
     fn background_room_encrypted_later_is_picked_up_even_if_old_walk_completed_it() {
         let store = Store::new("encrypted-later");
         let old = Progress {
-            version: 1,
+            version: 2,
             complete: ["!later:x".into()].into_iter().collect(),
             ..Progress::default()
         };

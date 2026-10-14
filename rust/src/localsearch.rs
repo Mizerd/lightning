@@ -44,7 +44,47 @@ pub(crate) struct Hit {
     pub body: String,
     pub msgtype: String,
     pub ts: i64,
+    /// The attachment's file name when it differs from `body` (a captioned
+    /// attachment); "" otherwise.
+    pub filename: String,
 }
+
+/// Longest file name kept, in BYTES (cut on a character boundary). A name is
+/// at most 255 bytes on every common file system; the bound also stops a
+/// hostile event from filling a row.
+const MAX_FILENAME_BYTES: usize = 255;
+
+/// Message types whose `filename` is worth finding. Anything else carrying a
+/// `filename` key is not an attachment and is ignored.
+fn is_attachment_msgtype(msgtype: &str) -> bool {
+    matches!(msgtype, "m.image" | "m.video" | "m.audio" | "m.file")
+}
+
+/// Bidirectional controls (embeddings/overrides U+202A-202E, isolates
+/// U+2066-2069): not `Cc`, but they let `evil\u{202E}gpj.exe` display as
+/// `evilexe.jpg`, in a line shown next to a result.
+fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// A file name as stored: control and bidi-control characters removed, trimmed,
+/// bounded to [`MAX_FILENAME_BYTES`] bytes. Only the NAME is kept; never a URL,
+/// a key or any other media metadata.
+fn clean_filename(raw: &str) -> String {
+    let mut out = String::new();
+    for c in raw.chars().filter(|c| !c.is_control() && !is_bidi_control(*c)) {
+        if out.len() + c.len_utf8() > MAX_FILENAME_BYTES {
+            break;
+        }
+        out.push(c);
+    }
+    out.trim().to_owned()
+}
+
+/// Schema version recorded in `PRAGMA user_version`. 0 is every index created
+/// before file names were indexed (and a brand-new file, which the same steps
+/// bring to 1). Bump only with a migration in [`SearchIndex::migrate`].
+const SCHEMA_VERSION: i64 = 1;
 
 /// What the index holds, for "search covers N messages".
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -128,6 +168,9 @@ impl SearchIndex {
                      body          TEXT NOT NULL DEFAULT '',
                      msgtype       TEXT NOT NULL DEFAULT '',
                      ts            INTEGER NOT NULL
+                     -- `filename` and `edit_id` are added by migrate(): an index
+                     -- made before them has neither, and ALTER TABLE ADD COLUMN
+                     -- is the one change that costs it nothing.
                  );
                  CREATE INDEX IF NOT EXISTS messages_room_ts
                      ON messages(room_id, ts DESC);
@@ -162,14 +205,118 @@ impl SearchIndex {
                      INSERT INTO messages_fts(messages_fts, rowid, body, sender_name)
                      VALUES ('delete', old.id, old.body, old.sender_name);
                  END;
-                 CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+                 -- messages_au is (re)created by migrate(), with a WHEN clause.",
+            )
+            .map_err(|e| format!("cannot prepare the search index: {e}"))?;
+        self.migrate()
+    }
+
+    /// Bring an index of any earlier shape to [`SCHEMA_VERSION`]. Idempotent:
+    /// every statement is guarded, so a run interrupted half way, or repeated
+    /// on every open, converges on the same schema.
+    ///
+    /// Version 1 indexes attachment file names (a captioned attachment's
+    /// `body` is the caption; the name lives in `filename`). Deliberately NOT
+    /// done by rebuilding `messages_fts`: that rewrites the whole text index in
+    /// one burst on an idle machine. Instead:
+    ///   * `messages.filename` is added as NULL = "not examined yet";
+    ///   * a SECOND, initially empty FTS table holds the names, so the
+    ///     existing text index is untouched;
+    ///   * old attachment rows are filled in as the paced sweeps meet their
+    ///     events again ([`SearchIndex::stale_filename_ids`]), one tiny update
+    ///     each, never a table scan.
+    fn migrate(&self) -> Result<(), String> {
+        // One transaction: a crash or an error part way leaves the previous
+        // schema, never a half-migrated one. (SQLite DDL is transactional.)
+        self.conn
+            .execute_batch("BEGIN IMMEDIATE;")
+            .map_err(|e| format!("cannot migrate the search index: {e}"))?;
+        match self.migrate_steps() {
+            Ok(()) => self
+                .conn
+                .execute_batch("COMMIT;")
+                .map_err(|e| format!("cannot migrate the search index: {e}")),
+            Err(e) => {
+                let _ = self.conn.execute_batch("ROLLBACK;");
+                Err(e)
+            }
+        }
+    }
+
+    fn migrate_steps(&self) -> Result<(), String> {
+        let version: i64 = self
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .map_err(|e| format!("cannot read the search index version: {e}"))?;
+        let fail = |e: rusqlite::Error| format!("cannot migrate the search index: {e}");
+        for column in ["filename", "edit_id"] {
+            let present: bool = self
+                .conn
+                .prepare("SELECT 1 FROM pragma_table_info('messages') WHERE name = ?1")
+                .and_then(|mut stmt| stmt.exists([column]))
+                .map_err(|e| format!("cannot inspect the search index: {e}"))?;
+            if !present {
+                self.conn
+                    .execute_batch(&format!("ALTER TABLE messages ADD COLUMN {column} TEXT;"))
+                    .map_err(fail)?;
+            }
+        }
+        if version < SCHEMA_VERSION {
+            // The pre-1 trigger fired on ANY update, so a filename-only update
+            // would have rewritten the body's FTS entries for nothing.
+            self.conn
+                .execute_batch("DROP TRIGGER IF EXISTS messages_au;")
+                .map_err(fail)?;
+        }
+        self.conn
+            .execute_batch(
+                "CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages
+                 WHEN old.body IS NOT new.body OR old.sender_name IS NOT new.sender_name
+                 BEGIN
                      INSERT INTO messages_fts(messages_fts, rowid, body, sender_name)
                      VALUES ('delete', old.id, old.body, old.sender_name);
                      INSERT INTO messages_fts(rowid, body, sender_name)
                      VALUES (new.id, new.body, new.sender_name);
+                 END;
+
+                 -- File names: external content again, rows only for non-empty
+                 -- names, so the 'delete' command always names what was stored.
+                 -- Redacting an edit looks rows up by `edit_id`. Partial, so it
+                 -- holds only rows that were edited, and it is empty when
+                 -- created: no write burst.
+                 CREATE INDEX IF NOT EXISTS messages_edit_id
+                     ON messages(edit_id) WHERE edit_id IS NOT NULL;
+                 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fn_fts USING fts5(
+                     filename,
+                     content='messages',
+                     content_rowid='id',
+                     tokenize='trigram remove_diacritics 2'
+                 );
+                 CREATE TRIGGER IF NOT EXISTS messages_fn_ai AFTER INSERT ON messages
+                 BEGIN
+                     INSERT INTO messages_fn_fts(rowid, filename)
+                     SELECT new.id, new.filename WHERE ifnull(new.filename, '') <> '';
+                 END;
+                 CREATE TRIGGER IF NOT EXISTS messages_fn_ad AFTER DELETE ON messages
+                 BEGIN
+                     INSERT INTO messages_fn_fts(messages_fn_fts, rowid, filename)
+                     SELECT 'delete', old.id, old.filename WHERE ifnull(old.filename, '') <> '';
+                 END;
+                 CREATE TRIGGER IF NOT EXISTS messages_fn_au AFTER UPDATE ON messages
+                 WHEN old.filename IS NOT new.filename
+                 BEGIN
+                     INSERT INTO messages_fn_fts(messages_fn_fts, rowid, filename)
+                     SELECT 'delete', old.id, old.filename WHERE ifnull(old.filename, '') <> '';
+                     INSERT INTO messages_fn_fts(rowid, filename)
+                     SELECT new.id, new.filename WHERE ifnull(new.filename, '') <> '';
                  END;",
             )
-            .map_err(|e| format!("cannot prepare the search index: {e}"))?;
+            .map_err(fail)?;
+        if version < SCHEMA_VERSION {
+            self.conn
+                .execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))
+                .map_err(fail)?;
+        }
         Ok(())
     }
 
@@ -186,6 +333,25 @@ impl SearchIndex {
         msgtype: &str,
         ts: i64,
     ) -> Result<bool, String> {
+        self.upsert_named(event_id, room_id, sender, sender_name, body, msgtype, ts, None)
+    }
+
+    /// [`upsert`](Self::upsert) with the attachment's file name. `None` means
+    /// "the event does not say" (an edit without `filename`): a stored name is
+    /// kept, and a new row is left unexamined. `Some("")` means "examined, no
+    /// separate name".
+    pub(crate) fn upsert_named(
+        &self,
+        event_id: &str,
+        room_id: &str,
+        sender: &str,
+        sender_name: &str,
+        body: &str,
+        msgtype: &str,
+        ts: i64,
+        filename: Option<&str>,
+    ) -> Result<bool, String> {
+        let filename = filename.map(clean_filename);
         if event_id.is_empty() || room_id.is_empty() {
             return Ok(false);
         }
@@ -196,15 +362,18 @@ impl SearchIndex {
         self.conn
             .execute(
                 "INSERT INTO messages
-                    (event_id, room_id, sender, sender_name, body, msgtype, ts)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                    (event_id, room_id, sender, sender_name, body, msgtype, ts, filename)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                  ON CONFLICT(event_id) DO UPDATE SET
                      body        = excluded.body,
                      sender_name = excluded.sender_name,
-                     msgtype     = excluded.msgtype
+                     msgtype     = excluded.msgtype,
+                     filename    = COALESCE(excluded.filename, messages.filename)
                  WHERE messages.body IS NOT excluded.body
                     OR messages.sender_name IS NOT excluded.sender_name
-                    OR messages.msgtype IS NOT excluded.msgtype",
+                    OR messages.msgtype IS NOT excluded.msgtype
+                    OR (excluded.filename IS NOT NULL
+                        AND messages.filename IS NOT excluded.filename)",
                 params![
                     event_id,
                     room_id,
@@ -213,18 +382,105 @@ impl SearchIndex {
                     body,
                     msgtype,
                     ts,
+                    filename,
                 ],
             )
             .map(|changed| changed != 0)
             .map_err(|e| format!("cannot index a message: {e}"))
     }
 
+    /// Attachment rows among `event_ids` indexed before file names were: their
+    /// `filename` is still NULL. Text rows are deliberately not listed (they
+    /// have no name), which bounds the backfill to attachments.
+    pub(crate) fn stale_filename_ids(
+        &self,
+        event_ids: &[String],
+    ) -> Result<HashSet<String>, String> {
+        let mut out = HashSet::new();
+        for slice in event_ids.chunks(500) {
+            if slice.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat("?")
+                .take(slice.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT event_id FROM messages
+                 WHERE filename IS NULL
+                   AND msgtype IN ('m.image','m.video','m.audio','m.file')
+                   AND event_id IN ({placeholders})"
+            );
+            let mut stmt = self.conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(slice.iter()), |r| {
+                    r.get::<_, String>(0)
+                })
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                out.insert(row.map_err(|e| e.to_string())?);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Record the file name of an already indexed row, touching nothing else
+    /// (an edited body must survive). Only fills a NULL, so a row is written
+    /// at most once by the backfill. Returns whether a row changed.
+    pub(crate) fn fill_filename(&self, event_id: &str, filename: &str) -> Result<bool, String> {
+        self.conn
+            .execute(
+                "UPDATE messages SET filename = ?2 WHERE event_id = ?1 AND filename IS NULL",
+                params![event_id, clean_filename(filename)],
+            )
+            .map(|changed| changed != 0)
+            .map_err(|e| format!("cannot record a file name: {e}"))
+    }
+
+    /// The sender stored for an event: the original's, which is the only
+    /// sender allowed to edit it.
+    pub(crate) fn sender_of(&self, event_id: &str) -> Result<Option<String>, String> {
+        self.conn
+            .query_row(
+                "SELECT sender FROM messages WHERE event_id = ?1",
+                params![event_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())
+    }
+
+    /// Remember which edit event produced a row's current text, so redacting
+    /// that edit can take its text out (see [`remove_event`](Self::remove_event)).
+    /// An event id only. Writes nothing when it is already recorded.
+    pub(crate) fn set_edit_id(&self, event_id: &str, edit_id: &str) -> Result<bool, String> {
+        self.conn
+            .execute(
+                "UPDATE messages SET edit_id = ?2 WHERE event_id = ?1 AND edit_id IS NOT ?2",
+                params![event_id, edit_id],
+            )
+            .map(|changed| changed != 0)
+            .map_err(|e| format!("cannot record an edit: {e}"))
+    }
+
     /// A redaction removes the row outright; a redacted message must not stay
-    /// findable by its text.
+    /// findable by its text. `event_id` may also be the EDIT that produced the
+    /// row's current text (`edit_id`): the edit's wording (and file name) lives
+    /// in the original's row, and the index cannot restore the wording before
+    /// it, so the row goes too. That is the conservative direction: the
+    /// original is re-indexed from the event cache by the next sweep, which
+    /// skips the redacted edit ([`indexable_from`]) and applies any earlier one.
     pub(crate) fn remove_event(&self, event_id: &str) -> Result<(), String> {
         self.conn
             .execute("DELETE FROM messages WHERE event_id = ?1", params![event_id])
             .map_err(|e| format!("cannot remove a message from the index: {e}"))?;
+        // Separate statement so the partial index serves it (an OR would scan).
+        self.conn
+            .execute(
+                "DELETE FROM messages WHERE edit_id = ?1 AND edit_id IS NOT NULL",
+                params![event_id],
+            )
+            .map_err(|e| format!("cannot remove an edited message from the index: {e}"))?;
         Ok(())
     }
 
@@ -345,20 +601,22 @@ impl SearchIndex {
         let limit = limit.clamp(1, 500);
         let offset = offset.max(0);
 
+        // A row matches on its text (body, sender name) OR its file name.
         let sql = if room_id.is_empty() {
             "SELECT m.event_id, m.room_id, m.sender, m.sender_name, m.body,
-                    m.msgtype, m.ts
-             FROM messages_fts f
-             JOIN messages m ON m.id = f.rowid
-             WHERE messages_fts MATCH ?1
+                    m.msgtype, m.ts, ifnull(m.filename, '')
+             FROM messages m
+             WHERE (m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?1)
+                 OR m.id IN (SELECT rowid FROM messages_fn_fts WHERE messages_fn_fts MATCH ?1))
              ORDER BY m.ts DESC
              LIMIT ?2 OFFSET ?3"
         } else {
             "SELECT m.event_id, m.room_id, m.sender, m.sender_name, m.body,
-                    m.msgtype, m.ts
-             FROM messages_fts f
-             JOIN messages m ON m.id = f.rowid
-             WHERE messages_fts MATCH ?1 AND m.room_id = ?4
+                    m.msgtype, m.ts, ifnull(m.filename, '')
+             FROM messages m
+             WHERE (m.id IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?1)
+                 OR m.id IN (SELECT rowid FROM messages_fn_fts WHERE messages_fn_fts MATCH ?1))
+               AND m.room_id = ?4
              ORDER BY m.ts DESC
              LIMIT ?2 OFFSET ?3"
         };
@@ -373,6 +631,7 @@ impl SearchIndex {
                 body: row.get(4)?,
                 msgtype: row.get(5)?,
                 ts: row.get(6)?,
+                filename: row.get(7)?,
             })
         };
         let rows = if room_id.is_empty() {
@@ -415,6 +674,12 @@ struct Indexable {
     body: String,
     msgtype: String,
     ts: i64,
+    /// `Some(name)`: the event states a file name distinct from the body
+    /// ("" = examined, none). `None`: it does not say (an edit without one).
+    filename: Option<String>,
+    /// For a replacement: the id of the EDIT event itself (`event_id` is the
+    /// original's). `None` for an ordinary event.
+    edit_id: Option<String>,
 }
 
 /// Pull the searchable text out of one cached event. Only messages with text
@@ -448,6 +713,7 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
         .and_then(|r| r.get("rel_type"))
         .and_then(|v| v.as_str())
         == Some("m.replace");
+    let own_id = event_id.clone();
     let (target_id, body_source) = if is_replacement {
         let target = relates
             .and_then(|r| r.get("event_id"))
@@ -475,7 +741,27 @@ fn indexable_from(raw: &serde_json::Value) -> Option<Indexable> {
     if body.trim().is_empty() {
         return None;
     }
-    Some(Indexable { event_id: target_id, sender, body, msgtype, ts })
+    // The name of a captioned attachment (MSC2530): `body` is the caption and
+    // `filename` the file. When it is the same string, or absent on an original
+    // event, `body` already is the name and nothing extra is stored.
+    let filename = if is_attachment_msgtype(&msgtype) {
+        match body_source.get("filename").and_then(|v| v.as_str()) {
+            // Compared AFTER cleaning, on both sides, so a name that differs
+            // from the body only by control or bidi characters is not stored.
+            Some(name) => {
+                let cleaned = clean_filename(name);
+                Some(if cleaned == clean_filename(&body) { String::new() } else { cleaned })
+            }
+            None if is_replacement => None,
+            None => Some(String::new()),
+        }
+    } else if is_replacement {
+        None
+    } else {
+        Some(String::new())
+    };
+    let edit_id = if is_replacement { Some(own_id) } else { None };
+    Some(Indexable { event_id: target_id, sender, body, msgtype, ts, filename, edit_id })
 }
 
 /// Page a room backwards, indexing what each page brings in ("Index this
@@ -865,46 +1151,83 @@ pub(crate) async fn collect_from(
 pub(crate) fn write_batch(index: &SearchIndex, room_id: &str, batch: &RoomBatch) -> usize {
     let ids: Vec<String> = batch.ordinary.iter().map(|c| c.event_id.clone()).collect();
     let known = index.known(&ids).unwrap_or_default();
-    // Preserve the old result (the last cached edit wins), but do not replay
-    // intermediate wording into FTS on every sweep. Use the first edit's
-    // immutable sender/timestamp if the original is absent, as before.
-    let mut final_edits = std::collections::HashMap::new();
-    for edit in &batch.edits {
-        final_edits.insert(edit.event_id.as_str(), edit);
-    }
-    let mut applied_edits = std::collections::HashSet::new();
+    // Attachments indexed before file names were: their cached events are met
+    // by the ordinary paced sweeps, and each is filled in once (below).
+    let stale = index.stale_filename_ids(&ids).unwrap_or_default();
     let mut written = 0usize;
-    for (item, is_edit) in batch
-        .ordinary
-        .iter()
-        .map(|c| (c, false))
-        .chain(batch.edits.iter().map(|r| (r, true)))
-    {
-        if !is_edit && known.contains(&item.event_id) {
+    for item in &batch.ordinary {
+        if known.contains(&item.event_id) {
+            if stale.contains(&item.event_id) {
+                if let Some(name) = &item.filename {
+                    if index.fill_filename(&item.event_id, name).unwrap_or(false) {
+                        written += 1;
+                    }
+                }
+            }
             continue;
         }
-        let content = if is_edit {
-            if !applied_edits.insert(item.event_id.as_str()) {
-                continue;
-            }
-            final_edits[item.event_id.as_str()]
-        } else {
-            item
-        };
-        let display = batch.names.get(&content.sender).cloned().unwrap_or_default();
+        let display = batch.names.get(&item.sender).cloned().unwrap_or_default();
         if index
-            .upsert(
+            .upsert_named(
                 &item.event_id,
                 room_id,
                 &item.sender,
                 &display,
-                &content.body,
-                &content.msgtype,
+                &item.body,
+                &item.msgtype,
                 item.ts,
+                item.filename.as_deref(),
             )
             .unwrap_or(false)
         {
             written += 1;
+        }
+    }
+    // Only the original's sender may edit it (spec), so edits by anyone else
+    // are discarded BEFORE the last one is chosen: a later edit by a stranger
+    // must not displace the owner's. The original is read from the index, where
+    // the pass above has just put it if it was new; when it is not there, its
+    // edits are skipped, never inserted under the editor's name.
+    //
+    // Then the last cached edit of an event wins; intermediate wording is not
+    // replayed into FTS on every sweep.
+    let mut order: Vec<&str> = Vec::new();
+    let mut final_edits: std::collections::HashMap<&str, &Indexable> =
+        std::collections::HashMap::new();
+    let mut owners: std::collections::HashMap<&str, Option<String>> =
+        std::collections::HashMap::new();
+    for edit in &batch.edits {
+        let target = edit.event_id.as_str();
+        let owner = owners
+            .entry(target)
+            .or_insert_with(|| index.sender_of(target).ok().flatten());
+        if owner.as_deref() != Some(edit.sender.as_str()) {
+            continue;
+        }
+        if final_edits.insert(target, edit).is_none() {
+            order.push(target);
+        }
+    }
+    for target in order {
+        let edit = final_edits[target];
+        let display = batch.names.get(&edit.sender).cloned().unwrap_or_default();
+        if index
+            .upsert_named(
+                target,
+                room_id,
+                &edit.sender,
+                &display,
+                &edit.body,
+                &edit.msgtype,
+                edit.ts,
+                edit.filename.as_deref(),
+            )
+            .unwrap_or(false)
+        {
+            written += 1;
+        }
+        if let Some(edit_id) = &edit.edit_id {
+            let _ = index.set_edit_id(target, edit_id);
         }
     }
     let _ = index.prune();
@@ -1116,7 +1439,7 @@ mod tests {
         let ix = index();
         let item = |body: &str, ts| Indexable {
             event_id: "$edited".into(), sender: "@a:x".into(),
-            body: body.into(), msgtype: "m.text".into(), ts,
+            body: body.into(), msgtype: "m.text".into(), ts, filename: None, edit_id: None,
         };
         let batch = RoomBatch {
             ordinary: vec![item("original wording", 1000)],
@@ -1136,18 +1459,22 @@ mod tests {
         assert_eq!(timestamp, 1000);
     }
 
+    // Several cached edits of one event: the last wins and the row keeps the
+    // original's sender, timestamp and message type metadata. Every edit here is
+    // by the ORIGINAL's sender (anything else is refused, see the next test).
     #[test]
     fn coalescingEditsKeepsTheOriginalFallbackMetadata() {
         let ix = index();
+        ix.upsert("$orig", "!r:x", "@first:x", "First", "first wording", "m.text", 1000)
+            .unwrap();
+        let edit = |body: &str, ts, edit_id: &str| Indexable {
+            event_id: "$orig".into(), sender: "@first:x".into(), body: body.into(),
+            msgtype: "m.notice".into(), ts, filename: None, edit_id: Some(edit_id.into()),
+        };
         let batch = RoomBatch {
             ordinary: vec![],
-            edits: vec![
-                Indexable { event_id: "$missing-original".into(), sender: "@first:x".into(),
-                    body: "first wording".into(), msgtype: "m.text".into(), ts: 1000 },
-                Indexable { event_id: "$missing-original".into(), sender: "@last:x".into(),
-                    body: "final wording".into(), msgtype: "m.notice".into(), ts: 2000 },
-            ],
-            names: std::collections::HashMap::from([("@last:x".into(), "Latest name".into())]),
+            edits: vec![edit("intermediate wording", 1500, "$e1"), edit("final wording", 2000, "$e2")],
+            names: std::collections::HashMap::from([("@first:x".into(), "Latest name".into())]),
             undecryptable: vec![],
         };
         assert_eq!(write_batch(&ix, "!r:x", &batch), 1);
@@ -1156,7 +1483,194 @@ mod tests {
         assert_eq!(hit.ts, 1000);
         assert_eq!(hit.sender_name, "Latest name");
         assert_eq!(hit.msgtype, "m.notice");
+        assert!(ix.search("intermediate", "", 10, 0).unwrap().is_empty());
         assert_eq!(write_batch(&ix, "!r:x", &batch), 0);
+    }
+
+    // An m.replace is honoured only from the original's sender. On the old
+    // code @evil could rewrite another user's message and file name, or plant
+    // a row under their own name for an event the index had never seen.
+    #[test]
+    fn an_edit_by_anyone_but_the_original_sender_is_ignored() {
+        let ix = index();
+        let original = Indexable {
+            event_id: "$img".into(), sender: "@alice:x".into(), body: "alices caption".into(),
+            msgtype: "m.image".into(), ts: 1000, filename: Some("alice-photo.png".into()),
+            edit_id: None,
+        };
+        let evil_edit = |target: &str, id: &str| Indexable {
+            event_id: target.into(), sender: "@evil:x".into(), body: "pwned wording".into(),
+            msgtype: "m.image".into(), ts: 2000, filename: Some("pwned.png".into()),
+            edit_id: Some(id.into()),
+        };
+        // 1. Original in the same batch.
+        let batch = RoomBatch {
+            ordinary: vec![original],
+            edits: vec![evil_edit("$img", "$ev1")],
+            names: std::collections::HashMap::new(),
+            undecryptable: vec![],
+        };
+        write_batch(&ix, "!r:x", &batch);
+        assert_eq!(ix.search("alices caption", "", 10, 0).unwrap().len(), 1);
+        assert_eq!(ix.search("alice-photo", "", 10, 0).unwrap().len(), 1);
+        assert!(ix.search("pwned", "", 10, 0).unwrap().is_empty());
+        // 2. Original known only from the stored row (a later sweep).
+        let later = RoomBatch {
+            ordinary: vec![],
+            edits: vec![evil_edit("$img", "$ev2")],
+            names: std::collections::HashMap::new(),
+            undecryptable: vec![],
+        };
+        assert_eq!(write_batch(&ix, "!r:x", &later), 0);
+        assert!(ix.search("pwned", "", 10, 0).unwrap().is_empty());
+        // 3. Original unknown to the index and the batch: no row is invented
+        // under the editor's name.
+        let orphan = RoomBatch {
+            ordinary: vec![],
+            edits: vec![evil_edit("$never-seen", "$ev3")],
+            names: std::collections::HashMap::new(),
+            undecryptable: vec![],
+        };
+        assert_eq!(write_batch(&ix, "!r:x", &orphan), 0);
+        assert!(!ix.contains("$never-seen").unwrap());
+        assert_eq!(ix.stats().unwrap().messages, 1);
+        // The owner's own edit still lands.
+        let mut own = evil_edit("$img", "$own");
+        own.sender = "@alice:x".into();
+        let batch = RoomBatch {
+            ordinary: vec![],
+            edits: vec![own],
+            names: std::collections::HashMap::new(),
+            undecryptable: vec![],
+        };
+        assert_eq!(write_batch(&ix, "!r:x", &batch), 1);
+        assert_eq!(ix.search("pwned.png", "", 10, 0).unwrap().len(), 1);
+    }
+
+    // A stranger's edit that comes AFTER the owner's must not displace it
+    // (the last edit used to be chosen before the sender was checked).
+    #[test]
+    fn a_strangers_later_edit_does_not_displace_the_owners_edit() {
+        let ix = index();
+        ix.upsert("$m", "!r:x", "@alice:x", "Alice", "original", "m.text", 1).unwrap();
+        let edit = |sender: &str, body: &str, id: &str| Indexable {
+            event_id: "$m".into(), sender: sender.into(), body: body.into(),
+            msgtype: "m.text".into(), ts: 2, filename: None, edit_id: Some(id.into()),
+        };
+        let batch = RoomBatch {
+            ordinary: vec![],
+            edits: vec![edit("@alice:x", "alices real edit", "$e1"), edit("@evil:x", "evil wording", "$e2")],
+            names: std::collections::HashMap::new(),
+            undecryptable: vec![],
+        };
+        write_batch(&ix, "!r:x", &batch);
+        assert_eq!(ix.search("alices real edit", "", 10, 0).unwrap().len(), 1);
+        assert!(ix.search("evil wording", "", 10, 0).unwrap().is_empty());
+        assert!(ix.search("original", "", 10, 0).unwrap().is_empty());
+    }
+
+    // Redacting an edit finds the row through an index, not a table scan.
+    #[test]
+    fn redacting_an_edit_is_served_by_the_edit_id_index() {
+        let ix = index();
+        let plan: Vec<String> = ix
+            .conn
+            .prepare("EXPLAIN QUERY PLAN DELETE FROM messages WHERE edit_id = ?1 AND edit_id IS NOT NULL")
+            .unwrap()
+            .query_map(["$e"], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(plan.iter().any(|d| d.contains("messages_edit_id")), "scan: {plan:?}");
+    }
+
+    // Redacting an EDIT must not leave its wording (or file name) behind: the
+    // edit lives in the original's row, so the row is dropped and re-indexed
+    // from the cache, which skips the redacted edit.
+    #[test]
+    fn redacting_an_edit_takes_its_text_and_file_name_out_of_the_index() {
+        let ix = index();
+        ix.upsert_named("$img", "!r:x", "@a:x", "Ann", "original caption", "m.image", 1, Some("orig.png"))
+            .unwrap();
+        let batch = RoomBatch {
+            ordinary: vec![],
+            edits: vec![Indexable {
+                event_id: "$img".into(), sender: "@a:x".into(), body: "regrettable edit".into(),
+                msgtype: "m.image".into(), ts: 2, filename: Some("regrettable.png".into()),
+                edit_id: Some("$edit".into()),
+            }],
+            names: std::collections::HashMap::new(),
+            undecryptable: vec![],
+        };
+        write_batch(&ix, "!r:x", &batch);
+        assert_eq!(ix.search("regrettable", "", 10, 0).unwrap().len(), 1);
+        // The redaction names the edit event, not the original.
+        ix.remove_event("$edit").unwrap();
+        assert!(ix.search("regrettable", "", 10, 0).unwrap().is_empty());
+        assert!(!ix.contains("$img").unwrap());
+        // Control: redacting an unrelated id removes nothing.
+        ix.upsert_named("$other", "!r:x", "@a:x", "Ann", "keepme text", "m.text", 3, None).unwrap();
+        ix.remove_event("$unrelated").unwrap();
+        assert!(ix.contains("$other").unwrap());
+    }
+
+    #[test]
+    fn migration_replaces_the_old_trigger_and_clear_removes_file_names() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(LEGACY_SCHEMA).unwrap();
+        let ix = SearchIndex::from_connection(conn).unwrap();
+        let sql: String = ix
+            .conn
+            .query_row("SELECT sql FROM sqlite_master WHERE name = 'messages_au'", [], |r| r.get(0))
+            .unwrap();
+        assert!(sql.contains("WHEN old.body IS NOT new.body"), "the old unconditional trigger survived: {sql}");
+        // A filename-only update must not rewrite the body's FTS entries.
+        ix.upsert_named("$img2", "!r:x", "@a:x", "Ann", "some caption", "m.image", 5, Some("keep.png")).unwrap();
+        let fingerprint = body_fts_fingerprint(&ix);
+        ix.fill_filename("$img", "late.png").unwrap();
+        // The name was indexed, the body's FTS entries were not rewritten.
+        assert_eq!(ix.search("late.png", "", 10, 0).unwrap().len(), 1);
+        assert_eq!(body_fts_fingerprint(&ix), fingerprint);
+        ix.clear().unwrap();
+        assert!(ix.search("keep.png", "", 10, 0).unwrap().is_empty());
+        assert!(ix.search("late.png", "", 10, 0).unwrap().is_empty());
+        let rows: i64 = ix.conn.query_row("SELECT count(*) FROM messages", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 0);
+        // Not just joined away: nothing is left matchable in the name table.
+        let left: i64 = ix
+            .conn
+            .query_row(
+                "SELECT count(*) FROM messages_fn_fts WHERE messages_fn_fts MATCH '\"keep\"'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
+    }
+
+    // The migration runs in one transaction: when it cannot complete, the
+    // index is left exactly as it was and no transaction stays open.
+    #[test]
+    fn a_migration_that_cannot_complete_leaves_the_old_schema_and_no_open_transaction() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(LEGACY_SCHEMA).unwrap();
+        let ix = SearchIndex { conn, generation: std::sync::atomic::AtomicU64::new(1) };
+        ix.conn.execute_batch("PRAGMA query_only = ON;").unwrap();
+        assert!(ix.migrate().is_err());
+        ix.conn.execute_batch("PRAGMA query_only = OFF;").unwrap();
+        assert!(ix.conn.is_autocommit(), "a transaction was left open");
+        let version: i64 = ix.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 0);
+        let has: bool = ix
+            .conn
+            .prepare("SELECT 1 FROM pragma_table_info('messages') WHERE name = 'filename'")
+            .unwrap()
+            .exists([])
+            .unwrap();
+        assert!(!has);
+        // And it still migrates cleanly afterwards.
+        ix.migrate().unwrap();
+        assert!(ix.conn.is_autocommit());
     }
 
     #[test]
@@ -1323,6 +1837,7 @@ mod tests {
                 body: "collected before the clear".to_owned(),
                 msgtype: "m.text".to_owned(),
                 ts: 1,
+                filename: None, edit_id: None,
             }],
             edits: Vec::new(),
             names: std::collections::HashMap::new(),
@@ -1458,6 +1973,288 @@ mod tests {
         println!("MEASURED sqlite={version} koln={koln} KOLN={upper}");
         assert_eq!(koln, 1, "trigram remove_diacritics did not fold");
         assert_eq!(upper, 1, "trigram is not case-insensitive");
+    }
+
+    // ── Attachment file names (schema version 1) ─────────────────────────
+
+    fn captioned_image(event_id: &str, caption: &str, filename: &str) -> serde_json::Value {
+        serde_json::json!({
+            "type": "m.room.message", "event_id": event_id, "sender": "@a:x",
+            "origin_server_ts": 5000i64,
+            "content": {
+                "msgtype": "m.image", "body": caption, "filename": filename,
+                "url": "mxc://example.org/never-stored",
+                "info": { "mimetype": "image/png", "size": 7 },
+            },
+        })
+    }
+
+    /// An image with a caption is found by its file name, which `body` no
+    /// longer carries. Fails on the old code: only `body` was indexed.
+    #[test]
+    fn a_captioned_image_is_found_by_its_file_name() {
+        let ix = index();
+        let item = indexable_from(&captioned_image("$img", "look at the sunset", "IMG_2041_sunset.png"))
+            .unwrap();
+        assert_eq!(item.filename.as_deref(), Some("IMG_2041_sunset.png"));
+        let batch = RoomBatch {
+            ordinary: vec![item],
+            edits: vec![],
+            names: std::collections::HashMap::new(),
+            undecryptable: vec![],
+        };
+        assert_eq!(write_batch(&ix, "!r:x", &batch), 1);
+        let by_name = ix.search("IMG_2041", "", 10, 0).unwrap();
+        assert_eq!(by_name.len(), 1);
+        assert_eq!(by_name[0].event_id, "$img");
+        assert_eq!(by_name[0].filename, "IMG_2041_sunset.png");
+        // Folded like text, and the caption still works.
+        assert_eq!(ix.search("img_2041_SUNSET", "", 10, 0).unwrap().len(), 1);
+        assert_eq!(ix.search("sunset", "", 10, 0).unwrap().len(), 1);
+        // Scoped search still scopes.
+        assert!(ix.search("IMG_2041", "!other:x", 10, 0).unwrap().is_empty());
+    }
+
+    /// Nothing but the name is stored: not the mxc URI, not the mime type.
+    #[test]
+    fn only_the_file_name_is_added_to_what_is_stored() {
+        let ix = index();
+        let batch = RoomBatch {
+            ordinary: vec![indexable_from(&captioned_image("$i", "cap", "report.pdf")).unwrap()],
+            edits: vec![],
+            names: std::collections::HashMap::new(),
+            undecryptable: vec![],
+        };
+        write_batch(&ix, "!r:x", &batch);
+        assert!(ix.search("never-stored", "", 10, 0).unwrap().is_empty());
+        assert!(ix.search("image/png", "", 10, 0).unwrap().is_empty());
+        let columns: Vec<String> = ix
+            .conn
+            .prepare("SELECT name FROM pragma_table_info('messages') ORDER BY cid")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(
+            columns,
+            ["id", "event_id", "room_id", "sender", "sender_name", "body", "msgtype", "ts", "filename", "edit_id"]
+        );
+    }
+
+    #[test]
+    fn a_name_equal_to_the_body_is_not_stored_twice_and_a_text_message_has_none() {
+        let same = indexable_from(&captioned_image("$a", "plain.png", "plain.png")).unwrap();
+        assert_eq!(same.filename.as_deref(), Some(""));
+        let no_name = serde_json::json!({
+            "type": "m.room.message", "event_id": "$b", "sender": "@a:x",
+            "origin_server_ts": 1i64,
+            "content": { "msgtype": "m.file", "body": "old-style.zip", "url": "mxc://x/y" },
+        });
+        assert_eq!(indexable_from(&no_name).unwrap().filename.as_deref(), Some(""));
+        // A stray `filename` on a text message is not an attachment name.
+        let text = serde_json::json!({
+            "type": "m.room.message", "event_id": "$c", "sender": "@a:x",
+            "origin_server_ts": 1i64,
+            "content": { "msgtype": "m.text", "body": "hello", "filename": "x.png" },
+        });
+        assert_eq!(indexable_from(&text).unwrap().filename.as_deref(), Some(""));
+        // Bounded and stripped of control characters.
+        let long = "n".repeat(10_000);
+        let bounded = indexable_from(&captioned_image("$d", "cap", &format!("{long}\n\u{7}"))).unwrap();
+        let bounded = bounded.filename.unwrap();
+        assert_eq!(bounded.len(), MAX_FILENAME_BYTES);
+        // Cut on a character boundary, never in the middle of one.
+        let wide = "é".repeat(200); // 400 bytes
+        let cut = clean_filename(&wide);
+        assert!(cut.len() <= MAX_FILENAME_BYTES);
+        assert_eq!(cut.chars().count(), MAX_FILENAME_BYTES / 2);
+        // Bidi controls (not Cc) are removed: they would disguise an extension.
+        assert_eq!(clean_filename("evil\u{202E}gpj.exe\u{2066}"), "evilgpj.exe");
+        // The name==body comparison happens AFTER cleaning.
+        let disguised = indexable_from(&captioned_image("$e", "plain.png", "plain\u{202E}.png")).unwrap();
+        assert_eq!(disguised.filename.as_deref(), Some(""));
+    }
+
+    /// A redaction removes the row, and with it the file name in the FTS table.
+    #[test]
+    fn a_redaction_removes_the_file_name_too() {
+        let ix = index();
+        ix.upsert_named("$img", "!r:x", "@a:x", "Ann", "caption", "m.image", 1, Some("secret-plans.pdf"))
+            .unwrap();
+        assert_eq!(ix.search("secret-plans", "", 10, 0).unwrap().len(), 1);
+        ix.remove_event("$img").unwrap();
+        assert!(ix.search("secret-plans", "", 10, 0).unwrap().is_empty());
+        // The FTS table itself is empty, not merely joined away.
+        let leftovers: i64 = ix
+            .conn
+            .query_row(
+                "SELECT count(*) FROM messages_fn_fts WHERE messages_fn_fts MATCH '\"secret-plans\"'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(leftovers, 0);
+        // Same for a whole forgotten room and for clear().
+        ix.upsert_named("$2", "!r:x", "@a:x", "Ann", "c", "m.file", 1, Some("ledger.xlsx")).unwrap();
+        ix.remove_room("!r:x").unwrap();
+        assert!(ix.search("ledger", "", 10, 0).unwrap().is_empty());
+    }
+
+    /// An edited name replaces the old one; a body-only edit keeps the name.
+    #[test]
+    fn editing_a_caption_keeps_the_name_and_a_new_name_replaces_it() {
+        let ix = index();
+        ix.upsert_named("$i", "!r:x", "@a:x", "Ann", "first caption", "m.image", 1, Some("old-name.png"))
+            .unwrap();
+        // An edit that states no filename (None) changes the caption only.
+        ix.upsert_named("$i", "!r:x", "@a:x", "Ann", "second caption", "m.image", 1, None).unwrap();
+        assert_eq!(ix.search("old-name", "", 10, 0).unwrap().len(), 1);
+        assert_eq!(ix.search("second caption", "", 10, 0).unwrap().len(), 1);
+        ix.upsert_named("$i", "!r:x", "@a:x", "Ann", "second caption", "m.image", 1, Some("new-name.png"))
+            .unwrap();
+        assert!(ix.search("old-name", "", 10, 0).unwrap().is_empty());
+        assert_eq!(ix.search("new-name", "", 10, 0).unwrap().len(), 1);
+    }
+
+    /// A fingerprint of the BODY text index's storage: row counts and byte
+    /// totals of its shadow tables. A rebuild or a rewrite of any entry moves it.
+    fn body_fts_fingerprint(ix: &SearchIndex) -> (i64, i64, i64, i64) {
+        let data: (i64, i64) = ix
+            .conn
+            .query_row("SELECT count(*), total(length(block)) FROM messages_fts_data", [], |r| {
+                Ok((r.get(0)?, r.get::<_, f64>(1)? as i64))
+            })
+            .unwrap();
+        let sizes: (i64, i64) = ix
+            .conn
+            .query_row("SELECT count(*), total(length(sz)) FROM messages_fts_docsize", [], |r| {
+                Ok((r.get(0)?, r.get::<_, f64>(1)? as i64))
+            })
+            .unwrap();
+        (data.0, data.1, sizes.0, sizes.1)
+    }
+
+    /// The schema an index had before file names existed.
+    const LEGACY_SCHEMA: &str = "
+        CREATE TABLE messages(
+            id INTEGER PRIMARY KEY, event_id TEXT NOT NULL UNIQUE, room_id TEXT NOT NULL,
+            sender TEXT NOT NULL, sender_name TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL DEFAULT '', msgtype TEXT NOT NULL DEFAULT '', ts INTEGER NOT NULL);
+        CREATE INDEX messages_room_ts ON messages(room_id, ts DESC);
+        CREATE INDEX messages_ts ON messages(ts);
+        CREATE VIRTUAL TABLE messages_fts USING fts5(body, sender_name,
+            content='messages', content_rowid='id', tokenize='trigram remove_diacritics 2');
+        CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+            INSERT INTO messages_fts(rowid, body, sender_name) VALUES (new.id, new.body, new.sender_name);
+        END;
+        CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, body, sender_name)
+            VALUES ('delete', old.id, old.body, old.sender_name);
+        END;
+        CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+            INSERT INTO messages_fts(messages_fts, rowid, body, sender_name)
+            VALUES ('delete', old.id, old.body, old.sender_name);
+            INSERT INTO messages_fts(rowid, body, sender_name) VALUES (new.id, new.body, new.sender_name);
+        END;
+        INSERT INTO messages(event_id, room_id, sender, sender_name, body, msgtype, ts)
+            VALUES ('$text', '!r:x', '@a:x', 'Ann', 'an ordinary sentence', 'm.text', 10),
+                   ('$img', '!r:x', '@a:x', 'Ann', 'caption of the picture', 'm.image', 20);
+        INSERT INTO messages(event_id, room_id, sender, sender_name, body, msgtype, ts)
+            VALUES ('$third', '!r:x', '@a:x', 'Ann', 'a third message', 'm.text', 30);
+        INSERT INTO messages(event_id, room_id, sender, sender_name, body, msgtype, ts)
+            VALUES ('$fourth', '!r:x', '@a:x', 'Ann', 'a fourth message', 'm.text', 40);";
+
+    #[test]
+    fn an_index_from_before_file_names_migrates_without_rewriting_anything() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(LEGACY_SCHEMA).unwrap();
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, 0);
+        let ix_before = SearchIndex { conn, generation: std::sync::atomic::AtomicU64::new(1) };
+        // (legacy tables have no `messages_fts_data` fingerprint problem: FTS5 made them)
+        let fingerprint_before = body_fts_fingerprint(&ix_before);
+        let changes_before = ix_before.conn.total_changes();
+        let SearchIndex { conn, .. } = ix_before;
+
+        let ix = SearchIndex::from_connection(conn).unwrap();
+
+        // The existing text index was neither rebuilt nor touched, so there is
+        // no write burst on an idle machine. (`total_changes` also counts the
+        // handful of bookkeeping rows SQLite writes when FTS5 creates the empty
+        // name table, hence a small bound rather than zero.)
+        assert_eq!(body_fts_fingerprint(&ix), fingerprint_before);
+        // The exact measured value (FTS5's own config row and friends), so a
+        // rebuild/optimize or any extra write moves it. The fixture has four
+        // separately committed inserts, so the body index holds several segments
+        // and an `optimize` would change the fingerprint above.
+        assert_eq!(ix.conn.total_changes() - changes_before, 3);
+        let version: i64 = ix.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        // Old rows survive and stay searchable by their text.
+        assert_eq!(ix.stats().unwrap().messages, 4);
+        assert_eq!(ix.search("ordinary", "", 10, 0).unwrap().len(), 1);
+        assert_eq!(ix.search("picture", "", 10, 0).unwrap().len(), 1);
+        // The old attachment is unexamined (NULL), the text row is not listed.
+        let stale = ix
+            .stale_filename_ids(&["$text".to_owned(), "$img".to_owned()])
+            .unwrap();
+        assert_eq!(stale, HashSet::from(["$img".to_owned()]));
+    }
+
+    #[test]
+    fn the_migration_is_idempotent_and_survives_an_interrupted_run() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(LEGACY_SCHEMA).unwrap();
+        let ix = SearchIndex::from_connection(conn).unwrap();
+        // Running the steps again on every open changes nothing and fails nothing.
+        let before = ix.conn.total_changes();
+        ix.ensure_schema().unwrap();
+        ix.ensure_schema().unwrap();
+        assert_eq!(ix.conn.total_changes(), before);
+        // An interrupted migration: column added, version never written.
+        ix.conn.execute_batch("PRAGMA user_version = 0;").unwrap();
+        ix.ensure_schema().unwrap();
+        let version: i64 = ix.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(ix.search("ordinary", "", 10, 0).unwrap().len(), 1);
+    }
+
+    /// A migrated attachment gains its name when the paced sweep meets its
+    /// event again, once, without disturbing an edited caption.
+    #[test]
+    fn a_migrated_attachment_is_backfilled_once_by_the_ordinary_sweep() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(LEGACY_SCHEMA).unwrap();
+        let ix = SearchIndex::from_connection(conn).unwrap();
+        assert!(ix.search("holiday-photo", "", 10, 0).unwrap().is_empty());
+
+        let batch = RoomBatch {
+            ordinary: vec![
+                // The cached ORIGINAL still has the old caption; the row holds a newer one.
+                indexable_from(&captioned_image("$img", "caption of the picture", "holiday-photo.jpg"))
+                    .unwrap(),
+                indexable_from(&serde_json::json!({
+                    "type": "m.room.message", "event_id": "$text", "sender": "@a:x",
+                    "origin_server_ts": 10i64,
+                    "content": { "msgtype": "m.text", "body": "an ordinary sentence" },
+                })).unwrap(),
+            ],
+            edits: vec![],
+            names: std::collections::HashMap::new(),
+            undecryptable: vec![],
+        };
+        ix.conn
+            .execute("UPDATE messages SET body = 'edited caption' WHERE event_id = '$img'", [])
+            .unwrap();
+        // One row filled in; the text row is not touched.
+        assert_eq!(write_batch(&ix, "!r:x", &batch), 1);
+        assert_eq!(ix.search("holiday-photo", "", 10, 0).unwrap().len(), 1);
+        assert_eq!(ix.search("edited caption", "", 10, 0).unwrap().len(), 1, "the edit was overwritten");
+        // Nothing left to do: the second pass writes nothing at all.
+        let before = ix.conn.total_changes();
+        assert_eq!(write_batch(&ix, "!r:x", &batch), 0);
+        assert_eq!(ix.conn.total_changes(), before);
     }
 
     // ── The tokenizer decision, evidenced ────────────────────────────────

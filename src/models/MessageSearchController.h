@@ -123,6 +123,8 @@ public:
         TimestampMsRole,
         MsgtypeRole,
         BodyRole,
+        /// The attachment's file name when it is not the body ("" otherwise).
+        FilenameRole,
     };
 
     explicit MessageSearchController(QObject *parent = nullptr);

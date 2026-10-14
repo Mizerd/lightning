@@ -11150,6 +11150,8 @@ bool RustSdkMatrixClient::handleRoomCommandEvent(const QString &type,
                   row.value(QStringLiteral("body")).toString() },
                 { QStringLiteral("msgtype"),
                   row.value(QStringLiteral("msgtype")).toString() },
+                { QStringLiteral("filename"),
+                  row.value(QStringLiteral("filename")).toString() },
                 { QStringLiteral("timestampMs"),
                   static_cast<qint64>(
                       row.value(QStringLiteral("timestamp_ms")).toDouble()) },

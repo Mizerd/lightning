@@ -527,6 +527,7 @@ QVariant MessageSearchController::data(const QModelIndex &index,
     case TimestampMsRole: return row.value(QStringLiteral("timestampMs"));
     case MsgtypeRole: return row.value(QStringLiteral("msgtype"));
     case BodyRole: return row.value(QStringLiteral("body"));
+    case FilenameRole: return row.value(QStringLiteral("filename")).toString();
     }
     return {};
 }
@@ -543,6 +544,7 @@ QHash<int, QByteArray> MessageSearchController::roleNames() const
         { TimestampMsRole, QByteArrayLiteral("timestampMs") },
         { MsgtypeRole, QByteArrayLiteral("msgtype") },
         { BodyRole, QByteArrayLiteral("body") },
+        { FilenameRole, QByteArrayLiteral("filename") },
     };
 }
 

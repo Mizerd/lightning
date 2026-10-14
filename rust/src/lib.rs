@@ -8299,6 +8299,7 @@ pub unsafe extern "C" fn mx_rust_local_search(
                 "body": hit.body,
                 "msgtype": hit.msgtype,
                 "timestamp_ms": hit.ts,
+                "filename": hit.filename,
             }))
             .collect();
         enqueue(&bridge.events, json!({

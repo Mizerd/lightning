@@ -903,6 +903,27 @@ private Q_SLOTS:
         QCOMPARE(settings.indexAllOfferAnswer(alice()), QStringLiteral("yes"));
         model.setSettings(nullptr);
     }
+
+    // A result found by its file name says so: the name rides to the view.
+    void aLocalResultCarriesItsAttachmentFileName()
+    {
+        FixedLocalSearchClient client;
+        QVERIFY(login(client));
+        QVariantMap row = resultRow(QStringLiteral("!general:mock.local"),
+                                    QStringLiteral("$img"),
+                                    QStringLiteral("look at the sunset"));
+        row.insert(QStringLiteral("msgtype"), QStringLiteral("m.image"));
+        row.insert(QStringLiteral("filename"), QStringLiteral("IMG_2041.png"));
+        client.rows = { row };
+        MessageSearchController model;
+        model.setDebounceMs(0);
+        model.setClient(&client);
+        model.setQuery(QStringLiteral("IMG_2041"));
+        QTRY_COMPARE(model.state(), QStringLiteral("results"));
+        QCOMPARE(model.data(model.index(0, 0),
+                            MessageSearchController::FilenameRole).toString(),
+                 QStringLiteral("IMG_2041.png"));
+    }
 };
 
 QTEST_MAIN(MessageSearchControllerTest)

@@ -405,6 +405,7 @@ Rectangle {
                     required property string senderAvatarUrl
                     required property var timestampMs
                     required property string body
+                    required property string filename
                     width: resultsList.width
                     implicitHeight: resultRow.implicitHeight + AppTheme.spacing8 * 2
                     hoverEnabled: true
@@ -464,6 +465,18 @@ Rectangle {
                                 wrapMode: Text.Wrap
                                 maximumLineCount: 3
                                 elide: Label.ElideRight
+                            }
+                            Label {
+                                // Why a captioned attachment matched: its file
+                                // name. Untrusted text: never markup.
+                                objectName: "roomSearchResultFilename"
+                                visible: resultDelegate.filename.length > 0
+                                textFormat: Text.PlainText
+                                Layout.fillWidth: true
+                                text: resultDelegate.filename
+                                color: AppTheme.textMuted
+                                font.pixelSize: AppTheme.scaled(AppTheme.textMeta)
+                                elide: Label.ElideMiddle
                             }
                         }
                     }
