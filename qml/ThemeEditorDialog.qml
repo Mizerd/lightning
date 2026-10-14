@@ -2372,8 +2372,14 @@ Popup {
                                 if (root.reportOpen || root.shareOpen
                                         || root.menuOpen || root.pendingBase >= 0)
                                     root.dismissTransient()
-                                else
+                                else {
+                                    // Narrow: the open colour's panel covers the
+                                    // list and disables it, so the list can take
+                                    // focus only once that panel is put away.
+                                    if (root.pickerPanelCovers)
+                                        root.editingRole = ""
                                     filterField.forceActiveFocus()
+                                }
                             }
                             // 2px on screen at any scale.
                             outlineWidth: 2 / Math.max(0.25, scale)
