@@ -183,14 +183,16 @@ unsafe fn restored_bridge(store: &StoreDir, homeserver: &str) -> *mut c_void {
         })
     };
     let open = open_files_under(&store.0);
+    // A store whose caches are in `cache/` (cachelayout.rs) opens them there.
+    let caches = if store.0.join("cache").is_dir() { "cache/" } else { "" };
     for expected in [
-        "matrix-sdk-state.sqlite3",
-        "matrix-sdk-event-cache.sqlite3",
-        "matrix-sdk-crypto.sqlite3",
-        "lightning-media-store/matrix-sdk-media.sqlite3",
+        "matrix-sdk-state.sqlite3".to_owned(),
+        format!("{caches}matrix-sdk-event-cache.sqlite3"),
+        "matrix-sdk-crypto.sqlite3".to_owned(),
+        format!("{caches}lightning-media-store/matrix-sdk-media.sqlite3"),
     ] {
         assert!(
-            open.iter().any(|f| f == expected),
+            open.iter().any(|f| *f == expected),
             "the restored session does not hold {expected} open, so the test \
              cannot see it being released: {open:?}"
         );
@@ -231,6 +233,26 @@ fn sign_out_after_a_restore_leaves_no_store_file_open() {
             ev["type"] == "logged_out"
         });
         retire_and_assert_closed(handle, &store, "sign-out");
+    }
+}
+
+/// The same with the caches in `cache/`, as every install has them once the
+/// GUI has held its profile lock (cachelayout.rs). The other cases here never
+/// set that lock, so without this one the split layout's files would never be
+/// asked about. A `cache/` directory that exists before the first open is
+/// where a fresh account's caches are created.
+#[test]
+fn sign_out_with_the_caches_in_their_own_directory_leaves_no_store_file_open() {
+    let homeserver = serve();
+    let store = StoreDir::new("split");
+    std::fs::create_dir_all(store.0.join("cache")).expect("cache dir");
+    unsafe {
+        let handle = restored_bridge(&store, &homeserver);
+        super::mx_rust_logout(handle);
+        wait_for(handle, "logged_out", Duration::from_secs(30), |ev| {
+            ev["type"] == "logged_out"
+        });
+        retire_and_assert_closed(handle, &store, "sign-out, split layout");
     }
 }
 

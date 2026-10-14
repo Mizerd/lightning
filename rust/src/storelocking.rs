@@ -16,7 +16,14 @@ pub extern "C" fn mx_rust_profile_lock_held() {
 }
 
 pub(crate) fn config() -> CrossProcessLockConfig {
-    config_for_profile_lock(PROFILE_LOCK_HELD.load(Ordering::Acquire))
+    config_for_profile_lock(profile_lock_held())
+}
+
+/// Whether this process owns the OS profile lock, so no other process can
+/// have an account's store files open. cachelayout.rs moves the caches only
+/// then.
+pub(crate) fn profile_lock_held() -> bool {
+    PROFILE_LOCK_HELD.load(Ordering::Acquire)
 }
 
 fn config_for_profile_lock(held: bool) -> CrossProcessLockConfig {

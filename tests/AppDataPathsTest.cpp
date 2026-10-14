@@ -336,10 +336,19 @@ void AppDataPathsTest::removalTakesEveryStoreThatHoldsMessageText()
         QStringLiteral("lightning-search.sqlite3"),
         QStringLiteral("lightning-search.sqlite3-wal"),
         QStringLiteral("matrix-sdk-crypto.sqlite3"),
+        // The split layout (rust/src/cachelayout.rs): the throwaway caches
+        // live in cache/ INSIDE the recorded store directory, so sign-out and
+        // removal take them with no path of their own.
+        QStringLiteral("cache/matrix-sdk-event-cache.sqlite3"),
+        QStringLiteral("cache/matrix-sdk-event-cache.sqlite3-wal"),
+        QStringLiteral("cache/lightning-media-store/matrix-sdk-media.sqlite3"),
+        QStringLiteral("cache/lightning-media-files/0123abcd.media"),
     };
-    for (const QString &name : stores)
-        QVERIFY(writeFile(identity.rustStorePath + QLatin1Char('/') + name,
-                          marker));
+    for (const QString &name : stores) {
+        const QString path = identity.rustStorePath + QLatin1Char('/') + name;
+        QVERIFY(QDir().mkpath(QFileInfo(path).absolutePath()));
+        QVERIFY(writeFile(path, marker));
+    }
 
     const auto summary = matrix::app_data::removeAccountRustState(identity);
     QVERIFY(summary.ok());

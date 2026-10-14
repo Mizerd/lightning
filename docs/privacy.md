@@ -252,7 +252,7 @@ Local only. Nothing here is uploaded anywhere by Lightning.
 | Recently used emoji/GIFs | Settings | Bounded local lists |
 | Playable media temp files | Session-scoped, mode 0600 | Wiped on sign-out, account switch, and exit |
 | Media store key | OS secret store, beside the account's tokens (`mediaStoreKey`); with no secure store (macOS, portable, a desktop with no Secret Service) the plaintext fallback that holds the tokens | 32 random bytes per account. Deleted with the tokens on sign-out and account removal. Never logged or shown |
-| Media opened in unencrypted rooms | Per-account store directory: the SDK media store (`lightning-media-store/`, 1 GiB on disk, items up to 100 MiB) and kept files (`lightning-media-files/`, 1 GiB, for larger items) | The media store is **encrypted** with the media store key; kept files are not, and never hold anything from an encrypted room (even a file sent there unencrypted). So it opens again without downloading. Removed after 60 days unused, and with the account. Settings → Privacy & security → **Keep downloaded media on this device** stops it; **Clear kept media** empties both |
+| Media opened in unencrypted rooms | Per-account store directory, in its `cache/` subdirectory: the SDK media store (`lightning-media-store/`, 1 GiB on disk, items up to 100 MiB) and kept files (`lightning-media-files/`, 1 GiB, for larger items) | The media store is **encrypted** with the media store key; kept files are not, and never hold anything from an encrypted room (even a file sent there unencrypted). So it opens again without downloading. Removed after 60 days unused, and with the account. Settings → Privacy & security → **Keep downloaded media on this device** stops it; **Clear kept media** empties both |
 | Media opened in encrypted rooms | The encrypted media store, items up to 100 MiB | Only when the key is held by a secure OS keyring (Secret Service, Windows Credential Manager). Never as a kept file, so items over 100 MiB are downloaded and decrypted again in every session. Without a secure keyring (macOS, portable, a desktop with no Secret Service) not kept at all: the media store key is then on the same disk, and the store holds only unencrypted-room media and the send queue's attachments |
 | Attachments you send, encrypted rooms included | The encrypted media store | matrix-sdk's send queue keeps them until they are uploaded, then under the 60-day policy, whatever **Keep downloaded media** says, until **Clear kept media** removes them. With no secure keyring (macOS, a portable install, a desktop with no Secret Service or Credential Manager) the key is on the same disk; see "Media you send" below |
 | Media store without a key | Memory only | Keyring locked or unreachable while it holds the account's secrets, or the first session after signing in: nothing is kept and nothing is written. Cost: an attachment still uploading when Lightning quits is lost, and one queued in an earlier session waits with a missing-media error until a session has the key |
@@ -271,7 +271,10 @@ encrypted room, then searched for as raw bytes across every file in the
 account's store directory, was found in
 
 - `matrix-sdk-event-cache.sqlite3` — the SDK persists the DECRYPTED variant of
-  an event, and Lightning opens the store with no passphrase
+  an event, and Lightning opens the store with no passphrase (in the store
+  directory's `cache/` subdirectory once moved there, `rust/src/cachelayout.rs`;
+  About → **Reset local cache** clears it, the media caches and the search
+  index)
 - `matrix-sdk-state.sqlite3` — room state carries the latest event for
   previews
 - `lightning-search.sqlite3` — the local index, deliberately: searching

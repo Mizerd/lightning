@@ -99,6 +99,7 @@ mod mediafiles;
 mod mediahealth;
 mod mediahistory;
 mod mediastore;
+mod cachelayout;
 mod storelocking;
 mod sendrecovery;
 mod namecolor;
@@ -10223,7 +10224,7 @@ pub unsafe extern "C" fn mx_rust_media_cache_clear(
         let kept_dir = if bridge.store_path.as_os_str().is_empty() {
             None
         } else {
-            Some(mediafiles::dir_in(&bridge.store_path))
+            cachelayout::kept_files_dir(&bridge.store_path)
         };
         let events = Arc::clone(&bridge.events);
         bridge.spawn_room_action(async move {
@@ -10423,9 +10424,11 @@ async fn build_client_with(
                     matrix_sdk_base::crypto::TrustRequirement::CrossSignedOrLegacy,
             });
     }
-    // The state, event-cache and crypto stores exactly as
-    // `sqlite_store(path, None)` opened them; the media store encrypted with
-    // the account's key, or in memory without one (mediastore.rs).
+    // The state and crypto stores exactly as `sqlite_store(path, None)`
+    // opened them; the event cache and the media store where cachelayout.rs
+    // placed them (the account's cache directory once moved), the media store
+    // encrypted with the account's key, or in memory without one
+    // (mediastore.rs).
     let mut store_probe = None;
     if !store_path.as_os_str().is_empty() {
         let (store_config, probe) =

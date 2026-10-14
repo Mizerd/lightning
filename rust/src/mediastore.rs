@@ -8,12 +8,12 @@
 //! as `sqlite_store(path, None)` opened it, all of that sat on disk unencrypted.
 //!
 //! Here the media store is opened on its own, in `lightning-media-store/`
-//! inside the account's store directory, with a 32-byte key that C++ keeps in
-//! the OS keyring (src/matrix/MediaStoreKey.cpp) and hands over per handle
-//! (`mx_rust_set_media_store_key`). Only the media store: the state,
-//! event-cache and crypto stores keep the config they always had, because one
-//! secret over the crypto store would strand every existing install's account
-//! pickle (docs/security-audit-2026-09-02.md).
+//! inside the account's cache directory (cachelayout.rs), with a 32-byte
+//! key that C++ keeps in the OS keyring (src/matrix/MediaStoreKey.cpp) and
+//! hands over per handle (`mx_rust_set_media_store_key`). Only the media
+//! store: the state, event-cache and crypto stores open with no key as they
+//! always did, because one secret over the crypto store would strand every
+//! existing install's account pickle (docs/security-audit-2026-09-02.md).
 //!
 //! Without a key this session (keyring locked or unreadable, a first sign-in,
 //! a key that could not be written) the media store is in memory: nothing is
@@ -53,8 +53,9 @@ use sha2::{Digest, Sha256};
 
 use crate::storeclose::StoreProbe;
 
-/// The encrypted store's directory, inside the account's store directory, so
-/// it is deleted with the account.
+/// The encrypted store's directory, in the account's cache directory
+/// (cachelayout.rs) inside its store directory, so it is deleted with the
+/// account.
 pub(crate) const DIR_NAME: &str = "lightning-media-store";
 /// The one-way identifier of the key the store in DIR_NAME belongs to.
 const KEY_ID_FILE: &str = "lightning-key-id";
@@ -423,7 +424,7 @@ fn restrict(_path: &Path, _mode: u32) {}
 
 /// 0700 on the directory and 0600 on its files: the SDK creates the database
 /// files at the process umask.
-fn restrict_tree(dir: &Path) {
+pub(crate) fn restrict_tree(dir: &Path) {
     restrict(dir, 0o700);
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -442,9 +443,11 @@ enum Prepared {
 }
 
 /// Decide and carry out the filesystem half. Blocking. Log lines name no
-/// path, account or key.
-fn prepare(store_path: &Path, key: Option<&[u8; 32]>) -> Prepared {
-    prepare_preserving_caches(store_path, key, preserve_caches_for_audit())
+/// path, account or key. `media_parent` is the directory the encrypted store
+/// lives in (cachelayout.rs: the cache directory, or the store directory
+/// while it is still there).
+fn prepare(store_path: &Path, media_parent: &Path, key: Option<&[u8; 32]>) -> Prepared {
+    prepare_in(store_path, media_parent, key, preserve_caches_for_audit())
 }
 
 /// Temporary runtime audit switch: avoid migration deleting the data under
@@ -454,8 +457,18 @@ pub(crate) fn preserve_caches_for_audit() -> bool {
         .is_some_and(|value| value == "1")
 }
 
+#[cfg(test)]
 fn prepare_preserving_caches(
     store_path: &Path,
+    key: Option<&[u8; 32]>,
+    preserve_caches: bool,
+) -> Prepared {
+    prepare_in(store_path, store_path, key, preserve_caches)
+}
+
+fn prepare_in(
+    store_path: &Path,
+    media_parent: &Path,
     key: Option<&[u8; 32]>,
     preserve_caches: bool,
 ) -> Prepared {
@@ -464,8 +477,8 @@ fn prepare_preserving_caches(
     static PREPARE: Mutex<()> = Mutex::new(());
     let _serial = PREPARE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    let dir = store_path.join(DIR_NAME);
     let legacy = legacy_state(store_path, SystemTime::now());
+    let dir = media_parent.join(DIR_NAME);
     let disk = key.map_or(OnDisk::Nothing, |key| on_disk(&dir, key));
     let decided = plan(legacy, key.is_some(), disk);
     let drop_legacy = match decided {
@@ -549,17 +562,30 @@ pub(crate) enum OpenedMedia {
 /// Open the media store for the account at `store_path`, with the key its
 /// handle set. `plain` is the config the other stores use, for the one case
 /// that opens the old plaintext store.
+#[cfg(test)]
 pub(crate) async fn open_media(
     store_path: &Path,
+    plain: &SqliteStoreConfig,
+) -> Result<(OpenedMedia, Active), String> {
+    open_media_in(store_path, store_path, plain).await
+}
+
+/// The same, with the encrypted store in `media_parent` (cachelayout.rs).
+pub(crate) async fn open_media_in(
+    store_path: &Path,
+    media_parent: &Path,
     plain: &SqliteStoreConfig,
 ) -> Result<(OpenedMedia, Active), String> {
     let (key, admits_encrypted) = key_for(store_path);
     let prepared = {
         let path = store_path.to_path_buf();
+        let parent = media_parent.to_path_buf();
         let key = key.clone();
-        tokio::task::spawn_blocking(move || prepare(&path, key.as_ref().map(|key| &key.0)))
-            .await
-            .unwrap_or(Prepared::Memory)
+        tokio::task::spawn_blocking(move || {
+            prepare(&path, &parent, key.as_ref().map(|key| &key.0))
+        })
+        .await
+        .unwrap_or(Prepared::Memory)
     };
     let opened = match (prepared, key) {
         (Prepared::Legacy, _) => {
@@ -569,7 +595,7 @@ pub(crate) async fn open_media(
             (OpenedMedia::Sqlite(store), Active::Legacy)
         }
         (Prepared::Encrypted, Some(key)) => {
-            let dir = store_path.join(DIR_NAME);
+            let dir = media_parent.join(DIR_NAME);
             let config = SqliteStoreConfig::new(&dir).key(Some(&key.0));
             match SqliteMediaStore::open_with_config(&config).await {
                 Ok(store) => {
@@ -592,10 +618,12 @@ pub(crate) async fn open_media(
     Ok(opened)
 }
 
-/// The stores for the account at `store_path`: the state, event-cache and
-/// crypto stores exactly as `ClientBuilder::sqlite_store(path, None)` opened
-/// them (matrix-sdk 0.18 client/builder/mod.rs:693-721), and the media store
-/// from open_media. Records what was opened for `active()`.
+/// The stores for the account at `store_path`: the state and crypto stores
+/// exactly as `ClientBuilder::sqlite_store(path, None)` opened them
+/// (matrix-sdk 0.18 client/builder/mod.rs:693-721), the event-cache store
+/// where cachelayout.rs placed it (`cache/`, or the store directory while it
+/// is still there), and the media store from open_media_in. Records what was
+/// opened for `active()`.
 ///
 /// Each SQLite store is handed to the SDK as an `Arc` this function made, so
 /// the returned probe can tell, by a `Weak` failing to upgrade, when the SDK
@@ -604,20 +632,43 @@ pub(crate) async fn open_account_stores(
     store_path: &Path,
     lock_config: CrossProcessLockConfig,
 ) -> Result<(StoreConfig, StoreProbe), String> {
+    // The caches move only while this process owns the profile: without the
+    // OS lock another process may have these files open.
+    let may_change = crate::storelocking::profile_lock_held() && !preserve_caches_for_audit();
+    open_account_stores_with(store_path, lock_config, may_change).await
+}
+
+pub(crate) async fn open_account_stores_with(
+    store_path: &Path,
+    lock_config: CrossProcessLockConfig,
+    may_move_caches: bool,
+) -> Result<(StoreConfig, StoreProbe), String> {
+    // Before any store is opened, so nothing is moved from under one.
+    let placement = {
+        let path = store_path.to_path_buf();
+        tokio::task::spawn_blocking(move || crate::cachelayout::prepare(&path, may_move_caches))
+            .await
+            .map_err(build_error)?
+    };
     let config = SqliteStoreConfig::new(store_path);
     let state = Arc::new(
         SqliteStateStore::open_with_config(&config).await.map_err(build_error)?,
     );
     let event_cache = Arc::new(
-        SqliteEventCacheStore::open_with_config(&config)
+        SqliteEventCacheStore::open_with_config(&SqliteStoreConfig::new(&placement.event_cache))
             .await
             .map_err(build_error)?,
     );
     let crypto = Arc::new(
         SqliteCryptoStore::open_with_config(&config).await.map_err(build_error)?,
     );
-    let (media, active) = open_media(store_path, &config).await?;
+    let (media, active) = open_media_in(store_path, &placement.media_store, &config).await?;
     record_active(store_path, active);
+    let cache_dir = store_path.join(crate::cachelayout::CACHE_DIR);
+    if placement.event_cache == cache_dir {
+        // The SDK created the event cache's files at the process umask.
+        restrict_tree(&cache_dir);
+    }
     let mut probe = StoreProbe::default();
     probe.set_owner(owner_for(store_path));
     probe.store("state", &state);

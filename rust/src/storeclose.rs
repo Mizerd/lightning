@@ -121,6 +121,25 @@ pub(crate) fn snapshot(store_path: &Path, owner: usize) -> Vec<Arc<StoreProbe>> 
     mine
 }
 
+/// Whether any client build in this process, of any handle, still holds a
+/// store it opened in `store_path`. cachelayout.rs moves cache files only
+/// when nothing does.
+pub(crate) fn any_held(store_path: &Path) -> bool {
+    let Ok(mut map) = registry().lock() else {
+        // Cannot tell: assume held, so nothing is moved under an open store.
+        return true;
+    };
+    let Some(list) = map.get_mut(store_path) else {
+        return false;
+    };
+    list.retain(|p| !p.is_dead());
+    let held = !list.is_empty();
+    if !held {
+        map.remove(store_path);
+    }
+    held
+}
+
 /// How the retiring handle's runtime shutdown ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeShutdown {

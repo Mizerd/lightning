@@ -4842,7 +4842,9 @@ pub(crate) fn media_fetch(
         MediaSource::Plain(uri)
             if persistence.kept_file && !bridge.store_path.as_os_str().is_empty() =>
         {
-            Some((crate::mediafiles::dir_in(&bridge.store_path), uri.to_string()))
+            // Where cachelayout.rs placed the kept files this session.
+            crate::cachelayout::kept_files_dir(&bridge.store_path)
+                .map(|dir| (dir, uri.to_string()))
         }
         _ => None,
     };

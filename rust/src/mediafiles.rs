@@ -11,8 +11,9 @@
 //! encrypted at rest, and the bytes of an encrypted source are the decrypted
 //! ones (CLAUDE.md §6).
 //!
-//! The directory lives inside the account's store directory, so it is
-//! deleted with the account. Files are named by a hash of the mxc URI, so a
+//! The directory lives in the account's cache directory, inside its store
+//! directory (cachelayout::kept_files_dir), so it is deleted with the
+//! account. Files are named by a hash of the mxc URI, so a
 //! listing does not name the media the user opened. Bounded by total size and
 //! by age; eviction is oldest first by modification time, which `read`
 //! refreshes.
@@ -40,6 +41,7 @@ const PARTIAL_GRACE: Duration = Duration::from_secs(10 * 60);
 
 static WRITE_SERIAL: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(test)]
 pub(crate) fn dir_in(store: &Path) -> PathBuf {
     store.join(DIR_NAME)
 }
