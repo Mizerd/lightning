@@ -568,19 +568,18 @@ encrypted event
   -> the same stable event updates in place
 ```
 
-**TWO OF THE THREE MECHANISMS THIS DIAGRAM USED TO NAME ARE NOT WIRED, AND
-THE LINE ABOVE CLAIMED THEM UNTIL 2026-09-15.** Verified against the tree, not
-inferred: `automatic-room-key-forwarding` is NOT among the features
-`rust/Cargo.toml` requests and `matrix-sdk` is `default-features = false`, so
-`create_outgoing_key_request` is `#[cfg]`'d out and **Lightning has never sent
-an `m.room_key_request` on a decryption failure**; and
-`BackupDownloadStrategy::OneShot` (`rust/src/lib.rs`) makes matrix-sdk install
-neither the UTD event handler nor the `BackupDownloadTask`, so a decryption
-failure triggers no backup fetch either. What remains is Lightning's own
-`download_backup_keys_for_room`, which is deduplicated per room per lifecycle
-and so runs AT MOST ONCE per room per session. Whether those SDK mechanisms
-SHOULD be on is an open decision (upstream made key forwarding opt-in
-deliberately); this paragraph records only that they are off.
+**BOTH SDK ROUTES ARE ON SINCE 2026-10-13, ROKAS'S DECISION (OFF BEFORE).**
+`automatic-room-key-forwarding`, BOTH halves decided: a decryption failure
+sends one `m.room_key_request` to our own devices if one is verified; a
+forwarded key is accepted only from our own verified device for a key we asked
+for; we ANSWER in full only our own verified devices, others only a session we
+sent them, from that index. `BackupDownloadStrategy::AfterDecryptionFailure`
+(`rust/src/lib.rs`) installs the UTD handler and `BackupDownloadTask`: one
+deduplicated backup fetch per failing session. It replaced `OneShot`'s
+whole-backup download, so history that failed BEFORE the backup key arrived
+comes from `download_backup_keys_for_room`, once per room per lifecycle (backup
+edge, open). `recover_keys_for_utds` is the fallback after a 2 s grace.
+Caveats: `docs/feature-contracts.md`, E2EE.
 
 This applies to main and thread timelines. Normal key arrival must require no
 restart, room switch, crypto-store deletion, or repeated manual Retry. Manual

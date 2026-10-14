@@ -693,12 +693,53 @@ backend capability checks and honest live-test status.
 
 - SDK-owned encrypted sending/receiving and persistent crypto store
 - Crypto readiness/health model and sanitized recovery diagnostics
-- A backup key download pass per room (Lightning's own; deduplicated per room
-  per session lifecycle) plus verified-session secret gossip. NOT automatic
-  SDK room-key requests and NOT SDK backup download after decryption failure:
-  this line claimed both until 2026-09-15 and the tree has neither —
-  `automatic-room-key-forwarding` is not a requested feature and
-  `BackupDownloadStrategy::OneShot` installs no UTD handler. See CLAUDE.md §9.
+- Verified-session secret gossip, plus three automatic routes from "this
+  message cannot be decrypted" to a key (Rokas's decision, 2026-10-13; until
+  then only Lightning's own passes existed, see CLAUDE.md §9):
+  - **SDK backup download after a decryption failure**
+    (`BackupDownloadStrategy::AfterDecryptionFailure`, `encryption_settings()`
+    in `rust/src/lib.rs`). matrix-sdk 0.18 installs a UTD event handler and a
+    `BackupDownloadTask`; `Room::decrypt_event` feeds the same task, so sync,
+    pagination and retries all count. Per failing Megolm session it waits
+    100 ms, skips if the key arrived meanwhile, if backups are not enabled, if
+    that session was downloaded in the last 24 h or recently failed (its own
+    backoff), and otherwise fetches that ONE key. It replaced `OneShot`, which
+    downloaded the whole backup in one unpaginated request when the backup key
+    arrived (upstream's own comment: "doesn't work for any sizeable account")
+    and never again. Consequence: history that failed BEFORE the backup key
+    arrived is restored room by room by Lightning's
+    `download_backup_keys_for_room` (backup-enabled edge for the open room,
+    then on every room open; once per room per lifecycle), not all at once. A
+    room never opened keeps old undecryptable previews until it is opened or
+    one of its events is decrypted again.
+  - **SDK room-key requests and forwarding** (`automatic-room-key-forwarding`
+    cargo feature; it adds no crate and leaves `Cargo.lock` unchanged). On
+    `MissingRoomKey` or `UnknownMessageIndex` the crypto layer queues one
+    `m.room_key_request` per session to ALL our own devices, and only if at
+    least one of our OTHER devices is verified (`is_any_verified` excludes
+    this one). A forwarded key is accepted only if we requested that session
+    AND it arrived Olm-encrypted from our own verified device. This device
+    also ANSWERS requests (Rokas decided both halves, requesting and
+    answering, on 2026-10-13; it is Element's default): in full only for our
+    own verified devices; another user's device gets a session only if WE
+    sent it that session originally, and only from the index it already had;
+    every other request is refused (SDK `should_share_key`). Trust is never
+    promoted: "verified" is the SDK's own `is_verified()` (local trust or
+    cross-signing), and accepting a key verifies nothing.
+  - **Lightning's fallback** (`recover_keys_for_utds`, open room and thread):
+    after a 2 s grace for the two routes above, it fetches what is still
+    undecryptable per session on its 30 s .. 32 min backoff and logs why a
+    fetch failed. The manual Retry stays a bounded diagnostic control.
+- Security and privacy of those routes: an `m.room_key_request` is a PLAIN
+  to-device message (the spec's design), so the homeserver sees which room and
+  Megolm session this device lacks; it already knows our rooms. A forwarded
+  key is stored as `imported` with unknown sender data (as a backup key is),
+  so any authenticity shield comes from SDK state. Nothing here lowers the MSC4153
+  receive mode, creates cross-signing or a backup, or touches the crypto store
+  outside the SDK. NOT LIVE-TESTED (Element interop, a second Lightning device
+  answering, and the bulk-history case after verification); the automated
+  coverage is `utd_recovery_tests` in `rust/src/lib.rs` against a loopback
+  homeserver.
 - Late in-place decryption updates, manual bounded retry, key import, and
   recovery-key/passphrase backup restore controls
 - SAS emoji device verification in both directions, show-QR verification

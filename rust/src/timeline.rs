@@ -1580,10 +1580,12 @@ impl TimelineRegistry {
     }
 
     /// One deduplicated whole-room key download from the key backup
-    /// (`download_room_keys_for_room`), since the SDK's OneShot download never
-    /// re-runs once a key is stored. Once per room per lifecycle plus one
-    /// bounded retry; manual recovery can force another. Imported keys reach
-    /// open timelines through the SDK's redecryption.
+    /// (`download_room_keys_for_room`). The SDK's `AfterDecryptionFailure`
+    /// strategy fetches one key per event that fails from now on, so history
+    /// that failed BEFORE the backup key arrived is restored here, room by room,
+    /// instead of by downloading the whole backup at once. Once per room per
+    /// lifecycle plus one bounded retry; manual recovery can force another.
+    /// Imported keys reach open timelines through the SDK's redecryption.
     pub async fn download_backup_keys_for_room(
         self: &Arc<Self>,
         client: &Client,
@@ -2406,9 +2408,10 @@ impl TimelineRegistry {
 
     /// Manual "Retry decryption" for the open room and thread: collect the
     /// session ids of visible undecryptable items and ask the SDK to retry
-    /// them. One bounded pass per action, no polling. Since the client uses
-    /// the OneShot strategy (no per-UTD download task), each visible UTD
-    /// session first gets one deduplicated `download_room_key` attempt.
+    /// them. One bounded pass per action, no polling. Each visible UTD session
+    /// first gets one deduplicated `download_room_key` attempt; the SDK's own
+    /// after-failure download may also fire on the retry, and its per-session
+    /// cache keeps that to one request.
     /// Session identifiers only; never key material.
     pub fn retry_visible_decryption(
         self: &Arc<Self>,
@@ -5672,11 +5675,15 @@ pub(crate) enum RecoveryScope {
 
 /// Automatic backup key recovery for undecryptable events as they arrive.
 ///
-/// The SDK's automatic routes are off here: `automatic-room-key-forwarding`
-/// is not enabled (no `m.room_key_request` is sent), and
-/// `BackupDownloadStrategy::OneShot` installs no UTD handler or download task.
-/// OneShot stays, since it downloads every key when a session is verified. This
-/// re-runs `download_room_key` per session, then `retry_decryption`.
+/// The FALLBACK behind the SDK's own routes (CLAUDE.md §9): matrix-sdk now
+/// fetches a failing event's key from the backup itself
+/// (`BackupDownloadStrategy::AfterDecryptionFailure`) and asks our verified
+/// devices for it (`automatic-room-key-forwarding`). This pass waits
+/// `SDK_KEY_RECOVERY_GRACE` for those, keeps only the sessions still
+/// undecryptable, and re-runs `download_room_key` per session, then
+/// `retry_decryption`. It stays because the SDK retries a key only when a
+/// decryption is attempted again and reports nothing; this one re-tries on the
+/// backoff below while the row is on screen and says why it failed.
 /// Identifiers only.
 ///
 /// Bounded without a timer: it runs only when an undecryptable event arrives,
@@ -5764,6 +5771,20 @@ fn recover_keys_for_utds(
         if wanted.is_empty() {
             return;
         }
+        // Let the SDK's after-failure download (or a forwarded key) land first, so
+        // one missing key is not fetched twice. The sessions stay marked, so a diff
+        // arriving meanwhile cannot start a second pass for them.
+        tokio::time::sleep(SDK_KEY_RECOVERY_GRACE).await;
+        if !current(&registry) {
+            return;
+        }
+        let asked = wanted.len();
+        let wanted =
+            still_undecryptable(wanted, &utd_session_ids(&timeline).await);
+        if wanted.is_empty() {
+            emit("resolved_before_fetch", asked, 0);
+            return;
+        }
         emit("started", wanted.len(), 0);
         let mut downloaded = 0usize;
         let mut inconclusive = 0usize;
@@ -5824,6 +5845,20 @@ fn recover_keys_for_utds(
             inconclusive,
         );
     });
+}
+
+/// How long the automatic pass leaves to matrix-sdk's own after-failure backup
+/// download (a 100 ms delay, one request, then redecryption) before fetching
+/// what is still missing itself.
+const SDK_KEY_RECOVERY_GRACE: std::time::Duration =
+    std::time::Duration::from_secs(2);
+
+/// The sessions of `wanted` that are still undecryptable now, in order.
+fn still_undecryptable(wanted: Vec<String>, undecryptable_now: &[String]) -> Vec<String> {
+    wanted
+        .into_iter()
+        .filter(|session| undecryptable_now.contains(session))
+        .collect()
 }
 
 /// Megolm session ids (identifiers only) of the visible undecryptable items.
@@ -5889,6 +5924,7 @@ mod tests {
         is_rtc_membership_event, raw_displayed_formatted_body,
         sessions_by_room_from_import, state_row_text, substitute_emoticons,
         attachment_config, parse_reply_target, TimelineRegistry, MAX_BACKUP_ATTEMPTS,
+        still_undecryptable, SDK_KEY_RECOVERY_GRACE,
     };
     use matrix_sdk::ruma::events::AnySyncTimelineEvent;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -6065,6 +6101,18 @@ mod tests {
                 && manual.contains("context.retry_decryption("),
             "retry_visible_decryption no longer retries the context view",
         );
+    }
+
+    /// The fallback pass fetches only what the SDK's own after-failure download
+    /// left undecryptable, keeps the order it was asked in, and waits longer
+    /// than that download's own 100 ms delay before deciding.
+    #[test]
+    fn the_fallback_pass_skips_sessions_the_sdk_already_recovered() {
+        let wanted = vec!["a".to_owned(), "b".to_owned(), "c".to_owned()];
+        let now = vec!["c".to_owned(), "x".to_owned(), "a".to_owned()];
+        assert_eq!(still_undecryptable(wanted.clone(), &now), vec!["a", "c"]);
+        assert!(still_undecryptable(wanted, &[]).is_empty());
+        assert!(SDK_KEY_RECOVERY_GRACE > std::time::Duration::from_millis(100));
     }
 
     /// The automatic key-recovery backoff schedule, pinned. The backoff takes

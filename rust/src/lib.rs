@@ -1879,8 +1879,9 @@ fn emit_crypto_bootstrap(
 ///   * once verified, one `fetch_exists_on_server` probe reports whether a
 ///     key backup exists (`backup_exists`);
 ///   * when backups become usable while verified, the open room gets one
-///     deduplicated `download_room_keys_for_room` pass (the OneShot strategy
-///     never re-runs after the first key store);
+///     deduplicated `download_room_keys_for_room` pass (the SDK's
+///     `AfterDecryptionFailure` strategy fetches one key per failing event and
+///     never a whole room);
 ///   * a bounded secret-request retry ladder. The SDK sends m.secret.request
 ///     once at SAS completion, and a request that reaches the peer before it
 ///     finished its own completion is refused and never replayed. The ladder
@@ -2146,8 +2147,8 @@ async fn run_crypto_bootstrap_observer(
                     &events, lifecycle, "backup_state",
                     backup_state_name(state), 0,
                 );
-                // The backup key became usable: run the download pass the OneShot strategy
-                // only attempts on the first key store.
+                // The backup key became usable: restore the open room's history in one
+                // pass (the SDK only fetches keys for events that fail from now on).
                 if verified
                     && matches!(
                         state,
@@ -10334,21 +10335,36 @@ async fn build_client(homeserver: &str, store_path: &Path) -> Result<Client, Str
     build_client_with(HomeserverInput::Discover(homeserver), store_path).await
 }
 
+/// The E2EE settings every client is built with (decided 2026-10-13, CLAUDE.md
+/// §9). `AfterDecryptionFailure` makes matrix-sdk download the one missing key
+/// from the trusted backup whenever an event fails to decrypt, in any room and
+/// on any path (sync, pagination, retry): it installs the UTD event handler
+/// and the `BackupDownloadTask` (deduplicated per session, with its own
+/// failure backoff), and does nothing while this device holds no backup
+/// decryption key. It replaces `OneShot`, which downloaded the WHOLE backup in
+/// one request when the backup key arrived and never again; the whole-room
+/// part of that now comes from Lightning's own per-room pass
+/// (`download_backup_keys_for_room`), on the backup-enabled edge for the open
+/// room and on every room open after.
+///
+/// Both automatic creations stay off: no cross-signing bootstrap and no backup
+/// version is ever made without the user asking. Keys only flow from a backup
+/// the SDK enabled after SDK-confirmed verification or an explicit
+/// recovery-key entry.
+fn encryption_settings() -> matrix_sdk::encryption::EncryptionSettings {
+    matrix_sdk::encryption::EncryptionSettings {
+        backup_download_strategy:
+            matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
+        auto_enable_cross_signing: false,
+        auto_enable_backups: false,
+    }
+}
+
 async fn build_client_with(
     homeserver: HomeserverInput<'_>,
     store_path: &Path,
 ) -> Result<Client, String> {
-    // OneShot backup download: once verification makes backups usable, the
-    // SDK downloads every backed-up room key at once, so history decrypts in
-    // place. (AfterDecryptionFailure fetched one key per new failure and left
-    // rendered history encrypted.) No automatic cross-signing or backup
-    // creation; keys only flow after SDK-confirmed verification or an explicit
-    // recovery-key entry.
-    let encryption_settings = matrix_sdk::encryption::EncryptionSettings {
-        backup_download_strategy:
-            matrix_sdk::encryption::BackupDownloadStrategy::OneShot,
-        ..Default::default()
-    };
+    let encryption_settings = encryption_settings();
     // Threading support puts m.thread events into per-thread event-cache
     // chunks, without which thread timelines open empty; it also makes unread
     // and receipt computation thread-aware. `with_subscriptions` stays false:
@@ -14933,7 +14949,7 @@ mod latest_event_preview_tests {
 /// backup, seeds encrypted history, and answers SAS and secret requests.
 /// Device B is the real Lightning bridge. A's sync is paused after its SAS
 /// confirmation, so the recovery coordinator must recover once A resumes
-/// (ladder, secret acceptance, backup, OneShot restore, restart
+/// (ladder, secret acceptance, backup, per-room restore, restart
 /// persistence).
 ///
 /// Never prints payloads, tokens, keys or identifiers.
@@ -17798,5 +17814,231 @@ mod warm_room_expiry_tests {
             seen[expired..].iter().any(|ids| rooms.iter().all(|r| ids.contains(r))),
             "both warm rooms must be subscribed again after the expiry: {seen:?}"
         );
+/// What a decryption failure sets in motion with the settings every client is
+/// built with (decided 2026-10-13, CLAUDE.md §9): matrix-sdk fetches the key
+/// from the trusted backup, and asks our own VERIFIED devices for it. Against a
+/// loopback homeserver (`MatrixMockServer`); the backup key and the second
+/// device are throwaway values made here, and nothing is ever decrypted.
+mod utd_recovery_tests {
+    use super::encryption_settings;
+    use matrix_sdk::encryption::BackupDownloadStrategy;
+    use matrix_sdk::ruma::api::client::keys::get_keys;
+    use matrix_sdk::ruma::api::client::sync::sync_events::v5;
+    use matrix_sdk::ruma::events::ToDeviceEventType;
+    use matrix_sdk::ruma::serde::Raw;
+    use matrix_sdk::ruma::{device_id, room_id, TransactionId};
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    use matrix_sdk::Client;
+    use matrix_sdk_base::crypto::store::types::BackupDecryptionKey;
+    use matrix_sdk_base::crypto::types::requests::AnyOutgoingRequest;
+    use matrix_sdk_base::crypto::{LocalTrust, OlmMachine};
+    use matrix_sdk_base::RequestedRequiredStates;
+    use serde_json::json;
+    use std::collections::BTreeMap;
+    use std::time::{Duration, Instant};
+    /// The Megolm session the event below was sent with, as it appears in a
+    /// request path (`/` percent-encoded).
+    const SESSION_IN_PATH: &str = "64H7XKokIx0ASkYDHZKlT5zd%2FZccz%2FcQspPNdvnNULA";
+    /// matrix-sdk's own UTD fixture (tests/integration/encryption/backups.rs):
+    /// a Megolm event whose session this client has never seen.
+    fn undecryptable_event() -> serde_json::Value {
+        json!({
+            "event_id": "$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM",
+            "origin_server_ts": 1698579035927u64,
+            "sender": "@example2:morpheus.localhost",
+            "type": "m.room.encrypted",
+            "content": {
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "ciphertext": "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
+                               YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
+                               PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
+                               iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
+                               JGJjKfV57NAhp8W+9oT7ugwO",
+                "device_id": "KIUVQQSDTM",
+                "sender_key": "LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc",
+                "session_id": "64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"
+        })
+    /// A client built with Lightning's `encryption_settings()`, its E2EE
+    /// setup finished (that is where the SDK installs its UTD handler).
+    async fn client_as_built(server: &MatrixMockServer) -> Client {
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_encryption_settings(encryption_settings()))
+            .await;
+        client.encryption().wait_for_e2ee_initialization_tasks().await;
+        client
+    /// Deliver the undecryptable event through the sliding-sync path the app
+    /// uses.
+    async fn sync_undecryptable_event(client: &Client) {
+        let mut response = v5::Response::new("pos-1".to_owned());
+        let mut entry = v5::response::Room::default();
+        entry.required_state = vec![Raw::from_json_string(
+            json!({
+                "type": "m.room.encryption", "state_key": "",
+                "event_id": "$encryption", "origin_server_ts": 1698579035000u64,
+                "sender": "@example2:morpheus.localhost",
+                "content": { "algorithm": "m.megolm.v1.aes-sha2" }
+            })
+            .to_string(),
+        )
+        .unwrap()];
+        entry.timeline =
+            vec![Raw::from_json_string(undecryptable_event().to_string()).unwrap()];
+        response
+            .rooms
+            .insert(room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost").to_owned(), entry);
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("sync processed");
+    /// GETs of this session's key from the backup the server has seen so far.
+    async fn backup_key_fetches(server: &MatrixMockServer) -> usize {
+        server
+            .server()
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|request| {
+                let path = request.url.path();
+                request.method.as_str() == "GET"
+                    && path.contains("/room_keys/keys/")
+                    && path.ends_with(SESSION_IN_PATH)
+            })
+            .count()
+    /// Pending `m.room_key_request`s the crypto layer wants sent.
+    async fn queued_key_requests(client: &Client) -> usize {
+        let machine = client.olm_machine_for_testing().await;
+        let machine = machine.as_ref().expect("olm machine");
+        machine
+            .outgoing_requests()
+            .await
+            .expect("outgoing requests")
+            .iter()
+            .filter(|request| {
+                matches!(
+                    request.request(),
+                    AnyOutgoingRequest::ToDeviceRequest(r)
+                        if r.event_type == ToDeviceEventType::RoomKeyRequest
+            })
+            .count()
+    /// Give the client a second device of its own, verified (`trusted`) or
+    /// not, the way a `/keys/query` answer would.
+    async fn add_own_device(client: &Client, trusted: bool) {
+        let user = client.user_id().expect("logged in").to_owned();
+        let other_id = device_id!("OTHERDEVICE");
+        let other = OlmMachine::new(&user, other_id).await;
+        let keys = other
+            .get_device(&user, other_id, None)
+            .await
+            .expect("store")
+            .expect("own device")
+            .as_device_keys()
+            .clone();
+        let mut response = get_keys::v3::Response::new();
+        response.device_keys.insert(
+            user.clone(),
+            BTreeMap::from([(
+                other_id.to_owned(),
+                Raw::from_json(serde_json::value::to_raw_value(&keys).unwrap()),
+            )]),
+        let machine = client.olm_machine_for_testing().await;
+        let machine = machine.as_ref().expect("olm machine");
+        machine
+            .mark_request_as_sent(&TransactionId::new(), &response)
+            .await
+            .expect("keys query answer accepted");
+        let device = machine
+            .get_device(&user, other_id, None)
+            .await
+            .expect("store")
+            .expect("the second device is known");
+        if trusted {
+            device.set_local_trust(LocalTrust::Verified).await.expect("trust stored");
+        let device = machine
+            .get_device(&user, other_id, None)
+            .await
+            .expect("store")
+            .expect("the second device is known");
+        assert_eq!(device.is_verified(), trusted, "fixture: trust as asked");
+    // The policy itself, so a later edit cannot quietly drop back to OneShot
+    // or Manual, or turn on an automatic creation.
+    fn clients_download_after_a_decryption_failure_and_create_nothing() {
+        let settings = encryption_settings();
+        assert_eq!(
+            settings.backup_download_strategy,
+            BackupDownloadStrategy::AfterDecryptionFailure
+        assert!(!settings.auto_enable_cross_signing, "never bootstrap cross-signing unasked");
+        assert!(!settings.auto_enable_backups, "never create a backup version unasked");
+    // (a) An event that fails to decrypt makes the SDK fetch exactly that
+    // session's key from the backup. With the previous `OneShot` the SDK
+    // installed no UTD handler and no download task, so this request never
+    // came: this test fails on that code.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_undecryptable_event_fetches_its_key_from_the_backup() {
+        let server = MatrixMockServer::new().await;
+        let client = client_as_built(&server).await;
+        // A usable backup: its decryption key and version are on this device,
+        // as after verification or recovery-key entry.
+        {
+            let machine = client.olm_machine_for_testing().await;
+            let backup = machine.as_ref().expect("olm machine").backup_machine();
+            let key = BackupDecryptionKey::new();
+            let public = key.megolm_v1_public_key();
+            public.set_version("1".to_owned());
+            backup
+                .save_decryption_key(Some(key), Some("1".to_owned()))
+                .expect("backup key stored");
+            backup.enable_backup_v1(public).await.expect("backup enabled");
+        assert!(client.encryption().backups().are_enabled().await);
+        assert_eq!(backup_key_fetches(&server).await, 0);
+        sync_undecryptable_event(&client).await;
+        let started = Instant::now();
+        while backup_key_fetches(&server).await == 0 {
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "no backup download for the undecryptable event's session"
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        // Deduplicated per session: one failure, one request.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(backup_key_fetches(&server).await, 1);
+    // The same event with NO usable backup on this device asks the server for
+    // nothing: the SDK's task checks `are_enabled()` first.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn without_a_backup_key_a_failure_fetches_nothing() {
+        let server = MatrixMockServer::new().await;
+        let client = client_as_built(&server).await;
+        assert!(!client.encryption().backups().are_enabled().await);
+        sync_undecryptable_event(&client).await;
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(backup_key_fetches(&server).await, 0);
+    // (b) `automatic-room-key-forwarding` is compiled in: the crypto layer
+    // starts with both halves on, and a decryption failure queues an
+    // `m.room_key_request` once one of our OTHER devices is verified. Without
+    // the feature `create_outgoing_key_request` is `#[cfg]`'d out and both
+    // flags read false, so this fails on the previous Cargo.toml.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failure_asks_our_verified_device_for_the_key() {
+        let server = MatrixMockServer::new().await;
+        let client = client_as_built(&server).await;
+        {
+            let machine = client.olm_machine_for_testing().await;
+            let machine = machine.as_ref().expect("olm machine");
+            assert!(machine.are_room_key_requests_enabled(), "feature not compiled in");
+            assert!(machine.is_room_key_forwarding_enabled(), "feature not compiled in");
+        add_own_device(&client, true).await;
+        assert_eq!(queued_key_requests(&client).await, 0);
+        sync_undecryptable_event(&client).await;
+        assert_eq!(queued_key_requests(&client).await, 1, "one request per session");
+    // The SDK's own gate, pinned: with no verified device of ours to answer,
+    // no request is made (an unverified device would not be trusted to send a
+    // key back, and would not be answered either).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn no_request_goes_out_without_a_verified_device_of_ours() {
+        let server = MatrixMockServer::new().await;
+        let client = client_as_built(&server).await;
+        add_own_device(&client, false).await;
+        sync_undecryptable_event(&client).await;
+        assert_eq!(queued_key_requests(&client).await, 0);
     }
 }

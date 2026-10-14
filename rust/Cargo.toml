@@ -27,9 +27,15 @@ crate-type = ["staticlib"]
 #   option. The bundled amalgamation enables it (libsqlite3-sys build.rs), so
 #   search works on every platform instead of depending on the host's
 #   libsqlite3. The SDK stores share it; the file format is unchanged.
+# automatic-room-key-forwarding: on a decryption failure the SDK sends an
+#   m.room_key_request to our own devices (only if one of them is verified),
+#   accepts a forwarded key only from our own verified device for a key we
+#   asked for, and answers such requests from our own verified devices. Part of
+#   matrix-sdk's default features; adds no crate (Cargo.lock is unchanged).
+#   Decided 2026-10-13, see CLAUDE.md §9 and docs/feature-contracts.md.
 # rust/src/mediafetch.rs copies Media::get_media_content (media.rs) to bound its
 # retries; on ANY bump of matrix-sdk, re-diff it against the new media.rs.
-matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "bundled-sqlite", "markdown", "testing", "qrcode", "experimental-send-custom-to-device"] }
+matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "sqlite", "bundled-sqlite", "markdown", "testing", "qrcode", "experimental-send-custom-to-device", "automatic-room-key-forwarding"] }
 # The SDK Timeline (VectorDiff subscription, retry decryption, pagination,
 # local echoes) used by the timeline registry.
 matrix-sdk-ui = { version = "=0.18.0", default-features = false }

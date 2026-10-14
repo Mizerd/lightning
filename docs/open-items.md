@@ -1850,6 +1850,10 @@ attempts the key is left alone for the rest of the lifecycle. Nothing polls —
 an attempt only happens when an undecryptable row is actually in front of the
 user.
 
+**SUPERSEDED 2026-10-13 by Rokas's decision:** both SDK routes below are now ON
+(`AfterDecryptionFailure` and `automatic-room-key-forwarding`); see
+`docs/feature-contracts.md`, E2EE. The rest of this entry is the record.
+
 **What was deliberately NOT done:** `BackupDownloadStrategy::OneShot` stays.
 Switching to `AfterDecryptionFailure` is the obvious lever and it was tried in
 v0.7 and reverted, because it fetches one key per freshly-failing event and
